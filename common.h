@@ -1,0 +1,359 @@
+#ifndef COMMON_H_
+#define COMMON_H_
+
+#include <stdarg.h>
+#include <stddef.h>
+#include <string.h>
+
+#ifdef __clang__ /* stop linter from complaining about "unused" inline functions */
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
+
+#define bool _Bool
+typedef unsigned char uchar;
+typedef   signed char schar;
+typedef unsigned short ushort;
+typedef unsigned long long uvlong;
+typedef   signed long long vlong;
+typedef unsigned uint;
+
+#define in_range(x, Lo, Hi) ((uint) (x) - (Lo) <= (Hi) - (Lo)) /* lo <= x <= hi; lo > 0, hi > 0 */
+#define alignup(x, A) (((x) + ((A) - 1)) & -(A))
+#define arraylength(a) (sizeof(a) / sizeof 0[a])
+struct bytes { uchar *p; uint n; };
+
+struct span {
+   struct span0 {
+      uint off;
+      uint len : 24,
+           file :  8;
+   } sl, /* original source location */
+     ex; /* the location after #include/macro expansion */
+};
+
+void _assertfmt(const char *file, int line, const char *func, const char *expr);
+#ifdef __GNUC__
+#define assert(x) (!(x) ? _assertfmt(__FILE__,__LINE__,__func__,#x), __builtin_trap() : (void)0)
+#else
+#define assert(x) (void)(!(x) ? _assertfmt(__FILE__,__LINE__,__func__,#x), *(volatile int *)0 : 0)
+#endif
+
+static inline uint
+hashs(uint h, const char *s)
+{
+   while (*s) h = (uchar)*s++ + h*65599;
+   return h;
+}
+static inline uint
+hashb(uint h, const void *d, uint n)
+{
+
+   const uchar *b = d;
+   while (n--) h = *b++ + h*65599;
+   return h;
+}
+static inline uint
+ptrhash(const void *p) {
+   return (uint)(size_t)p * 2654435761;
+}
+static inline uint
+popcnt(uint x) {
+#ifdef __GNUC__
+   return __builtin_popcount(x);
+#else
+   uint n = 0;
+   while (x) x >>= 1, ++n;
+   return n;
+#endif
+}
+
+/******************/
+/* COMPILER STATE */
+/******************/
+
+enum cstd {
+   STDC89,
+   STDC99,
+   STDC11,
+   STDC23,
+};
+struct option {
+   enum cstd cstd;
+   bool trigraph;
+   bool nocolor;
+};
+extern struct option ccopt;
+
+/*************************/
+/** TYPE REPRESENTATION **/
+/*************************/
+
+enum qualifier {
+   QCONST    = 1<<0,
+   QVOLATILE = 1<<1,
+   QNORETURN = 1<<2, /* functions */
+   QINLINE   = 1<<3, /* functions */
+};
+
+enum typetag { /* ordering is important here! */
+   TYXXX,
+   TYENUM,
+   TYBOOL, TYCHAR, TYSCHAR, TYUCHAR, TYSHORT, TYUSHORT, TYINT, TYUINT, TYLONG, TYULONG, TYVLONG, TYUVLONG,
+   TYFLOAT, TYDOUBLE, TYLDOUBLE,
+   TYVOID,
+   TYVALIST,
+   TYPTR, TYARRAY, TYFUNC,
+   TYSTRUCT, TYUNION,
+   TYSIGNEDSET_ = 1<<TYSCHAR | 1<<TYSHORT | 1<<TYINT | 1<<TYLONG | 1<<TYVLONG,
+   TYUNSIGNEDSET_ = 1<<TYUCHAR | 1<<TYUSHORT | 1<<TYUINT | 1<<TYULONG | 1<<TYUVLONG,
+   TYSCALARSET_ = ((1u << (TYLDOUBLE - TYENUM + 1)) - 1) << TYENUM | 1<<TYPTR
+};
+
+enum typeflagmask {
+   TFCHLDQUAL = 3,
+   TFCHLDPRIM = 1<<2,
+   TFCHLDISDAT = 1<<3,
+};
+
+union type {
+   struct {
+      uchar t; /* type tag */
+      union {
+         uchar flag;
+         uchar backing; /* type tag for enum backing int */
+      };
+      union {
+         struct {
+            uchar child; /* prim type tag */
+            uchar arrlen; /* small array */
+         };
+         ushort dat; /* index into typedata */
+      };
+   };
+   uint bits;
+};
+
+#define isprimt(t)     in_range((t), TYBOOL, TYVALIST)
+#define isintt(t)      in_range((t), TYENUM, TYUVLONG)
+#define issignedt(t)   ((TYSIGNEDSET_ | targ_charsigned << TYCHAR) >> (t) & 1)
+#define isunsignedt(t) ((TYUNSIGNEDSET_ | !targ_charsigned << TYCHAR) >> (t) & 1)
+#define isfltt(t)      in_range((t), TYFLOAT, TYLDOUBLE)
+#define isaritht(t)    in_range((t), TYENUM, TYLDOUBLE)
+#define isscalart(t)   (TYSCALARSET_ >> (t) & 1)
+#define isptrcvtt(t)   in_range((t), TYPTR, TYFUNC)
+#define isaggt(t)      in_range((t), TYSTRUCT, TYUNION)
+#define isprim(ty)     isprimt((ty).t)
+#define isint(ty)      isintt((ty).t)
+#define issigned(ty)   issignedt((ty).t)
+#define isunsigned(ty) isunsignedt((ty).t)
+#define isflt(ty)      isfltt((ty).t)
+#define isarith(ty)    isaritht((ty).t)
+#define isscalar(ty)   isscalart((ty).t)
+#define isptrcvt(ty)   isptrcvtt((ty).t)
+#define isagg(ty)      isaggt((ty).t)
+#define mktype(...)   ((union type) {{ __VA_ARGS__ }})
+
+struct enumvar {
+   const char *name;
+   union { vlong i; uvlong u; };
+};
+
+struct field {
+   const char *name;
+   union type t;
+   ushort off;
+   uchar bitsiz, bitoff;
+};
+
+struct typedata {
+   uchar t;
+   ushort id;
+   union {
+      union type child;
+      struct { /* aggregates */
+         const uchar *quals; /* packed N x 2bit array (NULL if no member has quals) */
+         union {
+            struct field *fld;
+            const union type *param;
+         };
+      };
+      struct {
+         uchar backing;
+         struct enumvar *var;
+      };
+   };
+   union {
+      uint arrlen; /* array */
+      struct {
+         short nmemb;
+         uchar align;
+         union {
+            struct { /* function */
+               bool kandr : 1, variadic : 1;
+            };
+            struct { /* aggregate */
+               bool anyconst : 1, flexi : 1;
+            };
+         };
+      };
+   };
+   union {
+      uint siz; /* aggregate & array */
+      union type ret; /* function */
+   };
+};
+
+extern struct typedata typedata[];
+extern const char *ttypenames[/*id*/];
+
+#define tdqualsiz(nmemb) ((nmemb)/4 + ((nmemb)%4 != 0))
+static inline int
+tdgetqual(const uchar *pqual, int idx)
+{
+   return pqual ? pqual[idx/4] >> 2*(idx%4) & 3 : 0;
+}
+static inline void
+tdsetqual(uchar *pqual, int idx, int qual)
+{
+   assert(pqual);
+   pqual[idx/4] &= ~(3 << (2*(idx%4)));
+   pqual[idx/4] |= (qual&3) << (2*(idx%4));
+}
+
+bool isincomplete(union type);
+uint typesize(union type);
+uint typealign(union type);
+union type mkptrtype(union type, int qual);
+union type mkarrtype(union type t, int qual, uint n);
+union type mkfntype(union type ret, uint n, const union type *, const uchar *qual, bool kandr, bool variadic);
+union type mktagtype(const char *name, struct typedata *td);
+union type completetype(const char *name, int id, struct typedata *td);
+union type typedecay(union type);
+bool assigncompat(union type dst, union type src);
+enum typetag intpromote(enum typetag);
+union type cvtarith(union type a, union type b);
+static inline union type
+typechild(union type t)
+{
+   if (t.t == TYENUM) return mktype(t.backing);
+   if (t.flag & TFCHLDPRIM) return mktype(t.child);
+   if (t.flag & TFCHLDISDAT) {
+      union type chld = mktype(typedata[t.dat].t, .dat = t.dat);
+      if (chld.t == TYENUM) chld.backing = typedata[t.dat].backing;
+      return chld;
+   }
+   return typedata[t.dat].child;
+}
+static inline uint
+typearrlen(union type t)
+{
+   return (t.flag & TFCHLDPRIM) ? t.arrlen : typedata[t.dat].arrlen;
+}
+
+/**********/
+/* TARGET */
+/**********/
+
+extern uchar targ_primsizes[];
+extern uchar targ_primalign[];
+extern enum typetag targ_sizetype;
+extern bool targ_charsigned, targ_bigendian;
+void targ_init(const char *targ);
+
+/*********/
+/** MEM **/
+/*********/
+
+struct arena {
+   uint cap : 31,
+        dyn : 1;
+   uint n;
+   struct arena *prev;
+   uchar mem[];
+};
+
+#define vec_of(T) struct { T *p; int _cap; uint n; }
+
+struct arena *newarena(uint chunksiz);
+void *alloc(struct arena **, uint siz, uint align);
+void freearena(struct arena *);
+void vinit_(void **p, int *pcap, void *inlbuf, int cap, uint siz);
+void vpush_(void **p, int *pcap, uint *pn, uint siz);
+void *vpushn_(void **p, int *pcap, uint *pn, uint siz, const void *dat, uint ndat);
+extern void free(void *);
+#define VINIT(inlbuf, Cap) { (inlbuf), (Cap) }
+#define vfree(v) ((v)->_cap < 0 ? free((v)->p) : (void)0, memset((v), 0, sizeof*(v)))
+#define vinit(v, inlbuf, Cap) (vfree(v), vinit_((void **)&(v)->p, &(v)->_cap, inlbuf, (Cap), sizeof *(v)->p))
+#define vpush(v, x) (vpush_((void **)&(v)->p, &(v)->_cap, &(v)->n, sizeof *(v)->p), \
+                     (v)->p[(v)->n++] = (x))
+#define vpushn(v, xs, N) vpushn_((void **)&(v)->p, &(v)->_cap, &(v)->n, sizeof *(v)->p, xs, N)
+
+struct bitset { uvlong u; };
+enum { BSNBIT = 8 * sizeof(uvlong) };
+#define BSSIZE(nbit) ((nbit) / BSNBIT + ((nbit) % BSNBIT != 0))
+
+static inline bool
+bstest(struct bitset *bs, uint i)
+{
+   return bs[i / BSNBIT].u >> i % BSNBIT & 1;
+}
+
+static inline void
+bszero(struct bitset *bs, uint siz)
+{
+   memset(bs, 0, siz * sizeof *bs);
+}
+
+static inline bool
+bsiter(uint *i, struct bitset *bs, uint siz)
+{
+   for (; *i < siz*BSNBIT; ++*i)
+      if (bstest(bs, *i)) return 1;
+   return 0;
+}
+
+/********/
+/** IO **/
+/********/
+
+struct wbuf {
+   char *buf;
+   const uint cap;
+   uint len;
+   const int fd;
+   bool err;
+};
+
+/* read-only file mapping that is at least 1 page larger than the real file
+ * so it's legal to read a few bytes beyond it to avoid some bounds checks */
+struct memfile {
+   const uchar *p;
+   uint n;
+};
+
+#define MEMBUF(buf, cap) { (buf), (cap), .fd = -1 }
+#define FDBUF(buf, cap, fd_)  { (buf), (cap), .fd = (fd_) }
+extern struct wbuf bstdout, bstderr;
+void iowrite(struct wbuf *, const void *src, int n);
+void ioputc(struct wbuf *, uchar);
+void ioflush(struct wbuf *);
+int vbfmt(struct wbuf *, const char *, va_list ap);
+int bfmt(struct wbuf *, const char *, ...);
+#define pfmt(...) bfmt(&bstdout, __VA_ARGS__)
+#define efmt(...) bfmt(&bstderr, __VA_ARGS__)
+struct memfile mapopen(const char **err, const char *path);
+void mapclose(struct memfile *);
+int openfile(const char **err, struct memfile **, const char *path);
+const char *getfilename(int id);
+struct memfile *getfile(int id);
+void addfileline(int id, uint off);
+void getfilepos(int *line, int *col, int id, uint off);
+void closefile(int id);
+void fatal(const struct span *, const char *, ...);
+void error(const struct span *, const char *, ...);
+void warn(const struct span *, const char *, ...);
+void note(const struct span *, const char *, ...);
+
+#endif /* COMMON_H_ */
+
+/* vim:set ts=3 sw=3 expandtab: */
