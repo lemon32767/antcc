@@ -24,11 +24,11 @@ irinit(struct function *fn)
       }
       type2cls[TYFLOAT] = KF4;
       type2cls[TYDOUBLE] = KF8;
-      type2cls[TYPTR] = KIP;
-      type2cls[TYARRAY] = KIP;
+      type2cls[TYPTR] = KPTR;
+      type2cls[TYARRAY] = KPTR;
       cls2siz[KI4] = cls2siz[KF4] = 4;
       cls2siz[KI8] = cls2siz[KF8] = 8;
-      cls2siz[KIP] = targ_primsizes[TYPTR];
+      cls2siz[KPTR] = targ_primsizes[TYPTR];
    }
    fn->entry = fn->curblk = alloc(&fn->arena, sizeof(struct block), 0);
    fn->entry->lprev = fn->entry->lnext = fn->entry;
@@ -154,7 +154,7 @@ mkfltcon(struct function *fn, enum irclass k, double f)
 union irref
 mksymref(struct function *fn, const char *s)
 {
-   struct xcon con = { 1, KIP, .sym = s };
+   struct xcon con = { 1, KPTR, .sym = s };
    return mkref(RXCON, addcon(&con));
 }
 
@@ -164,7 +164,7 @@ mkcall(struct function *fn, union type fnty, uint narg, union irref *args, union
    const struct typedata *td = &typedata[fnty.dat];
    struct ircall call = { narg, td->variadic ? td->nmemb : -1 };
 
-   assert(td->variadic ? narg >= td->nmemb : narg == td->nmemb);
+   if (!td->kandr) assert(td->variadic ? narg >= td->nmemb : narg == td->nmemb);
    if (narg) {
       call.args = alloc(&fn->arena, narg*sizeof *args + narg*sizeof(union irtype), 0);
       call.typs = (union irtype *)((char *)call.args + narg*sizeof *args);

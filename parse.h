@@ -18,38 +18,33 @@ enum toktag { /* single-character tokens' tag value is the character itself */
    TKXXX,
    TKNUMLIT,
    TKSTRLIT,
-   TKIDENT,
-   TKDUMMY_ = 0x7F,
+   TKEQU = '@',
+   TKNEQ,
+   TKLTE,
+   TKGTE,
+   TKSHR,
+   TKSHL,
+   TKINC,
+   TKDEC,
+   TKDOTS,
+   TKARROW,
+   TKPPCAT,
+   TKLOGAND,
+   TKLOGIOR,
+   TKSETADD,
+   TKSETSUB,
+   TKSETMUL,
+   TKSETDIV,
+   TKSETMOD,
+   TKSETIOR,
+   TKSETXOR,
+   TKSETAND,
+   TKSETSHR,
+   TKSETSHL,
+   TKIDENT = 0x80,
 #define _(kw, stdc) TKW##kw,
 #include "keywords.def"
 #undef _
-#define C2(a,b) (a | b<<8)
-#define C3(a,b,c) (a | b<<8 | c<<16)
-   TKEQU = C2('=','='),
-   TKNEQ = C2('!','='),
-   TKLTE = C2('<','='),
-   TKGTE = C2('>','='),
-   TKSHR = C2('>','>'),
-   TKSHL = C2('<','<'),
-   TKINC = C2('+','+'),
-   TKDEC = C2('-','-'),
-   TKARROW = C2('-','>'),
-   TKPPCAT = C2('#', '#'),
-   TKLOGAND = C2('&','&'),
-   TKLOGIOR = C2('|','|'),
-   TKSETADD = C2('+','='),
-   TKSETSUB = C2('-','='),
-   TKSETMUL = C2('*','='),
-   TKSETDIV = C2('/','='),
-   TKSETMOD = C2('%','='),
-   TKSETIOR = C2('|','='),
-   TKSETXOR = C2('^','='),
-   TKSETAND = C2('&','='),
-   TKSETSHR = C3('>','>','='),
-   TKSETSHL = C3('<','<','='),
-   TKDOTS = C3('.','.','.'),
-#undef C2
-#undef C3
 };
 
 struct token {
@@ -103,6 +98,7 @@ struct parser {
    struct span fnblkspan;
 };
 
+const char *intern(const char *);
 int lex(struct parser *, struct token *);
 int lexpeek(struct parser *, struct token *);
 void initparser(struct parser *, const char *file);

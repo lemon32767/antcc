@@ -1,7 +1,8 @@
+#include "common.h"
 #include "parse.h"
 #include <string.h>
 
-static const char *
+const char *
 intern(const char *s)
 {
    static vec_of(char) mem;
@@ -24,7 +25,7 @@ intern(const char *s)
 }
 
 static void
-identkeyword(struct token *tk, const char *s, int n)
+identkeyword(struct token *tk, const char *s, int len)
 {
    static const struct { const char *s; enum toktag t; enum cstd cstd; } kwtab[] = {
 #define _(kw, cstd) { #kw, TKW##kw, cstd },
@@ -33,7 +34,7 @@ identkeyword(struct token *tk, const char *s, int n)
    };
    int l = 0, h = arraylength(kwtab) - 1, i, cmp;
 
-   if (n > TKWMAXLEN_) goto ident;
+   if (len > TKWMAXLEN_) goto ident;
    /* binary search over sorted array */
    while (l <= h) {
       i = (l + h) / 2;
@@ -66,14 +67,14 @@ next0(struct parser *pr)
       return TKEOF;
    if (trigraph && !memcmp(pr->dat+pr->idx, "??", 2)) {
       switch (pr->dat[pr->idx+2]) {
-      case '=': pr->idx += 3; return '#';
-      case '(': pr->idx += 3; return '[';
-      case ')': pr->idx += 3; return ']';
-      case '!': pr->idx += 3; return '|';
-      case '<': pr->idx += 3; return '{';
-      case '>': pr->idx += 3; return '}';
-      case '-': pr->idx += 3; return '~';
-      case '/': pr->idx += 3; return '\\';
+      case '=':  pr->idx += 3; return '#';
+      case '(':  pr->idx += 3; return '[';
+      case ')':  pr->idx += 3; return ']';
+      case '!':  pr->idx += 3; return '|';
+      case '<':  pr->idx += 3; return '{';
+      case '>':  pr->idx += 3; return '}';
+      case '-':  pr->idx += 3; return '~';
+      case '/':  pr->idx += 3; return '\\';
       case '\'': pr->idx += 3; return '^';
       }
    }
@@ -141,46 +142,76 @@ aissep(int c) {
 }
 
 static void
-strtonum(struct token *tk, char *s)
+strtonum(struct token *tk, const char *s)
 {
-   extern int sscanf(const char *, const char *, ...);
    extern uvlong strtoull(const char *, char **, int);
-   char *suffix;
+   extern double strtod(const char *, char **);
+   char *sx; /*suffix*/
 
    tk->ty = TYXXX;
-   if (strchr(s, '.')) {
-      /* float literal */
-      int n;
-
-      if (!sscanf(s, "%lf%n", &tk->f, &n))
+   if (strchr(s, '.')) { /* float literal */
+   Float:
+      tk->f = strtod(s, &sx);
+      if (sx == s)
          return;
-      suffix = s + n;
-      tk->ty = TYDOUBLE;
-   } else {
-      tk->u = strtoull(s, &suffix, 0);
-      if (suffix == s)
-         return;
-      /* XXX proper int lit types */
-      tk->ty = TYINT;
-   }
-   if (!*suffix) return;
-
-   for (s = suffix; *s; ++s)
-      *s |= 0x20; /* make lowercase */
-   if (tk->ty == TYDOUBLE) {
-      if (!strcmp(suffix, "f")) {
+      if (!*sx)
+         tk->ty = TYDOUBLE;
+      else if ((sx[0]|0x20) == 'f' && !sx[1]) {
          tk->ty = TYFLOAT;
          tk->f = (float) tk->f;
       } else tk->ty = TYXXX;
-   } else {
-      if (!strcmp(suffix, "u")) tk->ty = TYUINT;
-      else if (!strcmp(suffix, "ul")) tk->ty = TYULONG;
-      else if (!strcmp(suffix, "lu")) tk->ty = TYULONG;
-      else if (!strcmp(suffix, "ull")) tk->ty = TYUVLONG;
-      else if (!strcmp(suffix, "llu")) tk->ty = TYUVLONG;
-      else if (!strcmp(suffix, "ll")) tk->ty = TYVLONG;
-      else if (!strcmp(suffix, "l")) tk->ty = TYLONG;
-      else tk->ty = TYXXX;
+   } else { /* int literal */
+      static uvlong max4typ[TYUVLONG-TYINT+1];
+      enum typetag t;
+      bool u = 0, dec = s[0] != '0';
+      bool c99 = ccopt.cstd >= STDC99;
+
+      tk->u = strtoull(s, &sx, 0);
+      if (sx == s)
+         return;
+
+      if (!max4typ[0])
+         for (t = TYINT; t <= TYUVLONG; ++t)
+            max4typ[t-TYINT] = ((1ull << (8*targ_primsizes[t]-1))-1) << isunsignedt(t) | 1;
+
+      if (!*sx) /* '' */ {}
+      else if ((sx[0]|0x20) == 'u') {
+         u = 1;
+         if (!sx[1]) /* 'u' */ {}
+         else if ((sx[1]|0x20) == 'l') {
+            if (!sx[2]) /* 'ul' */ goto L;
+            if (c99 && sx[1] == sx[2] && !sx[3]) /* 'ull' */ goto LL;
+            return;
+         } else return;
+      } else if ((sx[0]|0x20) == 'l') {
+         if (!sx[1]) /* 'l' */ goto L;
+         if ((sx[1]|0x20) == 'u' && !sx[2]) /* 'lu' */ { u=1; goto L; }
+         if (c99 && sx[1] == sx[0]) {
+            if (!sx[2]) /* 'll' */ goto LL;
+            if ((sx[2]|0x20) == 'u' && !sx[3]) /* 'llu' */ { u=1; goto LL; }
+         }
+         return;
+      } else if ((sx[0]|0x20) == 'e' || (sx[0]|0x20) == 'p')
+         goto Float;
+      else return;
+
+#define I(T) if (tk->u <= max4typ[T - TYINT]) { t = T; goto Ok; }
+      I(TYINT)
+      if (u || !dec) I(TYUINT)
+   L:
+      I(TYLONG)
+      if (u || !dec || !c99) I(TYULONG)
+      if (c99) {
+      LL:
+         I(TYVLONG)
+         if (u || !dec) I(TYUVLONG)
+      }
+#undef I
+      /* too big */
+      return;
+   Ok:
+      if (u && issignedt(t)) ++t; /* make unsigned */
+      tk->ty = t;
    }
 }
 
@@ -273,6 +304,16 @@ readstrchrlit(struct parser *pr, struct token *tk, char delim)
    vfree(&b);
 }
 
+static bool
+isppnum(char prev, char c)
+{
+   if (!aissep(c) || c == '.')
+     return 1;
+   if (c == '+' || c == '-')
+     return (prev|0x20) == 'e' || (prev|0x20) == 'p';
+   return 0;
+}
+
 static int
 lex0(struct parser *pr, struct token *tk)
 {
@@ -351,22 +392,24 @@ Begin:
       if (match(pr, '|')) RET(TKLOGIOR);
       if (match(pr, '=')) RET(TKSETIOR);
       RET(c);
-   case '.':
-      if (peek(pr, 0) == '.' && peek(pr, 1) == '.') {
-         next(pr), next(pr);
-         RET(TKDOTS);
-      }
-      RET(c);
    case '\'':
    case '"':
       readstrchrlit(pr, tk, c);
       goto End;
+   case '.':
+      if (peek(pr, 0) == '.' && peek(pr, 1) == '.') {
+         next(pr), next(pr);
+         RET(TKDOTS);
+      } else if (aisdigit(peek(pr, 0))) {
+         goto Numlit;
+      }
+      RET(c);
    default:
-      if (aisdigit(c)) {
+      if (aisdigit(c)) Numlit: {
          char tmp[70];
          int n = 0;
          tmp[n++] = c;
-         while (!aissep(c = peek(pr, 0)) || c == '.' || ((tmp[n-1]|0x20) == 'e' && (c == '+' || c == '-'))) {
+         while (isppnum(tmp[n-1], peek(pr, 0))) {
             assert(n < arraylength(tmp)-1 && "too big");
             tmp[n++] = next(pr);
          }
@@ -386,7 +429,8 @@ Begin:
          goto End;
       }
    }
-   fatal(&(struct span) {{ idx, pr->chridx - idx, pr->fileid }}, "unexpected character %'c at %d", c, idx);
+   fatal(&(struct span) {{ idx, pr->chridx - idx, pr->fileid }},
+         "unexpected character %'c at %d", c, idx);
 End:
    tk->span.sl.file = pr->fileid;
    tk->span.sl.off = idx;
@@ -402,7 +446,7 @@ End:
 /* PREPROCESSOR */
 /****************/
 
-#define isppident(tk) ((tk).t == TKIDENT || in_range((tk).t, TKWBEGIN_, TKWEND_))
+#define isppident(tk) (in_range((tk).t, TKIDENT, TKWEND_))
 
 static vec_of(struct macro) macros;
 static ushort macroht[1<<10];
@@ -516,7 +560,7 @@ putmac(struct macro *mac)
 static void
 ppskipline(struct parser *pr)
 {
-   while (peek(pr, 0) != '\n' && peek(pr, 0 != TKEOF))
+   while (peek(pr, 0) != '\n' && peek(pr, 0) != TKEOF)
       next(pr);
 }
 
@@ -536,7 +580,7 @@ ppdefine(struct parser *pr)
    mac.name = tk0.ident;
    mac.span = tk0.span.sl;
    
-   if (peek(pr, 0) != '(') {
+   if (peek(pr, 0) == '(') {
       mac.fnlike = 1;
    }
 
@@ -550,6 +594,253 @@ ppdefine(struct parser *pr)
    putmac(&mac);
 }
 
+static struct token epeektk;
+static int
+elex(struct parser *pr, struct token *tk)
+{
+   if (epeektk.t) {
+      int tt = epeektk.t;
+      if (tk) *tk = epeektk;
+      epeektk.t = 0;
+      return tt;
+   }
+   return lex0(pr, tk);
+}
+
+static int
+epeek(struct parser *pr, struct token *tk)
+{
+   if (!epeektk.t) elex(pr, &epeektk);
+   if (tk) *tk = epeektk;
+   return epeektk.t;
+}
+
+static int
+tkprec(int tt)
+{
+   static const char tab[] = {
+      ['*']   = 12, ['/']   = 12, ['%']  = 12,
+      ['+']   = 11, ['-']   = 11,
+      [TKSHL] = 10, [TKSHR] = 10,
+      ['<']   =  9, ['>']   = 9, [TKLTE] =  9, [TKGTE] = 9,
+      [TKEQU] =  8, [TKNEQ] = 8,
+      ['&']   =  7,
+      ['^']   =  6,
+      ['|']   =  5,
+      [TKLOGAND] = 4,
+      [TKLOGIOR] = 3,
+      ['?']   = 2,
+   };
+   if ((uint)tt < arraylength(tab))
+      return tab[tt] - 1;
+   return -1;
+}
+
+static vlong
+expr(struct parser *pr, bool *pu, int prec)
+{
+   vlong x, y;
+   struct token tk;
+   int opprec;
+   char unops[16];
+   int nunop = 0;
+   bool xu = 0, yu; /* x unsigned?; y unsigned? */
+
+Unary:
+   switch (elex(pr, &tk)) {
+   case '-': case '~': case '!':
+      unops[nunop++] = tk.t;
+      if (nunop >= arraylength(unops)) {
+         x = expr(pr, &xu, 999);
+         break;
+      }
+      /* fallthru */
+   case '+': goto Unary;
+   case '(':
+      x = expr(pr, &xu, 1);
+      if (elex(pr, &tk) != ')') {
+         error(&tk.span, "expected ')'");
+         goto Err;
+      }
+      break;
+   case TKNUMLIT:
+      if (!tk.ty) {
+         error(&tk.span, "bad number literal");
+         goto Err;
+      } else if (isfltt(tk.ty)) {
+         error(&tk.span, "float literal in preprocessor expresion");
+         goto Err;
+      }
+      x = tk.i;
+      xu = isunsignedt(tk.ty);
+      break;
+   default:
+      if (in_range(tk.t, TKWBEGIN_, TKWEND_)) {
+      case TKIDENT:
+         x = 0;
+         xu = 0;
+         break;
+      }
+      error(&tk.span, "expected preprocessor integer expression");
+      goto Err;
+   }
+
+   while (nunop > 0)
+      switch (unops[--nunop]) {
+      case '-': x = -x; break;
+      case '~': x = ~x; break;
+      case '!': x = !x; break;
+      default: assert(0);
+      }
+
+   while ((opprec = tkprec(epeek(pr, &tk))) >= prec) {
+      elex(pr, &tk);
+      if (tk.t != '?') {
+         bool u;
+         y = expr(pr, &yu, opprec + 1);
+         u = xu | yu;
+         switch ((int) tk.t) {
+         case   '+': x += y; break;
+         case   '-': x -= y; break;
+         case   '*': x *= y; break;
+         case   '&': x &= y; break;
+         case   '^': x ^= y; break;
+         case   '|': x |= y; break;
+         case   '/': if (y) x = u ? (uvlong) x / y : x / y;
+                     else goto Div0;
+                     break;
+         case   '%': if (y) x = u ? (uvlong) x % y : x % y;
+                     else Div0: error(&tk.span, "division by zero");
+                     break;
+         case TKSHL: if ((uvlong)y < 64) x <<= y;
+                     else goto BadShift;
+                     break;
+         case TKSHR: if ((uvlong)y < 64) x = u ? (uvlong) x >> y : x >> y;
+                     else BadShift: error(&tk.span, "bad shift by %ld", y);
+                     break;
+         case   '<': x = u ? (uvlong) x < y  : x < y;  goto BoolRes;
+         case   '>': x = u ? (uvlong) x > y  : x > y;  goto BoolRes;
+         case TKLTE: x = u ? (uvlong) x <= y : x <= y; goto BoolRes;
+         case TKGTE: x = u ? (uvlong) x >= y : x >= y; goto BoolRes;
+         case TKEQU: x = x == y; goto BoolRes;
+         case TKNEQ: x = x != y; goto BoolRes;
+         case TKLOGAND: x = x && y; goto BoolRes;
+         case TKLOGIOR: x = x || y; BoolRes: u = 0; break;
+         default: assert(0);
+         }
+         xu = u;
+      } else {
+         struct span span = tk.span;
+         vlong m = expr(pr, &xu, 1);
+         if (elex(pr, &tk) != ':') {
+            error(&tk.span, "expected ':'");
+            note(&span, "to match conditional expression here");
+            goto Err;
+         }
+         y = expr(pr, &yu, 1);
+         efmt("%ld ? %ld : %ld\n", x, m, y);
+         x = x ? m : y;
+         xu |= yu;
+      }
+   }
+   if (!prec) /* not a sub expr */
+      if (elex(pr, &tk) != '\n' && tk.t != TKEOF) {
+         error(&tk.span, "garbage after preprocessor expression");
+         ppskipline(pr);
+      }
+   if (pu) *pu = xu;
+   return x;
+
+Err:
+   ppskipline(pr);
+   if (pu) *pu = xu;
+   return 0;
+}
+
+enum {
+   PPCNDFALSE, /* the condition was zero, skip until #else/#elif */
+   PPCNDTRUE, /* the condition was non-zero, emit until #else/#elif */
+   PPCNDTAKEN /* some branch was already taken, skip until #else */
+};
+static struct ppcnd {
+   struct span0 ifspan;
+   uchar cnd;
+   bool elsep;
+} ppcndstk[32];
+static int nppcnd;
+
+static void
+ppif(struct parser *pr, const struct span *span)
+{
+   vlong v = expr(pr, NULL, 0);
+   assert(nppcnd < arraylength(ppcndstk) && "too many nested #if");
+   ppcndstk[nppcnd].ifspan = span->sl;
+   ppcndstk[nppcnd].cnd = v ? PPCNDTRUE : PPCNDFALSE;
+   ppcndstk[nppcnd++].elsep = 0;
+}
+
+static void
+ppelif(struct parser *pr, const struct span *span)
+{
+   vlong v;
+   struct ppcnd *cnd;
+
+   if (!nppcnd) {
+      error(span, "#elif without matching #if");
+      ppif(pr, span);
+      return;
+   }
+   v = expr(pr, NULL, 0);
+   cnd = &ppcndstk[nppcnd-1];
+   if (cnd->elsep) {
+      error(span, "#elif after #else");
+      return;
+   }
+   switch (cnd->cnd) {
+   case PPCNDTRUE: cnd->cnd = PPCNDTAKEN; break;
+   case PPCNDFALSE: cnd->cnd = v ? PPCNDTRUE : PPCNDFALSE; break;
+   case PPCNDTAKEN: assert(0);
+   }
+}
+
+static void
+ppendif(struct parser *pr, const struct span *span)
+{
+   struct token tk;
+   if (lex0(pr, &tk) != '\n' && tk.t != TKEOF) {
+      error(&tk.span, "garbage after #endif");
+      ppskipline(pr);
+   }
+   if (!nppcnd) {
+      error(span, "#endif without matching #if");
+      return;
+   }
+   --nppcnd;
+}
+
+static void
+ppelse(struct parser *pr, const struct span *span)
+{
+   struct token tk;
+   struct ppcnd *cnd;
+   if (lex0(pr, &tk) != '\n' && tk.t != TKEOF) {
+      error(&tk.span, "garbage after #else");
+      ppskipline(pr);
+   }
+   if (!nppcnd) {
+      error(span, "#else without matching #if");
+      return;
+   }
+   cnd = &ppcndstk[nppcnd-1];
+   if (cnd->elsep)
+      error(span, "#else after #else");
+   switch (cnd->cnd) {
+   case PPCNDFALSE: cnd->cnd = PPCNDTRUE; break;
+   case PPCNDTRUE: cnd->cnd = PPCNDTAKEN; break;
+   }
+   cnd->elsep = 1;
+}
+
 static struct macrostack mstk[64], *mfreelist;
 static bool
 tryexpand(struct parser *pr, const struct token *tk)
@@ -557,17 +848,18 @@ tryexpand(struct parser *pr, const struct token *tk)
    static bool inimstk;
    struct macro *mac;
    struct macrostack *l;
-   int macidx;
+   int macidx, i;
+
+   if (!isppident(*tk) || !(mac = findmac(tk->ident)))
+      return 0;
+
    if (!inimstk) {
       inimstk = 1;
-      for (int i = 0; i < arraylength(mstk); ++i) {
+      for (i = 0; i < arraylength(mstk); ++i) {
          mstk[i].link = mfreelist;
          mfreelist = &mstk[i];
       }
    }
-
-   if (!isppident(*tk) || !(mac = findmac(tk->ident)))
-      return 0;
 
    macidx = mac - macros.p;
    /* prevent infinite recursion */
@@ -603,12 +895,69 @@ popmac(struct parser *pr)
    } while ((stk = pr->macstk) && stk->idx >= macros.p[stk->mac].rlist.n);
 }
 
+enum directive {
+   PPXXX,
+   /* !sorted */
+   PPDEFINE,
+   PPELIF,
+   PPELIFDEF,
+   PPELIFNDEF,
+   PPELSE,
+   PPENDIF,
+   PPERROR,
+   PPIF,
+   PPIFDEF,
+   PPIFNDEF,
+   PPINCLUDE,
+   PPLINE,
+   PPPRAGMA,
+   PPUNDEF,
+   PPWARNING,
+};
+
+static enum directive
+findppcmd(const struct token *tk)
+{
+   static const char *tab[] = {
+      /* !sorted */
+      "define",
+      "elif",
+      "elifdef",
+      "elifndef",
+      "else",
+      "endif",
+      "error",
+      "if",
+      "ifdef",
+      "ifndef",
+      "include",
+      "line",
+      "pragma",
+      "undef",
+      "warning",
+   };
+   int l = 0, h = arraylength(tab) - 1, i, cmp;
+   const char *s = tk->ident;
+
+   if (tk->t == TKWif) return PPIF;
+   if (tk->t == TKWelse) return PPELSE;
+   /* binary search over sorted array */
+   while (l <= h) {
+      i = (l + h) / 2;
+      cmp = strcmp(tab[i], s);
+      if (cmp < 0) l = i + 1;
+      else if (cmp > 0) h = i - 1;
+      else return i + 1;
+   }
+   return PPXXX;
+}
+
 int
 lex(struct parser *pr, struct token *tk_)
 {
    struct token tkx[1], *tk;
    int t;
-   bool linebegin = 0;
+   bool linebegin, skip;
 
    assert(tk_ != &pr->peektok);
    tk = tk_ ? tk_ : tkx;
@@ -631,19 +980,53 @@ lex(struct parser *pr, struct token *tk_)
       return tk->t;
    }
 
-   for (;;) {
+   skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
+   for (linebegin = 0;;) {
       while ((t = lex0(pr, tk)) == '\n') linebegin = 1;
       if (t == '#' && linebegin) {
-         if (lex0(pr, tk) == '\n') break;
-         else if (tk->t == TKIDENT && !strcmp(tk->ident, "define"))
-            ppdefine(pr);
-         else {
-            error(&tk->span, "invalid preprocessor directive");
+         if (lex0(pr, tk) == '\n') { }
+         else if (isppident(*tk)) {
+            if (!skip) {
+               switch (findppcmd(tk)) {
+               case PPXXX: goto BadPP;
+               case PPDEFINE: ppdefine(pr); break;
+               case PPIF:     ppif(pr, &tk->span); break;
+               case PPELIF:   ppelif(pr, &tk->span); break;
+               case PPENDIF:  ppendif(pr, &tk->span); break;
+               case PPELSE:   ppelse(pr, &tk->span); break;
+               default: assert(0&&"nyi");
+               }
+            } else {
+               switch (findppcmd(tk)) {
+               case PPIF: /* increment nesting level */
+                  assert(nppcnd < arraylength(ppcndstk) && "too many nested #if");
+                  ppcndstk[nppcnd].ifspan = tk->span.sl;
+                  ppcndstk[nppcnd].cnd = PPCNDTAKEN;
+                  ppcndstk[nppcnd++].elsep = 0;
+                  break;
+               case PPELIF:  ppelif(pr, &tk->span); break;
+               case PPENDIF: ppendif(pr, &tk->span); break;
+               case PPELSE:  ppelse(pr, &tk->span); break;
+               default: ppskipline(pr); break;
+               }
+            }
+            skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
+         } else {
+            if (!skip) {
+            BadPP:
+               error(&tk->span, "invalid preprocessor directive");
+            }
             ppskipline(pr);
          }
       } else {
+         linebegin = 0;
+         if (skip && tk->t != TKEOF) continue;
          if (tryexpand(pr, tk))
             return lex(pr, tk_);
+         if (t == TKEOF && nppcnd) {
+            struct span span = { ppcndstk[nppcnd-1].ifspan };
+            error(&span, "#if is not matched by #endif");
+         }
          return t;
       }
    }

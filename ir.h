@@ -2,7 +2,7 @@
 
 enum irclass {
    KXXX,
-   KI4, KI8, KIP,
+   KI4, KI8, KPTR,
    KF4, KF8,
 };
 

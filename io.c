@@ -185,6 +185,7 @@ pritypebefore(struct wbuf *buf, union type ty, int qual)
    case TYFLOAT:  s = "float"; goto Prim;
    case TYDOUBLE: s = "double"; goto Prim;
    case TYLDOUBLE:s = "long double"; goto Prim;
+   case TYVALIST: s = "va_list"; goto Prim;
    case TYPTR:
       chld = typechild(ty);
       n = pritypebefore(buf, chld, ty.flag & TFCHLDQUAL);
@@ -432,7 +433,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
          Tok:
             switch (tok->t) {
             case TKXXX:
-               n += bwriteS(buf, "???");
+               n += bwriteS(buf, "\?\?\?");
                break;
             case TKNUMLIT:
                s = (const char *)(getfile(tok->span.sl.file)->p + tok->span.sl.off);
@@ -450,19 +451,37 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             case TKEOF:
                n += bwriteS(buf, "<end-of-file>");
                break;
+            case TKEQU: s = "=="; C2: iowrite(buf, s, 2); n += 2; break;
+            case TKNEQ: s = "!="; goto C2;
+            case TKLTE: s = "<="; goto C2;
+            case TKGTE: s = ">="; goto C2;
+            case TKSHR: s = ">>"; goto C2;
+            case TKSHL: s = "<<"; goto C2;
+            case TKINC: s = "++"; goto C2;
+            case TKDEC: s = "--"; goto C2;
+            case TKDOTS: n += bwriteS(buf, "..."); break;
+            case TKARROW: s = "->"; goto C2;
+            case TKPPCAT: s = "##"; goto C2;
+            case TKLOGAND: s = "&&"; goto C2;
+            case TKLOGIOR: s = "||"; goto C2;
+            case TKSETADD: s = "+="; goto C2;
+            case TKSETSUB: s = "-="; goto C2;
+            case TKSETMUL: s = "*="; goto C2;
+            case TKSETDIV: s = "/="; goto C2;
+            case TKSETMOD: s = "%="; goto C2;
+            case TKSETIOR: s = "|="; goto C2;
+            case TKSETXOR: s = "^="; goto C2;
+            case TKSETAND: s = "&="; goto C2;
+            case TKSETSHR: n += bwriteS(buf, ">>="); break;
+            case TKSETSHL: n += bwriteS(buf, "<<="); break;
             default:
                if (quote) n += bputc(buf, '`');
                if (in_range(tok->t, TKWBEGIN_, TKWEND_)) {
                   n += bfmt(buf, "%s", tok->ident);
                } else if (aisprint(tok->t)) {
                   n += bputc(buf, tok->t);
-               } else if (tok->t >> 16) {
-                  n += bputc(buf, tok->t >> 0);
-                  n += bputc(buf, tok->t >> 8);
-                  n += bputc(buf, tok->t >> 16);
                } else {
-                  n += bputc(buf, tok->t >> 0);
-                  n += bputc(buf, tok->t >> 8);
+                  n += bwriteS(buf, "??");
                }
                if (quote) n += bputc(buf, '\'');
                break;

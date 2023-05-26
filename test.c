@@ -1,13 +1,20 @@
 /* coment */
 
-int glob;
+#if 1+1 < (-2*2)
+wawa
+#elif 9<<1
+#define wow 3
+#else
+boop
+#endif
+int glob [ wow+wow];
 
 int add (int x, int y) {
-    return x + y + glob;
+    return x + y + *glob;
 }
 
 int abs(int x){
-    return (x ^ x >> 31) + ((unsigned)x >> 31);
+    return (x ^ x >> 31) - (x >> 31);
 }
 
 int popcnt(unsigned x) {
@@ -16,24 +23,23 @@ int popcnt(unsigned x) {
     return n;
 }
 
-int foo(int x) {
-    int work[10];
-    work[x]=x;
-    if (x == 0)
-        return 1;
-    else if (x == 1)
-        return -1;
-    else if (x < 0)
-        return x;
-    else
-        return 0;
+struct f {
+    char x[(1<<12)-1];
+};
+
+int diff(struct f *x, struct f *y)
+{
+    x += 3;
+    --x;
+    return x - y;
 }
 
-extern void printf(char *, ...);
+
+extern int printf(char *, ...);
 int main() {
-    char x;
+    unsigned char x = 255;
     int k = x += 1;
-    return abs(-33);
+    return abs(k);
 }
 
 //

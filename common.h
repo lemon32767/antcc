@@ -57,14 +57,18 @@ ptrhash(const void *p) {
    return (uint)(size_t)p * 2654435761;
 }
 static inline uint
-popcnt(uint x) {
+popcnt(uvlong x) {
 #ifdef __GNUC__
-   return __builtin_popcount(x);
+   return __builtin_popcountll(x);
 #else
    uint n = 0;
    while (x) x >>= 1, ++n;
    return n;
 #endif
+}
+static inline bool
+ispo2(uvlong x) {
+   return (x & (x - 1)) == 0;
 }
 
 /******************/
@@ -256,7 +260,7 @@ typearrlen(union type t)
 
 extern uchar targ_primsizes[];
 extern uchar targ_primalign[];
-extern enum typetag targ_sizetype;
+extern enum typetag targ_sizetype, targ_ptrdifftype;
 extern bool targ_charsigned, targ_bigendian;
 void targ_init(const char *targ);
 

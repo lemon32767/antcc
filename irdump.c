@@ -5,7 +5,7 @@ extern struct xcon conht[];
 extern vec_of(struct ircall) calls;
 
 static const char *clsname[] = {
-   "?", "i4", "i8", "iP", "f4", "f8"
+   "?", "i4", "i8", "ptr", "f4", "f8"
 };
 
 static void
@@ -38,7 +38,7 @@ dumpref(union irref ref)
       else switch (con->cls) {
       case KI4: efmt("%d", con->i4); break;
       case KI8: efmt("%ld", con->i8); break;
-      case KIP: efmt("%'x", con->i8); break;
+      case KPTR: efmt("%'x", con->i8); break;
       case KF4: efmt("%f", con->fs); break;
       case KF8: efmt("%f", con->fd); break;
       default: assert(0);

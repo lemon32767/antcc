@@ -114,4 +114,97 @@ freearena(struct arena *ar)
    }
 }
 
+#if 0
+
+int
+map_get_(struct mapbase *m, int k)
+{
+   if (!m->N) return 0;
+   for (int i = k;; ++i) {
+      bool notempty = bstest(m->bs, k);
+      i &= m->N - 1;
+      if (notempty && m->k[i] == k)
+         return i;
+      if (!notempty)
+         return -1;
+   }
+}
+
+
+void
+map_init_(struct mapbase *m, void **v, uint vsiz, uint N)
+{
+   uint sizk = N*sizeof(int),
+        sizv = N*vsiz,
+        sizbs = BSCOUNT(N)*sizeof(struct bitset);
+
+   assert(N && (N & (N - 1)) == 0);
+   m->k = xcalloc(sizk + sizv + sizbs, "map_rehash");
+   *v = (char *)m->k + sizk;
+   m->bs = (struct bitset *)((char *)*v + sizv);
+   m->N = N;
+}
+
+static void
+map_rehash(struct mapbase *m, void **v, uint vsiz)
+{
+   int *newk, i, k, j;
+   void *newv;
+   struct bitset *newbs;
+   uint N2 = m->N << 1,
+        sizk = N2*sizeof(int),
+        sizv = N2*vsiz,
+        sizbs = BSCOUNT(N2)*sizeof(struct bitset);
+
+   assert(N2);
+   newk = xrealloc(NULL, sizk + sizv + sizbs, "map_rehash");
+   newv = (char *)newk + sizk;
+   newbs = (struct bitset *)((char *)newv + sizv);
+   for (i = 0; i < m->N; ++i) {
+      if (!bstest(m->bs, i))
+         continue;
+      j = k = m->k[i];
+      for (;; ++j) {
+         j &= N2 - 1;
+         if (!bstest(newbs, i)) {
+            bsset(newbs, i);
+            m->k[j] = k;
+            memcpy((char *)newv + j*vsiz, (char *)*v + i*vsiz, vsiz);
+            break;
+         }
+      }
+   }
+   free(m->k);
+   free(*v);
+   free(m->bs);
+   m->k = newk;
+   *v = newv;
+   m->bs = newbs;
+   m->N = N2;
+}
+
+int
+map_set_(struct mapbase *m, void **v, uint vsiz, int k)
+{
+   if (!m->N) return 0;
+   if (m->n >= m->N >> 1) {
+      map_rehash(m, v, vsiz);
+      assert(m->n < m->N);
+   }
+   for (int i = k;; ++i) {
+      bool notempty = bstest(m->bs, k);
+      i &= m->N - 1;
+      if (notempty && m->k[i] == k)
+         return i;
+      if (!notempty) {
+         m->k[i] = k;
+         bsset(m->bs, i);
+         ++m->n;
+         return i;
+      }
+   }
+}
+
+#endif
+
 /* vim:set ts=3 sw=3 expandtab: */

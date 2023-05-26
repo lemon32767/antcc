@@ -139,7 +139,9 @@ typesize(union type t)
    case TYENUM:
       return targ_primsizes[t.backing];
    case TYARRAY:
-      return t.flag & TFCHLDPRIM ? targ_primsizes[t.child] * t.arrlen : typedata[t.dat].siz;
+      if (t.flag & TFCHLDPRIM)
+         return targ_primsizes[t.child] * t.arrlen;
+      /* fallthru */
    case TYSTRUCT:
    case TYUNION:
       return typedata[t.dat].siz;
@@ -180,7 +182,7 @@ mkarrtype(union type t, int qual, uint n)
    if (isprim(t) && n < 256)
       return mktype(TYARRAY, .flag = TFCHLDPRIM | (qual & TFCHLDQUAL), .child = t.t, .arrlen = n);
    return mktype(TYARRAY, .flag = qual & TFCHLDQUAL,
-                 .dat = interntd(&(struct typedata) { TYARRAY, .child = t, .arrlen = n }));
+                 .dat = interntd(&(struct typedata) { TYARRAY, .child = t, .arrlen = n, .siz = n * typesize(t) }));
 }
 
 union type
