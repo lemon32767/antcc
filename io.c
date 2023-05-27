@@ -468,7 +468,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             case TKSETSUB: s = "-="; goto C2;
             case TKSETMUL: s = "*="; goto C2;
             case TKSETDIV: s = "/="; goto C2;
-            case TKSETMOD: s = "%="; goto C2;
+            case TKSETREM: s = "%="; goto C2;
             case TKSETIOR: s = "|="; goto C2;
             case TKSETXOR: s = "^="; goto C2;
             case TKSETAND: s = "&="; goto C2;

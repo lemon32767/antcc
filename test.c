@@ -34,11 +34,18 @@ int diff(struct f *x, struct f *y)
     return x - y;
 }
 
+#define xx 2
+
+int waaa[xx == 0 ?  'Z'
+        : xx == 1? 'O'
+        : xx == 2? 'T'
+        : '?'];
 
 extern int printf(char *, ...);
 int main() {
     unsigned char x = 255;
     int k = x += 1;
+    1+waaa;
     return abs(k);
 }
 

@@ -368,7 +368,7 @@ Begin:
       }
       RET(c);
    case '%':
-      if (match(pr, '=')) RET(TKSETMOD);
+      if (match(pr, '=')) RET(TKSETREM);
       RET(c);
    case '^':
       if (match(pr, '=')) RET(TKSETXOR);
@@ -687,7 +687,7 @@ Unary:
 
    while (nunop > 0)
       switch (unops[--nunop]) {
-      case '-': x = -x; break;
+      case '-': x = -(uvlong)x; break;
       case '~': x = ~x; break;
       case '!': x = !x; break;
       default: assert(0);
@@ -700,9 +700,9 @@ Unary:
          y = expr(pr, &yu, opprec + 1);
          u = xu | yu;
          switch ((int) tk.t) {
-         case   '+': x += y; break;
-         case   '-': x -= y; break;
-         case   '*': x *= y; break;
+         case   '+': x += (uvlong) y; break;
+         case   '-': x -= (uvlong) y; break;
+         case   '*': x = u ? (uvlong) x * y : x * y; break;
          case   '&': x &= y; break;
          case   '^': x ^= y; break;
          case   '|': x |= y; break;
