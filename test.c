@@ -20,7 +20,7 @@ int abs(int x){
 int popcnt(unsigned x) {
     int n = 0;
     while (x) x >>= 1, n++;
-    return n;
+    return n + sizeof &"á"[0];
 }
 
 struct f {

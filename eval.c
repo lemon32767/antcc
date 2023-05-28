@@ -195,6 +195,7 @@ binop(struct expr *ex, enum evalmode mode)
    default: return 0;
 #undef ef
    }
+
    return numcast(ex->ty.t, ex, lhs);
 }
 

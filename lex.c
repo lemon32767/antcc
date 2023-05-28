@@ -286,7 +286,7 @@ readstrchrlit(struct parser *pr, struct token *tk, char delim)
       vpush(&b, 0);
       tk->t = TKSTRLIT;
       tk->s.p = alloc(&pr->exarena, b.n, 1);
-      memcpy(tk->s.p, b.p, tk->s.n = b.n);
+      memcpy(tk->s.p, b.p, tk->s.n = b.n-1);
    } else {
       if (b.n == 0) {
          span.sl = (struct span0) { idx, pr->chridx - idx, pr->fileid };

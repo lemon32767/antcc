@@ -123,7 +123,7 @@ redeclarationok(const struct decl *old, const struct decl *new)
    if (old->scls != new->scls) return 0;
    switch (old->scls) {
    case SCTYPEDEF:
-      return old->t.bits == new->t.bits;
+      return old->ty.bits == new->ty.bits;
    }
    return 0;
 }
@@ -206,32 +206,15 @@ deftagged(struct parser *pr, struct span *span, enum typetag tt, const char *nam
    return l->t = mktagtype(name, &td);
 }
 
-/********/
-/* EXPR */
-/********/
+/*******************/
+/*** EXPRESSIONS ***/
+/*******************/
+
+/**********************/
+/* EXPR TYPE CHECKING */
+/**********************/
 
 #define iszero(ex) ((ex).t == ENUMLIT && (ex).u == 0)
-
-#define mkexpr(t_,span_,ty_,...) ((struct expr){.t=(t_), .ty=(ty_), .span=(span_), __VA_ARGS__})
-
-static struct expr *
-exprdup(struct parser *pr, const struct expr *e)
-{
-   return memcpy(alloc(&pr->exarena, sizeof *e, 0), e, sizeof *e);
-}
-static struct expr *
-exprdup2(struct parser *pr, const struct expr *e1, const struct expr *e2)
-{
-   struct expr *r = alloc(&pr->exarena, 2*sizeof *r, 0);
-   r[0] = *e1;
-   r[1] = *e2;
-   return r;
-}
-
-static struct expr expr(struct parser *pr);
-static struct expr commaexpr(struct parser *pr);
-
-/* TODO recursive descent is probably slow, use precedence climbing? */
 
 static bool
 islvalue(const struct expr *ex)
@@ -240,7 +223,7 @@ islvalue(const struct expr *ex)
    return ex->t == ESYM || ex->t == EDEREF;
 }
 
-static union type
+static union type /* 6.5.2.6 default argument promotions */
 argpromote(union type t)
 {
    if (isint(t)) t.t = intpromote(t.t);
@@ -269,7 +252,7 @@ incdeccheck(enum toktag tt, const struct expr *ex, const struct span *span)
       error(span, "arithmetic on function pointer (%ty)", ex->ty);
 }
 
-static bool
+static bool /* 6.5.4 Cast operators */
 castcheck(union type to, const struct expr *ex)
 {
    union type src = ex->ty;
@@ -283,7 +266,7 @@ castcheck(union type to, const struct expr *ex)
    return 0;
 }
 
-static union type
+static union type /* 6.5.2.1 Array subscripting */
 subscriptcheck(const struct expr *ex, const struct expr *rhs, const struct span *span)
 {
    union type ty;
@@ -304,16 +287,16 @@ subscriptcheck(const struct expr *ex, const struct expr *rhs, const struct span 
    return ty;
 }
 
-static bool
-isnullpo(const struct expr *ex)
+static void /* 6.5.3.4 The sizeof operator */
+sizeofcheck(const struct span *span, union type ty)
 {
-   static const union type voidptr = {{ TYPTR, .flag = TFCHLDPRIM, .child = TYVOID }};
-   if (ex->t == ECAST && ex->ty.bits == voidptr.bits)
-      ex = ex->sub;
-   return iszero(*ex);
+   if (isincomplete(ty))
+      error(span, "cannot apply sizeof to incomplete type (%ty)", ty);
+   else if (ty.t == TYFUNC)
+      error(span, "cannot apply sizeof to function type (%ty)", ty);
 }
 
-static bool
+static bool /* 6.5.8 Relational operators */
 relationalcheck(const struct expr *a, const struct expr *b)
 {
    union type t1 = a->ty, t2 = b->ty;
@@ -327,6 +310,15 @@ relationalcheck(const struct expr *a, const struct expr *b)
 }
 
 static bool
+isnullpo(const struct expr *ex) /* match '0' or '(void *) 0' */
+{
+   static const union type voidptr = {{ TYPTR, .flag = TFCHLDPRIM, .child = TYVOID }};
+   if (ex->t == ECAST && ex->ty.bits == voidptr.bits)
+      ex = ex->sub;
+   return iszero(*ex);
+}
+
+static bool /* 6.5.9 Equality operators */
 equalitycheck(const struct expr *a, const struct expr *b)
 {
    union type t1 = a->ty, t2 = b->ty;
@@ -340,7 +332,190 @@ equalitycheck(const struct expr *a, const struct expr *b)
    return isptrcvt(t2) && isnullpo(a);
 }
 
-static struct expr
+static union type /* 6.5.15 Conditional operator */
+condtype(const struct expr *a, const struct expr *b)
+{
+   union type t1 = typedecay(a->ty), t2 = typedecay(b->ty), s1, s2;
+   if (isarith(t1) && isarith(t2)) return cvtarith(t1, t2);
+   if (t1.bits == t2.bits) return t1;
+   if (t1.t == TYPTR && t2.t == TYPTR) {
+      s1 = typechild(t1);
+      s2 = typechild(t2);
+      if (s1.bits == s2.bits || s2.t == TYVOID || s1.t == TYVOID) {
+         return mkptrtype(s1.t == TYVOID ? s1 : s2, (t1.flag | t2.flag) & TFCHLDQUAL);
+      }
+   }
+   if (t1.t == TYPTR && isnullpo(b)) return t1;
+   if (isnullpo(a) && t2.t == TYPTR) return t2;
+   return mktype(0);
+}
+
+static void
+bintypeerr(const struct span *span, enum toktag tt, union type lhs, union type rhs)
+{
+   error(span, "bad operands to %tt (%ty, %ty)", tt, lhs, rhs);
+}
+
+enum binopclass { /* binary operator type-checking classes */
+   BCSET = 1<<7, /* is a (compound) assignment operator? */
+   BCSEQ = 1, BCADDITIVE, BCARITH, BCINT, BCSHFT, BCEQL, BCCMP, BCLOG,
+};
+
+/* table indexed by binary op token;
+ *    containing precedence level, expression kind and type-checking class */
+static const struct { uchar prec, t, k; } bintab[] = {
+   ['*'] = {13, EMUL, BCARITH},
+   ['/'] = {13, EDIV, BCARITH},
+   ['%'] = {13, EREM, BCINT},
+   ['+'] = {12, EADD, BCADDITIVE},
+   ['-'] = {12, ESUB, BCADDITIVE},
+   [TKSHL] = {11, ESHL, BCSHFT},
+   [TKSHR] = {11, ESHR, BCSHFT},
+   ['<']   = {10, ELTH, BCCMP},
+   ['>']   = {10, EGTH, BCCMP},
+   [TKLTE] = {10, ELTE, BCCMP},
+   [TKGTE] = {10, EGTE, BCCMP},
+   [TKEQU] = {9, EEQU, BCEQL},
+   [TKNEQ] = {9, ENEQ, BCEQL},
+   ['&'] = {8, EBAND, BCINT},
+   ['^'] = {7, EXOR,  BCINT},
+   ['|'] = {6, EBIOR, BCINT},
+   [TKLOGAND] = {5, ELOGAND, BCLOG},
+   [TKLOGIOR] = {4, ELOGIOR, BCLOG},
+   ['?'] = {3, ECOND}, /* not actually a binop (special cased) */
+   ['='] = {2, ESET, BCSET},
+   [TKSETADD] = {2, ESETADD, BCSET|BCADDITIVE}, [TKSETSUB] = {2, ESETSUB, BCSET|BCADDITIVE},
+   [TKSETMUL] = {2, ESETMUL, BCSET|BCARITH},    [TKSETDIV] = {2, ESETDIV, BCSET|BCARITH},
+   [TKSETREM] = {2, ESETREM, BCSET|BCINT},      [TKSETAND] = {2, ESETAND, BCSET|BCINT},
+   [TKSETIOR] = {2, ESETIOR, BCSET|BCINT},      [TKSETXOR] = {2, ESETXOR, BCSET|BCINT},
+   [TKSETSHL] = {2, ESETSHL, BCSET|BCSHFT},     [TKSETSHR] = {2, ESETSHR, BCSET|BCSHFT},
+   [','] = {1, ESEQ, BCSEQ}
+};
+
+static union type
+bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct expr *rhs)
+{
+   enum binopclass k = bintab[tt].k;
+   union type ty = lhs->ty;
+
+   assert(k);
+   if (k & BCSET) {
+      if (!islvalue(lhs))
+        error(&lhs->span, "left-hand-side of assignment is not an lvalue");
+      else if (lhs->qual & QCONST)
+         error(&lhs->span, "cannot assign to const-qualified lvalue (%tq)", ty, lhs->qual);
+      else if (isincomplete(ty))
+         error(&lhs->span, "cannot assign to incomplete type (%ty)", ty);
+      else if (ty.t == TYARRAY)
+         error(&lhs->span, "cannot assign to array type (%ty)", ty);
+      else if (ty.t == TYFUNC)
+         error(&lhs->span, "cannot assign to function designator (%ty)", lhs->ty);
+   }
+   switch (k &~ BCSET) {
+   case 0:
+      if (!assigncheck(ty, rhs))
+         goto Error;
+      break;
+   case BCSEQ:
+      ty = rhs->ty;
+      break;
+   case BCADDITIVE:
+      if (tt == '+' && isptrcvt(rhs->ty)) {
+         /* int + ptr -> ptr + int (for convenience) */
+         const struct expr swaptmp = *lhs;
+         *lhs = *rhs;
+         *rhs = swaptmp;
+         ty = lhs->ty;
+      }
+      if (isarith(ty) && isarith(rhs->ty)) {
+         /* num +/- num */
+         ty = cvtarith(ty, rhs->ty);
+         assert(ty.t);
+      } else if ((ty.t == TYPTR || ty.t == TYARRAY) && rhs->ty.t == TYINT) {
+         /* ptr +/- int */
+         union type pointee = typechild(ty);
+         if (isincomplete(pointee))
+            error(span, "arithmetic on pointer to incomplete type (%ty)", ty);
+         else if (pointee.t == TYFUNC)
+            error(span, "arithmetic on function pointer (%ty)", ty);
+         ty = typedecay(ty);
+      } else if (tt == '-' && isptrcvt(ty) && isptrcvt(rhs->ty)) {
+         /* ptr - ptr */
+         union type pointee1 = typechild(typedecay(ty)),
+                    pointee2 = typechild(typedecay(rhs->ty));
+         if (isincomplete(pointee1))
+            error(span, "arithmetic on pointer to incomplete type (%ty)", ty);
+         else if (pointee1.t == TYFUNC)
+            error(span, "arithmetic on function pointer (%ty)", lhs->ty);
+         else if (pointee1.bits != pointee2.bits) {
+            error(span, "arithmetic on incompatible pointer types (%ty, %ty)",
+                  ty, rhs->ty);
+         }
+         ty = mktype(targ_ptrdifftype);
+      } else goto Error;
+      break;
+   case BCARITH:
+      ty = cvtarith(ty, rhs->ty);
+      if (!ty.t) {
+         ty.t = TYINT;
+      Error:
+         bintypeerr(span, tt, lhs->ty, rhs->ty);
+      }
+      break;
+   case BCINT:
+      if (!isint(ty) || !isint(rhs->ty))
+         goto Error;
+      ty = cvtarith(ty, rhs->ty);
+      assert(ty.t);
+      break;
+   case BCSHFT: /* 6.5.7 Bitwise shift operators */
+      if (!isint(ty) || !isint(rhs->ty))
+         goto Error;
+      ty.t = intpromote(ty.t);
+      assert(ty.t);
+      break;
+   case BCEQL:
+      if (!equalitycheck(lhs, rhs))
+         goto Error;
+      ty = mktype(TYINT);
+      break;
+   case BCCMP:
+      if (!relationalcheck(lhs, rhs))
+         goto Error;
+      ty = mktype(TYINT);
+      break;
+   case BCLOG: /* 6.5.13-14 Logical AND/OR operator */
+      if (!isscalar(ty) || !isscalar(rhs->ty))
+         goto Error;
+      ty = mktype(TYINT);
+      break;
+   }
+   return (k & BCSET) || !ty.t ? lhs->ty : ty;
+}
+
+/****************/
+/* EXPR PARSING */
+/****************/
+
+#define mkexpr(t_,span_,ty_,...) ((struct expr){.t=(t_), .ty=(ty_), .span=(span_), __VA_ARGS__})
+
+static struct expr *
+exprdup(struct parser *pr, const struct expr *e)
+{
+   return memcpy(alloc(&pr->exarena, sizeof *e, 0), e, sizeof *e);
+}
+static struct expr *
+exprdup2(struct parser *pr, const struct expr *e1, const struct expr *e2)
+{
+   struct expr *r = alloc(&pr->exarena, 2*sizeof *r, 0);
+   r[0] = *e1, r[1] = *e2;
+   return r;
+}
+
+static struct expr expr(struct parser *pr);
+static struct expr commaexpr(struct parser *pr);
+
+static struct expr /* 6.5.2.2 Function calls */
 callexpr(struct parser *pr, const struct span *span_, const struct expr *callee)
 {
    struct token tk;
@@ -395,165 +570,6 @@ callexpr(struct parser *pr, const struct span *span_, const struct expr *callee)
    return ex;
 }
 
-static union type /* 6.5.15 Conditional operator Constraints */
-condtype(const struct expr *a, const struct expr *b)
-{
-   union type t1 = typedecay(a->ty), t2 = typedecay(b->ty), s1, s2;
-   if (isarith(t1) && isarith(t2)) return cvtarith(t1, t2);
-   if (t1.bits == t2.bits) return t1;
-   if (t1.t == TYPTR && t2.t == TYPTR) {
-      s1 = typechild(t1);
-      s2 = typechild(t2);
-      if (s1.bits == s2.bits || s2.t == TYVOID || s1.t == TYVOID) {
-         return mkptrtype(s1.t == TYVOID ? s1 : s2, (t1.flag | t2.flag) & TFCHLDQUAL);
-      }
-   }
-   if (t1.t == TYPTR && isnullpo(b)) return t1;
-   if (isnullpo(a) && t2.t == TYPTR) return t2;
-   return mktype(0);
-}
-
-static void
-bintypeerr(const struct span *span, enum toktag tt, union type lhs, union type rhs)
-{
-   error(span, "bad operands to %tt (%ty, %ty)", tt, lhs, rhs);
-}
-
-enum binopclass{
-   BCSET = 1<<7,
-   BCSEQ = 1, BCADDITIVE, BCARITH, BCINT, BCSHFT, BCEQL, BCCMP, BCLOG,
-};
-
-static const struct { uchar prec, t, k; } bintab[] = {
-   ['*'] = {13, EMUL, BCARITH},
-   ['/'] = {13, EDIV, BCARITH},
-   ['%'] = {13, EREM, BCINT},
-   ['+'] = {12, EADD, BCADDITIVE},
-   ['-'] = {12, ESUB, BCADDITIVE},
-   [TKSHL] = {11, ESHL, BCSHFT},
-   [TKSHR] = {11, ESHR, BCSHFT},
-   ['<']   = {10, ELTH, BCCMP},
-   ['>']   = {10, EGTH, BCCMP},
-   [TKLTE] = {10, ELTE, BCCMP},
-   [TKGTE] = {10, EGTE, BCCMP},
-   [TKEQU] = {9, EEQU, BCEQL},
-   [TKNEQ] = {9, ENEQ, BCEQL},
-   ['&'] = {8, EBAND, BCINT},
-   ['^'] = {7, EXOR,  BCINT},
-   ['|'] = {6, EBIOR, BCINT},
-   [TKLOGAND] = {5, ELOGAND, BCLOG},
-   [TKLOGIOR] = {4, ELOGIOR, BCLOG},
-   ['?'] = {3, ECOND},
-   ['='] = {2, ESET, BCSET},
-   [TKSETADD] = {2, ESETADD, BCSET|BCADDITIVE}, [TKSETSUB] = {2, ESETSUB, BCSET|BCADDITIVE},
-   [TKSETMUL] = {2, ESETMUL, BCSET|BCARITH},    [TKSETDIV] = {2, ESETDIV, BCSET|BCARITH},
-   [TKSETREM] = {2, ESETREM, BCSET|BCINT},      [TKSETAND] = {2, ESETAND, BCSET|BCINT},
-   [TKSETIOR] = {2, ESETIOR, BCSET|BCINT},      [TKSETXOR] = {2, ESETXOR, BCSET|BCINT},
-   [TKSETSHL] = {2, ESETSHL, BCSET|BCSHFT},     [TKSETSHR] = {2, ESETSHR, BCSET|BCSHFT},
-   [','] = {1, ESEQ, BCSEQ}
-};
-
-static union type
-bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct expr *rhs)
-{
-   enum binopclass k = bintab[tt].k;
-   union type ty = lhs->ty;
-
-   assert(k);
-   if (k & BCSET) {
-      if (!islvalue(lhs))
-        error(&lhs->span, "left-hand-side of assignment is not an lvalue");
-      else if (lhs->qual & QCONST)
-         error(&lhs->span, "cannot assign to const-qualified lvalue (%tq)", ty, lhs->qual);
-      else if (isincomplete(ty))
-         error(&lhs->span, "cannot assign to incomplete type (%ty)", ty);
-      else if (ty.t == TYARRAY)
-         error(&lhs->span, "cannot assign to array type (%ty)", ty);
-      else if (ty.t == TYFUNC)
-         error(&lhs->span, "cannot assign to function designator (%ty)", lhs->ty);
-   }
-   switch (k &~ BCSET) {
-   case 0:
-      if (!assigncheck(ty, rhs))
-         goto Error;
-      break;
-   case BCSEQ:
-      ty = rhs->ty;
-      break;
-   case BCADDITIVE:
-      if (tt == '+' && isptrcvt(rhs->ty)) {
-         /* int + ptr -> ptr + int */
-         const struct expr swaptmp = *lhs;
-         *lhs = *rhs;
-         *rhs = swaptmp;
-         ty = lhs->ty;
-      }
-      if (isarith(ty) && isarith(rhs->ty)) {
-         /* num +/- num */
-         ty = cvtarith(ty, rhs->ty);
-         assert(ty.t);
-      } else if ((ty.t == TYPTR || ty.t == TYARRAY) && rhs->ty.t == TYINT) {
-         /* ptr +/- int */
-         union type pointee = typechild(ty);
-         if (isincomplete(pointee))
-            error(span, "arithmetic on pointer to incomplete type (%ty)", ty);
-         else if (pointee.t == TYFUNC)
-            error(span, "arithmetic on function pointer (%ty)", ty);
-         ty = typedecay(ty);
-      } else if (tt == '-' && isptrcvt(ty) && isptrcvt(rhs->ty)) {
-         /* ptr - ptr */
-         union type pointee1 = typechild(typedecay(ty)),
-                    pointee2 = typechild(typedecay(rhs->ty));
-         if (isincomplete(pointee1))
-            error(span, "arithmetic on pointer to incomplete type (%ty)", ty);
-         else if (pointee1.t == TYFUNC)
-            error(span, "arithmetic on function pointer (%ty)", lhs->ty);
-         else if (pointee1.bits != pointee2.bits) {
-            error(span, "arithmetic on incompatible pointer types (%ty, %ty)",
-                  ty, rhs->ty);
-         }
-         ty = mktype(targ_ptrdifftype);
-      } else goto Error;
-      break;
-   case BCARITH:
-      ty = cvtarith(ty, rhs->ty);
-      if (!ty.t) {
-         ty.t = TYINT;
-      Error:
-         bintypeerr(span, tt, lhs->ty, rhs->ty);
-      }
-      break;
-   case BCINT:
-      if (!isint(ty) || !isint(rhs->ty))
-         goto Error;
-      ty = cvtarith(ty, rhs->ty);
-      assert(ty.t);
-      break;
-   case BCSHFT:
-      if (!isint(ty) || !isint(rhs->ty))
-         goto Error;
-      ty.t = intpromote(ty.t);
-      assert(ty.t);
-      break;
-   case BCEQL:
-      if (!equalitycheck(lhs, rhs))
-         goto Error;
-      ty = mktype(TYINT);
-      break;
-   case BCCMP:
-      if (!relationalcheck(lhs, rhs))
-         goto Error;
-      ty = mktype(TYINT);
-      break;
-   case BCLOG:
-      if (!isscalar(ty) || !isscalar(rhs->ty))
-         goto Error;
-      ty = mktype(TYINT);
-      break;
-   }
-   return (k & BCSET) || !ty.t ? lhs->ty : ty;
-}
-
 static inline int
 tkprec(int tt)
 {
@@ -587,6 +603,7 @@ Unary:
    /* unary operators (gather) */
    case '+': case '-': case '~': case '!':
    case '*': case '&': case TKINC: case TKDEC:
+   Unops:
       unops[nunop].span = tk.span;
       unops[nunop].t0 = 0;
       unops[nunop].tt = tk.t;
@@ -613,30 +630,47 @@ Unary:
          ex = mkexpr(ESYM, tk.span, mktype(TYINT), .sym = NULL);
       } else if (decl->scls == SCTYPEDEF) {
          error(&tk.span, "unexpected typename %'tk (expected expression)", &tk);
-         ex = mkexpr(ESYM, tk.span, decl->t, .sym = NULL);
+         ex = mkexpr(ESYM, tk.span, decl->ty, .sym = NULL);
       } else {
-         ex = mkexpr(ESYM, tk.span, decl->t, .qual = decl->qual, .sym = decl);
+         ex = mkexpr(ESYM, tk.span, decl->ty, .qual = decl->qual, .sym = decl);
       }
       break;
 
+   /* might be unary op or primary expr */
    case '(':
-      if (!isdecltok(pr)) { /* ( expr ) */
+      if (!isdecltok(pr)) { /* (expr) */
          ex = commaexpr(pr);
          expect(pr, ')', NULL);
          break;
-      } else {
+      } else { /* (type) expr */
          struct declstate st = { DCASTEXPR };
          struct decl decl = pdecl(&st, pr);
          expect(pr, ')', NULL);
-         assert(decl.t.t);
+         assert(decl.ty.t);
          unops[nunop].span = tk.span;
-         unops[nunop].ty = decl.t;
+         unops[nunop].ty = decl.ty;
          if (++nunop >= arraylength(unops)) {
             ex = exprparse(pr, 999);
             break;
          }
          goto Unary;
       }
+   case TKWsizeof:
+      span = tk.span;
+      if (!match(pr, NULL, '(')) /* sizeof expr */
+         goto Unops;
+      else if (isdecltok(pr)) { /* sizeof (type) */
+         struct declstate st = { DCASTEXPR };
+         ty = pdecl(&st, pr).ty;
+      } else { /* sizeof (expr) */
+         ty = commaexpr(pr).ty;         
+      }
+      peek(pr, &tk);
+      if (expect(pr, ')', NULL))
+         joinspan(&span.ex, tk.span.ex);
+      sizeofcheck(&span, ty);
+      ex = mkexpr(ENUMLIT, span, mktype(targ_sizetype), .u = typesize(ty));
+      break;
    default:
       fatal(&tk.span, "expected expression (near %'tk)", &tk);
    }
@@ -739,6 +773,10 @@ Postfix:
             if (!islvalue(&ex))
                error(&span, "operand to unary & is not an lvalue");
             ex = mkexpr(EADDROF, span, mkptrtype(ex.ty, ex.qual), .sub = exprdup(pr, &ex));
+            break;
+         case TKWsizeof:
+            sizeofcheck(&span, ex.ty);
+            ex = mkexpr(ENUMLIT, span, mktype(targ_sizetype), .u = typesize(ex.ty));
             break;
          default: assert(0);
          }
@@ -1327,7 +1365,7 @@ block(struct parser *pr, struct function *fn)
                   decl.scls = SCAUTO;
                case SCAUTO:
                case SCREGISTER:
-                  switch (align = typealign(decl.t)) {
+                  switch (align = typealign(decl.ty)) {
                   case 1:  op = Oalloca1; break;
                   case 2:  op = Oalloca2; break;
                   case 4:  op = Oalloca4; break;
@@ -1335,7 +1373,7 @@ block(struct parser *pr, struct function *fn)
                   case 16: op = Oalloca16; break;
                   default: assert(!"align");
                   }
-                  siz = typesize(decl.t);
+                  siz = typesize(decl.ty);
                   nalloc = siz/align + ((siz&(align-1)) != 0);
                   EMITS {
                      decl.id = addinstr(fn,
@@ -1346,13 +1384,13 @@ block(struct parser *pr, struct function *fn)
                      put = 1;
                      ini = expr(pr);
                      pdecl(&st, pr);
-                     if (!assigncheck(decl.t, &ini)) {
+                     if (!assigncheck(decl.ty, &ini)) {
                         struct span span = decl.span;
                         joinspan(&span.ex, ini.span.ex);
                         error(&span, "cannot initialize '%ty' variable with '%ty'",
-                              decl.t, ini.ty);
+                              decl.ty, ini.ty);
                      }
-                     EMITS genstore(fn, decl.t, mkref(RTMP, decl.id), exprvalue(fn, &ini));
+                     EMITS genstore(fn, decl.ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
                   }
                   break;
                case SCTYPEDEF: break;
@@ -1377,10 +1415,10 @@ function(struct parser *pr, struct function *fn, const char **pnames, const stru
    for (int i = 0; i < td->nmemb; ++i) {
       if (pnames[i]) {
          uint siz, align, nalloc;
-         struct decl arg = { .t = td->param[i], .qual = tdgetqual(td->quals, i),
+         struct decl arg = { .ty = td->param[i], .qual = tdgetqual(td->quals, i),
                              .name = pnames[i], .scls = SCAUTO, .span = pspans[i] };
          enum op op;
-         switch (align = typealign(arg.t)) {
+         switch (align = typealign(arg.ty)) {
          case 1:  op = Oalloca1; break;
          case 2:  op = Oalloca2; break;
          case 4:  op = Oalloca4; break;
@@ -1388,12 +1426,12 @@ function(struct parser *pr, struct function *fn, const char **pnames, const stru
          case 16: op = Oalloca16; break;
          default: assert(!"align");
          }
-         siz = typesize(arg.t);
+         siz = typesize(arg.ty);
          nalloc = siz/align + ((siz&(align-1)) != 0);
          EMITS {
             struct instr alloca = { op, KPTR, mkintcon(fn, KI4, nalloc) };
             arg.id = addinstr(fn, alloca).idx;
-            genstore(fn, arg.t, mkref(RTMP, arg.id), mkref(RARG, i));
+            genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RARG, i));
          }
          putdecl(pr, &arg);
       } else {
@@ -1436,19 +1474,19 @@ buildagg(struct parser *pr, enum typetag tt, const char *name, int id)
             td.flexi = 0;
             error(&flexspan, "flexible array member is not at end of struct");
          }
-         if (!isunion && decl.t.t == TYARRAY && !typearrlen(decl.t)) {
+         if (!isunion && decl.ty.t == TYARRAY && !typearrlen(decl.ty)) {
             td.flexi = 1;
             flexspan = decl.span;
-         } else if (isincomplete(decl.t)) {
-            error(&decl.span, "field has incomplete type (%ty)", decl.t);
-         } else if (decl.t.t == TYFUNC)  {
-            error(&decl.span, "field has function type (%ty)", decl.t);
+         } else if (isincomplete(decl.ty)) {
+            error(&decl.span, "field has incomplete type (%ty)", decl.ty);
+         } else if (decl.ty.t == TYFUNC)  {
+            error(&decl.span, "field has function type (%ty)", decl.ty);
          }
-         if (decl.t.t) {
-            uint align = typealign(decl.t);
-            uint siz = typesize(decl.t);
+         if (decl.ty.t) {
+            uint align = typealign(decl.ty);
+            uint siz = typesize(decl.ty);
             uint off = isunion ? 0 : alignup(td.siz, align);
-            struct field f = { decl.name, decl.t, off };
+            struct field f = { decl.name, decl.ty, off };
             vpush(&fld, f);
             if (decl.qual) {
                td.anyconst |= decl.qual & QCONST;
@@ -1625,7 +1663,7 @@ declspec(struct declstate *st, struct parser *pr)
       case TKIDENT:
          if (!st->base.t && !arith && (decl = finddecl(pr, tk.ident))
              && decl->scls == SCTYPEDEF) {
-            st->base = decl->t;
+            st->base = decl->ty;
             break;
          }
          /* fallthru */
@@ -1854,8 +1892,8 @@ decltypes(struct parser *pr, struct decllist *list, const char **name, struct sp
                break;
             }
             decl = pdecl(&st, pr);
-            decl.t = typedecay(decl.t);
-            vpush(&params, decl.t);
+            decl.ty = typedecay(decl.ty);
+            vpush(&params, decl.ty);
             vpush(&names, decl.name);
             vpush(&spans, decl.span);
             if (decl.qual) {
@@ -1863,11 +1901,11 @@ decltypes(struct parser *pr, struct decllist *list, const char **name, struct sp
                while (qual.n < tdqualsiz(params.n)) vpush(&qual, 0);
                tdsetqual(qual.p, params.n-1, decl.qual);
             }
-            if (isincomplete(decl.t)) {
-               if (params.n > 1 || decl.t.t != TYVOID || decl.qual || decl.name) {
+            if (isincomplete(decl.ty)) {
+               if (params.n > 1 || decl.ty.t != TYVOID || decl.qual || decl.name) {
                   error(&decl.span,
                         "function parameter #%d has incomplete type (%tq)",
-                        params.n, decl.t, tdgetqual(qual.p, params.n-1));
+                        params.n, decl.ty, tdgetqual(qual.p, params.n-1));
                }
             }
             joinspan(&node.span.ex, tk.span.ex);
@@ -1918,25 +1956,25 @@ declarator(struct declstate *st, struct parser *pr) {
    for (l = list.prev; l != &list; l = l->prev) {
       switch (l->t) {
       case TYPTR:
-         decl.t = mkptrtype(decl.t, decl.qual);
+         decl.ty = mkptrtype(decl.ty, decl.qual);
          decl.qual = l->qual;
          break;
       case TYARRAY:
-         if (isincomplete(decl.t))
-            error(&l->span, "array has incomplete element type (%ty)", decl.t);
-         else if (decl.t.t == TYFUNC)
-            error(&l->span, "array has element has function type (%ty)", decl.t);
-         decl.t = mkarrtype(decl.t, decl.qual, l->len);
+         if (isincomplete(decl.ty))
+            error(&l->span, "array has incomplete element type (%ty)", decl.ty);
+         else if (decl.ty.t == TYFUNC)
+            error(&l->span, "array has element has function type (%ty)", decl.ty);
+         decl.ty = mkarrtype(decl.ty, decl.qual, l->len);
          decl.qual = 0;
          break;
       case TYFUNC:
-         if (decl.t.t == TYFUNC)
-            error(&decl.span, "function cannot return function type (%ty)", decl.t);
-         else if (decl.t.t == TYARRAY)
-            error(&decl.span, "function cannot return array type", decl.t);
-         else if (decl.t.t != TYVOID && isincomplete(decl.t))
-            error(&decl.span, "function cannot return incomplete type (%ty)", decl.t);
-         decl.t = mkfntype(decl.t, l->npar, l->param, l->pqual, l->kandr, l->variadic);
+         if (decl.ty.t == TYFUNC)
+            error(&decl.span, "function cannot return function type (%ty)", decl.ty);
+         else if (decl.ty.t == TYARRAY)
+            error(&decl.span, "function cannot return array type", decl.ty);
+         else if (decl.ty.t != TYVOID && isincomplete(decl.ty))
+            error(&decl.span, "function cannot return incomplete type (%ty)", decl.ty);
+         decl.ty = mkfntype(decl.ty, l->npar, l->param, l->pqual, l->kandr, l->variadic);
          if (l->param != declparamtmp) free(l->param);
          if (l->pqual != declpqualtmp) free(l->pqual);
          if (l->prev == &list && l->npar) { /* last */
@@ -2003,7 +2041,7 @@ pdecl(struct declstate *st, struct parser *pr) {
    if (iniallowed && match(pr, &tk, '=')) {
       st->varini = 1;
       return decl;
-   } else if (first && decl.t.t == TYFUNC && match(pr, &tk, '{')) {
+   } else if (first && decl.ty.t == TYFUNC && match(pr, &tk, '{')) {
       st->funcdef = 1;
       return decl;
    }
@@ -2054,11 +2092,11 @@ parse(struct parser *pr)
             }
             continue;
          }
-         if (decl.name) efmt("%s : %tq\n", decl.name, decl.t, decl.qual);
+         if (decl.name) efmt("%s : %tq\n", decl.name, decl.ty, decl.qual);
          if (st.funcdef) {
-            const struct typedata *td =  &typedata[decl.t.dat];
+            const struct typedata *td =  &typedata[decl.ty.dat];
             struct function fn = { pr->fnarena, decl.name, .globl = decl.scls != SCSTATIC };
-            fn.fnty = decl.t;
+            fn.fnty = decl.ty;
             fn.retty = td->ret;
             putdecl(pr, &decl);
             irinit(&fn);
@@ -2069,8 +2107,8 @@ parse(struct parser *pr)
             if (st.varini) {
                ini = expr(pr);
                pdecl(&st, pr);
-               if (!assigncheck(decl.t, &ini))
-                  error(&ini.span, "cannot initialize %ty with %ty", decl.t, ini.ty);
+               if (!assigncheck(decl.ty, &ini))
+                  error(&ini.span, "cannot initialize %ty with %ty", decl.ty, ini.ty);
                if (!eval(&ini, EVSTATICINI))
                   error(&ini.span, "cannot evaluate expression statically");
             }

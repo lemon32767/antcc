@@ -168,7 +168,7 @@ enum storageclass {
 };
 
 struct decl {
-   union type t;
+   union type ty;
    uchar scls;
    uchar qual;
    ushort align;
