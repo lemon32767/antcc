@@ -49,11 +49,11 @@ main(int argc, char **argv)
     const char *file, *targ;
 
     atexit(flushstd);
-    if (argc < 2) {
+    optparse(&file, &targ, argv);
+    if (!file) {
         efmt("usage: %s [options] <file>\n", *argv);
         return 1;
     }
-    optparse(&file, &targ, argv);
 
     targ_init(targ ? targ : "amd64-sysv");
     initparser(&pr, file);

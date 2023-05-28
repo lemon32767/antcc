@@ -1,5 +1,5 @@
 /* OP     NARG */
-_(mov,      1)
+_(copy,     1)
 _(neg,      1)
 _(not,      1)
 _(cvtf4s,   1)

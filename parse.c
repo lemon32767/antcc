@@ -918,7 +918,7 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union irref ref)
 {
    enum irclass kto = type2cls[to], kfrom = type2cls[from];
    struct instr ins = {0};
-   if (kto == kfrom) return ref;
+   if (kto == kfrom && to != TYBOOL) return ref;
    if (ref.t == RICON && kto < KF4) return ref;
 
    ins.cls = kto;
@@ -927,6 +927,7 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union irref ref)
       if (kto == KPTR) kto = siz2intcls[cls2siz[kto]];
       if (kfrom == KPTR) kfrom = siz2intcls[cls2siz[kfrom]];
       if (kisflt(kto) && kfrom == KI4) ins.op = issignedt(from) ? Ocvts4f : Ocvtu4f;
+      else if (to == TYBOOL && kisflt(kfrom)) ins.op = Oneq, ins.r = mkfltcon(fn, kfrom, 0.0);
       else if (kisflt(kto) && kfrom == KI8) ins.op = issignedt(from) ? Ocvts8f : Ocvtu8f;
       else if (kto == KF8 && kfrom == KF4) ins.op = Ocvtf4f8;
       else if (kto == KF4 && kfrom == KF8) ins.op = Ocvtf8f4;
@@ -934,9 +935,10 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union irref ref)
       else if (kfrom == KF8) ins.op = issignedt(to) ? Ocvtf8s : Ocvtf8u;
       else assert(0);
    } else {
-      if (kfrom == KI4 && issignedt(from)) ins.op = Oexts4;
+      if (to == TYBOOL) ins.op = Oneq, ins.r = mkref(RICON, 0);
+      else if (kfrom == KI4 && issignedt(from)) ins.op = Oexts4;
       else if (kfrom == KI4) ins.op = Oextu4;
-      else ins.op = Omov;
+      else ins.op = Ocopy;
    }
    return addinstr(fn, ins);
 }
@@ -1621,6 +1623,7 @@ declspec(struct declstate *st, struct parser *pr)
       case TKWbool:
          if (arith & KBOOL) goto Dup;
          arith |= KBOOL;
+         break;
       case TKWchar:
          if (arith & KCHAR) {
          Dup:

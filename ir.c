@@ -18,7 +18,7 @@ irinit(struct function *fn)
    ninstr = 0;
    vinit(&calls, callsbuf, arraylength(callsbuf));
    if (!type2cls[TYINT]) {
-      for (int i = TYCHAR; i <= TYUVLONG; ++i) {
+      for (int i = TYBOOL; i <= TYUVLONG; ++i) {
          int siz = targ_primsizes[i];
          type2cls[i] = siz < 8 ? KI4 : KI8;
       }

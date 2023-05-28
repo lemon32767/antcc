@@ -34,6 +34,11 @@ int diff(struct f *x, struct f *y)
     return x - y;
 }
 
+_Bool narrow(int x)
+{
+    return (float) x;
+}
+
 #define xx 2
 
 int waaa[xx == 0 ?  'Z'

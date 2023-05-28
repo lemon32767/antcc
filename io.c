@@ -171,6 +171,7 @@ pritypebefore(struct wbuf *buf, union type ty, int qual)
    int n;
    switch (ty.t) {
    case TYVOID:   s = "void"; Prim: n = bfmt(buf, "%s", s); return n + priquals(buf, qual);
+   case TYBOOL:   s = "bool"; goto Prim;
    case TYCHAR:   s = "char"; goto Prim;
    case TYSCHAR:  s = "signed char"; goto Prim;
    case TYUCHAR:  s = "unsigned char"; goto Prim;
