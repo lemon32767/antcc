@@ -1,6 +1,7 @@
 #include "common.h"
 #include "parse.h"
 #include <stdlib.h>
+#include <unistd.h>
 
 struct option ccopt;
 
@@ -42,6 +43,16 @@ optparse(const char **file, const char **targ, char **args)
     }
 }
 
+static void
+detectcolor(void)
+{
+    const char *s;
+    if (!isatty(STDERR_FILENO)
+     || ((s = getenv("NO_COLOR")) && *s)
+     || ((s = getenv("TERM")) && !strcmp(s, "dumb")))
+        ccopt.nocolor = 1;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -49,6 +60,7 @@ main(int argc, char **argv)
     const char *file, *targ;
 
     atexit(flushstd);
+    detectcolor();
     optparse(&file, &targ, argv);
     if (!file) {
         efmt("usage: %s [options] <file>\n", *argv);
