@@ -177,19 +177,6 @@ struct decl {
    int id;
 };
 
-struct env {
-   struct env *up;
-   struct decls {
-     struct decls *prev;
-     struct decl decl;
-   } *decls;
-   struct tagged {
-     struct tagged *prev;
-     struct span span;
-     union type t;
-   } *tagged;
-};
-
 enum evalmode {
    EVINTCONST,
    EVARITH,

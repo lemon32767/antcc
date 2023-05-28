@@ -2,7 +2,6 @@
 #include "common.h"
 #include "ir.h"
 
-static struct env toplevel;
 static struct arena *tlarena;
 
 #define peek(Pr,Tk) lexpeek(Pr,Tk)
@@ -99,12 +98,31 @@ static struct decl pdecl(struct declstate *st, struct parser *pr);
 /* ENV */
 /*******/
 
+static struct decl envdeclsbuf[1<<10];
+static vec_of(struct decl) envdecls = VINIT(envdeclsbuf, arraylength(envdeclsbuf));
+struct tagged {
+   union type ty;
+   struct span span;
+};
+static struct tagged envtaggedbuf[1<<10];
+static vec_of(struct tagged) envtagged = VINIT(envtaggedbuf, arraylength(envtaggedbuf));
+struct env {
+   struct env *up;
+   /* list of decls is implicitly envdecls[decl..ndecl] */
+   ushort decl, ndecl;
+   /* ditto for envtagged[] */
+   ushort tagged, ntagged;
+};
+static struct env toplevel;
+
 static void
-envdown(struct parser *pr)
+envdown(struct parser *pr, struct env *e)
 {
-   struct env *e = alloc(&pr->fnarena, sizeof *e, 0);
-   e->decls = NULL;
-   e->tagged = NULL;
+   assert(pr->env->decl + pr->env->ndecl == envdecls.n);
+   assert(pr->env->tagged + pr->env->ntagged == envtagged.n);
+   e->decl = envdecls.n;
+   e->tagged = envtagged.n;
+   e->ndecl = e->ntagged = 0;
    e->up = pr->env;
    pr->env = e;
 }
@@ -112,10 +130,47 @@ envdown(struct parser *pr)
 static void
 envup(struct parser *pr)
 {
-   assert(pr->env->up);
-   pr->env = pr->env->up;
+   struct env *env = pr->env;
+   assert(env->decl + env->ndecl == envdecls.n);
+   envdecls.n -= env->ndecl;
+   assert(env->up);
+   pr->env = env->up;
 }
 
+static struct decl *
+envadddecl(struct env *env, const struct decl *d)
+{
+   assert(env->decl + env->ndecl == envdecls.n);
+   vpush(&envdecls, *d);
+   ++env->ndecl;
+   return &envdecls.p[envdecls.n - 1];
+}
+
+static inline bool
+enviterdecl(struct decl **d, struct env *env)
+{
+   if (!*d) *d = &envdecls.p[env->decl];
+   else ++*d;
+   return *d && *d < &envdecls.p[env->decl + env->ndecl];
+}
+
+static struct tagged *
+envaddtagged(struct env *env, union type ty, const struct span *span)
+{
+   struct tagged tagged = { ty, *span };
+   assert(env->tagged + env->ntagged == envtagged.n);
+   vpush(&envtagged, tagged);
+   ++env->ntagged;
+   return &envtagged.p[envtagged.n - 1];
+}
+
+static inline bool
+envitertagged(struct tagged **l, struct env *env)
+{
+   if (!*l) *l = &envtagged.p[env->tagged];
+   else ++*l;
+   return *l && *l < &envtagged.p[env->tagged + env->ndecl];
+}
 
 static bool
 redeclarationok(const struct decl *old, const struct decl *new)
@@ -131,30 +186,26 @@ redeclarationok(const struct decl *old, const struct decl *new)
 static struct decl *
 putdecl(struct parser *pr, const struct decl *decl)
 {
-   struct decls *l;
-   for (l = pr->env->decls; l; l = l->prev) {
-      if (decl->name == l->decl.name && !redeclarationok(&l->decl, decl)) {
+   struct decl *l;
+   for (l = NULL; enviterdecl(&l, pr->env);) {
+      if (decl->name == l->name && !redeclarationok(l, decl)) {
          error(&decl->span, "incompatible redeclaration of '%s'", decl->name);
-         note(&l->decl.span, "previously declared here");
+         note(&l->span, "previously declared here");
       }
    }
-   l = alloc(pr->env->up ? &pr->fnarena : &tlarena, sizeof *l, 0);
-   l->decl = *decl;
-   l->prev = pr->env->decls;
-   pr->env->decls = l;
-   return &l->decl;
+   l = envadddecl(pr->env, decl);
+   return l;
 }
 
 static struct decl *
 finddecl(struct parser *pr, const char *name)
 {
    struct env *e;
-   struct decls *l;
+   struct decl *l;
    for (e = pr->env; e; e = e->up) {
-      for (l = e->decls; l; l = l->prev) {
-         if (name == l->decl.name) {
-            return &l->decl;
-         }
+      for (l = NULL; enviterdecl(&l, e);) {
+         if (name == l->name)
+            return l;
       }
    }
    return NULL;
@@ -167,24 +218,20 @@ gettagged(struct parser *pr, struct span *span, enum typetag tt, const char *nam
    struct tagged *l;
    struct typedata td = {0};
    for (e = pr->env; e; e = e->up) {
-      for (l = e->tagged; l; l = l->prev) {
-         if (name == ttypenames[typedata[l->t.dat].id]) {
+      for (l = NULL; envitertagged(&l, e);) {
+         if (name == ttypenames[typedata[l->ty.dat].id]) {
             if (dodef && e != pr->env)
                goto Break2;
             *span = l->span;
-            return l->t;
+            return l->ty;
          }
       }
    }
 Break2:
    if (tt == TYENUM)
       return mktype(0);
-   l = alloc(pr->env->up ? &pr->fnarena : &tlarena, sizeof *l, 0);
-   l->prev = pr->env->tagged;
-   pr->env->tagged = l;
-   l->span = *span;
    td.t = tt;
-   return l->t = mktagtype(name, &td);
+   return envaddtagged(pr->env, mktagtype(name, &td), span)->ty;
 }
 
 static union type
@@ -192,18 +239,14 @@ deftagged(struct parser *pr, struct span *span, enum typetag tt, const char *nam
 {
    struct tagged *l;
    struct typedata td = {0};
-   for (l = pr->env->tagged; l; l = l->prev) {
-      if (name == ttypenames[typedata[l->t.dat].id]) {
+   for (l = NULL; envitertagged(&l, pr->env);) {
+      if (name == ttypenames[typedata[l->ty.dat].id]) {
          *span = l->span;
-         return l->t;
+         return l->ty;
       }
    }
-   l = alloc(pr->env->up ? &pr->fnarena : &tlarena, sizeof *l, 0);
-   l->prev = pr->env->tagged;
-   pr->env->tagged = l;
-   l->span = *span;
    td.t = tt;
-   return l->t = mktagtype(name, &td);
+   return envaddtagged(pr->env, mktagtype(name, &td), span)->ty;
 }
 
 /*******************/
@@ -1245,9 +1288,12 @@ stmt(struct parser *pr, struct function *fn)
    switch (peek(pr, NULL)) {
    case '{':
       lex(pr, NULL);
-      envdown(pr);
-      block(pr, fn);
-      envup(pr);
+      {
+         struct env e;
+         envdown(pr, &e);
+         block(pr, fn);
+         envup(pr);
+      }
       break;
    case ';':
       lex(pr, NULL);
@@ -1413,7 +1459,8 @@ function(struct parser *pr, struct function *fn, const char **pnames, const stru
 {
    const struct typedata *td = &typedata[fn->fnty.dat];
    const bool doemit = fn->curblk;
-   envdown(pr);
+   struct env e;
+   envdown(pr, &e);
    for (int i = 0; i < td->nmemb; ++i) {
       if (pnames[i]) {
          uint siz, align, nalloc;
