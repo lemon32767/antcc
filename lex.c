@@ -43,13 +43,13 @@ identkeyword(struct token *tk, const char *s, int len)
       else if (cmp > 0) h = i - 1;
       else if (kwtab[i].cstd <= ccopt.cstd) {
          tk->t = kwtab[i].t;
-         tk->ident = kwtab[i].s;
+         tk->s = kwtab[i].s;
          return;
       } else break;
    }
 ident:
    tk->t = TKIDENT;
-   tk->ident = intern(s);
+   tk->s = intern(s);
 }
 
 static int
@@ -141,61 +141,90 @@ aissep(int c) {
    return 0;
 }
 
-static void
-strtonum(struct token *tk, const char *s)
-{
-   extern uvlong strtoull(const char *, char **, int);
-   extern double strtod(const char *, char **);
-   char *sx; /*suffix*/
 
-   tk->ty = TYXXX;
-   if (strchr(s, '.')) { /* float literal */
-   Float:
-      tk->f = strtod(s, &sx);
-      if (sx == s)
-         return;
-      if (!*sx)
-         tk->ty = TYDOUBLE;
-      else if ((sx[0]|0x20) == 'f' && !sx[1]) {
-         tk->ty = TYFLOAT;
-         tk->f = (float) tk->f;
-      } else tk->ty = TYXXX;
+enum typetag
+parsenumlit(uvlong *outi, double *outf, const struct token *tk, bool ispp)
+{
+   if (tk->t == TKCHRLIT) {
+      uvlong n = 0;
+      for (int i = 0; i < tk->len; ++i)
+         n = n << 8 | (uchar)tk->s[i];
+      if (outi) *outi = n;
+      return TYINT;
+   } else if (memchr(tk->s, '.', tk->len)) {
+      extern double strtod(const char *, char **);
+      double f;
+      char buf[80], *suffix;
+   Float: /* float literal */
+      assert(tk->len < sizeof buf - 1 && "numlit too big");
+      memcpy(buf, tk->s, tk->len);
+      buf[tk->len] = 0;
+      f = strtod(buf, &suffix);
+      if (suffix == buf)
+         return 0;
+      if (!*suffix) {
+         if (outf) *outf = f;
+         return TYDOUBLE;
+      } else if ((suffix[0]|0x20) == 'f' && !suffix[1]) {
+         if (outf) *outf = f;
+         return TYFLOAT;
+      }
+      return 0;
    } else { /* int literal */
       static uvlong max4typ[TYUVLONG-TYINT+1];
-      enum typetag t;
-      bool u = 0, dec = s[0] != '0';
-      bool c99 = ccopt.cstd >= STDC99;
-
-      tk->u = strtoull(s, &sx, 0);
-      if (sx == s)
-         return;
+      uvlong n = 0;
+      int base = 10, nsx;
+      bool dec, u = 0, c99 = ccopt.cstd >= STDC99;
+      enum typetag ty = 0;
+      const char *sx; /*suffix*/
+      char c;
 
       if (!max4typ[0])
-         for (t = TYINT; t <= TYUVLONG; ++t)
-            max4typ[t-TYINT] = ((1ull << (8*targ_primsizes[t]-1))-1) << isunsignedt(t) | 1;
+         for (ty = TYINT; ty <= TYUVLONG; ++ty)
+            max4typ[ty-TYINT] = ((1ull << (8*targ_primsizes[ty]-1))-1) << isunsignedt(ty) | 1;
 
-      if (!*sx) /* '' */ {}
-      else if ((sx[0]|0x20) == 'u') {
-         u = 1;
-         if (!sx[1]) /* 'u' */ {}
-         else if ((sx[1]|0x20) == 'l') {
-            if (!sx[2]) /* 'ul' */ goto L;
-            if (c99 && sx[1] == sx[2] && !sx[3]) /* 'ull' */ goto LL;
-            return;
-         } else return;
-      } else if ((sx[0]|0x20) == 'l') {
-         if (!sx[1]) /* 'l' */ goto L;
-         if ((sx[1]|0x20) == 'u' && !sx[2]) /* 'lu' */ { u=1; goto L; }
-         if (c99 && sx[1] == sx[0]) {
-            if (!sx[2]) /* 'll' */ goto LL;
-            if ((sx[2]|0x20) == 'u' && !sx[3]) /* 'llu' */ { u=1; goto LL; }
+      sx = tk->s;
+      if (tk->len > 2 && sx[0] == '0') {
+         if ((sx[1]|32) == 'x') sx += 2, base = 16; /* 0x.. */
+         else if ((sx[1]|32) == 'b') sx += 2, base = 2; /* 0b.. */
+         else base = 8; /* 0.. */
+      }
+      for (; sx < tk->s + tk->len; ++sx) {
+         if (base < 16) {
+            if (!in_range(c = *sx, '0', '0'+base-1)) break;
+            n = n * base + c - '0';
+         } else {
+            n *= base;
+            if (in_range(c = *sx, '0', '9')) n += c - '0';
+            else if (in_range(c|32, 'a', 'f')) n += 0xa + (c|32) - 'a';
+            else break;
          }
-         return;
-      } else if ((sx[0]|0x20) == 'e' || (sx[0]|0x20) == 'p')
-         goto Float;
-      else return;
+      }
+      dec = base == 10;
+      nsx = tk->len - (sx - tk->s);
 
-#define I(T) if (tk->u <= max4typ[T - TYINT]) { t = T; goto Ok; }
+      if (nsx == 0) /* '' */ {}
+      else if ((sx[0]|32) == 'u') {
+         u = 1;
+         if (nsx == 1) /* 'u' */ {}
+         else if ((sx[1]|32) == 'l') {
+            if (nsx == 2) /* 'ul' */ goto L;
+            if (c99 && sx[1] == sx[2] && nsx == 3) /* 'ull' */ goto LL;
+            return 0;
+         } else return 0;
+      } else if ((sx[0]|32) == 'l') {
+         if (nsx == 1) /* 'l' */ goto L;
+         if ((sx[1]|32) == 'u' && nsx == 2) /* 'lu' */ { u=1; goto L; }
+         if (c99 && sx[1] == sx[0]) {
+            if (nsx == 2) /* 'll' */ goto LL;
+            if ((sx[2]|32) == 'u' && nsx == 3) /* 'llu' */ { u=1; goto LL; }
+         }
+         return 0;
+      } else if ((sx[0]|32) == 'e' || (sx[0]|32) == 'p')
+         goto Float;
+      else return 0;
+
+#define I(T) if (n <= max4typ[T - TYINT]) { ty = T; goto Ok; }
       I(TYINT)
       if (u || !dec) I(TYUINT)
    L:
@@ -206,12 +235,19 @@ strtonum(struct token *tk, const char *s)
          I(TYVLONG)
          if (u || !dec) I(TYUVLONG)
       }
+      if (ispp) { ty = TYUVLONG; goto Ok; }
 #undef I
       /* too big */
-      return;
+      if (outi) *outi = n;
+      return 0;
    Ok:
-      if (u && issignedt(t)) ++t; /* make unsigned */
-      tk->ty = t;
+      if (u && issignedt(ty)) ++ty; /* make unsigned */
+      if (outi) *outi = n;
+      if (ispp) {
+         if (u) return TYUVLONG;
+         else if (n <= max4typ[TYVLONG-TYINT]) return TYVLONG;
+      }
+      return ty;
    }
 }
 
@@ -222,7 +258,8 @@ readstrchrlit(struct parser *pr, struct token *tk, char delim)
    uchar tmp[80];
    vec_of(uchar) b = VINIT(tmp, sizeof tmp);
    struct span span = {0};
-   uint n, idx = pr->chridx;
+   uint n, beginoff, idx;
+   beginoff = idx = pr->chridx;
 
    while ((c = next(pr)) != delim) {
       if (c == '\n' || c == TKEOF) {
@@ -269,7 +306,7 @@ readstrchrlit(struct parser *pr, struct token *tk, char delim)
                }
                if (n > 0377) {
                   span.sl.len = pr->chridx - span.sl.off;
-                  error(&span, "hex escape sequence out of range");
+                  error(&span, "octal escape sequence out of range");
                }
                c = n;
                break;
@@ -283,10 +320,17 @@ readstrchrlit(struct parser *pr, struct token *tk, char delim)
       idx = pr->chridx;;
    }
    if (delim == '"') {
-      vpush(&b, 0);
       tk->t = TKSTRLIT;
-      tk->s.p = alloc(&pr->exarena, b.n, 1);
-      memcpy(tk->s.p, b.p, tk->s.n = b.n-1);
+      tk->len = b.n;
+      if (pr->chridx - beginoff == tk->len + 1) {
+         tk->litlit = 1;
+         tk->s = (char *)&pr->dat[beginoff];
+      } else {
+         tk->litlit = 0;
+         vpush(&b, 0);
+         tk->s = alloc(&pr->exarena, b.n, 1);
+         memcpy((char *)tk->s, b.p, b.n);
+      }
    } else {
       if (b.n == 0) {
          span.sl = (struct span0) { idx, pr->chridx - idx, pr->fileid };
@@ -295,11 +339,16 @@ readstrchrlit(struct parser *pr, struct token *tk, char delim)
          span.sl = (struct span0) { idx, pr->chridx - idx, pr->fileid };
          error(&span, "multicharacter literal too long");
       }
-      tk->t = TKNUMLIT;
-      tk->ty = TYINT;
-      tk->u = 0;
-      for (i = 0; i < b.n; ++i)
-         tk->u = tk->u<<8 | b.p[i];
+      tk->t = TKCHRLIT;
+      tk->len = b.n;
+      if (pr->chridx - beginoff == tk->len + 1) {
+         tk->litlit = 1;
+         tk->s = (char *)&pr->dat[beginoff];
+      } else {
+         tk->litlit = 0;
+         tk->s = alloc(&pr->exarena, tk->len, 1);
+         memcpy((char *)tk->s, b.p, tk->len);
+      }
    }
    vfree(&b);
 }
@@ -414,7 +463,12 @@ Begin:
             tmp[n++] = next(pr);
          }
          tmp[n] = 0;
-         strtonum(tk, tmp);
+         tk->len = n;
+         if (n == pr->chridx - idx) tk->s = (char *)&pr->dat[idx];
+         else {
+            tk->s = alloc(&pr->exarena, n, 1);
+            memcpy((char *)tk->s, tmp, n);
+         }
          RET(TKNUMLIT);
       } else if (c == '_' || aisalpha(c)) {
          char tmp[70];
@@ -435,9 +489,7 @@ End:
    tk->span.sl.file = pr->fileid;
    tk->span.sl.off = idx;
    tk->span.sl.len = pr->chridx - idx;
-   tk->span.ex.file = pr->fileid;
-   tk->span.ex.off = idx;
-   tk->span.ex.len = pr->chridx - idx;
+   tk->span.ex = tk->span.sl;
    return tk->t;
 #undef RET
 }
@@ -478,23 +530,12 @@ freemac(struct macro *mac)
 static bool
 tokequ(const struct token *a, const struct token *b)
 {
-   char tmpbuf[100];
-   struct wbuf tmp = MEMBUF(tmpbuf, sizeof tmpbuf);
    if (a->t != b->t) return 0;
-   if (a->t == TKNUMLIT) {
-      const char *s1 = tmp.buf, *s2;
-      int n1, n2;
-
-      if (a->ty != b->ty) return 0;
-      n1 = bfmt(&tmp, "%tk", a);
-      s2 = tmp.buf + tmp.len;
-      n2 = bfmt(&tmp, "%tk", b);
-      if (tmp.err) return 0;
-      return n1 == n2 && !memcmp(s1, s2, n1);
+   if (a->t == TKNUMLIT || a->t == TKSTRLIT || a->t == TKCHRLIT) {
+      if (a->len != b->len) return 0;
+      return !memcmp(a->s, b->s, a->len);
    } else if (a->t == TKIDENT) {
-      return a->ident == b->ident;
-   } else if (a->t == TKSTRLIT) {
-      return a->s.n == b->s.n && !memcmp(a->s.p, b->s.p, a->s.n);
+      return a->s == b->s;
    }
    return 1;
 }
@@ -577,7 +618,7 @@ ppdefine(struct parser *pr)
       ppskipline(pr);
       return;
    }
-   mac.name = tk0.ident;
+   mac.name = tk0.s;
    mac.span = tk0.span.sl;
    
    if (peek(pr, 0) == '(') {
@@ -641,6 +682,7 @@ expr(struct parser *pr, bool *pu, int prec)
 {
    vlong x, y;
    struct token tk;
+   enum typetag ty;
    int opprec;
    char unops[16];
    int nunop = 0;
@@ -664,15 +706,16 @@ Unary:
       }
       break;
    case TKNUMLIT:
-      if (!tk.ty) {
+   case TKCHRLIT:
+      ty = parsenumlit((uvlong *)&x, NULL, &tk, 1);
+      if (!ty) {
          error(&tk.span, "bad number literal");
          goto Err;
-      } else if (isfltt(tk.ty)) {
+      } else if (isfltt(ty)) {
          error(&tk.span, "float literal in preprocessor expresion");
          goto Err;
       }
-      x = tk.i;
-      xu = isunsignedt(tk.ty);
+      xu = isunsignedt(ty);
       break;
    default:
       if (in_range(tk.t, TKWBEGIN_, TKWEND_)) {
@@ -850,7 +893,7 @@ tryexpand(struct parser *pr, const struct token *tk)
    struct macrostack *l;
    int macidx, i;
 
-   if (!isppident(*tk) || !(mac = findmac(tk->ident)))
+   if (!isppident(*tk) || !(mac = findmac(tk->s)))
       return 0;
 
    if (!inimstk) {
@@ -937,7 +980,7 @@ findppcmd(const struct token *tk)
       "warning",
    };
    int l = 0, h = arraylength(tab) - 1, i, cmp;
-   const char *s = tk->ident;
+   const char *s = tk->s;
 
    if (tk->t == TKWif) return PPIF;
    if (tk->t == TKWelse) return PPELSE;

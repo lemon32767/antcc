@@ -1,6 +1,6 @@
 /* coment */
 
-#if 1+1 < (-2*2)
+#if 1+1 < (-2*'a')
 wawa
 #elif 9<<1
 #define wow 3
@@ -16,13 +16,15 @@ int add (int x, int y) {
 struct foo {struct foo *foo;};
 
 int abs(int x){
-    return (x ^ x >> 31) - (x >> 31);
+    return (x ^ x >> 3\
+1) - (x >> 31);
 }
 
 int popcnt(unsigned x) {
     int n = 0;
     while (x) x >>= 1, n++;
-    return n + sizeof &"á"[0];
+    return n + sizeof "ab\r\
+c";
 }
 
 struct f {

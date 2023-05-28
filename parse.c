@@ -36,7 +36,7 @@ isdecltok(struct parser *pr)
    case TKWdouble:
       return 1;
    case TKIDENT:
-      return (decl = finddecl(pr, tk.ident)) && decl->scls == SCTYPEDEF;
+      return (decl = finddecl(pr, tk.s)) && decl->scls == SCTYPEDEF;
    }
    return 0;
 }
@@ -665,16 +665,18 @@ Unary:
 
    /* base exprs */
    case TKNUMLIT:
-      if (!tk.ty)
-         error(&tk.span, "invalid number literal %'tk", &tk);
-      ex = mkexpr(ENUMLIT, tk.span, mktype(tk.ty ? tk.ty : TYINT), .u = tk.u);
+   case TKCHRLIT:
+      ex = mkexpr(ENUMLIT, tk.span, mktype(0), );
+      if (!(ty.t = parsenumlit(&ex.u, &ex.f, &tk, 0)))
+         error(&tk.span, "bad number literal %'tk", &tk);
+      ex.ty.t = ty.t ? ty.t : TYINT;
       break;
    case TKSTRLIT:
-      ++tk.s.n;
-      ex = mkexpr(ESTRLIT, tk.span, mkarrtype(mktype(TYCHAR), 0, tk.s.n), .s = tk.s);
+      ex = mkexpr(ESTRLIT, tk.span,
+                  mkarrtype(mktype(TYCHAR), 0, tk.len+1), .s = (uchar *)tk.s);
       break;
    case TKIDENT:
-      decl = finddecl(pr, tk.ident);
+      decl = finddecl(pr, tk.s);
       if (!decl) {
          error(&tk.span, "undeclared identifier %'tk", &tk);
          ex = mkexpr(ESYM, tk.span, mktype(TYINT), .sym = NULL);
@@ -1605,7 +1607,7 @@ tagtype(struct parser *pr, enum toktag kind)
    const char *tag = NULL;
 
    if (match(pr, &tk, TKIDENT))
-      tag = tk.ident;
+      tag = tk.s;
    span = tk.span;
    if (!match(pr, NULL, '{')) {
       if (!tag) {
@@ -1727,7 +1729,7 @@ declspec(struct declstate *st, struct parser *pr)
          joinspan(&span.ex, tk.span.ex);
          goto End;
       case TKIDENT:
-         if (!st->base.t && !arith && (decl = finddecl(pr, tk.ident))
+         if (!st->base.t && !arith && (decl = finddecl(pr, tk.s))
              && decl->scls == SCTYPEDEF) {
             st->base = decl->ty;
             break;
@@ -1897,7 +1899,7 @@ decltypes(struct parser *pr, struct decllist *list, const char **name, struct sp
       if (!name)
          error(&tk.span, "unexpected identifier in type name");
       else {
-         *name = tk.ident;
+         *name = tk.s;
          *span = tk.span;
       }
       lex(pr, &tk);

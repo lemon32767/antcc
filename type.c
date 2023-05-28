@@ -80,7 +80,7 @@ interntd(const struct typedata *td)
       if (!slot->t) {
          uint nmemb;
          static struct arena *datarena;
-         if (!datarena) { 
+         if (!datarena) {
             enum { N = 1<<12 };
             static union { char m[sizeof(struct arena) + N]; struct arena *_align; } amem;
             datarena = (void *)amem.m, datarena->cap = N;
@@ -270,9 +270,9 @@ cvtarith(union type a, union type b)
    if (issigned(a) == issigned(b)) {
       /* when both are integers with same signage, choose type with greatest rank */
       return a.t > b.t ? a : b;
-   } 
+   }
    /* if the signed type can represent all values of the unsigned type,
-    * choose it, otherwise choose its corresponding unsigned type */ 
+    * choose it, otherwise choose its corresponding unsigned type */
    /* so long long + unsigned = long long;
     * but long long + unsigned long = unsigned long long */
    if (issigned(a)) {

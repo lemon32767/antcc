@@ -437,17 +437,21 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
                n += bwriteS(buf, "\?\?\?");
                break;
             case TKNUMLIT:
-               s = (const char *)(getfile(tok->span.sl.file)->p + tok->span.sl.off);
                if (quote) n += bputc(buf, '`');
-               for (i = tok->span.sl.len; i--; ++s)
-                  if (*s != '\\' && *s != '\n') n += bputc(buf, *s);
+               n += bfmt(buf, "%S", tok->s, tok->len);
                if (quote) n += bputc(buf, '\'');
                break;
+            case TKCHRLIT:
+               n += bputc(buf, '\'');
+               for (int i = 0; i < tok->len; ++i)
+                  n += putquoted(buf, tok->s[i], '\'', i < tok->len - 1 ? tok->s[i+1] : -1);
+               n += bputc(buf, '\'');
+               break;
             case TKSTRLIT:
-               n += bfmt(buf, "%'S", tok->s.p, tok->s.n-1);
+               n += bfmt(buf, "%'S", tok->s, tok->len);
                break;
             case TKIDENT:
-               n += bfmt(buf, "`%s'", tok->ident);
+               n += bfmt(buf, "`%s'", tok->s);
                break;
             case TKEOF:
                n += bwriteS(buf, "<end-of-file>");
@@ -478,7 +482,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             default:
                if (quote) n += bputc(buf, '`');
                if (in_range(tok->t, TKWBEGIN_, TKWEND_)) {
-                  n += bfmt(buf, "%s", tok->ident);
+                  n += bfmt(buf, "%s", tok->s);
                } else if (aisprint(tok->t)) {
                   n += bputc(buf, tok->t);
                } else {
