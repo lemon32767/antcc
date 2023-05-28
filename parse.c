@@ -133,6 +133,7 @@ envup(struct parser *pr)
    struct env *env = pr->env;
    assert(env->decl + env->ndecl == envdecls.n);
    envdecls.n -= env->ndecl;
+   envtagged.n -= env->ntagged;
    assert(env->up);
    pr->env = env->up;
 }
@@ -146,12 +147,16 @@ envadddecl(struct env *env, const struct decl *d)
    return &envdecls.p[envdecls.n - 1];
 }
 
+/* iters in reversed order of insertion (most to least recent) */
+/* use like so: for (d = NULL; enviterdecl(&d, env);) ... */
 static inline bool
 enviterdecl(struct decl **d, struct env *env)
 {
-   if (!*d) *d = &envdecls.p[env->decl];
-   else ++*d;
-   return *d && *d < &envdecls.p[env->decl + env->ndecl];
+   if (!env->ndecl) return 0;
+   if (!*d) *d = &envdecls.p[env->decl + env->ndecl - 1];
+   else if (*d == &envdecls.p[env->decl]) return 0;
+   else --*d;
+   return 1;
 }
 
 static struct tagged *
@@ -167,9 +172,11 @@ envaddtagged(struct env *env, union type ty, const struct span *span)
 static inline bool
 envitertagged(struct tagged **l, struct env *env)
 {
-   if (!*l) *l = &envtagged.p[env->tagged];
-   else ++*l;
-   return *l && *l < &envtagged.p[env->tagged + env->ndecl];
+   if (!env->ntagged) return 0;
+   if (!*l) *l = &envtagged.p[env->tagged + env->ntagged - 1];
+   else if (*l == &envtagged.p[env->tagged]) return 0;
+   else --*l;
+   return 1;
 }
 
 static bool
@@ -706,7 +713,7 @@ Unary:
          struct declstate st = { DCASTEXPR };
          ty = pdecl(&st, pr).ty;
       } else { /* sizeof (expr) */
-         ty = commaexpr(pr).ty;         
+         ty = commaexpr(pr).ty;
       }
       peek(pr, &tk);
       if (expect(pr, ')', NULL))
@@ -1405,6 +1412,7 @@ block(struct parser *pr, struct function *fn)
             if (decl.name) {
                static int staticid;
                bool put = 0;
+
                switch (decl.scls) {
                case SCSTATIC:
                   decl.id = ++staticid;
@@ -1413,6 +1421,13 @@ block(struct parser *pr, struct function *fn)
                   decl.scls = SCAUTO;
                case SCAUTO:
                case SCREGISTER:
+                  if (isincomplete(decl.ty) || decl.ty.t == TYFUNC) {
+                     error(&decl.span,
+                           "declaring variable '%s' with %s type '%ty'",
+                           decl.name, decl.ty.t == TYFUNC ? "function" : "incomplete",
+                           decl.ty);
+                     goto Err;
+                  }
                   switch (align = typealign(decl.ty)) {
                   case 1:  op = Oalloca1; break;
                   case 2:  op = Oalloca2; break;
@@ -1444,6 +1459,7 @@ block(struct parser *pr, struct function *fn)
                case SCTYPEDEF: break;
                default: assert(0);
                }
+            Err:
                if (!put) putdecl(pr, &decl);
             }
          } while (0);

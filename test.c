@@ -13,6 +13,8 @@ int add (int x, int y) {
     return x + y + *glob;
 }
 
+struct foo {struct foo *foo;};
+
 int abs(int x){
     return (x ^ x >> 31) - (x >> 31);
 }
