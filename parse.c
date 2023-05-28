@@ -20,27 +20,6 @@ initparser(struct parser *pr, const char *file)
    pr->ndat = f->n;
 }
 
-static struct decl *finddecl(struct parser *pr, const char *name);
-
-static bool
-isdecltok(struct parser *pr)
-{
-   struct decl *decl;
-   struct token tk;
-   switch (peek(pr, &tk)) {
-   case TKWsigned: case TKWunsigned: case TKWshort: case TKWlong:
-   case TKWint: case TKWchar: case TKW_Bool: case TKWauto:
-   case TKWstruct: case TKWunion: case TKWenum: case TKWtypedef:
-   case TKWextern: case TKWstatic: case TKWinline: case TKW_Noreturn:
-   case TKWconst: case TKWvolatile: case TKWvoid: case TKWfloat:
-   case TKWdouble:
-      return 1;
-   case TKIDENT:
-      return (decl = finddecl(pr, tk.s)) && decl->scls == SCTYPEDEF;
-   }
-   return 0;
-}
-
 static bool
 match(struct parser *pr, struct token *tk, enum toktag t)
 {
@@ -81,6 +60,16 @@ enum declkind {
    DCASTEXPR,
 };
 
+struct decl {
+   union type ty;
+   uchar scls;
+   uchar qual;
+   ushort align;
+   struct span span;
+   const char *name;
+   int id;
+};
+
 struct declstate {
    enum declkind kind;
    union type base;
@@ -93,6 +82,27 @@ struct declstate {
 };
 
 static struct decl pdecl(struct declstate *st, struct parser *pr);
+static struct decl *finddecl(struct parser *pr, const char *name);
+
+static bool
+isdecltok(struct parser *pr)
+{
+   struct decl *decl;
+   struct token tk;
+   switch (peek(pr, &tk)) {
+   case TKWsigned: case TKWunsigned: case TKWshort: case TKWlong:
+   case TKWint: case TKWchar: case TKW_Bool: case TKWauto:
+   case TKWstruct: case TKWunion: case TKWenum: case TKWtypedef:
+   case TKWextern: case TKWstatic: case TKWinline: case TKW_Noreturn:
+   case TKWconst: case TKWvolatile: case TKWvoid: case TKWfloat:
+   case TKWdouble: case TKWregister:
+      return 1;
+   case TKIDENT:
+      return (decl = finddecl(pr, tk.s)) && decl->scls == SCTYPEDEF;
+   }
+   return 0;
+}
+
 
 /*******/
 /* ENV */
@@ -673,7 +683,7 @@ Unary:
       break;
    case TKSTRLIT:
       ex = mkexpr(ESTRLIT, tk.span,
-                  mkarrtype(mktype(TYCHAR), 0, tk.len+1), .s = (uchar *)tk.s);
+                  mkarrtype(mktype(TYCHAR), 0, tk.len+1), .s = { (char *)tk.s, tk.len });
       break;
    case TKIDENT:
       decl = finddecl(pr, tk.s);

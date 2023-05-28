@@ -176,16 +176,6 @@ enum storageclass {
    SCREGISTER = 1<<5,
 };
 
-struct decl {
-   union type ty;
-   uchar scls;
-   uchar qual;
-   ushort align;
-   struct span span;
-   const char *name;
-   int id;
-};
-
 enum evalmode {
    EVINTCONST,
    EVARITH,
