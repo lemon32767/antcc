@@ -1352,7 +1352,7 @@ static void block(struct parser *pr, struct function *fn);
 static bool /* return 1 if stmt is terminating (all codepaths return) */
 stmt(struct parser *pr, struct function *fn)
 {
-   struct block *t, *f, *end, *begin;
+   struct block *tr, *fl, *end, *begin;
    struct expr ex;
    union irref r;
    bool terminates = 0;
@@ -1380,25 +1380,25 @@ stmt(struct parser *pr, struct function *fn)
       expect(pr, ')', NULL);
       if (!isscalar(ex.ty))
          error(&ex.span, "'if' condition is not a scalar (%ty)", ex.ty);
-      t = f = end = NULL;
+      tr = fl = end = NULL;
       EMITS {
-         t = newblk(fn);
-         f = newblk(fn);
+         tr = newblk(fn);
+         fl = newblk(fn);
          r = exprvalue(fn, &ex);
          EMITS {
-            putjump(fn, Jbcnd, r, t, f);
-            useblk(fn, t);
+            putjump(fn, Jbcnd, r, tr, fl);
+            useblk(fn, tr);
          }
       }
       terminates = stmt(pr, fn);
       if (!match(pr, NULL, TKWelse)) {
-         EMITS putjump(fn, Jb, NOREF, f, NULL);
-         end = f;
+         end = fl;
+         EMITS if (!terminates) putjump(fn, Jb, NOREF, end, NULL);
          terminates = 0;
       } else {
          EMITS {
             if (!terminates) putjump(fn, Jb, NOREF, end = newblk(fn), NULL);
-            useblk(fn, f);
+            useblk(fn, fl);
          }
          terminates &= stmt(pr, fn);
          EMITS {
@@ -1414,15 +1414,15 @@ stmt(struct parser *pr, struct function *fn)
       expect(pr, ')', NULL);
       if (!isscalar(ex.ty))
          error(&ex.span, "'while' condition is not a scalar (%ty)", ex.ty);
-      t = begin = end = NULL;
+      tr = begin = end = NULL;
       EMITS {
          begin = newblk(fn);
          putjump(fn, Jb, NOREF, begin, NULL);
          useblk(fn, begin);
          r = exprvalue(fn, &ex);
          EMITS {
-            putjump(fn, Jbcnd, r, t = newblk(fn), end = newblk(fn));
-            useblk(fn, t);
+            putjump(fn, Jbcnd, r, tr = newblk(fn), end = newblk(fn));
+            useblk(fn, tr);
          }
       }
       terminates = stmt(pr, fn);

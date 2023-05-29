@@ -36,7 +36,8 @@ int foop(struct foo *foo) {
     ++foo->n0.n1.n2.ww;
     int xy = (*foo).xy;
     foo->flex[2] *= 5;
-    if (foo->x)return xy; else return foo->y;
+    if (foo->x)return xy;
+    return foo->y;
 }
 
 int abs(int x){
