@@ -13,7 +13,31 @@ int add (int x, int y) {
     return x + y + *glob;
 }
 
-struct foo {struct foo *foo;};
+struct foo {
+    struct foo *foo;
+    struct n0 {
+        char z;
+        struct n1 {
+            char q;
+            struct n2 {
+                int ww;
+            } n2;
+        } n1;
+    } n0;
+    union {
+        struct { short x, y; };
+        int xy;
+    };
+    char flex[];
+};
+
+int foop(struct foo *foo) {
+    if (foo->foo) foo = foo->foo;
+    ++foo->n0.n1.n2.ww;
+    int xy = (*foo).xy;
+    foo->flex[2] *= 5;
+    if (foo->x)return xy; else return foo->y;
+}
 
 int abs(int x){
     return (x ^ x >> 3\

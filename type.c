@@ -98,15 +98,12 @@ interntd(const struct typedata *td)
          case TYUNION:
             if (slot->fld)
                slot->fld = alloccopy(&datarena, td->fld, nmemb * sizeof *slot->fld, 0);
-         Qual:
-            if (slot->quals)
-               slot->quals = alloccopy(&datarena, td->quals, tdqualsiz(nmemb), 1);
             break;
          case TYFUNC:
-            if (slot->param) {
+            if (slot->param)
                slot->param = alloccopy(&datarena, td->param, nmemb * sizeof *slot->param, 0);
-            }
-            goto Qual;
+            if (slot->quals)
+               slot->quals = alloccopy(&datarena, td->quals, tdqualsiz(nmemb), 1);
          }
          return i;
       } else if (tdequ(slot, td)) {
@@ -212,6 +209,37 @@ mktagtype(const char *name, struct typedata *td)
 {
    static int id;
    return completetype(name, id++, td);
+}
+
+static bool
+getfieldrec(struct fielddata *res, uint off, const struct typedata *td, const char *name)
+{
+Begin:
+   for (int i = 0; i < td->nmemb; ++i) {
+      struct namedfield *fld = &td->fld[i];
+      if (fld->name == name) { /* match */
+         *res = fld->f;
+         res->off += off;
+         return 1;
+      } else if (!fld->name) { /* anonymous struct/union */
+         const struct typedata *ftd = &typedata[fld->f.t.dat];
+         assert(isagg(fld->f.t));
+         if (i == td->nmemb - 1) { /* last field, tail recurse */
+            off += fld->f.off;
+            td = ftd;
+            goto Begin;
+         } else if (getfieldrec(res, off + fld->f.off, ftd, name))
+            return 1;
+      }
+   }
+   return 0;
+}
+
+bool
+getfield(struct fielddata *res, union type ty, const char *name)
+{
+   assert(isagg(ty));
+   return getfieldrec(res, 0, &typedata[ty.dat], name);
 }
 
 union type

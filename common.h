@@ -162,11 +162,16 @@ struct enumvar {
    union { vlong i; uvlong u; };
 };
 
-struct field {
-   const char *name;
+struct fielddata {
    union type t;
    ushort off;
-   uchar bitsiz, bitoff;
+   uchar bitsiz,
+         bitoff : 6,
+         qual : 2;
+};
+struct namedfield {
+   const char *name;
+   struct fielddata f;
 };
 
 struct typedata {
@@ -174,14 +179,22 @@ struct typedata {
    ushort id;
    union {
       union type child;
-      struct { /* aggregates */
-         const uchar *quals; /* packed N x 2bit array (NULL if no member has quals) */
-         union {
-            struct field *fld;
-            const union type *param;
-         };
+      struct { /* functions */
+         const uchar *quals; /* packed N x 2bit array (NULL if no param has quals) */
+         const union type *param;
       };
-      struct {
+      struct { /* aggregates */
+        /* struct fieldmap {
+            union {
+               struct field *fs;
+               int *is;
+            };
+            const char **k;
+            uint ;
+         } *fmap; */
+         struct namedfield *fld;
+      };
+      struct { /* enum */
          uchar backing;
          struct enumvar *var;
       };
@@ -189,7 +202,7 @@ struct typedata {
    union {
       uint arrlen; /* array */
       struct {
-         short nmemb;
+         short nmemb; /* functions, aggregates, enums */
          uchar align;
          union {
             struct { /* function */
@@ -231,6 +244,7 @@ union type mkptrtype(union type, int qual);
 union type mkarrtype(union type t, int qual, uint n);
 union type mkfntype(union type ret, uint n, const union type *, const uchar *qual, bool kandr, bool variadic);
 union type mktagtype(const char *name, struct typedata *td);
+bool getfield(struct fielddata *res, union type, const char *);
 union type completetype(const char *name, int id, struct typedata *td);
 union type typedecay(union type);
 bool assigncompat(union type dst, union type src);

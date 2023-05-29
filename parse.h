@@ -152,17 +152,17 @@ struct expr {
    union type ty;
    struct span span;
    union {
-     struct expr *sub;
+     struct {
+        struct expr *sub;
+        struct {
+           ushort off;
+           uchar bitsiz, bitoff;
+        } fld; /* EGETF */
+     };
      uvlong u; vlong i; double f; /* ENUMLIT */
      struct bytes s; /* ESTRLIT */
      struct decl *sym; /* ESYM */
      struct initializer *ini; /* EINIT */
-     struct { /* EGETF */
-       const char *name;
-       uint off;
-       uchar bitsiz, bitoff;
-     } fld;
-     char dummy;
    };
 };
 
@@ -180,6 +180,7 @@ enum evalmode {
    EVINTCONST,
    EVARITH,
    EVSTATICINI,
+   EVFOLD,
 };
 
 bool eval(struct expr *, enum evalmode);

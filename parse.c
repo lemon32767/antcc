@@ -219,6 +219,7 @@ finddecl(struct parser *pr, const char *name)
 {
    struct env *e;
    struct decl *l;
+   assert(name);
    for (e = pr->env; e; e = e->up) {
       for (l = NULL; enviterdecl(&l, e);) {
          if (name == l->name)
@@ -234,6 +235,7 @@ gettagged(struct parser *pr, struct span *span, enum typetag tt, const char *nam
    struct env *e;
    struct tagged *l;
    struct typedata td = {0};
+   assert(name);
    for (e = pr->env; e; e = e->up) {
       for (l = NULL; envitertagged(&l, e);) {
          if (name == ttypenames[typedata[l->ty.dat].id]) {
@@ -256,6 +258,7 @@ deftagged(struct parser *pr, struct span *span, enum typetag tt, const char *nam
 {
    struct tagged *l;
    struct typedata td = {0};
+   assert(name);
    for (l = NULL; envitertagged(&l, pr->env);) {
       if (name == ttypenames[typedata[l->ty.dat].id]) {
          *span = l->span;
@@ -473,6 +476,8 @@ bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct e
    }
    switch (k &~ BCSET) {
    case 0:
+      if (isagg(ty) && !(lhs->qual & QCONST) && typedata[ty.dat].anyconst)
+         error(&lhs->span, "cannot assign to aggregate with const-qualified member");
       if (!assigncheck(ty, rhs))
          goto Error;
       break;
@@ -639,7 +644,7 @@ tkprec(int tt)
 static struct expr
 exprparse(struct parser *pr, int prec)
 {
-   struct token tk;
+   struct token tk, tk2;
    struct span span;
    struct expr ex, rhs, tmp;
    struct decl *decl;
@@ -683,7 +688,7 @@ Unary:
       break;
    case TKSTRLIT:
       ex = mkexpr(ESTRLIT, tk.span,
-                  mkarrtype(mktype(TYCHAR), 0, tk.len+1), .s = { (char *)tk.s, tk.len });
+                  mkarrtype(mktype(TYCHAR), 0, tk.len+1), .s = { (uchar *)tk.s, tk.len });
       break;
    case TKIDENT:
       decl = finddecl(pr, tk.s);
@@ -754,7 +759,7 @@ Postfix:
       rhs = commaexpr(pr);
       span = ex.span;
       if (!joinspan(&span.ex, tk.span.ex) || !joinspan(&span.ex, ex.span.ex)
-       || (peek(pr, &tk), !joinspan(&span.ex, tk.span.ex)))
+       || (peek(pr, &tk2), !joinspan(&span.ex, tk.span.ex)))
          span = tk.span;
       expect(pr, ']', NULL);
 
@@ -776,13 +781,47 @@ Postfix:
       tmp.sub = exprdup(pr, iszero(rhs) ? &ex : &tmp);
       tmp.span = span;
       tmp.t = EDEREF;
+      tmp.qual = ex.ty.flag & TFCHLDQUAL;
       tmp.ty = ty;
       ex = tmp;
       goto Postfix;
    case '(': /* call(args) */
-      span = ex.span;
       lex(pr, &tk);
+      span = ex.span;
       ex = callexpr(pr, &span, &ex);
+      goto Postfix;
+   case TKARROW:
+      if (ex.ty.t != TYPTR && ex.ty.t != TYARRAY)
+         error(&ex.span, "operand to -> is not a pointer (%ty)", ex.ty);
+      else
+         ex = mkexpr(EDEREF, ex.span, typechild(ex.ty), .qual = ex.ty.flag & TFCHLDQUAL,
+                     .sub = exprdup(pr, &ex));
+      /* fallthru */
+   case '.':
+      lex(pr, &tk);
+      span = ex.span;
+      peek(pr, &tk2); /* field name */
+      if (!expect(pr, TKIDENT, NULL)) tk2.s = "";
+      if (!joinspan(&span.ex, tk.span.ex) || !joinspan(&span.ex, tk2.span.ex))
+         span = tk.span;
+      if (!isagg(ex.ty)) {
+         error(&span, "member access operand is not an aggregate (%ty)%s", ex.ty,
+               ex.ty.t == TYPTR && isagg(typechild(ex.ty)) ? "; did you mean to use '->'?" : "");
+      } else {
+         struct fielddata fld = {.t = mktype(TYINT)};
+         if (*tk2.s && !getfield(&fld, ex.ty, tk2.s))
+            error(&span, "'%ty' has no such field: '%s'", ex.ty, tk2.s);
+         if (ex.t == EGETF && ex.qual == fld.qual) { /* accumulate */
+            ex.span = span;
+            ex.ty = fld.t;
+            ex.fld.off += fld.off;
+            ex.fld.bitoff = fld.bitoff;
+            ex.fld.bitsiz = fld.bitsiz;
+         } else {
+            ex = mkexpr(EGETF, span, fld.t, .qual = ex.qual | fld.qual, .sub = exprdup(pr, &ex),
+                        .fld = { fld.off, fld.bitsiz, fld.bitoff });
+         }
+      }
       goto Postfix;
    }
 
@@ -914,6 +953,8 @@ static union irref
 expraddr(struct function *fn, const struct expr *ex)
 {
    struct decl *decl;
+   union irref r;
+   struct instr ins;
 
    switch (ex->t) {
    case ESYM:
@@ -933,6 +974,16 @@ expraddr(struct function *fn, const struct expr *ex)
       break;
    case EDEREF:
       return exprvalue(fn, ex->sub);
+   case EGETF:
+      r = expraddr(fn, ex->sub);
+      assert(ex->fld.bitsiz == 0);
+      if (ex->fld.off == 0) return r;
+      ins.cls = KPTR;
+      ins.op = Oadd;
+      ins.l = r;
+      ins.r = mkintcon(fn, KI4, ex->fld.off);
+      return addinstr(fn, ins);
+      break;
    default:
       assert(!"lvalue?>");
    }
@@ -1071,7 +1122,10 @@ exprvalue(struct function *fn, const struct expr *ex)
    enum irclass cls = type2cls[ex->ty.t];
    struct instr ins = {0};
    int swp = 0;
-   struct expr *sub = ex->sub;
+   struct expr *sub;
+
+   eval((struct expr *)ex, EVFOLD);
+   sub = ex->sub;
 
    if (ex->ty.t == TYARRAY || ex->ty.t == TYFUNC)
       return expraddr(fn, ex);
@@ -1081,6 +1135,8 @@ exprvalue(struct function *fn, const struct expr *ex)
          return mkfltcon(fn, cls, ex->f);
       return mkintcon(fn, cls, ex->i);
    case ESYM:
+      return genload(fn, ex->ty, expraddr(fn, ex));
+   case EGETF:
       return genload(fn, ex->ty, expraddr(fn, ex));
    case ECAST:
       if (ex->ty.t == TYVOID) return exprvalue(fn, sub);
@@ -1329,8 +1385,6 @@ stmt(struct parser *pr, struct function *fn)
          t = newblk(fn);
          f = newblk(fn);
          r = exprvalue(fn, &ex);
-         if (!isint(ex.ty))
-            r = cvt(fn, TYINT, ex.ty.t, r);
          EMITS {
             putjump(fn, Jbcnd, r, t, f);
             useblk(fn, t);
@@ -1366,8 +1420,6 @@ stmt(struct parser *pr, struct function *fn)
          putjump(fn, Jb, NOREF, begin, NULL);
          useblk(fn, begin);
          r = exprvalue(fn, &ex);
-         if (!isint(ex.ty))
-            r = cvt(fn, TYINT, ex.ty.t, r);
          EMITS {
             putjump(fn, Jbcnd, r, t = newblk(fn), end = newblk(fn));
             useblk(fn, t);
@@ -1535,10 +1587,8 @@ buildagg(struct parser *pr, enum typetag tt, const char *name, int id)
    struct token tk;
    union type t;
    struct span flexspan;
-   struct field fbuf[32];
-   uchar qbuf[arraylength(fbuf)/4];
-   vec_of(struct field) fld = VINIT(fbuf, arraylength(fbuf));
-   vec_of(uchar) qual = VINIT(qbuf, arraylength(qbuf));
+   struct namedfield fbuf[32];
+   vec_of(struct namedfield) fld = VINIT(fbuf, arraylength(fbuf));
    struct typedata td = {tt};
    bool isunion = tt == TYUNION;
    const char *tag = isunion ? "union" : "struct";
@@ -1563,12 +1613,13 @@ buildagg(struct parser *pr, enum typetag tt, const char *name, int id)
             uint align = typealign(decl.ty);
             uint siz = typesize(decl.ty);
             uint off = isunion ? 0 : alignup(td.siz, align);
-            struct field f = { decl.name, decl.ty, off };
+            struct namedfield f = { decl.name, { decl.ty, off, .qual = decl.qual }};
             vpush(&fld, f);
-            if (decl.qual) {
-               td.anyconst |= decl.qual & QCONST;
-               while (qual.n < tdqualsiz(fld.n)) vpush(&qual, 0);
-               tdsetqual(qual.p, fld.n-1, decl.qual);
+            td.anyconst |= decl.qual & QCONST;
+            if (isagg(decl.ty)) {
+               td.anyconst |= typedata[decl.ty.dat].anyconst;
+               if (typedata[decl.ty.dat].flexi)
+                  error(&decl.span, "nested aggregate has flexible array member");
             }
             if (isunion)
                td.siz = td.siz < siz ? siz : td.siz;
@@ -1579,19 +1630,19 @@ buildagg(struct parser *pr, enum typetag tt, const char *name, int id)
       } while (st.more);
    }
    if (fld.n == 0) {
-      struct field dummy = { "", mktype(TYCHAR), 0 };
+      struct namedfield dummy = { "", { mktype(TYCHAR), 0 }};
       error(&tk.span, "%s cannot have zero members", tag);
       vpush(&fld, dummy);
       td.siz = td.align = 1;
    }
    td.siz = alignup(td.siz, td.align);
-   if (qual.p) while (qual.n < tdqualsiz(fld.n)) vpush(&qual, 0);
-   td.quals = qual.p;
    td.fld = fld.p;
    td.nmemb = fld.n;
-   t = completetype(name, id, &td);
+   if (id != -1)
+      t = completetype(name, id, &td);
+   else
+      t = mktagtype(name, &td);
    vfree(&fld);
-   vfree(&qual);
    return t;
 }
 
@@ -1616,6 +1667,7 @@ tagtype(struct parser *pr, enum toktag kind)
    enum typetag tt = kind == TKWenum ? TYENUM : kind == TKWstruct ? TYSTRUCT : TYUNION;
    const char *tag = NULL;
 
+   peek(pr, &tk);
    if (match(pr, &tk, TKIDENT))
       tag = tk.s;
    span = tk.span;
@@ -1627,17 +1679,19 @@ tagtype(struct parser *pr, enum toktag kind)
       t = gettagged(pr, &span, tt, tag, /* def? */ peek(pr, NULL) == ';');
    } else {
       if (tt != TYENUM) {
-         t = deftagged(pr, &span, tt, tag);
-         if (t.t != tt || !isincomplete(t)) {
-            if (t.t != tt)
-               error(&tk.span,
-                     "defining tagged type %'tk as %tt clashes with previous definition",
-                     &tk, kind);
-            else
-               error(&tk.span, "redefinition of '%tt %s'", kind, tag);
-            note(&span, "previous definition:");
+         if (tag) {
+            t = deftagged(pr, &span, tt, tag);
+            if (t.t != tt || !isincomplete(t)) {
+               if (t.t != tt)
+                  error(&tk.span,
+                        "defining tagged type %'tk as %tt clashes with previous definition",
+                        &tk, kind);
+               else
+                  error(&tk.span, "redefinition of '%tt %s'", kind, tag);
+               note(&span, "previous definition:");
+            }
          }
-         t = buildagg(pr, tt, tag, typedata[t.dat].id);
+         t = buildagg(pr, tt, tag, tag ? typedata[t.dat].id : -1);
       } else {
          t = buildenum(pr, tag);
       }
@@ -2111,7 +2165,7 @@ pdecl(struct declstate *st, struct parser *pr) {
    }
 
    if (first && st->tagdecl && match(pr, &tk, ';')) {
-      decl = (struct decl) { st->base, st->scls, st->qual, st->align };
+      decl = (struct decl) { st->base, st->scls, st->qual, st->align, tk.span };
       return decl;
    }
    decl = declarator(st, pr);
