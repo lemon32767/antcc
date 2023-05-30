@@ -8,15 +8,18 @@ const uchar siz2intcls[] = { [1] = KI4, [2] = KI4, [4] = KI4, [8] = KI8 };
 static vec_of(struct irdat) dats;
 struct instr instr[1<<14];
 static int ninstr;
-vec_of(struct ircall) calls;
+vec_of(struct call) calls;
+vec_of(struct phi) phis;
 
 void
 irinit(struct function *fn)
 {
-   static struct ircall callsbuf[64];
+   static struct call callsbuf[64];
+   static struct phi phisbuf[64];
 
    ninstr = 0;
    vinit(&calls, callsbuf, arraylength(callsbuf));
+   vinit(&phis, phisbuf, arraylength(phisbuf));
    if (!type2cls[TYINT]) {
       for (int i = TYBOOL; i <= TYUVLONG; ++i) {
          int siz = targ_primsizes[i];
@@ -54,13 +57,13 @@ addcon(const struct xcon *con)
    }
 }
 
-union irref
+/* union ref
 adddat(struct function *fn, const struct irdat *dat)
 {
    assert(dats.n < 1u<<29);
    vpush(&dats, *dat);
-   /* return mkref(RDAT, dats.n - 1); */
-}
+   return mkref(RDAT, dats.n - 1); 
+} */
 
 static void
 targwrite2(uchar *d, ushort x)
@@ -128,7 +131,7 @@ mkirtype(union type t)
    return (union irtype) { .isagg = 1, .dat = t.dat };
 }
 
-union irref
+union ref
 mkintcon(struct function *fn, enum irclass k, vlong i)
 {
    if (i < 1ll << 28 && i >= -(1ll << 28)) {
@@ -142,7 +145,7 @@ mkintcon(struct function *fn, enum irclass k, vlong i)
    }
 }
 
-union irref
+union ref
 mkfltcon(struct function *fn, enum irclass k, double f)
 {
    struct xcon con = { 0, k };
@@ -151,18 +154,18 @@ mkfltcon(struct function *fn, enum irclass k, double f)
    return mkref(RXCON, addcon(&con));
 }
 
-union irref
+union ref
 mksymref(struct function *fn, const char *s)
 {
    struct xcon con = { 1, KPTR, .sym = s };
    return mkref(RXCON, addcon(&con));
 }
 
-union irref
-mkcall(struct function *fn, union type fnty, uint narg, union irref *args, union irtype *typs)
+union ref
+mkcall(struct function *fn, union type fnty, uint narg, union ref *args, union irtype *typs)
 {
    const struct typedata *td = &typedata[fnty.dat];
-   struct ircall call = { narg, td->variadic ? td->nmemb : -1 };
+   struct call call = { narg, td->variadic ? td->nmemb : -1 };
 
    if (!td->kandr) assert(td->variadic ? narg >= td->nmemb : narg == td->nmemb);
    if (narg) {
@@ -172,16 +175,38 @@ mkcall(struct function *fn, union type fnty, uint narg, union irref *args, union
       memcpy(call.typs, typs, narg*sizeof *typs);
    }
    vpush(&calls, call);
-   return mkref(RCALL, calls.n-1);
+   return mkref(REXT, calls.n-1);
 }
 
-union irref
+union ref
 addinstr(struct function *fn, struct instr ins)
 {
    assert(ninstr < arraylength(instr));
    assert(fn->curblk != NULL);
    instr[ninstr] = ins;
    vpush(&fn->curblk->ins, ninstr);
+   return mkref(RTMP, ninstr++);
+}
+
+union ref
+addphi2(struct function *fn, enum irclass cls,
+        struct block *b1, union ref r1, struct block *b2, union ref r2)
+{
+   struct phi phi = { .n = 2, .cap = -1 };
+   struct instr ins = { Ophi, cls };
+   phi.blk = alloc(&fn->arena, 2*sizeof(struct block *) + 2*sizeof r1, 0);
+   phi.ref = (union ref *)((char *)phi.blk + 2*sizeof(struct block *));
+   phi.blk[0] = b1;
+   phi.ref[0] = r1;
+   phi.blk[1] = b2;
+   phi.ref[1] = r2;
+   vpush(&phis, phi);
+   ins.l = mkref(REXT, phis.n-1);
+   assert(ninstr < arraylength(instr));
+   assert(fn->curblk != NULL);
+   assert(fn->curblk->ins.n == 0);
+   instr[ninstr] = ins;
+   vpush(&fn->curblk->phi, ninstr);
    return mkref(RTMP, ninstr++);
 }
 
@@ -209,7 +234,7 @@ useblk(struct function *fn, struct block *blk)
 }
 
 void
-putjump(struct function *fn, enum jumpkind j, union irref arg, struct block *t, struct block *f)
+putjump(struct function *fn, enum jumpkind j, union ref arg, struct block *t, struct block *f)
 {
    fn->curblk->jmp.t = j;
    fn->curblk->jmp.arg = arg;

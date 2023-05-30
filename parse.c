@@ -947,13 +947,13 @@ commaexpr(struct parser *pr)
 /* -> IR */
 /*********/
 
-static union irref exprvalue(struct function *, const struct expr *);
+static union ref exprvalue(struct function *, const struct expr *);
 
-static union irref
+static union ref
 expraddr(struct function *fn, const struct expr *ex)
 {
    struct decl *decl;
-   union irref r;
+   union ref r;
    struct instr ins;
 
    switch (ex->t) {
@@ -990,8 +990,8 @@ expraddr(struct function *fn, const struct expr *ex)
 
 }
 
-static union irref
-genload(struct function *fn, union type t, union irref ref)
+static union ref
+genload(struct function *fn, union type t, union ref ref)
 {
    struct instr ins = {0};
 
@@ -1008,8 +1008,8 @@ genload(struct function *fn, union type t, union irref ref)
    return addinstr(fn, ins);
 }
 
-static union irref
-genstore(struct function *fn, union type t, union irref ptr, union irref val)
+static union ref
+genstore(struct function *fn, union type t, union ref ptr, union ref val)
 {
    struct instr ins = {0};
 
@@ -1026,8 +1026,8 @@ genstore(struct function *fn, union type t, union irref ptr, union irref val)
    return addinstr(fn, ins);
 }
 
-static union irref
-cvt(struct function *fn, enum typetag to, enum typetag from, union irref ref)
+static union ref
+cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
 {
    enum irclass kto = type2cls[to], kfrom = type2cls[from];
    struct instr ins = {0};
@@ -1056,8 +1056,8 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union irref ref)
    return addinstr(fn, ins);
 }
 
-static union irref
-narrow(struct function *fn, enum irclass to, enum typetag tt, union irref ref)
+static union ref
+narrow(struct function *fn, enum irclass to, enum typetag tt, union ref ref)
 {
    struct instr ins;
    assert(isintt(tt) || tt == TYPTR);
@@ -1084,29 +1084,34 @@ ilog2(uint x) { /* assumes x is a power of 2 */
 #endif
 }
 
-union irref
-genptroff(struct function *fn, enum op op, uint siz, union irref ptr,
-          enum typetag tt, union irref idx)
+union ref
+genptroff(struct function *fn, enum op op, uint siz, union ref ptr,
+          enum typetag tt, union ref idx)
 {
    uint cls = type2cls[targ_sizetype];
-   union irref off;
+   union ref off;
    assert(siz);
+
    idx = cvt(fn, targ_sizetype, tt, idx);
    if (siz ==  1) off = idx;
+   else if (idx.t == RICON)
+      off = mkintcon(fn, cls, idx.i * siz);
    else if ((siz & siz-1) == 0) /* is power of 2 */
-      off = addinstr(fn, (struct instr) { Oshl, cls, idx, mkintcon(fn, cls, ilog2(siz)) });
+      off = addinstr(fn,
+            (struct instr) { Oshl, cls, .l = idx, .r = mkintcon(fn, cls, ilog2(siz)) });
    else
-      off = addinstr(fn, (struct instr) { Omul, cls, idx, mkintcon(fn, cls, siz) });
+      off = addinstr(fn,
+            (struct instr) { Omul, cls, .l = idx, .r = mkintcon(fn, cls, siz) });
    assert(in_range(op, Oadd, Osub));
-   return addinstr(fn, (struct instr) { op, KPTR, ptr, off });
+   return addinstr(fn, (struct instr) { op, KPTR, .l = ptr, .r = off });
 }
 
-union irref
-genptrdiff(struct function *fn, uint siz, union irref a, union irref b)
+union ref
+genptrdiff(struct function *fn, uint siz, union ref a, union ref b)
 {
    uint cls = type2cls[targ_ptrdifftype];
    assert(siz > 0);
-   a = addinstr(fn, (struct instr) { Osub, cls, a, b });
+   a = addinstr(fn, (struct instr) { Osub, cls, .l = a, .r = b });
    if (siz == 1) return a;
    else if ((siz & siz-1) == 0) /* is power of 2 */
       return addinstr(fn, (struct instr) { Osar, cls, a, mkintcon(fn, cls, ilog2(siz)) });
@@ -1114,11 +1119,12 @@ genptrdiff(struct function *fn, uint siz, union irref a, union irref b)
       return addinstr(fn, (struct instr) { Odiv, cls, a, mkintcon(fn, cls, siz) });
 }
 
-static union irref
+static union ref
 exprvalue(struct function *fn, const struct expr *ex)
 {
    union type ty;
-   union irref r, q;
+   union ref r, q;
+   struct block *tr, *fl, *end;
    enum irclass cls = type2cls[ex->ty.t];
    struct instr ins = {0};
    int swp = 0;
@@ -1315,9 +1321,9 @@ exprvalue(struct function *fn, const struct expr *ex)
    case ECALL:
       {
          const struct typedata *td = &typedata[sub[0].ty.dat];
-         union irref argsbuf[10];
+         union ref argsbuf[10];
          union irtype typbuf[10];
-         vec_of(union irref) args = VINIT(argsbuf, arraylength(argsbuf));
+         vec_of(union ref) args = VINIT(argsbuf, arraylength(argsbuf));
          vec_of(union irtype) typs = VINIT(typbuf, arraylength(typbuf));
          ins.op = Ocall;
          assert(isscalar(ex->ty) || ex->ty.t == TYVOID);
@@ -1334,6 +1340,42 @@ exprvalue(struct function *fn, const struct expr *ex)
          vfree(&typs);
          return addinstr(fn, ins);
       }
+   case ECOND:
+      r = exprvalue(fn, &sub[0]);
+      tr = newblk(fn);
+      fl = newblk(fn);
+      end = newblk(fn);
+      putjump(fn, Jbcnd, r, tr, fl);
+      useblk(fn, tr);
+      r = cvt(fn, ex->ty.t, sub[1].ty.t, exprvalue(fn, &sub[1]));
+      putjump(fn, Jb, NOREF, end, NULL);
+      useblk(fn, fl);
+      q = cvt(fn, ex->ty.t, sub[2].ty.t, exprvalue(fn, &sub[2]));
+      putjump(fn, Jb, NOREF, end, NULL);
+      useblk(fn, end);
+      return addphi2(fn, type2cls[ex->ty.t], tr, r, fl, q);
+   case ELOGAND:
+      r = exprvalue(fn, &sub[0]);
+      fl = fn->curblk;
+      tr = newblk(fn);
+      end = newblk(fn);
+      putjump(fn, Jbcnd, r, tr, end);
+      useblk(fn, tr);
+      q = cvt(fn, TYBOOL, sub[1].ty.t, exprvalue(fn, &sub[1]));
+      putjump(fn, Jb, NOREF, end, NULL);
+      useblk(fn, end);
+      return addphi2(fn, KI4, fl, mkref(RICON, 0), tr, q);
+   case ELOGIOR:
+      r = exprvalue(fn, &sub[0]);
+      tr = fn->curblk;
+      fl = newblk(fn);
+      end = newblk(fn);
+      putjump(fn, Jbcnd, r, end, fl);
+      useblk(fn, fl);
+      q = cvt(fn, TYBOOL, sub[1].ty.t, exprvalue(fn, &sub[1]));
+      putjump(fn, Jb, NOREF, end, NULL);
+      useblk(fn, end);
+      return addphi2(fn, KI4, tr, mkref(RICON, 1), fl, q);
    case ESEQ:
       (void)exprvalue(fn, &sub[0]);
       return exprvalue(fn, &sub[1]);
@@ -1354,7 +1396,7 @@ stmt(struct parser *pr, struct function *fn)
 {
    struct block *tr, *fl, *end, *begin;
    struct expr ex;
-   union irref r;
+   union ref r;
    bool terminates = 0;
    const bool doemit = fn->curblk;
 

@@ -2,7 +2,6 @@
 #include "ir.h"
 
 extern struct xcon conht[];
-extern vec_of(struct ircall) calls;
 
 static const char *clsname[] = {
    "?", "i4", "i8", "ptr", "f4", "f8"
@@ -24,10 +23,9 @@ prityp(union irtype typ)
 }
 
 static void
-dumpref(union irref ref)
+dumpref(enum op o, union ref ref)
 {
    struct xcon *con;
-   struct ircall *call;
    switch (ref.t) {
    case RTMP: efmt("%%%d", ref.idx); break;
    case RARG: efmt("%%arg%d", ref.idx); break;
@@ -44,16 +42,28 @@ dumpref(union irref ref)
       default: assert(0);
       }
       break;
-   case RCALL:
-      call = &calls.p[ref.idx];
-      for (int i = 0; i < call->narg; ++i) {
-         if (call->vararg == i) {
-            if (i > 0) efmt(", ");
-            efmt("..., ");
+   case REXT:
+      if (o == Ocall) {
+         extern vec_of(struct call) calls;
+         struct call *call = &calls.p[ref.idx];
+         for (int i = 0; i < call->narg; ++i) {
+            if (call->vararg == i) {
+               if (i > 0) efmt(", ");
+               efmt("..., ");
+            }
+            prityp(call->typs[i]);
+            efmt(" ");
+            dumpref(0, call->args[i]);
          }
-         prityp(call->typs[i]);
-         efmt(" ");
-         dumpref(call->args[i]);
+      } else if (o == Ophi) {
+         extern vec_of(struct phi) phis;
+         struct phi *phi = &phis.p[ref.idx];
+         for (int i = 0; i < phi->n; ++i) {
+            if (i > 0) efmt(", ");
+            efmt("[.L%d ", phi->blk[i]->id);
+            dumpref(0, phi->ref[i]);
+            efmt("]");
+         }
       }
       break;
    default: assert(!"ref");
@@ -84,7 +94,7 @@ dumpinst(const struct instr *ins)
    efmt("%s ", opname[ins->op]);
    for (i = 0; i < opnarg[ins->op]; ++i) {
       if (i) efmt(", ");
-      dumpref((&ins->l)[i]);
+      dumpref(ins->op, (&ins->l)[i]);
    }
    efmt("\n");
 }
@@ -95,12 +105,15 @@ dumpblk(struct block *blk)
    static const char *jnames[] = { 0, "b", "b", "ret", "rets" };
    static const uchar jnarg[] = { 0, 0, 1, 0, 1 };
    efmt("  .L%d:\n", blk->id);
+   for (int i = 0; i < blk->phi.n; ++i) {
+      dumpinst(&instr[blk->phi.p[i]]);
+   }
    for (int i = 0; i < blk->ins.n; ++i) {
       dumpinst(&instr[blk->ins.p[i]]);
    }
    efmt("    %s ", jnames[blk->jmp.t]);
    if (jnarg[blk->jmp.t]) {
-      dumpref(blk->jmp.arg);
+      dumpref(0, blk->jmp.arg);
       if (blk->s1) efmt(", ");
    }
    if (blk->s1 && blk->s2) efmt(".L%d, .L%d", blk->s1->id, blk->s2->id);

@@ -42,18 +42,24 @@ struct xcon {
    };
 };
 
-struct ircall {
+struct call {
    short narg;
    short vararg; /* first variadic arg or -1 */
    union irtype *typs;
-   union irref *args;
+   union ref *args;
 };
 
-enum irrefkind {
-   RNONE, RTMP, RARG, RICON, RXCON, RSYM, RCALL
+struct phi {
+   struct block **blk;
+   union ref *ref;
+   int n, cap;
 };
 
-union irref {
+enum refkind {
+   RNONE, RTMP, RARG, RICON, RXCON, RSYM, REXT
+};
+
+union ref {
    struct { uint t : 3, idx : 29; };
    struct { signed _0: 3, i : 29; }; /* RICON */
    uint bits;
@@ -69,8 +75,7 @@ enum op {
 struct instr {
    uchar op;
    uchar cls;
-   union irref l;
-   union irref r;
+   union ref l, r;
 };
 
 enum jumpkind {
@@ -80,7 +85,8 @@ enum jumpkind {
 struct block {
    int id;
    struct block *s1, *s2;
-   struct { uchar t; union irref arg; } jmp;   
+   struct { uchar t; union ref arg; } jmp;   
+   vec_of(ushort) phi;
    vec_of(ushort) ins;
    struct block *lprev, *lnext;
 };
@@ -99,19 +105,21 @@ extern uchar type2cls[];
 extern uchar cls2siz[];
 extern const uchar siz2intcls[];
 void irinit(struct function *);
-#define NOREF ((union irref) {0})
-#define mkref(t, x) ((union irref) {{ (t), (x) }})
+#define NOREF ((union ref) {0})
+#define mkref(t, x) ((union ref) {{ (t), (x) }})
 #define mkzerocon() ((union irref){ RICON, 0 })
 union irtype mkirtype(union type);
-union irref mkintcon(struct function *, enum irclass, vlong);
-union irref mkfltcon(struct function *, enum irclass, double);
-union irref mksymref(struct function *, const char *);
+union ref mkintcon(struct function *, enum irclass, vlong);
+union ref mkfltcon(struct function *, enum irclass, double);
+union ref mksymref(struct function *, const char *);
 void conputdat(struct irdat *, uint off, enum typetag t, const void *dat);
-union irref mkcall(struct function *, union type fnty, uint narg, union irref *, union irtype *);
-union irref addinstr(struct function *, struct instr);
+union ref mkcall(struct function *, union type fnty, uint narg, union ref *, union irtype *);
+union ref addinstr(struct function *, struct instr);
+union ref addphi2(struct function *, enum irclass cls,
+                  struct block *b1, union ref r1, struct block *b2, union ref r2);
 struct block *newblk(struct function *);
 void useblk(struct function *, struct block *);
-void putjump(struct function *, enum jumpkind, union irref arg, struct block *t, struct block *f);
+void putjump(struct function *, enum jumpkind, union ref arg, struct block *t, struct block *f);
 void irdump(struct function *, const char *fname);
 
 /* vim:set ts=3 sw=3 expandtab: */
