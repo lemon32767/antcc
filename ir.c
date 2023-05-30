@@ -210,11 +210,32 @@ addphi2(struct function *fn, enum irclass cls,
    return mkref(RTMP, ninstr++);
 }
 
+union ref
+addphi(struct function *fn, enum irclass cls, struct block **blk, union ref *ref, uint n)
+{
+   struct phi phi = { .n = n, .cap = -1 };
+   struct instr ins = { Ophi, cls };
+   assert(n > 0);
+   phi.blk = alloc(&fn->arena, n*sizeof(struct block *) + n*sizeof(union ref), 0);
+   phi.ref = (union ref *)((char *)phi.blk + n*sizeof(struct block *));
+   memcpy(phi.blk, blk, n * sizeof(struct block *));
+   memcpy(phi.ref, ref, n * sizeof(union ref));
+   vpush(&phis, phi);
+   ins.l = mkref(REXT, phis.n-1);
+   assert(ninstr < arraylength(instr));
+   assert(fn->curblk != NULL);
+   assert(fn->curblk->ins.n == 0);
+   instr[ninstr] = ins;
+   vpush(&fn->curblk->phi, ninstr);
+   return mkref(RTMP, ninstr++);
+}
+
 struct block *
 newblk(struct function *fn)
 {
    struct block *blk = alloc(&fn->arena, sizeof(struct block), 0);
    memset(blk, 0, sizeof *blk);
+   blk->id = -1;
    return blk;
 }
 

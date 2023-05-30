@@ -117,6 +117,7 @@ union ref mkcall(struct function *, union type fnty, uint narg, union ref *, uni
 union ref addinstr(struct function *, struct instr);
 union ref addphi2(struct function *, enum irclass cls,
                   struct block *b1, union ref r1, struct block *b2, union ref r2);
+union ref addphi(struct function *, enum irclass cls, struct block **blk, union ref *ref, uint n);
 struct block *newblk(struct function *);
 void useblk(struct function *, struct block *);
 void putjump(struct function *, enum jumpkind, union ref arg, struct block *t, struct block *f);
