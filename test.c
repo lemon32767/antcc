@@ -15,6 +15,7 @@ struct foo {
     int x, y, z;
 };
 
+
 int test0(struct foo *foo) { return foo->x ? foo->y : foo->z; }
 int test1(int x, int y, int z) { return x && y || z; }
 int test2(int x, int y, int z) { return x || y && z; }
@@ -42,6 +43,24 @@ int test5(int *p)
 int test6(int x)
 {
     return !!!!x;
+}
+
+float sqr(float x) { return x * x; }
+
+int mula(int x, int y, int z) {
+    if (x < 0)
+        return -x * y + z;
+    return x * y + z;
+}
+
+void *copy(char *d, char *s, int n) {
+    while (n--)
+        *d++ = *s++;
+    return d;
+}
+
+int hmm(float x, int a, char *p, char *q) {
+    return x > 1 ? a || p : p < q && a > 0;
 }
 
 //

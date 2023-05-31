@@ -1,7 +1,7 @@
 #include "ir.h"
 #include "common.h"
 
-uchar type2cls[TYARRAY + 1];
+uchar type2cls[NTYPETAG];
 uchar cls2siz[KF8+1];
 const uchar siz2intcls[] = { [1] = KI4, [2] = KI4, [4] = KI4, [8] = KI8 };
 
@@ -34,6 +34,7 @@ irinit(struct function *fn)
       cls2siz[KPTR] = targ_primsizes[TYPTR];
    }
    fn->entry = fn->curblk = alloc(&fn->arena, sizeof(struct block), 0);
+   memset(fn->entry, 0, sizeof *fn->entry);
    fn->entry->lprev = fn->entry->lnext = fn->entry;
 }
 
@@ -262,6 +263,27 @@ putjump(struct function *fn, enum jumpkind j, union ref arg, struct block *t, st
    fn->curblk->s1 = t;
    fn->curblk->s2 = f;
    fn->curblk = NULL;
+}
+
+static void
+freefn(struct function *fn)
+{
+   struct block *blk = fn->entry;
+   do {
+      vfree(&blk->phi);
+      vfree(&blk->ins);
+      blk = blk->lnext;
+   } while (blk != fn->entry);
+}
+
+void
+irfini(struct function *fn)
+{
+   regalloc(fn);
+   efmt("after regalloc:\n");
+   irdump(fn, fn->name);
+
+   freefn(fn);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

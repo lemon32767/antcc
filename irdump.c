@@ -37,8 +37,8 @@ dumpref(enum op o, union ref ref)
       case KI4: efmt("%d", con->i4); break;
       case KI8: efmt("%ld", con->i8); break;
       case KPTR: efmt("%'x", con->i8); break;
-      case KF4: efmt("%f", con->fs); break;
-      case KF8: efmt("%f", con->fd); break;
+      case KF4: efmt("%fs", con->fs); break;
+      case KF8: efmt("%fd", con->fd); break;
       default: assert(0);
       }
       break;
@@ -89,8 +89,11 @@ dumpinst(const struct instr *ins)
 {
    int i;
    efmt("    ");
-   if (ins->cls)
-      efmt("%s %%%d = ", clsname[ins->cls], ins - instr);
+   if (ins->cls) {
+      efmt("%s %%%d", clsname[ins->cls], ins - instr);
+      if (ins->reg) efmt("(%ls)", mctarg->rnames[ins->reg]);
+      efmt(" = ");
+   }
    efmt("%s ", opname[ins->op]);
    for (i = 0; i < opnarg[ins->op]; ++i) {
       if (i) efmt(", ");

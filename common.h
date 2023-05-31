@@ -108,6 +108,7 @@ enum typetag { /* ordering is important here! */
    TYVALIST,
    TYPTR, TYARRAY, TYFUNC,
    TYSTRUCT, TYUNION,
+   NTYPETAG,
    TYSIGNEDSET_ = 1<<TYSCHAR | 1<<TYSHORT | 1<<TYINT | 1<<TYLONG | 1<<TYVLONG,
    TYUNSIGNEDSET_ = 1<<TYUCHAR | 1<<TYUSHORT | 1<<TYUINT | 1<<TYULONG | 1<<TYUVLONG,
    TYSCALARSET_ = ((1u << (TYLDOUBLE - TYENUM + 1)) - 1) << TYENUM | 1<<TYPTR
@@ -276,7 +277,8 @@ extern uchar targ_primsizes[];
 extern uchar targ_primalign[];
 extern enum typetag targ_sizetype, targ_ptrdifftype;
 extern bool targ_charsigned, targ_bigendian;
-void targ_init(const char *targ);
+extern const struct mctarg *mctarg;
+void targ_init(const char *);
 
 /*********/
 /** MEM **/
@@ -317,13 +319,25 @@ bstest(struct bitset *bs, uint i)
 }
 
 static inline void
-bszero(struct bitset *bs, uint siz)
+bsset(struct bitset *bs, uint i)
+{
+   bs[i / BSNBIT].u |= 1 << i % BSNBIT;
+}
+
+static inline void
+bsclr(struct bitset *bs, uint i)
+{
+   bs[i / BSNBIT].u &= ~(1 << i % BSNBIT);
+}
+
+static inline void
+bszero(struct bitset bs[/*siz*/], uint siz)
 {
    memset(bs, 0, siz * sizeof *bs);
 }
 
 static inline bool
-bsiter(uint *i, struct bitset *bs, uint siz)
+bsiter(uint *i, struct bitset bs[/*siz*/], uint siz)
 {
    for (; *i < siz*BSNBIT; ++*i)
       if (bstest(bs, *i)) return 1;

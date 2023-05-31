@@ -954,7 +954,7 @@ expraddr(struct function *fn, const struct expr *ex)
 {
    struct decl *decl;
    union ref r;
-   struct instr ins;
+   struct instr ins = {0};
 
    switch (ex->t) {
    case ESYM:
@@ -1037,8 +1037,10 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
    ins.cls = kto;
    ins.l = ref;
    if (kisflt(kto) || kisflt(kfrom)) {
-      if (kto == KPTR) kto = siz2intcls[cls2siz[kto]];
-      if (kfrom == KPTR) kfrom = siz2intcls[cls2siz[kfrom]];
+      if (ref.t == RICON) {
+         assert(kisflt(kto) && kisint(kfrom));
+         return mkfltcon(fn, kto, kto == KF4 ? (float)ref.i : (double)ref.i);
+      }
       if (kisflt(kto) && kfrom == KI4) ins.op = issignedt(from) ? Ocvts4f : Ocvtu4f;
       else if (to == TYBOOL && kisflt(kfrom)) ins.op = Oneq, ins.r = mkfltcon(fn, kfrom, 0.0);
       else if (kisflt(kto) && kfrom == KI8) ins.op = issignedt(from) ? Ocvts8f : Ocvtu8f;
@@ -1048,7 +1050,16 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
       else if (kfrom == KF8) ins.op = issignedt(to) ? Ocvtf8s : Ocvtf8u;
       else assert(0);
    } else {
-      if (to == TYBOOL) ins.op = Oneq, ins.r = mkzerocon();
+      if (to == TYBOOL) {
+         if (from == TYBOOL) return ref;
+         if (ref.t == RTMP) {
+            extern struct instr instr[];
+            /* these instrs already have output range of [0,1] */
+            if (in_range(instr[ref.idx].op, Oequ, Oulte) || instr[ref.idx].op == Onot)
+               return ref;
+         }
+         ins.op = Oneq, ins.r = mkzerocon();
+      }
       else if (kfrom == KI4 && issignedt(from)) ins.op = Oexts4;
       else if (kfrom == KI4) ins.op = Oextu4;
       else ins.op = Ocopy;
@@ -1059,7 +1070,7 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
 static union ref
 narrow(struct function *fn, enum irclass to, enum typetag tt, union ref ref)
 {
-   struct instr ins;
+   struct instr ins = {0};
    assert(isintt(tt) || tt == TYPTR);
    if (targ_primsizes[tt] >= cls2siz[to]) return ref;
    ins.cls = to;
@@ -1098,12 +1109,12 @@ genptroff(struct function *fn, enum op op, uint siz, union ref ptr,
       off = mkintcon(fn, cls, idx.i * siz);
    else if ((siz & (siz-1)) == 0) /* is power of 2 */
       off = addinstr(fn,
-            (struct instr) { Oshl, cls, .l = idx, .r = mkintcon(fn, cls, ilog2(siz)) });
+            mkinstr(Oshl, cls, .l = idx, .r = mkintcon(fn, cls, ilog2(siz))));
    else
       off = addinstr(fn,
-            (struct instr) { Omul, cls, .l = idx, .r = mkintcon(fn, cls, siz) });
+            mkinstr(Omul, cls, .l = idx, .r = mkintcon(fn, cls, siz)));
    assert(in_range(op, Oadd, Osub));
-   return addinstr(fn, (struct instr) { op, KPTR, .l = ptr, .r = off });
+   return addinstr(fn, mkinstr(op, KPTR, .l = ptr, .r = off));
 }
 
 union ref
@@ -1111,12 +1122,12 @@ genptrdiff(struct function *fn, uint siz, union ref a, union ref b)
 {
    uint cls = type2cls[targ_ptrdifftype];
    assert(siz > 0);
-   a = addinstr(fn, (struct instr) { Osub, cls, .l = a, .r = b });
+   a = addinstr(fn, mkinstr(Osub, cls, .l = a, .r = b));
    if (siz == 1) return a;
    else if ((siz & (siz-1)) == 0) /* is power of 2 */
-      return addinstr(fn, (struct instr) { Osar, cls, a, mkintcon(fn, cls, ilog2(siz)) });
+      return addinstr(fn, mkinstr(Osar, cls, a, mkintcon(fn, cls, ilog2(siz))));
    else
-      return addinstr(fn, (struct instr) { Odiv, cls, a, mkintcon(fn, cls, siz) });
+      return addinstr(fn, mkinstr(Odiv, cls, a, mkintcon(fn, cls, siz)));
 }
 
 /* used to emit the jumps in an in if (), while (), etc condition */
@@ -1173,8 +1184,8 @@ struct condphis {
 };
 
 static void
-condexprrec(struct function *fn, const struct expr *ex, bool tobool,
-            struct condphis *phis, struct block *end, struct block *zero)
+condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
+            int boolcon, struct block *end, struct block *zero)
 {
    struct block *tr, *fl, *next;
    union ref r;
@@ -1184,31 +1195,37 @@ condexprrec(struct function *fn, const struct expr *ex, bool tobool,
    }
    if (ex->t == ELOGAND) {
       next = newblk(fn);
-      condexprrec(fn, &ex->sub[0], 0, phis, next, end);
+      condexprrec(fn, &ex->sub[0], phis, 0, next, end);
       useblk(fn, next);
-      condexprrec(fn, &ex->sub[1], 1, phis, end, zero);
+      condexprrec(fn, &ex->sub[1], phis, -2, end, zero);
    } else if (ex->t == ELOGIOR) {
       next = newblk(fn);
-      condexprrec(fn, &ex->sub[0], 1, phis, end, next);
+      condexprrec(fn, &ex->sub[0], phis, 1, end, next);
       useblk(fn, next);
-      condexprrec(fn, &ex->sub[1], 1, phis, end, zero);
+      condexprrec(fn, &ex->sub[1], phis, -2, end, zero);
    } else if (ex->t == ECOND) {
       tr = newblk(fn);
       fl = newblk(fn);
       condjump(fn, &ex->sub[0], tr, fl);
       useblk(fn, tr);
-      condexprrec(fn, &ex->sub[1], 0, phis, end, zero);
+      condexprrec(fn, &ex->sub[1], phis, -1, end, zero);
       useblk(fn, fl);
-      condexprrec(fn, &ex->sub[2], 0, phis, end, zero);
+      condexprrec(fn, &ex->sub[2], phis, -1, end, zero);
    } else {
       r = exprvalue(fn, ex);
-      if (tobool) r = cvt(fn, TYBOOL, ex->ty.t, r);
       vpush(&phis->blk, fn->curblk);
-      vpush(&phis->ref, r);
-      if (zero)
-         putjump(fn, Jbcnd, r, end, zero);
+      if (boolcon == -2)
+         r = cvt(fn, TYBOOL, ex->ty.t, r);
+      if (boolcon >= 0)
+         vpush(&phis->ref, mkintcon(fn, KI4, boolcon));
       else
+         vpush(&phis->ref, r);
+      if (zero) {
+         putjump(fn, Jbcnd, r, end, zero);
+      } else {
+         assert(boolcon < 0);
          putjump(fn, Jb, NOREF, end, NULL);
+      }
    }
 }
 
@@ -1223,7 +1240,7 @@ condexprvalue(struct function *fn, const struct expr *ex)
                             VINIT(refbuf, arraylength(refbuf))};
    struct block *dst = newblk(fn);
    union ref r;
-   condexprrec(fn, ex, 0, &phis, dst, NULL);
+   condexprrec(fn, ex, &phis, -1, dst, NULL);
    useblk(fn, dst);
    r = addphi(fn, type2cls[ex->ty.t], phis.blk.p, phis.ref.p, phis.blk.n);
    vfree(&phis.blk);
@@ -1639,8 +1656,7 @@ block(struct parser *pr, struct function *fn)
                   siz = typesize(decl.ty);
                   nalloc = siz/align + ((siz&(align-1)) != 0);
                   EMITS {
-                     decl.id = addinstr(fn,
-                                 (struct instr) { op, KPTR, mkintcon(fn, KI4, nalloc) }).idx;
+                     decl.id = addinstr(fn, mkinstr(op, KPTR, mkintcon(fn, KI4, nalloc))).idx;
                   }
                   if (st.varini) {
                      putdecl(pr, &decl);
@@ -1695,7 +1711,7 @@ function(struct parser *pr, struct function *fn, const char **pnames, const stru
          siz = typesize(arg.ty);
          nalloc = siz/align + ((siz&(align-1)) != 0);
          EMITS {
-            struct instr alloca = { op, KPTR, mkintcon(fn, KI4, nalloc) };
+            struct instr alloca = { op, KPTR, .l = mkintcon(fn, KI4, nalloc) };
             arg.id = addinstr(fn, alloca).idx;
             genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RARG, i));
          }
@@ -2370,7 +2386,8 @@ parse(struct parser *pr)
             putdecl(pr, &decl);
             irinit(&fn);
             function(pr, &fn, st.pnames, st.pspans);
-            if (!nerror) irdump(&fn, decl.name);
+            /* if (!nerror) irdump(&fn, decl.name); */
+            irfini(&fn);
          } else if (decl.name) {
             putdecl(pr, &decl);
             if (st.varini) {

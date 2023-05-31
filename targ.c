@@ -1,20 +1,23 @@
 #include "common.h"
 
-uchar targ_primsizes[TYPTR+1];
-uchar targ_primalign[TYPTR+1];
-enum typetag targ_sizetype, targ_ptrdifftype;
-bool targ_charsigned, targ_bigendian;
-
+extern const struct mctarg t_amd64_sysv;
 static const struct targ {
    const char *name;
    struct { uchar longsize, vlongsize, ptrsize, valistsize; };
    struct { uchar longalign, vlongalign, doublealign, ptralign; };
    bool charsigned;
    uchar sizetype, ptrdifftype;
+   const struct mctarg *mctarg;
 } targs[] = {
-   { "amd64-sysv", {8, 8, 8, 24}, {8, 8, 8, 8}, 1, TYULONG, TYLONG },
+   { "amd64-sysv", {8, 8, 8, 24}, {8, 8, 8, 8}, 1, TYULONG, TYLONG, &t_amd64_sysv },
    { "i686-sysv",  {4, 8, 4,  8}, {4, 4, 4, 4}, 1, TYUINT, TYINT }
 };
+
+uchar targ_primsizes[TYPTR+1];
+uchar targ_primalign[TYPTR+1];
+enum typetag targ_sizetype, targ_ptrdifftype;
+bool targ_charsigned, targ_bigendian;
+const struct mctarg *mctarg;
 
 void
 targ_init(const char *starg)
@@ -40,4 +43,5 @@ targ_init(const char *starg)
    targ_ptrdifftype = t->ptrdifftype;
    targ_charsigned = t->charsigned;
    targ_bigendian = 0;
+   mctarg = t->mctarg;
 }

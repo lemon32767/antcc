@@ -6,7 +6,7 @@ enum irclass {
    KF4, KF8,
 };
 
-#define kisint(k) in_range((k), KI4, KIP)
+#define kisint(k) in_range((k), KI4, KPTR)
 #define kisflt(k) in_range((k), KF4, KF8)
 
 union irtype {
@@ -56,7 +56,13 @@ struct phi {
 };
 
 enum refkind {
-   RNONE, RTMP, RARG, RICON, RXCON, RSYM, REXT
+   RNONE,
+   RTMP,  /* reference to another instruction's result */
+   RARG,  /* function argument */
+   RICON, /* small integer constants */
+   RXCON, /* other constants (incl. external symbols) */
+   REXT,  /* reference to extra data for Ocall and Ophi */
+   RREG,  /* machine register */
 };
 
 union ref {
@@ -73,8 +79,8 @@ enum op {
 };
 
 struct instr {
-   uchar op;
-   uchar cls;
+   uchar op, cls;
+   uchar reg, hint;
    union ref l, r;
 };
 
@@ -85,9 +91,9 @@ enum jumpkind {
 struct block {
    int id;
    struct block *s1, *s2;
-   struct { uchar t; union ref arg; } jmp;   
    vec_of(ushort) phi;
    vec_of(ushort) ins;
+   struct { uchar t; union ref arg; } jmp;
    struct block *lprev, *lnext;
 };
 
@@ -101,13 +107,27 @@ struct function {
    bool globl;
 };
 
+enum { MAXREGS = 32 };
+
+struct mctarg {
+   short gpr0, /* first gpr */
+         ngpr, /* gpr count */
+         fpr0, /* first fpr */
+         nfpr; /* fpr count */
+   struct bitset rcallee[1], /* callee-saved */
+                 rglob[1];   /* globally live (never used for regalloc) */
+   const char (*rnames)[6];
+};
+
 extern uchar type2cls[];
 extern uchar cls2siz[];
 extern const uchar siz2intcls[];
-void irinit(struct function *);
 #define NOREF ((union ref) {0})
 #define mkref(t, x) ((union ref) {{ (t), (x) }})
-#define mkzerocon() ((union irref){ RICON, 0 })
+#define mkzerocon() ((union ref) {{ RICON, 0 }})
+#define mkinstr(O, C, ...) ((struct instr) { .op = (O), .cls = (C), .reg=0,.hint=0, __VA_ARGS__ })
+void irinit(struct function *);
+void irfini(struct function *);
 union irtype mkirtype(union type);
 union ref mkintcon(struct function *, enum irclass, vlong);
 union ref mkfltcon(struct function *, enum irclass, double);
@@ -121,6 +141,11 @@ union ref addphi(struct function *, enum irclass cls, struct block **blk, union 
 struct block *newblk(struct function *);
 void useblk(struct function *, struct block *);
 void putjump(struct function *, enum jumpkind, union ref arg, struct block *t, struct block *f);
+void insertinstr(struct block *, int idx, struct instr);
+void delinstr(struct block *, int idx);
+
 void irdump(struct function *, const char *fname);
+
+void regalloc(struct function *);
 
 /* vim:set ts=3 sw=3 expandtab: */

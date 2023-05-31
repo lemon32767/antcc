@@ -289,7 +289,7 @@ putdouble(struct wbuf *buf, double x, vlong prec)
 int
 vbfmt(struct wbuf *out, const char *fmt, va_list ap)
 {
-   bool quote, unsgnd, numlong, lower;
+   bool quote, umod, lmod, lower;
    int base;
    vlong i;
    int pad, prec, q;
@@ -337,8 +337,8 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
          for (; aisdigit(*fmt); ++fmt)
             prec = prec*10 + *fmt-'0';
       }
-      fmt += unsgnd = *fmt == 'u';
-      fmt += numlong = *fmt == 'l';
+      fmt += umod = *fmt == 'u';
+      fmt += lmod = *fmt == 'l';
       lower = 0;
       prevn = n;
       switch (*fmt++) {
@@ -356,10 +356,16 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
          assert(s && "%s null!");
          if (quote) {
             n += bputc(buf, '"');
-            for (; *s; ++s) n += putquoted(buf, *s, '"', s[1]);
+            if (lmod) /* lower */
+               for (; *s; ++s) n += putquoted(buf, aisalpha(*s) ? *s|32 : *s, '"', s[1]);
+            else
+               for (; *s; ++s) n += putquoted(buf, *s, '"', s[1]);
             n += bputc(buf, '"');
          } else {
-            while (*s) n += bputc(buf, *s++);
+            if (lmod) /* lower */
+               for (; *s; ++s) n += bputc(buf, aisalpha(*s) ? *s|32 : *s);
+            else
+               while (*s) n += bputc(buf, *s++);
          }
          break;
       case 'S':  /* string ptr + len */
@@ -377,8 +383,8 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
       case 'd': /* decimal */
          base = 10;
       Int:
-         if (base != 10) unsgnd = 1;
-         i = numlong ? va_arg(ap, vlong) : (unsgnd ? va_arg(ap, uint) : (vlong)va_arg(ap, int));
+         if (base != 10) umod = 1;
+         i = lmod ? va_arg(ap, vlong) : (umod ? va_arg(ap, uint) : (vlong)va_arg(ap, int));
          tmp2.len = 0;
          if (quote) {
             switch (base) {
@@ -387,7 +393,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             case 16: n += bwriteS(buf, "0x"); break;
             }
          }
-         if (!unsgnd && i < 0) {
+         if (!umod && i < 0) {
             n += bputc(buf, '-');
             i = -i;
          }
@@ -545,7 +551,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
          if (!ccopt.nocolor) n += bputc(buf, 'm');
          break;
       default:
-         if (unsgnd || numlong) {
+         if (umod || lmod) {
             --fmt;
             base = 10;
             goto Int;

@@ -111,6 +111,10 @@ freearena(struct arena *ar)
       prev = ar->prev;
       if (ar->dyn)
          free(ar);
+      else {
+         assert(!prev);
+         ar->n = 0;
+      }
    }
 }
 
