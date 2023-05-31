@@ -1048,7 +1048,7 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
       else if (kfrom == KF8) ins.op = issignedt(to) ? Ocvtf8s : Ocvtf8u;
       else assert(0);
    } else {
-      if (to == TYBOOL) ins.op = Oneq, ins.r = mkref(RICON, 0);
+      if (to == TYBOOL) ins.op = Oneq, ins.r = mkzerocon();
       else if (kfrom == KI4 && issignedt(from)) ins.op = Oexts4;
       else if (kfrom == KI4) ins.op = Oextu4;
       else ins.op = Ocopy;
@@ -1096,7 +1096,7 @@ genptroff(struct function *fn, enum op op, uint siz, union ref ptr,
    if (siz ==  1) off = idx;
    else if (idx.t == RICON)
       off = mkintcon(fn, cls, idx.i * siz);
-   else if ((siz & siz-1) == 0) /* is power of 2 */
+   else if ((siz & (siz-1)) == 0) /* is power of 2 */
       off = addinstr(fn,
             (struct instr) { Oshl, cls, .l = idx, .r = mkintcon(fn, cls, ilog2(siz)) });
    else
@@ -1113,7 +1113,7 @@ genptrdiff(struct function *fn, uint siz, union ref a, union ref b)
    assert(siz > 0);
    a = addinstr(fn, (struct instr) { Osub, cls, .l = a, .r = b });
    if (siz == 1) return a;
-   else if ((siz & siz-1) == 0) /* is power of 2 */
+   else if ((siz & (siz-1)) == 0) /* is power of 2 */
       return addinstr(fn, (struct instr) { Osar, cls, a, mkintcon(fn, cls, ilog2(siz)) });
    else
       return addinstr(fn, (struct instr) { Odiv, cls, a, mkintcon(fn, cls, siz) });
