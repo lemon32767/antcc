@@ -376,10 +376,13 @@ Begin:
    case ' ': case '\r': case '\t':
       goto Begin;
       break;
-   case '!': case '(': case ')': case ',':
-   case ':': case ';': case '?': case '[':
-   case ']': case '{': case '}': case '~':
-   case '$': case '@': case '`': case '\\': case TKEOF: case '\n':
+   case '(': case ')': case ',': case ':':
+   case ';': case '?': case '[': case ']':
+   case '{': case '}': case '~': case '$':
+   case '@': case '`': case '\\': case TKEOF: case '\n':
+      RET(c);
+   case '!':
+      if (match(pr, '=')) RET(TKNEQ);
       RET(c);
    case '#':
       if (match(pr, '#')) RET(TKPPCAT);

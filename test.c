@@ -7,6 +7,8 @@ wawa
 #else
 boop
 #endif
+
+#define NULL ((void *)0)
 int glob [ wow+wow];
 
 struct foo {
@@ -30,6 +32,16 @@ int test4(int c) {
          : (f(), c == 'b' || c == 'y') ? 2
          : c == 'c' || c == 'z' ? 3
          : 0;
+}
+
+int test5(int *p)
+{
+    return p ? *p : 0;
+}
+
+int test6(int x)
+{
+    return !!!!x;
 }
 
 //

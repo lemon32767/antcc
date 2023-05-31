@@ -1149,6 +1149,19 @@ Loop:
       condjump(fn, &ex->sub[1], tr, fl);
       useblk(fn, next2);
       condjump(fn, &ex->sub[2], tr, fl);
+   } else if (ex->t == ELOGNOT) {
+   Negate:
+      /* swap tr,fl */
+      next = tr;
+      tr = fl;
+      fl = next;
+      ex = &ex->sub[0];
+      goto Loop;
+   } else if (ex->t == EEQU && isnullpo(&ex->sub[1])) { /* == 0 */
+      goto Negate;
+   } else if (ex->t == ENEQ && isnullpo(&ex->sub[1])) { /* != 0 */
+      ex = &ex->sub[0];
+      goto Loop;
    } else {
       putjump(fn, Jbcnd, exprvalue(fn, ex), tr, fl);
    }
@@ -1204,7 +1217,10 @@ condexprrec(struct function *fn, const struct expr *ex, bool tobool,
 static union ref
 condexprvalue(struct function *fn, const struct expr *ex)
 {
-   struct condphis phis = {0};
+   struct block *blkbuf[8];
+   union ref refbuf[8];
+   struct condphis phis = { VINIT(blkbuf, arraylength(blkbuf)),
+                            VINIT(refbuf, arraylength(refbuf))};
    struct block *dst = newblk(fn);
    union ref r;
    condexprrec(fn, ex, 0, &phis, dst, NULL);
@@ -1258,7 +1274,9 @@ exprvalue(struct function *fn, const struct expr *ex)
       ins.cls = cls;
       return addinstr(fn, ins);
    case ELOGNOT:
-      ins.op = Oequ;
+      for (; sub->t == ELOGNOT; ex = sub, sub = sub->sub)
+         swp ^= 1;
+      ins.op = Oequ + swp;
       ins.l = exprvalue(fn, sub);
       ins.l = cvt(fn, ex->ty.t, sub->ty.t, ins.l);
       ins.r = mkintcon(fn, cls, 0);
