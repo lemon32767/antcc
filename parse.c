@@ -1378,12 +1378,13 @@ exprvalue(struct function *fn, const struct expr *ex)
       swp = 1;
    Cmp:
       ty = cvtarith(sub[0].ty, sub[1].ty);
+      if (!ty.t) ty.t = TYPTR;
       if (isunsigned(ty) && in_range(ins.op, Olth, Olte))
          ins.op += Oulth - Olth;
       ins.l = exprvalue(fn, &sub[0^swp]);
-      ins.l = cvt(fn, ex->ty.t, ty.t, ins.l);
+      ins.l = cvt(fn, ty.t, sub[0^swp].ty.t, ins.l);
       ins.r = exprvalue(fn, &sub[1^swp]);
-      ins.r = cvt(fn, ex->ty.t, ty.t, ins.r);
+      ins.r = cvt(fn, ty.t, sub[1^swp].ty.t, ins.r);
       ins.cls = cls;
       return addinstr(fn, ins);
       break;
