@@ -58,7 +58,7 @@ ptrhash(const void *p) {
 }
 static inline uint
 popcnt(uvlong x) {
-#ifdef __GNUC__
+#if defined __has_builtin && __has_builtin(__builtin_popcountll)
    return __builtin_popcountll(x);
 #else
    uint n = 0;
@@ -68,7 +68,17 @@ popcnt(uvlong x) {
 }
 static inline bool
 ispo2(uvlong x) {
-   return (x & (x - 1)) == 0;
+   return x & ((x & (x - 1)) == 0);
+}
+static inline uint
+ilog2(uint x) { /* assumes x is a power of 2 */
+#if defined __has_builtin && __has_builtin(__builtin_ctz)
+   return __builtin_ctz(x);
+#else
+   uint n = 0;
+   while (x >>= 1) ++n;
+   return n;
+#endif
 }
 
 /******************/

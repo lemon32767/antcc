@@ -1,9 +1,5 @@
 #include "ir.h"
 
-extern struct instr instr[];
-extern vec_of(struct call) calls;
-extern vec_of(struct phi) phis;
-
 static struct bitset taken[1];
 
 static void
@@ -18,6 +14,7 @@ nextreg(enum irclass cls)
 {
    int r0, rend, i;
 
+   assert(cls);
    if (kisint(cls)) {
       r0 = mctarg->gpr0;
       rend = mctarg->gpr0 + mctarg->ngpr;
@@ -39,27 +36,33 @@ use(struct block *blk, enum op op, int hint, union ref *ref)
 {
    struct instr *ins;
    if (ref->t == RMORE) {
-      if (op == Ocall) {
-         struct call *call = &calls.p[ref->idx];
+      if (op == Ocall || op == Obuiltin) {
+         struct call *call = &calltab.p[ref->idx];
          for (int i = 0; i < call->narg; ++i)
             use(blk, 0, 0, &call->args[i]);
       } else if (op == Ophi) {
-         struct phi *phi = &phis.p[ref->idx];
+         struct phi *phi = &phitab.p[ref->idx];
          for (int i = 0; i < phi->n; ++i)
             use(blk, 0, hint, &phi->ref[i]);
       } else assert("ext?");
       return;
    } else if (ref->t != RTMP) return;
 
-   ins = &instr[ref->idx];
-   if (in_range(ins->op, Oalloca1, Oalloca16)) return;
+   ins = &instrtab[ref->idx];
+   if (oisalloca(ins->op)) return;
+   if (!ins->cls) return;
    if (!ins->reg) {
       if (op == -1) /* cond branch */
-         if (in_range(ins->op, Oequ, Oulte) && ref->idx == blk->ins.p[blk->ins.n-1])
+         if (oiscmp(ins->op) && ref->idx == blk->ins.p[blk->ins.n-1])
             /* result of comparison instr is only used to conditionally branch,
              * doesn't usually need a reg (handled by isel) */
             return;
-      ins->reg = (hint ? hint : nextreg(ins->cls)) + 1;
+      if (hint != -1) {
+         bsset(taken, hint);
+         ins->reg = hint + 1;
+      } else {
+         ins->reg = nextreg(ins->cls) + 1;
+      }
    }
 }
 
@@ -67,26 +70,32 @@ void
 regalloc(struct function *fn)
 {
    struct instr *ins;
-   struct block *last = fn->entry->lprev, *blk = last;
+   struct block *last = fn->entry->lprev, *blk;
 
    /* a dumb linear register allocator that visits instructions physically backwards
     * starting at the end of the function, when encountering a use of a new
     * temporary, it allocates a register for it. when encountering the definition
     * of a temporary, it frees up its register
     */
+   blk = last;
    do {
-      if (blk->jmp.arg.t) use(blk, blk->jmp.t == Jbcnd ? -1 : 0, 0, &blk->jmp.arg);
+      for (int i = 0; i < 2; ++i) {
+         if (!blk->jmp.arg[i].t) break;
+         use(blk, (blk->jmp.t == Jb) - 1,
+                  blk->jmp.t == Jret ? fn->abiret[i].reg : -1,
+                  &blk->jmp.arg[i]);
+      }
       for (int i = blk->phi.n - 1; i >= 0; --i) {
-         ins = &instr[blk->phi.p[i]];
+         ins = &instrtab[blk->phi.p[i]];
          def(ins);
          assert(ins->op == Ophi);
-         use(blk, Ophi, ins->reg, &ins->l);
+         use(blk, Ophi, ins->reg - 1, &ins->l);
       }
       for (int i = blk->ins.n - 1; i >= 0; --i) {
-         ins = &instr[blk->ins.p[i]];
+         ins = &instrtab[blk->ins.p[i]];
          def(ins);
-         if (ins->l.t) use(blk, ins->op, 0, &ins->l);
-         if (ins->r.t) use(blk, ins->op, 0, &ins->r);
+         if (ins->l.t) use(blk, ins->op, -1, &ins->l);
+         if (ins->r.t) use(blk, ins->op, -1, &ins->r);
       }
    } while ((blk = blk->lprev) != last);
 }

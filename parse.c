@@ -1100,12 +1100,10 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
    } else {
       if (to == TYBOOL) {
          if (from == TYBOOL) return ref;
-         if (ref.t == RTMP) {
-            extern struct instr instr[];
+         if (ref.t == RTMP)
             /* these instrs already have output range of [0,1] */
-            if (in_range(instr[ref.idx].op, Oequ, Oulte) || instr[ref.idx].op == Onot)
+            if (instrtab[ref.idx].op == Onot || oiscmp(instrtab[ref.idx].op))
                return ref;
-         }
          ins.op = Oneq, ins.r = mkzerocon();
       }
       else if (kfrom == KI4 && issignedt(from)) ins.op = Oexts4;
@@ -1137,17 +1135,6 @@ narrow(struct function *fn, enum irclass to, enum typetag tt, union ref ref)
    return addinstr(fn, ins);
 }
 
-static inline uint
-ilog2(uint x) { /* assumes x is a power of 2 */
-#ifdef __GNUC__
-   return __builtin_ctz(x);
-#else
-   uint n = 0;
-   while (x >>= 1) ++n;
-   return n;
-#endif
-}
-
 union ref
 genptroff(struct function *fn, enum op op, uint siz, union ref ptr,
           enum typetag tt, union ref idx)
@@ -1160,7 +1147,7 @@ genptroff(struct function *fn, enum op op, uint siz, union ref ptr,
    if (siz ==  1) off = idx;
    else if (idx.t == RICON)
       off = mkintcon(fn, cls, idx.i * siz);
-   else if ((siz & (siz-1)) == 0) /* is power of 2 */
+   else if (ispo2(siz))
       off = addinstr(fn,
             mkinstr(Oshl, cls, .l = idx, .r = mkintcon(fn, cls, ilog2(siz))));
    else
@@ -1227,7 +1214,7 @@ Loop:
       ex = &ex->sub[0];
       goto Loop;
    } else {
-      putjump(fn, Jbcnd, exprvalue(fn, ex), tr, fl);
+      putcondbranch(fn, exprvalue(fn, ex), tr, fl);
    }
 }
 
@@ -1274,10 +1261,10 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
       else
          vpush(&phis->ref, r);
       if (zero) {
-         putjump(fn, Jbcnd, r, end, zero);
+         putcondbranch(fn, r, end, zero);
       } else {
          assert(boolcon < 0);
-         putjump(fn, Jb, NOREF, end, NULL);
+         putbranch(fn, end);
       }
    }
 }
@@ -1538,10 +1525,10 @@ exprvalue(struct function *fn, const struct expr *ex)
          useblk(fn, tr);
          (void)exprvalue(fn, &ex->sub[1]);
          end = newblk(fn);
-         putjump(fn, Jb, NOREF, end, NULL);
+         putbranch(fn, end);
          useblk(fn, fl);
          (void)exprvalue(fn, &ex->sub[2]);
-         putjump(fn, Jb, NOREF, end, NULL);
+         putbranch(fn, end);
          useblk(fn, end);
          return NOREF;
       }
@@ -1605,16 +1592,16 @@ stmt(struct parser *pr, struct function *fn)
       terminates = stmt(pr, fn);
       if (!match(pr, NULL, TKWelse)) {
          end = fl;
-         EMITS if (!terminates) putjump(fn, Jb, NOREF, end, NULL);
+         EMITS if (!terminates) putbranch(fn, end);
          terminates = 0;
       } else {
          EMITS {
-            if (!terminates) putjump(fn, Jb, NOREF, end = newblk(fn), NULL);
+            if (!terminates) putbranch(fn, end = newblk(fn));
             useblk(fn, fl);
          }
          terminates &= stmt(pr, fn);
          EMITS {
-            if (fn->curblk) putjump(fn, Jb, NOREF, end, NULL);
+            if (fn->curblk) putbranch(fn, end);
          }
       }
       EMITS if (!terminates) useblk(fn, end);
@@ -1629,14 +1616,14 @@ stmt(struct parser *pr, struct function *fn)
       tr = begin = end = NULL;
       EMITS {
          begin = newblk(fn);
-         putjump(fn, Jb, NOREF, begin, NULL);
+         putbranch(fn, begin);
          useblk(fn, begin);
          condjump(fn, &ex, tr = newblk(fn), end = newblk(fn));
          useblk(fn, tr);
       }
       terminates = stmt(pr, fn);
       EMITS {
-         if (!terminates) putjump(fn, Jb, NOREF, begin, NULL);
+         if (!terminates) putbranch(fn, begin);
          useblk(fn, end);
       }
       break;
@@ -1654,10 +1641,10 @@ stmt(struct parser *pr, struct function *fn)
                r = cvt(fn, fn->retty.t, ex.ty.t, exprvalue(fn, &ex));
             else
                r = structreturn(fn, &ex);
-            putjump(fn, Jrets, r, NULL, NULL);
+            putreturn(fn, r, NOREF);
          }
       } else {
-         EMITS putjump(fn, Jret, NOREF, NULL, NULL);
+         EMITS putreturn(fn, NOREF, NOREF);
       }
       stmtterm(pr);
       break;
@@ -1789,7 +1776,7 @@ function(struct parser *pr, struct function *fn, const char **pnames, const stru
       if (fn->retty.t != TYVOID && !nerror) {
          warn(&pr->fnblkspan, "non-void function may not return a value");
       }
-      putjump(fn, Jret, NOREF, NULL, NULL);
+      putreturn(fn, NOREF, NOREF);
    }
 }
 

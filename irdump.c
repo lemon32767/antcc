@@ -54,8 +54,7 @@ dumpref(enum op o, union ref ref)
       break;
    case RMORE:
       if (o == Ocall || o == Obuiltin) {
-         extern vec_of(struct call) calls;
-         struct call *call = &calls.p[ref.idx];
+         struct call *call = &calltab.p[ref.idx];
          for (int i = 0; i < call->narg; ++i) {
             if (i > 0) efmt(", ");
             if (call->vararg == i)
@@ -65,8 +64,7 @@ dumpref(enum op o, union ref ref)
             dumpref(0, call->args[i]);
          }
       } else if (o == Ophi) {
-         extern vec_of(struct phi) phis;
-         struct phi *phi = &phis.p[ref.idx];
+         struct phi *phi = &phitab.p[ref.idx];
          for (int i = 0; i < phi->n; ++i) {
             if (i > 0) efmt(", ");
             efmt("[.L%d ", phi->blk[i]->id);
@@ -79,7 +77,6 @@ dumpref(enum op o, union ref ref)
    }
 }
 
-extern struct instr instr[];
 static const char *opname[] = {
    "?\??",
 #define _(o,...) #o,
@@ -99,7 +96,7 @@ dumpinst(const struct instr *ins)
    int i;
    efmt("    ");
    if (ins->cls) {
-      efmt("%s %%%d", clsname[ins->cls], ins - instr);
+      efmt("%s %%%d", clsname[ins->cls], ins - instrtab);
       if (ins->reg) efmt("(%ls)", mctarg->rnames[ins->reg - 1]);
       efmt(" = ");
    }
@@ -114,24 +111,26 @@ dumpinst(const struct instr *ins)
 static void
 dumpblk(struct function *fn, struct block *blk)
 {
-   static const char *jnames[] = { 0, "b", "b", "ret", "ret" };
-   static const uchar jnarg[] = { 0, 0, 1, 0, 1 };
+   static const char *jnames[] = { 0, "b", "ret" };
+   int i;
    efmt("  .L%d:\n", blk->id);
-   for (int i = 0; i < blk->phi.n; ++i) {
-      dumpinst(&instr[blk->phi.p[i]]);
+   for (i = 0; i < blk->phi.n; ++i) {
+      dumpinst(&instrtab[blk->phi.p[i]]);
    }
-   for (int i = 0; i < blk->ins.n; ++i) {
-      dumpinst(&instr[blk->ins.p[i]]);
+   for (i = 0; i < blk->ins.n; ++i) {
+      dumpinst(&instrtab[blk->ins.p[i]]);
    }
    efmt("    %s ", jnames[blk->jmp.t]);
-   if (jnarg[blk->jmp.t]) {
-      if (blk->jmp.t == Jrets) {
-         prityp(mkirtype(fn->retty));
+   for (i = 0; i < 2; ++i) {
+      if (!blk->jmp.arg[i].t) break;
+      if (i > 0) efmt(", ");
+      if (blk->jmp.t == Jret && fn->nabiret > i) {
+         prityp(fn->abiret[i].ty);
          efmt(" ");
       }
-      dumpref(0, blk->jmp.arg);
-      if (blk->s1) efmt(", ");
+      dumpref(0, blk->jmp.arg[i]);
    }
+   if (i && blk->s1) efmt(", ");
    if (blk->s1 && blk->s2) efmt(".L%d, .L%d", blk->s1->id, blk->s2->id);
    else if (blk->s1) efmt(".L%d", blk->s1->id);
    efmt("\n");
@@ -143,6 +142,19 @@ irdump(struct function *fn, const char *fname)
    struct block *blk;
 
    efmt("function %s : %ty\n", fname, fn->fnty);
+   if (fn->abiarg) {
+      efmt("abi args: (");
+      for (int i = 0; i < fn->nabiarg; ++i) {
+         if (i > 0) efmt(", ");
+         if (fn->abiarg[i].reg != -1) {
+            efmt("%%%ls", mctarg->rnames[fn->abiarg[i].reg]);
+         } else {
+            prityp(fn->abiarg[i].ty);
+            efmt(" <stk>");
+         }
+      }
+      efmt(")\n");
+   }
    blk = fn->entry;
    do {
       dumpblk(fn, blk);

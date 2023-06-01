@@ -15,61 +15,35 @@ struct foo {
     int x, y, z;
 };
 
+struct v2f { double x, y; };
+struct big { int x[10]; };
 
-int test0(struct foo *foo) { return foo->x ? foo->y : foo->z; }
-int test1(int x, int y, int z) { return x && y || z; }
-int test2(int x, int y, int z) { return x || y && z; }
-
-extern void f();
-int test3(int x, int y) {
-    if (x < 0 && y < 0 && 1) return x - y;
-    if ((x == 0 || x > 0) && y > 0) return y;
-    if (f(), x == y ? x && 1 : 0 || y) return x;
-    return x + y;
-}
-
-int test4(int c) {
-    return c == 'a' || c == 'x' ? 1
-         : (f(), c == 'b' || c == 'y') ? 2
-         : c == 'c' || c == 'z' ? 3
-         : 0;
-}
-
-int test5(int *p)
-{
-    return p ? *p : 0;
-}
-
-int test6(int x)
-{
-    return !!!!x;
-}
-
-float sqr(float x) { return x * x; }
-
-int mula(int x, int y, int z) {
-    if (x < 0)
-        return -x * y + z;
-    return x * y + z;
-}
-
-void *copy(char *d, char *s, int n) {
-    while (n--)
-        *d++ = *s++;
-    return d;
-}
-
-int hmm(float x, int a, char *p, char *q) {
-    return x > 1 ? a || p : p < q && a > 0;
-}
-
-struct v2f { float x, y; };
-
-struct v2f add(struct v2f a, struct v2f b) {
+struct v2f add(struct v2f a, struct v2f b, struct big B, struct { char c; } small, void *prt) {
     struct v2f r;
-    r.x = a.x + b.x;
     r.y = a.y + b.y;
     return r;
 }
+
+struct pair {
+    long x, y;
+};
+
+struct pair pair(long x, long y) {
+    struct pair p;
+    p.x = x;
+    p.y = y;
+    return p;
+}
+
+struct quad {
+    long x, y, z, w;
+};
+
+struct quad quad(long x, long y, long z, long w) {
+    struct quad q;
+    q.x = x, q.y = y, q.z = z, q.w = w;
+    return q;
+}
+
 
 //

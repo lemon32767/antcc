@@ -78,6 +78,10 @@ enum op {
 #undef _
 };
 
+#define oiscmp(o) in_range(o, Oequ, Oulte)
+#define oisalloca(o) in_range(o, Oalloca1, Oalloca16)
+#define oisstore(o) in_range(o, Ostore1, Ostore8)
+
 enum builtin {
    BTxxx,
 #define _(b,...) BT##b,
@@ -92,7 +96,7 @@ struct instr {
 };
 
 enum jumpkind {
-   JXXX, Jb, Jbcnd, Jret, Jrets,
+   JXXX, Jb, Jret,
 };
 
 struct block {
@@ -100,17 +104,23 @@ struct block {
    struct block *s1, *s2;
    vec_of(ushort) phi;
    vec_of(ushort) ins;
-   struct { uchar t; union ref arg; } jmp;
+   struct { uchar t; union ref arg[2]; } jmp;
    struct block *lprev, *lnext;
+};
+
+struct abiarg {
+   union irtype ty;
+   short reg; /* -1 -> stack */
 };
 
 struct function {
    struct arena *arena;
    const char *name;
    struct block *entry, *curblk;
-   union type fnty, retty, *paramty;
+   union type fnty, retty;
+   struct abiarg *abiarg, abiret[2];
    uint nblk;
-   uint nparam;
+   ushort nabiarg, nabiret;
    bool globl;
 };
 
@@ -124,15 +134,21 @@ struct mctarg {
    struct bitset rcallee[1], /* callee-saved */
                  rglob[1];   /* globally live (never used for regalloc) */
    const char (*rnames)[6];
+   int (*abi_argregs)(short r[2], uchar cls[2], int *ni, int *nf, union irtype);
+   int (*abi_retregs)(short r[2], uchar cls[2], union irtype);
 };
 
 extern uchar type2cls[];
 extern uchar cls2siz[];
 extern const uchar siz2intcls[];
+extern struct instr instrtab[];
+extern struct calltab {vec_of(struct call);} calltab;
+extern struct phitab {vec_of(struct phi);} phitab;
 #define NOREF ((union ref) {0})
 #define mkref(t, x) ((union ref) {{ (t), (x) }})
 #define mkzerocon() ((union ref) {{ RICON, 0 }})
 #define mkinstr(O, C, ...) ((struct instr) { .op = (O), .cls = (C), .reg=0, __VA_ARGS__ })
+#define mkbuiltin(F, B, C, n, arg, typ) mkinstr(Obuiltin, C, {.t=RICON,B}, mkcallarg(F,n,-1,arg,typ))
 void irinit(struct function *);
 void irfini(struct function *);
 union irtype mkirtype(union type);
@@ -142,17 +158,20 @@ union ref mksymref(struct function *, const char *);
 void conputdat(struct irdat *, uint off, enum typetag t, const void *dat);
 union ref mkcallarg(struct function *, uint narg, int vararg, union ref *, union irtype *);
 union ref addinstr(struct function *, struct instr);
+union ref insertinstr(struct block *, int idx, struct instr);
+void delinstr(struct block *, int idx);
 union ref addphi2(struct function *, enum irclass cls,
                   struct block *b1, union ref r1, struct block *b2, union ref r2);
 union ref addphi(struct function *, enum irclass cls, struct block **blk, union ref *ref, uint n);
 struct block *newblk(struct function *);
 void useblk(struct function *, struct block *);
-void putjump(struct function *, enum jumpkind, union ref arg, struct block *t, struct block *f);
-void insertinstr(struct block *, int idx, struct instr);
-void delinstr(struct block *, int idx);
+void putbranch(struct function *, struct block *);
+void putcondbranch(struct function *, union ref arg, struct block *t, struct block *f);
+void putreturn(struct function *, union ref r0, union ref r1);
 
 void irdump(struct function *, const char *fname);
 
+void abistruct(struct function *);
 void regalloc(struct function *);
 
 /* vim:set ts=3 sw=3 expandtab: */
