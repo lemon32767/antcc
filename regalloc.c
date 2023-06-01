@@ -6,6 +6,13 @@ extern vec_of(struct phi) phis;
 
 static struct bitset taken[1];
 
+static void
+def(struct instr *ins)
+{
+   if (ins->reg)
+      bsclr(taken, ins->reg - 1);
+}
+
 static int
 nextreg(enum irclass cls)
 {
@@ -31,7 +38,7 @@ static void
 use(struct block *blk, enum op op, int hint, union ref *ref)
 {
    struct instr *ins;
-   if (ref->t == REXT) {
+   if (ref->t == RMORE) {
       if (op == Ocall) {
          struct call *call = &calls.p[ref->idx];
          for (int i = 0; i < call->narg; ++i)
@@ -52,17 +59,17 @@ use(struct block *blk, enum op op, int hint, union ref *ref)
             /* result of comparison instr is only used to conditionally branch,
              * doesn't usually need a reg (handled by isel) */
             return;
-      ins->reg = hint ? hint : nextreg(ins->cls);
+      ins->reg = (hint ? hint : nextreg(ins->cls)) + 1;
    }
 }
 
 void
 regalloc(struct function *fn)
 {
-   struct block *blk = fn->entry->lprev;
    struct instr *ins;
+   struct block *last = fn->entry->lprev, *blk = last;
 
-   /* a dumb linear register allocator that visits instructions backwards
+   /* a dumb linear register allocator that visits instructions physically backwards
     * starting at the end of the function, when encountering a use of a new
     * temporary, it allocates a register for it. when encountering the definition
     * of a temporary, it frees up its register
@@ -71,18 +78,17 @@ regalloc(struct function *fn)
       if (blk->jmp.arg.t) use(blk, blk->jmp.t == Jbcnd ? -1 : 0, 0, &blk->jmp.arg);
       for (int i = blk->phi.n - 1; i >= 0; --i) {
          ins = &instr[blk->phi.p[i]];
-         bsclr(taken, ins->reg);
+         def(ins);
          assert(ins->op == Ophi);
          use(blk, Ophi, ins->reg, &ins->l);
       }
       for (int i = blk->ins.n - 1; i >= 0; --i) {
          ins = &instr[blk->ins.p[i]];
-         bsclr(taken, ins->reg);
+         def(ins);
          if (ins->l.t) use(blk, ins->op, 0, &ins->l);
          if (ins->r.t) use(blk, ins->op, 0, &ins->r);
       }
-      blk = blk->lprev;
-   } while (blk != fn->entry->lprev);
+   } while ((blk = blk->lprev) != last);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

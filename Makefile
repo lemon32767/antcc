@@ -19,10 +19,11 @@ obj/%.o: %.c common.h
 	@mkdir -p `dirname $@`
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+ir.h: op.def builtin.def
 obj/main.o: parse.h
 obj/parse.o: parse.h ir.h
 obj/ir.o: ir.h
-obj/irdump.o: ir.h op.def
+obj/irdump.o: ir.h
 obj/lex.o: parse.h
 obj/eval.o: parse.h
 obj/io.o: parse.h keywords.def

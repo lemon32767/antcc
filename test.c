@@ -63,4 +63,13 @@ int hmm(float x, int a, char *p, char *q) {
     return x > 1 ? a || p : p < q && a > 0;
 }
 
+struct v2f { float x, y; };
+
+struct v2f add(struct v2f a, struct v2f b) {
+    struct v2f r;
+    r.x = a.x + b.x;
+    r.y = a.y + b.y;
+    return r;
+}
+
 //

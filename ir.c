@@ -163,12 +163,11 @@ mksymref(struct function *fn, const char *s)
 }
 
 union ref
-mkcall(struct function *fn, union type fnty, uint narg, union ref *args, union irtype *typs)
+mkcallarg(struct function *fn, uint narg, int vararg, union ref *args, union irtype *typs)
 {
-   const struct typedata *td = &typedata[fnty.dat];
-   struct call call = { narg, td->variadic ? td->nmemb : -1 };
+   struct call call = { narg, vararg };
 
-   if (!td->kandr) assert(td->variadic ? narg >= td->nmemb : narg == td->nmemb);
+   assert((long) vararg <= narg);
    if (narg) {
       call.args = alloc(&fn->arena, narg*sizeof *args + narg*sizeof(union irtype), 0);
       call.typs = (union irtype *)((char *)call.args + narg*sizeof *args);
@@ -176,7 +175,7 @@ mkcall(struct function *fn, union type fnty, uint narg, union ref *args, union i
       memcpy(call.typs, typs, narg*sizeof *typs);
    }
    vpush(&calls, call);
-   return mkref(REXT, calls.n-1);
+   return mkref(RMORE, calls.n-1);
 }
 
 union ref
@@ -202,7 +201,7 @@ addphi2(struct function *fn, enum irclass cls,
    phi.blk[1] = b2;
    phi.ref[1] = r2;
    vpush(&phis, phi);
-   ins.l = mkref(REXT, phis.n-1);
+   ins.l = mkref(RMORE, phis.n-1);
    assert(ninstr < arraylength(instr));
    assert(fn->curblk != NULL);
    assert(fn->curblk->ins.n == 0);
@@ -222,7 +221,7 @@ addphi(struct function *fn, enum irclass cls, struct block **blk, union ref *ref
    memcpy(phi.blk, blk, n * sizeof(struct block *));
    memcpy(phi.ref, ref, n * sizeof(union ref));
    vpush(&phis, phi);
-   ins.l = mkref(REXT, phis.n-1);
+   ins.l = mkref(RMORE, phis.n-1);
    assert(ninstr < arraylength(instr));
    assert(fn->curblk != NULL);
    assert(fn->curblk->ins.n == 0);

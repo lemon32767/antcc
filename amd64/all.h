@@ -8,14 +8,12 @@
    _(XMM8) _(XMM9) _(XMM10) _(XMM11) _(XMM12) _(XMM13) _(XMM14) _(XMM15)
 
 enum {
-   Rxxx,
 #define R(r) r,
    LIST_REGS(R)
 #undef R
 };
 
 const char amd64_rnames[][6] = {
-   "?",
 #define R(r) #r,
    LIST_REGS(R)
 #undef R

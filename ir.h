@@ -10,8 +10,8 @@ enum irclass {
 #define kisflt(k) in_range((k), KF4, KF8)
 
 union irtype {
-   struct { ushort isagg : 1, cls : 15; };
-   struct { ushort _     : 1, dat : 15; };
+   struct { ushort _     : 1, cls : 15; };
+   struct { ushort isagg : 1, dat : 15; };
    ushort bits;
 };
 
@@ -61,7 +61,7 @@ enum refkind {
    RARG,  /* function argument */
    RICON, /* small integer constants */
    RXCON, /* other constants (incl. external symbols) */
-   REXT,  /* reference to extra data for Ocall and Ophi */
+   RMORE,  /* reference to extra data for Ocall and Ophi */
    RREG,  /* machine register */
 };
 
@@ -78,9 +78,16 @@ enum op {
 #undef _
 };
 
+enum builtin {
+   BTxxx,
+#define _(b,...) BT##b,
+#include "builtin.def"
+#undef _
+};
+
 struct instr {
    uchar op, cls;
-   uchar reg, hint;
+   ushort reg; /* 0 -> unallocated; else reg + 1 */
    union ref l, r;
 };
 
@@ -107,7 +114,7 @@ struct function {
    bool globl;
 };
 
-enum { MAXREGS = 32 };
+enum { MAXREGS = 64 };
 
 struct mctarg {
    short gpr0, /* first gpr */
@@ -125,7 +132,7 @@ extern const uchar siz2intcls[];
 #define NOREF ((union ref) {0})
 #define mkref(t, x) ((union ref) {{ (t), (x) }})
 #define mkzerocon() ((union ref) {{ RICON, 0 }})
-#define mkinstr(O, C, ...) ((struct instr) { .op = (O), .cls = (C), .reg=0,.hint=0, __VA_ARGS__ })
+#define mkinstr(O, C, ...) ((struct instr) { .op = (O), .cls = (C), .reg=0, __VA_ARGS__ })
 void irinit(struct function *);
 void irfini(struct function *);
 union irtype mkirtype(union type);
@@ -133,7 +140,7 @@ union ref mkintcon(struct function *, enum irclass, vlong);
 union ref mkfltcon(struct function *, enum irclass, double);
 union ref mksymref(struct function *, const char *);
 void conputdat(struct irdat *, uint off, enum typetag t, const void *dat);
-union ref mkcall(struct function *, union type fnty, uint narg, union ref *, union irtype *);
+union ref mkcallarg(struct function *, uint narg, int vararg, union ref *, union irtype *);
 union ref addinstr(struct function *, struct instr);
 union ref addphi2(struct function *, enum irclass cls,
                   struct block *b1, union ref r1, struct block *b2, union ref r2);

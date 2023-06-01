@@ -22,6 +22,13 @@ prityp(union irtype typ)
    }
 }
 
+static const char *builtinname[] = {
+   "?\??",
+#define _(b,...) #b,
+#include "builtin.def"
+#undef _
+};
+
 static void
 dumpref(enum op o, union ref ref)
 {
@@ -29,7 +36,10 @@ dumpref(enum op o, union ref ref)
    switch (ref.t) {
    case RTMP: efmt("%%%d", ref.idx); break;
    case RARG: efmt("%%arg%d", ref.idx); break;
-   case RICON: efmt("%d", ref.i); break;
+   case RICON:
+      if (o == Obuiltin) efmt("\"%s\"", builtinname[ref.i]);
+      else efmt("%d", ref.i);
+      break;
    case RXCON:
       con = &conht[ref.idx];
       if (con->issym) efmt("$%s", con->sym);
@@ -42,15 +52,14 @@ dumpref(enum op o, union ref ref)
       default: assert(0);
       }
       break;
-   case REXT:
-      if (o == Ocall) {
+   case RMORE:
+      if (o == Ocall || o == Obuiltin) {
          extern vec_of(struct call) calls;
          struct call *call = &calls.p[ref.idx];
          for (int i = 0; i < call->narg; ++i) {
-            if (call->vararg == i) {
-               if (i > 0) efmt(", ");
+            if (i > 0) efmt(", ");
+            if (call->vararg == i)
                efmt("..., ");
-            }
             prityp(call->typs[i]);
             efmt(" ");
             dumpref(0, call->args[i]);
@@ -64,7 +73,7 @@ dumpref(enum op o, union ref ref)
             dumpref(0, phi->ref[i]);
             efmt("]");
          }
-      }
+      } else assert(0);
       break;
    default: assert(!"ref");
    }
@@ -72,7 +81,7 @@ dumpref(enum op o, union ref ref)
 
 extern struct instr instr[];
 static const char *opname[] = {
-   "???",
+   "?\??",
 #define _(o,...) #o,
 #include "op.def"
 #undef _
@@ -91,7 +100,7 @@ dumpinst(const struct instr *ins)
    efmt("    ");
    if (ins->cls) {
       efmt("%s %%%d", clsname[ins->cls], ins - instr);
-      if (ins->reg) efmt("(%ls)", mctarg->rnames[ins->reg]);
+      if (ins->reg) efmt("(%ls)", mctarg->rnames[ins->reg - 1]);
       efmt(" = ");
    }
    efmt("%s ", opname[ins->op]);
@@ -103,9 +112,9 @@ dumpinst(const struct instr *ins)
 }
 
 static void
-dumpblk(struct block *blk)
+dumpblk(struct function *fn, struct block *blk)
 {
-   static const char *jnames[] = { 0, "b", "b", "ret", "rets" };
+   static const char *jnames[] = { 0, "b", "b", "ret", "ret" };
    static const uchar jnarg[] = { 0, 0, 1, 0, 1 };
    efmt("  .L%d:\n", blk->id);
    for (int i = 0; i < blk->phi.n; ++i) {
@@ -116,6 +125,10 @@ dumpblk(struct block *blk)
    }
    efmt("    %s ", jnames[blk->jmp.t]);
    if (jnarg[blk->jmp.t]) {
+      if (blk->jmp.t == Jrets) {
+         prityp(mkirtype(fn->retty));
+         efmt(" ");
+      }
       dumpref(0, blk->jmp.arg);
       if (blk->s1) efmt(", ");
    }
@@ -132,9 +145,8 @@ irdump(struct function *fn, const char *fname)
    efmt("function %s : %ty\n", fname, fn->fnty);
    blk = fn->entry;
    do {
-      dumpblk(blk);
-      blk = blk->lnext;
-   } while (blk != fn->entry);
+      dumpblk(fn, blk);
+   } while ((blk = blk->lnext) != fn->entry);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

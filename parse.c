@@ -873,6 +873,8 @@ Postfix:
          case '&':
             if (!islvalue(&ex))
                error(&span, "operand to unary & is not an lvalue");
+            if (ex.t == EGETF && ex.fld.bitsiz)
+               error(&span, "cannot take address of bitfield");
             ex = mkexpr(EADDROF, span, mkptrtype(ex.ty, ex.qual), .sub = exprdup(pr, &ex));
             break;
          case TKWsizeof:
@@ -947,7 +949,46 @@ commaexpr(struct parser *pr)
 /* -> IR */
 /*********/
 
+static union ref expraddr(struct function *, const struct expr *);
 static union ref exprvalue(struct function *, const struct expr *);
+
+static bool
+exhasaddr(const struct expr *ex)
+{
+   if (ex->t == ECOND)
+      return exhasaddr(&ex->sub[1]) && exhasaddr(&ex->sub[2]);
+   if (ex->t == ESEQ)
+      return exhasaddr(&ex->sub[1]);
+   if (ex->t == ESET)
+      return exhasaddr(&ex->sub[0]);
+   if (ex->t == EGETF)
+      return !ex->fld.bitsiz;
+   return islvalue(ex);
+}
+
+static void
+structcopy(struct function *fn, union ref dst, const struct expr *src)
+{
+   if (exhasaddr(src)) {
+      union ref argsr;
+      union ref srcref = expraddr(fn, src);
+      union ref args[2] = { dst, srcref };
+      union irtype typ[2] = { mkirtype(src->ty) };
+      typ[1] = typ[0];
+      argsr = mkcallarg(fn, 2, -1, args, typ);
+      addinstr(fn, mkinstr(Obuiltin, 0, mkref(RICON, BTstructcopy), argsr));
+   }
+   assert(!"nyi");
+}
+
+static union ref
+structreturn(struct function *fn, const struct expr *src)
+{
+   if (exhasaddr(src)) {
+      return expraddr(fn, src);
+   }
+   assert(!"nyi");
+}
 
 static union ref
 expraddr(struct function *fn, const struct expr *ex)
@@ -983,7 +1024,14 @@ expraddr(struct function *fn, const struct expr *ex)
       ins.l = r;
       ins.r = mkintcon(fn, KI4, ex->fld.off);
       return addinstr(fn, ins);
-      break;
+   case ESET:
+      assert(isagg(ex->ty));
+      r = expraddr(fn, &ex->sub[0]);
+      structcopy(fn, r, &ex->sub[1]);
+      return r;
+   case ESEQ:
+      (void)exprvalue(fn, &ex->sub[0]);
+      return expraddr(fn, &ex->sub[1]);
    default:
       assert(!"lvalue?>");
    }
@@ -1071,14 +1119,19 @@ static union ref
 narrow(struct function *fn, enum irclass to, enum typetag tt, union ref ref)
 {
    struct instr ins = {0};
-   assert(isintt(tt) || tt == TYPTR);
+   assert(isscalart(tt));
    if (targ_primsizes[tt] >= cls2siz[to]) return ref;
    ins.cls = to;
-   switch (targ_primsizes[tt]) {
-   case 1: ins.op = issignedt(tt) ? Oexts1 : Oextu1; break;
-   case 2: ins.op = issignedt(tt) ? Oexts2 : Oextu2; break;
-   case 4: ins.op = issignedt(tt) ? Oexts4 : Oextu4; break;
-   default: assert(0);
+   if (isfltt(tt)) {
+      assert(to == KF4 && tt == TYDOUBLE);
+      ins.op = Ocvtf8f4;
+   } else {
+      switch (targ_primsizes[tt]) {
+      case 1: ins.op = issignedt(tt) ? Oexts1 : Oextu1; break;
+      case 2: ins.op = issignedt(tt) ? Oexts2 : Oextu2; break;
+      case 4: ins.op = issignedt(tt) ? Oexts4 : Oextu4; break;
+      default: assert(0);
+      }
    }
    ins.l = ref;
    return addinstr(fn, ins);
@@ -1261,7 +1314,7 @@ exprvalue(struct function *fn, const struct expr *ex)
    eval((struct expr *)ex, EVFOLD);
    sub = ex->sub;
 
-   if (ex->ty.t == TYARRAY || ex->ty.t == TYFUNC)
+   if (ex->ty.t != TYVOID && !isscalar(ex->ty))
       return expraddr(fn, ex);
    switch (ex->t) {
    case ENUMLIT:
@@ -1404,10 +1457,12 @@ exprvalue(struct function *fn, const struct expr *ex)
       ins.r = cvt(fn, ty.t, sub[1^swp].ty.t, ins.r);
       ins.cls = cls;
       return addinstr(fn, ins);
-      break;
    case ESET:
       assert(isscalar(ex->ty));
-      return genstore(fn, ex->ty, expraddr(fn, &sub[0]), exprvalue(fn, &sub[1]));
+      r = expraddr(fn, &sub[0]);
+      q = cvt(fn, sub[0].ty.t, sub[1].ty.t, exprvalue(fn, &sub[1]));
+      genstore(fn, ex->ty, r, q);
+      return narrow(fn, cls, sub[0].ty.t, q);
    case ESETMUL:
       ins.op = isunsigned(ex->ty) ? Oumul : Omul;
       goto Compound;
@@ -1470,7 +1525,8 @@ exprvalue(struct function *fn, const struct expr *ex)
             vpush(&args, cvt(fn, ty.t, arg->ty.t, exprvalue(fn, arg)));
             vpush(&typs, mkirtype(ty));
          }
-         ins.r = mkcall(fn, sub[0].ty, ex->narg, args.p, typs.p);
+         ins.r = mkcallarg(fn, ex->narg, td->variadic ? td->nmemb : td->kandr ? 0 : -1,
+                           args.p, typs.p);
          vfree(&args);
          vfree(&typs);
          return addinstr(fn, ins);
@@ -1594,7 +1650,10 @@ stmt(struct parser *pr, struct function *fn)
                   ex.ty, fn->retty);
          }
          EMITS {
-            r = cvt(fn, fn->retty.t, ex.ty.t, exprvalue(fn, &ex));
+            if (isscalar(fn->retty))
+               r = cvt(fn, fn->retty.t, ex.ty.t, exprvalue(fn, &ex));
+            else
+               r = structreturn(fn, &ex);
             putjump(fn, Jrets, r, NULL, NULL);
          }
       } else {
@@ -1711,9 +1770,13 @@ function(struct parser *pr, struct function *fn, const char **pnames, const stru
          siz = typesize(arg.ty);
          nalloc = siz/align + ((siz&(align-1)) != 0);
          EMITS {
-            struct instr alloca = { op, KPTR, .l = mkintcon(fn, KI4, nalloc) };
-            arg.id = addinstr(fn, alloca).idx;
-            genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RARG, i));
+            if (isscalar(arg.ty)) {
+               struct instr alloca = { op, KPTR, .l = mkintcon(fn, KI4, nalloc) };
+               arg.id = addinstr(fn, alloca).idx;
+               genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RARG, i));
+            } else {
+               arg.id = addinstr(fn, mkinstr(Ocopy, KPTR, mkref(RARG, i))).idx;
+            }
          }
          putdecl(pr, &arg);
       } else {
