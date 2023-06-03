@@ -1,5 +1,31 @@
 #include "all.h"
 
+
+static int classify(uchar cls[2], const struct typedata *td, uint off);
+static int
+classifyarr(uchar cls[2], union type ty, uint off)
+{
+   union type chld = typechild(ty);
+   uint n = typearrlen(ty), siz = typesize(chld);
+   assert(n > 0);
+   for (uint i = 0; i < n; ++i) {
+      uint offx = off + i * siz;
+      if (isagg(chld)) {
+         if (!classify(cls, &typedata[chld.dat], offx))
+            return cls[0] = cls[1] = 0;
+      } else if (chld.t == TYARRAY) {
+         if (!classifyarr(cls, chld, offx))
+            return cls[0] = cls[1] = 0;
+      } else if (isflt(chld)) { /* SSE */
+         if (!cls[offx/8])
+            cls[offx/8] = KF8;
+      } else { /* INTEGER */
+         assert(isint(chld));
+         cls[offx/8] = KI8;
+      }
+   }
+   return !!cls[0] + !!cls[1];
+}
 static int
 classify(uchar cls[2], const struct typedata *td, uint off)
 {
@@ -9,15 +35,20 @@ classify(uchar cls[2], const struct typedata *td, uint off)
    for (int i = 0; i < td->nmemb; ++i) {
       struct fielddata *fld = &td->fld[i].f;
       uint align = typealign(fld->t);
-      if (alignup(fld->off, align) != fld->off) /* unaligned field */
+      if (alignup(fld->off, align) != fld->off) /* unaligned field -> MEMORY */
          return cls[0] = cls[1] = 0;
       if (isagg(fld->t)) {
-         if (!classify(cls, &typedata[fld->t.dat], fld->off))
+         if (!classify(cls, &typedata[fld->t.dat], off + fld->off))
+            return cls[0] = cls[1] = 0;
+      } else if (fld->t.t == TYARRAY) {
+         if (isincomplete(fld->t)) continue;
+         if (!classifyarr(cls, fld->t, off + fld->off))
             return cls[0] = cls[1] = 0;
       } else if (isflt(fld->t)) { /* SSE */
          if (!cls[(fld->off + off)/8])
             cls[(fld->off + off)/8] = KF8;
       } else { /* INTEGER */
+         assert(isint(fld->t));
          cls[(fld->off +  off)/8] = KI8;
       }
    }
@@ -25,30 +56,32 @@ classify(uchar cls[2], const struct typedata *td, uint off)
 }
 
 static int
-argabi(short r[2], uchar cls[2], int *ni, int *nf, union irtype typ)
+abiarg(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype typ)
 {
    static const uchar intregs[] = { RDI, RSI, RDX, RCX, R8, R9 };
    enum { NINT = arraylength(intregs), NFLT = 8 };
    int ret, ni_save, nf_save;
 
    if (!typ.isagg) {
-      if (kisflt(typ.cls) && *nf < NFLT) {
-         cls[0] = KF8; /* SSE */
+      if (kisflt(cls[0] = typ.cls) && *nf < NFLT) {
          r[0] = XMM0 + (*nf)++;
-         return 1;
-      }
-      if (*ni < NINT) {
-         cls[0] = KI8; /* INTEGER */
+      } else if (*ni < NINT) {
          r[0] = intregs[(*ni)++];
-         return 1;
+      } else {
+         ++*ns;
+         r[0] = -1;
+         return 0; /* MEMORY */
       }
-      return 0; /* MEMORY */
+      return 1;
    }
    cls[0] = cls[1] = 0;
    ret = classify(cls, &typedata[typ.dat], 0);
-   if (!ret) return 0;
-   ni_save = *ni, nf_save = *nf;
+   if (!ret) { /*MEMORY*/
+      ++*ns;
+      return 0;
+   }
    assert(ret <= 2);
+   ni_save = *ni, nf_save = *nf;
    for (int i = 0; i < ret; ++i) {
       assert(cls[i]);
       if (cls[i] == KF8 && *nf < NFLT)
@@ -57,6 +90,8 @@ argabi(short r[2], uchar cls[2], int *ni, int *nf, union irtype typ)
          r[i] = intregs[(*ni)++];
       else { /* MEMORY */
          *ni = ni_save, *nf = nf_save;
+         ++*ns;
+         r[0] = r[1] = -1;
          return cls[0] = cls[1] = 0;
       }
    }
@@ -64,15 +99,18 @@ argabi(short r[2], uchar cls[2], int *ni, int *nf, union irtype typ)
 }
 
 static int
-retabi(short r[2], uchar cls[2], union irtype typ)
+abiret(short r[2], uchar cls[2], int *ni, union irtype typ)
 {
    int ret;
 
-   if (!typ.isagg) return kisflt(typ.cls) ? XMM0 : RAX;
+   if (!typ.isagg) return kisflt(cls[0] = typ.cls) ? XMM0 : RAX;
    cls[0] = cls[1] = 0;
    ret = classify(cls, &typedata[typ.dat], 0);
    if (!ret) { /* MEMORY */
-      r[0] = RDI; /* register for caller-owned result location argument */
+      assert(*ni == 0);
+      r[0] = RAX; /* on return should contain result location address */
+      r[1] = RDI; /* register for caller-owned result location argument */
+      ++*ni;
       return 0;
    }
    assert(ret <= 2);
@@ -99,8 +137,8 @@ const struct mctarg t_amd64_sysv = {
    .rcallee = {{1<<RBX | 1<<R12 | 1<<R13 | 1<<R14 | 1<<R15}},
    .rglob = {{1<<RSP | 1<<RBP}},
    .rnames = amd64_rnames,
-   .abi_argregs = argabi,
-   .abi_retregs = retabi,
+   .abiret = abiret,
+   .abiarg = abiarg,
 };
 
 /* vim:set ts=3 sw=3 expandtab: */

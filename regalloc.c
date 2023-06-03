@@ -36,7 +36,7 @@ use(struct block *blk, enum op op, int hint, union ref *ref)
 {
    struct instr *ins;
    if (ref->t == RMORE) {
-      if (op == Ocall || op == Obuiltin) {
+      if (op == Ocall || op == Ointrin) {
          struct call *call = &calltab.p[ref->idx];
          for (int i = 0; i < call->narg; ++i)
             use(blk, 0, 0, &call->args[i]);
@@ -57,7 +57,17 @@ use(struct block *blk, enum op op, int hint, union ref *ref)
             /* result of comparison instr is only used to conditionally branch,
              * doesn't usually need a reg (handled by isel) */
             return;
-      if (hint != -1) {
+      /* TODO implement actual constraints and stuff */
+      if (ins->op == Ocall) {
+         struct call *call = &calltab.p[ins->r.idx];
+         hint = call->abiret[0].reg;
+      } else if (ins->op == Ocall2r) {
+         struct instr *ins2 = &instrtab[ins->l.idx];
+         struct call *call = &calltab.p[ins2->r.idx];
+         assert(ins->l.t == RTMP && ins2->op == Ocall);
+         hint = call->abiret[0].reg;
+      }
+      if (hint != -1 && !bstest(taken, hint)) {
          bsset(taken, hint);
          ins->reg = hint + 1;
       } else {
@@ -92,10 +102,12 @@ regalloc(struct function *fn)
          use(blk, Ophi, ins->reg - 1, &ins->l);
       }
       for (int i = blk->ins.n - 1; i >= 0; --i) {
+         int hint0 = -1, hint1 = -1;
          ins = &instrtab[blk->ins.p[i]];
          def(ins);
-         if (ins->l.t) use(blk, ins->op, -1, &ins->l);
-         if (ins->r.t) use(blk, ins->op, -1, &ins->r);
+         if (ins->op == Ocopy) hint0 = ins->reg - 1;
+         if (ins->l.t) use(blk, ins->op, hint0, &ins->l);
+         if (ins->r.t) use(blk, ins->op, hint1, &ins->r);
       }
    } while ((blk = blk->lprev) != last);
 }

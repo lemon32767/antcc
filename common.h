@@ -68,7 +68,7 @@ popcnt(uvlong x) {
 }
 static inline bool
 ispo2(uvlong x) {
-   return x & ((x & (x - 1)) == 0);
+   return (x != 0) & ((x & (x - 1)) == 0);
 }
 static inline uint
 ilog2(uint x) { /* assumes x is a power of 2 */
@@ -306,6 +306,11 @@ struct arena {
 
 struct arena *newarena(uint chunksiz);
 void *alloc(struct arena **, uint siz, uint align);
+static inline void *
+alloccopy(struct arena **arena, const void *src, uint siz, uint align)
+{
+   return memcpy(alloc(arena, siz, align), src, siz);
+}
 void freearena(struct arena *);
 void vinit_(void **p, int *pcap, void *inlbuf, int cap, uint siz);
 void vpush_(void **p, int *pcap, uint *pn, uint siz);

@@ -65,12 +65,6 @@ tdequ(const struct typedata *a, const struct typedata *b)
    }
 }
 
-static void *
-alloccopy(struct arena **arena, const void *src, uint siz, uint align)
-{
-   return memcpy(alloc(arena, siz, align), src, siz);
-}
-
 static ushort
 interntd(const struct typedata *td)
 {

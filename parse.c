@@ -952,43 +952,25 @@ commaexpr(struct parser *pr)
 static union ref expraddr(struct function *, const struct expr *);
 static union ref exprvalue(struct function *, const struct expr *);
 
-static bool
-exhasaddr(const struct expr *ex)
-{
-   if (ex->t == ECOND)
-      return exhasaddr(&ex->sub[1]) && exhasaddr(&ex->sub[2]);
-   if (ex->t == ESEQ)
-      return exhasaddr(&ex->sub[1]);
-   if (ex->t == ESET)
-      return exhasaddr(&ex->sub[0]);
-   if (ex->t == EGETF)
-      return !ex->fld.bitsiz;
-   return islvalue(ex);
-}
+
 
 static void
 structcopy(struct function *fn, union ref dst, const struct expr *src)
 {
-   if (exhasaddr(src)) {
-      union ref argsr;
-      union ref srcref = expraddr(fn, src);
-      union ref args[2] = { dst, srcref };
-      union irtype typ[2] = { mkirtype(src->ty) };
-      typ[1] = typ[0];
-      argsr = mkcallarg(fn, 2, -1, args, typ);
-      addinstr(fn, mkinstr(Obuiltin, 0, mkref(RICON, BTstructcopy), argsr));
-   }
-   assert(!"nyi");
+   union ref srcref = expraddr(fn, src);
+   union ref args[2] = { dst, srcref };
+   union irtype typ[2] = { mkirtype(src->ty) };
+   typ[1] = typ[0];
+   addinstr(fn, mkintrin(fn, INstructcopy, 0, 2, args, typ));
 }
 
 static union ref
 structreturn(struct function *fn, const struct expr *src)
 {
-   if (exhasaddr(src)) {
-      return expraddr(fn, src);
-   }
-   assert(!"nyi");
+   return expraddr(fn, src);
 }
+
+static union ref compilecall(struct function *fn, const struct expr *ex);
 
 static union ref
 expraddr(struct function *fn, const struct expr *ex)
@@ -1032,6 +1014,9 @@ expraddr(struct function *fn, const struct expr *ex)
    case ESEQ:
       (void)exprvalue(fn, &ex->sub[0]);
       return expraddr(fn, &ex->sub[1]);
+   case ECALL:
+      assert(isagg(ex->ty));
+      return compilecall(fn, ex);
    default:
       assert(!"lvalue?>");
    }
@@ -1269,6 +1254,40 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
    }
 }
 
+static union ref
+compilecall(struct function *fn, const struct expr *ex)
+{
+   struct instr ins = {0};
+   struct expr *sub = ex->sub;
+   const struct typedata *td = &typedata[sub[0].ty.dat];
+   union ref argsbuf[10];
+   union irtype typbuf[10];
+   vec_of(union ref) args = VINIT(argsbuf, arraylength(argsbuf));
+   vec_of(union irtype) typs = VINIT(typbuf, arraylength(typbuf));
+
+   ins.op = Ocall;
+   if (isagg(ex->ty)) {
+      ins.cls = KPTR;
+   } else {
+      assert(isscalar(ex->ty) || ex->ty.t == TYVOID);
+      ins.cls = type2cls[ex->ty.t];
+   }
+   ins.l = exprvalue(fn, &sub[0]);
+   for (int i = 0; i < ex->narg; ++i) {
+      struct expr *arg = &sub[i+1];
+      union type ty = i < td->nmemb ? td->param[i] : argpromote(arg->ty);
+      vpush(&args, cvt(fn, ty.t, arg->ty.t, exprvalue(fn, arg)));
+      vpush(&typs, mkirtype(ty));
+   }
+   if (isagg(ex->ty))
+      vpush(&typs, mkirtype(ex->ty));
+   ins.r = mkcallarg(fn, isagg(ex->ty), ex->narg, td->variadic ? td->nmemb : td->kandr ? 0 : -1,
+                     args.p, typs.p);
+   vfree(&args);
+   vfree(&typs);
+   return addinstr(fn, ins);
+}
+
 /* the naive way to generate something like a ? b : c ? d : e, uses multiple phis,
  * this code reduces such nested conditional expressions into one phi */
 static union ref
@@ -1496,28 +1515,7 @@ exprvalue(struct function *fn, const struct expr *ex)
       genstore(fn, ex->ty, r, q);
       return narrow(fn, cls, ex->ty.t, q);
    case ECALL:
-      {
-         const struct typedata *td = &typedata[sub[0].ty.dat];
-         union ref argsbuf[10];
-         union irtype typbuf[10];
-         vec_of(union ref) args = VINIT(argsbuf, arraylength(argsbuf));
-         vec_of(union irtype) typs = VINIT(typbuf, arraylength(typbuf));
-         ins.op = Ocall;
-         assert(isscalar(ex->ty) || ex->ty.t == TYVOID);
-         ins.cls = type2cls[ex->ty.t];
-         ins.l = exprvalue(fn, &sub[0]);
-         for (int i = 0; i < ex->narg; ++i) {
-            struct expr *arg = &sub[i+1];
-            union type ty = i < td->nmemb ? td->param[i] : argpromote(arg->ty);
-            vpush(&args, cvt(fn, ty.t, arg->ty.t, exprvalue(fn, arg)));
-            vpush(&typs, mkirtype(ty));
-         }
-         ins.r = mkcallarg(fn, ex->narg, td->variadic ? td->nmemb : td->kandr ? 0 : -1,
-                           args.p, typs.p);
-         vfree(&args);
-         vfree(&typs);
-         return addinstr(fn, ins);
-      }
+      return compilecall(fn, ex);
    case ECOND:
       if (ex->ty.t == TYVOID) {
          struct block *tr, *fl, *end;
@@ -1670,8 +1668,6 @@ block(struct parser *pr, struct function *fn)
          struct declstate st = { DFUNCVAR };
          do {
             struct decl decl = pdecl(&st, pr);
-            enum op op;
-            uint siz, align, nalloc;
             if (decl.name) {
                static int staticid;
                bool put = 0;
@@ -1691,18 +1687,8 @@ block(struct parser *pr, struct function *fn)
                            decl.ty);
                      goto Err;
                   }
-                  switch (align = typealign(decl.ty)) {
-                  case 1:  op = Oalloca1; break;
-                  case 2:  op = Oalloca2; break;
-                  case 4:  op = Oalloca4; break;
-                  case 8:  op = Oalloca8; break;
-                  case 16: op = Oalloca16; break;
-                  default: assert(!"align");
-                  }
-                  siz = typesize(decl.ty);
-                  nalloc = siz/align + ((siz&(align-1)) != 0);
                   EMITS {
-                     decl.id = addinstr(fn, mkinstr(op, KPTR, mkintcon(fn, KI4, nalloc))).idx;
+                     decl.id = addinstr(fn, mkalloca(typesize(decl.ty), typealign(decl.ty))).idx;
                   }
                   if (st.varini) {
                      putdecl(pr, &decl);
@@ -1725,7 +1711,7 @@ block(struct parser *pr, struct function *fn)
             Err:
                if (!put) putdecl(pr, &decl);
             }
-         } while (0);
+         } while (st.more);
       } else {
          stmt(pr, fn);
       }
@@ -1740,35 +1726,29 @@ function(struct parser *pr, struct function *fn, const char **pnames, const stru
    const bool doemit = fn->curblk;
    struct env e;
    envdown(pr, &e);
+   /* add parameters to symbol table and create prologue (arguments) block */
    for (int i = 0; i < td->nmemb; ++i) {
       if (pnames[i]) {
-         uint siz, align, nalloc;
          struct decl arg = { .ty = td->param[i], .qual = tdgetqual(td->quals, i),
                              .name = pnames[i], .scls = SCAUTO, .span = pspans[i] };
-         enum op op;
-         switch (align = typealign(arg.ty)) {
-         case 1:  op = Oalloca1; break;
-         case 2:  op = Oalloca2; break;
-         case 4:  op = Oalloca4; break;
-         case 8:  op = Oalloca8; break;
-         case 16: op = Oalloca16; break;
-         default: assert(!"align");
-         }
-         siz = typesize(arg.ty);
-         nalloc = siz/align + ((siz&(align-1)) != 0);
          EMITS {
             if (isscalar(arg.ty)) {
-               struct instr alloca = { op, KPTR, .l = mkintcon(fn, KI4, nalloc) };
-               arg.id = addinstr(fn, alloca).idx;
-               genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RARG, i));
+               arg.id = addinstr(fn, mkalloca(typesize(arg.ty), typealign(arg.ty))).idx;
+               genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RPARAM, i));
             } else {
-               arg.id = addinstr(fn, mkinstr(Ocopy, KPTR, mkref(RARG, i))).idx;
+               arg.id = addinstr(fn, mkinstr(Ocopy, KPTR, mkref(RPARAM, i))).idx;
             }
          }
          putdecl(pr, &arg);
       } else {
          warn(&pspans[i], "missing name of parameter #%d", i+1);
       }
+   }
+   /* end prologue */
+   EMITS {
+      struct block *blk;
+      putbranch(fn, blk = newblk(fn));
+      useblk(fn, blk);
    }
    block(pr, fn);
    envup(pr);

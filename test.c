@@ -45,5 +45,16 @@ struct quad quad(long x, long y, long z, long w) {
     return q;
 }
 
+void silly(struct pair *p, struct quad *q)
+{
+    *p = pair(1,2);
+    *q = quad(1,2,3,4);
+}
+
+struct f2 { float f,g; };
+struct f2 f2test(struct f2 *r) {
+    return *r;
+}
+
 
 //

@@ -8,6 +8,7 @@ const uchar siz2intcls[] = { [1] = KI4, [2] = KI4, [4] = KI4, [8] = KI8 };
 static vec_of(struct irdat) dats;
 struct instr instrtab[1<<14];
 static int ninstr;
+static int instrfreelist;
 struct calltab calltab;
 struct phitab phitab;
 
@@ -18,6 +19,7 @@ irinit(struct function *fn)
    static struct phi phisbuf[64];
 
    ninstr = 0;
+   instrfreelist = -1;
    vinit(&calltab, callsbuf, arraylength(callsbuf));
    vinit(&phitab, phisbuf, arraylength(phisbuf));
    if (!type2cls[TYINT]) {
@@ -162,54 +164,89 @@ mksymref(struct function *fn, const char *s)
    return mkref(RXCON, addcon(&con));
 }
 
-union ref
-mkcallarg(struct function *fn, uint narg, int vararg, union ref *args, union irtype *typs)
+struct instr
+mkalloca(uint siz, uint align)
 {
-   struct call call = { narg, vararg };
+   struct instr ins = { .cls = KPTR };
+   assert(ispo2(align) && align <= 16);
+   ins.op = Oalloca1 + ilog2(align);
+   ins.l = mkref(RICON, siz/align + (siz%align != 0));
+   return ins;
+}
+
+union ref
+mkcallarg(struct function *fn, bool sret, uint narg, int vararg, union ref *args, union irtype *typs)
+{
+   struct call call = { .sret=sret, .narg=narg, .vararg=vararg };
 
    assert((long) vararg <= narg);
    if (narg) {
-      call.args = alloc(&fn->arena, narg*sizeof *args + narg*sizeof(union irtype), 0);
+      call.args = alloc(&fn->arena, narg*sizeof *args + (narg+sret)*sizeof(union irtype), 0);
       call.typs = (union irtype *)((char *)call.args + narg*sizeof *args);
       memcpy(call.args, args, narg*sizeof *args);
-      memcpy(call.typs, typs, narg*sizeof *typs);
+      memcpy(call.typs, typs, (narg+sret)*sizeof *typs);
    }
    vpush(&calltab, call);
    return mkref(RMORE, calltab.n-1);
 }
 
+static inline int
+newinstr(void)
+{
+   if (instrfreelist != -1) {
+      int t = instrfreelist;
+      memcpy(&instrfreelist, &instrtab[instrfreelist], sizeof(int));
+      return t;
+   }
+   assert(ninstr < arraylength(instrtab));
+   return ninstr++;
+}
+
 union ref
 addinstr(struct function *fn, struct instr ins)
 {
-   assert(ninstr < arraylength(instrtab));
+   int new = newinstr();
    assert(fn->curblk != NULL);
-   instrtab[ninstr] = ins;
-   vpush(&fn->curblk->ins, ninstr);
-   return mkref(RTMP, ninstr++);
+   instrtab[new] = ins;
+   vpush(&fn->curblk->ins, new);
+   return mkref(RTMP, new);
 }
 
 union ref
 insertinstr(struct block *blk, int idx, struct instr ins)
 {
-   assert(ninstr < arraylength(instrtab));
-   instrtab[ninstr] = ins;
-   if (idx == blk->ins.n) vpush(&blk->ins, ninstr);
+   int new = newinstr();
+   instrtab[new] = ins;
+   if (idx == blk->ins.n) vpush(&blk->ins, new);
    else {
       assert(idx >= 0 && idx < blk->ins.n);
       vpush_((void **)&blk->ins.p, &blk->ins._cap, &blk->ins.n, sizeof *blk->ins.p);
       for (int i = blk->ins.n++; i > idx; --i)
          blk->ins.p[i] = blk->ins.p[i - 1];
-      blk->ins.p[idx] = ninstr;
+      blk->ins.p[idx] = new;
    }
-   return mkref(RTMP, ninstr++);
+   return mkref(RTMP, new);
+}
+
+void
+delinstr(struct block *blk, int idx)
+{
+   assert(idx >= 0 && idx < blk->ins.n);
+   memcpy(&instrtab[blk->ins.p[idx]], &instrfreelist, sizeof(int));
+   instrfreelist = idx;
+   for (int i = idx; i < blk->ins.n; ++i)
+      blk->ins.p[i] = blk->ins.p[i + 1];
+   --blk->ins.n;
 }
 
 union ref
 addphi2(struct function *fn, enum irclass cls,
         struct block *b1, union ref r1, struct block *b2, union ref r2)
 {
+   int new;
    struct phi phi = { .n = 2, .cap = -1 };
    struct instr ins = { Ophi, cls };
+
    phi.blk = alloc(&fn->arena, 2*sizeof(struct block *) + 2*sizeof r1, 0);
    phi.ref = (union ref *)((char *)phi.blk + 2*sizeof(struct block *));
    phi.blk[0] = b1;
@@ -218,19 +255,21 @@ addphi2(struct function *fn, enum irclass cls,
    phi.ref[1] = r2;
    vpush(&phitab, phi);
    ins.l = mkref(RMORE, phitab.n-1);
-   assert(ninstr < arraylength(instrtab));
    assert(fn->curblk != NULL);
    assert(fn->curblk->ins.n == 0);
-   instrtab[ninstr] = ins;
-   vpush(&fn->curblk->phi, ninstr);
-   return mkref(RTMP, ninstr++);
+   new = newinstr();
+   instrtab[new] = ins;
+   vpush(&fn->curblk->phi, new);
+   return mkref(RTMP, new);
 }
 
 union ref
 addphi(struct function *fn, enum irclass cls, struct block **blk, union ref *ref, uint n)
 {
+   int new;
    struct phi phi = { .n = n, .cap = -1 };
    struct instr ins = { Ophi, cls };
+
    assert(n > 0);
    phi.blk = alloc(&fn->arena, n*sizeof(struct block *) + n*sizeof(union ref), 0);
    phi.ref = (union ref *)((char *)phi.blk + n*sizeof(struct block *));
@@ -238,12 +277,12 @@ addphi(struct function *fn, enum irclass cls, struct block **blk, union ref *ref
    memcpy(phi.ref, ref, n * sizeof(union ref));
    vpush(&phitab, phi);
    ins.l = mkref(RMORE, phitab.n-1);
-   assert(ninstr < arraylength(instrtab));
    assert(fn->curblk != NULL);
    assert(fn->curblk->ins.n == 0);
-   instrtab[ninstr] = ins;
-   vpush(&fn->curblk->phi, ninstr);
-   return mkref(RTMP, ninstr++);
+   new = newinstr();
+   instrtab[new] = ins;
+   vpush(&fn->curblk->phi, new);
+   return mkref(RTMP, new);
 }
 
 struct block *
@@ -300,6 +339,34 @@ putreturn(struct function *fn, union ref r0, union ref r1)
 
 #undef putjump
 
+void
+replref(struct function *fn, struct block *blk, int i0, union ref from, union ref to)
+{
+   do {
+      if (!i0) for (int i = 0; i < blk->phi.n; ++i) {
+         struct phi *phi = &phitab.p[instrtab[blk->phi.p[i]].l.idx];
+         for (int i = 0; i < phi->n; ++i)
+            if (phi->ref[i].bits == to.bits) phi->ref[i] = from;
+      }
+
+      for (int i = i0; i < blk->ins.n; ++i) {
+         struct instr *ins = &instrtab[blk->ins.p[i]];
+         for (int i = 0; i < 2; ++i) {
+            union ref *r = &(&ins->l)[i];
+            if (r->bits == from.bits) *r = to;
+            else if (r->t == RMORE) {
+               struct call *call = &calltab.p[r->idx];
+               assert(ins->op == Ocall || ins->op == Ointrin);
+               for (int i = 0; i < call->narg; ++i)
+                  if (call->args[i].bits == from.bits)
+                     call->args[i] = to;
+            }
+         }
+      }
+      i0 = 0;
+   } while ((blk = blk->lnext) != fn->entry);
+}
+
 static void
 freefn(struct function *fn)
 {
@@ -314,10 +381,13 @@ freefn(struct function *fn)
 void
 irfini(struct function *fn)
 {
-   abistruct(fn);
-   regalloc(fn);
-   efmt("after regalloc:\n");
-   irdump(fn, fn->name);
+   extern int nerror;
+   if (!nerror) {
+      abi0(fn);
+      regalloc(fn);
+      efmt("after regalloc:\n");
+      irdump(fn, fn->name);
+   }
 
    freefn(fn);
 }

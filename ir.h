@@ -42,11 +42,19 @@ struct xcon {
    };
 };
 
+struct abiarg {
+   union irtype ty;
+   short reg; /* -1 -> stack */
+};
+
 struct call {
-   short narg;
+   ushort narg : 15;
+   ushort sret : 1;
    short vararg; /* first variadic arg or -1 */
-   union irtype *typs;
    union ref *args;
+   union irtype *typs;
+   short *abiargregs;
+   struct abiarg abiret[2];
 };
 
 struct phi {
@@ -58,7 +66,7 @@ struct phi {
 enum refkind {
    RNONE,
    RTMP,  /* reference to another instruction's result */
-   RARG,  /* function argument */
+   RPARAM,  /* function param */
    RICON, /* small integer constants */
    RXCON, /* other constants (incl. external symbols) */
    RMORE,  /* reference to extra data for Ocall and Ophi */
@@ -82,10 +90,10 @@ enum op {
 #define oisalloca(o) in_range(o, Oalloca1, Oalloca16)
 #define oisstore(o) in_range(o, Ostore1, Ostore8)
 
-enum builtin {
-   BTxxx,
-#define _(b,...) BT##b,
-#include "builtin.def"
+enum intrin {
+   INxxx,
+#define _(b,...) IN##b,
+#include "intrin.def"
 #undef _
 };
 
@@ -106,11 +114,6 @@ struct block {
    vec_of(ushort) ins;
    struct { uchar t; union ref arg[2]; } jmp;
    struct block *lprev, *lnext;
-};
-
-struct abiarg {
-   union irtype ty;
-   short reg; /* -1 -> stack */
 };
 
 struct function {
@@ -134,8 +137,24 @@ struct mctarg {
    struct bitset rcallee[1], /* callee-saved */
                  rglob[1];   /* globally live (never used for regalloc) */
    const char (*rnames)[6];
-   int (*abi_argregs)(short r[2], uchar cls[2], int *ni, int *nf, union irtype);
-   int (*abi_retregs)(short r[2], uchar cls[2], union irtype);
+   /* abiret: lower return type:
+    *  scalar/small struct -> returns number of regs (1..2),
+    *                         r & cls filled with reg and irclass of each scalar return
+    *  big struct -> returns 0, is passed via hidden pointer argument,
+    *                r[0] contains register for returning said pointer or -1,
+    *                r[1] contains register for hidden pointer argument,
+    *                     *ni is set to 1 if said register is the first ABI integer argument
+    */
+   int (*abiret)(short r[2], uchar cls[2], int *ni, union irtype);
+   /* abiarg: lower argument type:
+    *  scalar/small struct -> returns number of regs (1..2),
+    *                         r & cls filled with reg and irclass of each scalar arg
+    *                         if reg == -1 -> stack
+    *  big struct -> returns 0,
+    *                if passed in stack   cls[0] == 0, r[0] == -1
+    *                if passed by pointer cls[0] == KPTR, r[0] contains integer register or -1 if stack
+    */
+   int (*abiarg)(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype);
 };
 
 extern uchar type2cls[];
@@ -148,15 +167,16 @@ extern struct phitab {vec_of(struct phi);} phitab;
 #define mkref(t, x) ((union ref) {{ (t), (x) }})
 #define mkzerocon() ((union ref) {{ RICON, 0 }})
 #define mkinstr(O, C, ...) ((struct instr) { .op = (O), .cls = (C), .reg=0, __VA_ARGS__ })
-#define mkbuiltin(F, B, C, n, arg, typ) mkinstr(Obuiltin, C, {.t=RICON,B}, mkcallarg(F,n,-1,arg,typ))
 void irinit(struct function *);
 void irfini(struct function *);
 union irtype mkirtype(union type);
 union ref mkintcon(struct function *, enum irclass, vlong);
 union ref mkfltcon(struct function *, enum irclass, double);
 union ref mksymref(struct function *, const char *);
+struct instr mkalloca(uint siz, uint align);
 void conputdat(struct irdat *, uint off, enum typetag t, const void *dat);
-union ref mkcallarg(struct function *, uint narg, int vararg, union ref *, union irtype *);
+union ref mkcallarg(struct function *, bool sret, uint narg, int vararg, union ref *, union irtype *);
+#define mkintrin(F, B, C, N, A, T) mkinstr(Ointrin, C, {.t=RICON,B}, mkcallarg(F,0,N,-1,A,T))
 union ref addinstr(struct function *, struct instr);
 union ref insertinstr(struct block *, int idx, struct instr);
 void delinstr(struct block *, int idx);
@@ -168,10 +188,11 @@ void useblk(struct function *, struct block *);
 void putbranch(struct function *, struct block *);
 void putcondbranch(struct function *, union ref arg, struct block *t, struct block *f);
 void putreturn(struct function *, union ref r0, union ref r1);
+void replref(struct function *, struct block *, int, union ref from, union ref to);
 
 void irdump(struct function *, const char *fname);
 
-void abistruct(struct function *);
+void abi0(struct function *);
 void regalloc(struct function *);
 
 /* vim:set ts=3 sw=3 expandtab: */

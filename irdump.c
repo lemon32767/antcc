@@ -22,10 +22,10 @@ prityp(union irtype typ)
    }
 }
 
-static const char *builtinname[] = {
+static const char *intrinname[] = {
    "?\??",
 #define _(b,...) #b,
-#include "builtin.def"
+#include "intrin.def"
 #undef _
 };
 
@@ -35,9 +35,9 @@ dumpref(enum op o, union ref ref)
    struct xcon *con;
    switch (ref.t) {
    case RTMP: efmt("%%%d", ref.idx); break;
-   case RARG: efmt("%%arg%d", ref.idx); break;
+   case RPARAM: efmt("%%param%d", ref.idx); break;
    case RICON:
-      if (o == Obuiltin) efmt("\"%s\"", builtinname[ref.i]);
+      if (o == Ointrin) efmt("\"%s\"", intrinname[ref.i]);
       else efmt("%d", ref.i);
       break;
    case RXCON:
@@ -53,10 +53,14 @@ dumpref(enum op o, union ref ref)
       }
       break;
    case RMORE:
-      if (o == Ocall || o == Obuiltin) {
+      if (o == Ocall || o == Ointrin) {
          struct call *call = &calltab.p[ref.idx];
+         if (call->sret) {
+            efmt("sret ");
+            prityp(call->typs[call->narg]);
+         }
          for (int i = 0; i < call->narg; ++i) {
-            if (i > 0) efmt(", ");
+            if (i > 0 || call->sret) efmt(", ");
             if (call->vararg == i)
                efmt("..., ");
             prityp(call->typs[i]);
@@ -142,18 +146,24 @@ irdump(struct function *fn, const char *fname)
    struct block *blk;
 
    efmt("function %s : %ty\n", fname, fn->fnty);
-   if (fn->abiarg) {
-      efmt("abi args: (");
+   if (fn->abiarg || fn->retty.t != TYVOID) {
+      efmt("abi: (");
       for (int i = 0; i < fn->nabiarg; ++i) {
          if (i > 0) efmt(", ");
          if (fn->abiarg[i].reg != -1) {
-            efmt("%%%ls", mctarg->rnames[fn->abiarg[i].reg]);
+            efmt("%ls", mctarg->rnames[fn->abiarg[i].reg]);
          } else {
             prityp(fn->abiarg[i].ty);
             efmt(" <stk>");
          }
       }
-      efmt(")\n");
+      efmt(")");
+      if (fn->retty.t != TYVOID) {
+         efmt(" -> %ls", mctarg->rnames[fn->abiret[0].reg]);
+         if (fn->nabiret > 1)
+            efmt(", %ls", mctarg->rnames[fn->abiret[1].reg]);
+      }
+      efmt("\n");
    }
    blk = fn->entry;
    do {
