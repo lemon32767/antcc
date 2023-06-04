@@ -13,3 +13,11 @@ v2d add(v2d a, v2d b)
     addp(&a, &b);
     return a;
 }
+
+short s(int a, int b) {
+    return a + b;
+}
+
+int i() {
+    return s(1,2);
+}

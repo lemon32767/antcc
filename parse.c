@@ -1139,12 +1139,10 @@ narrow(struct function *fn, enum irclass to, enum typetag tt, union ref ref)
       assert(to == KF4 && tt == TYDOUBLE);
       ins.op = Ocvtf8f4;
    } else {
-      switch (targ_primsizes[tt]) {
-      case 1: ins.op = issignedt(tt) ? Oexts1 : Oextu1; break;
-      case 2: ins.op = issignedt(tt) ? Oexts2 : Oextu2; break;
-      case 4: ins.op = issignedt(tt) ? Oexts4 : Oextu4; break;
-      default: assert(0);
-      }
+      static const enum op ext[5][2] = {
+         [1] = {Oextu1, Oexts1}, [2] = {Oextu2, Oexts2}, [4] = {Oextu4, Oexts4}
+      };
+      ins.op = ext[targ_primsizes[tt]][issignedt(tt)];
    }
    ins.l = ref;
    return addinstr(fn, ins);
@@ -1564,7 +1562,10 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       if (discard) return NOREF;
       return narrow(fn, cls, ex->ty.t, q);
    case ECALL:
-      return compilecall(fn, ex);
+      r = compilecall(fn, ex);
+      if (isint(ex->ty))
+         return narrow(fn, cls, ex->ty.t, r);
+      return r;
    case ECOND:
       if (ex->ty.t == TYVOID) {
          struct block *tr, *fl, *end;
