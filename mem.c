@@ -67,6 +67,14 @@ vpushn_(void **p, int *pcap, uint *pn, uint siz, const void *dat, uint ndat)
    return beg;
 }
 
+void
+vresize_(void **p, int *pcap, uint *pn, uint siz, uint N)
+{
+   while (*pcap < N)
+      vpush_(p, pcap, pn, siz);
+   *pn = N;
+}
+
 struct arena *
 newarena(uint chunksiz)
 {

@@ -981,13 +981,12 @@ expreffects(struct function *fn, const struct expr *ex)
 
 
 static void
-structcopy(struct function *fn, union ref dst, const struct expr *src)
+structcopy(struct function *fn, union type ty, union ref dst, union ref src)
 {
-   union ref srcref = expraddr(fn, src);
-   union ref args[2] = { dst, srcref };
-   union irtype typ[2] = { mkirtype(src->ty) };
-   typ[1] = typ[0];
-   addinstr(fn, mkintrin(fn, INstructcopy, 0, 2, args, typ));
+   union ref args[2] = { dst, src };
+   union irtype typs[2] = { mkirtype(ty) };
+   typs[1] = typs[0];
+   addinstr(fn, mkintrin(fn, INstructcopy, 0, 2, args, typs));
 }
 
 static union ref
@@ -1034,8 +1033,8 @@ expraddr(struct function *fn, const struct expr *ex)
       return addinstr(fn, ins);
    case ESET:
       assert(isagg(ex->ty));
-      r = expraddr(fn, &ex->sub[0]);
-      structcopy(fn, r, &ex->sub[1]);
+      r = expraddr(fn, &ex->sub[1]);
+      structcopy(fn, ex->ty, expraddr(fn, &ex->sub[0]), r);
       return r;
    case ESEQ:
       expreffects(fn, &ex->sub[0]);
@@ -1299,11 +1298,14 @@ compilecall(struct function *fn, const struct expr *ex)
       ins.cls = type2cls[ex->ty.t];
    }
    ins.l = exprvalue(fn, &sub[0]);
-   for (int i = 0; i < ex->narg; ++i) {
+   vresize(&args, ex->narg);
+   vresize(&typs, ex->narg);
+   /* backwards because of RTL call stack order */
+   for (int i = ex->narg - 1; i >= 0; --i) {
       struct expr *arg = &sub[i+1];
       union type ty = i < td->nmemb ? td->param[i] : argpromote(arg->ty);
-      vpush(&args, cvt(fn, ty.t, arg->ty.t, exprvalue(fn, arg)));
-      vpush(&typs, mkirtype(ty));
+      args.p[i] = cvt(fn, ty.t, arg->ty.t, exprvalue(fn, arg));
+      typs.p[i] = mkirtype(ty);
    }
    if (isagg(ex->ty))
       vpush(&typs, mkirtype(ex->ty));
@@ -1765,7 +1767,7 @@ block(struct parser *pr, struct function *fn)
                      }
                      EMITS {
                         if (isagg(decl.ty))
-                           structcopy(fn, mkref(RTMP, decl.id), &ini);
+                           structcopy(fn, decl.ty, mkref(RTMP, decl.id), expraddr(fn, &ini));
                         else
                            genstore(fn, decl.ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
                      }

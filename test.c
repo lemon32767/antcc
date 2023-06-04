@@ -69,7 +69,11 @@ void fill(char *p, int c, unsigned long n)
     if (n) do t = *p++ = c; while (--n);
 }
 
-main(t) { putc(t); }
+void zero(void *p, unsigned long n) { fill(p,0,n); }
+
+main(t) {
+    putc(t + 1, t + 2);
+}
 
 
 //

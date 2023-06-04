@@ -39,7 +39,7 @@ use(struct block *blk, enum op op, int hint, union ref *ref)
       if (op == Ocall || op == Ointrin) {
          struct call *call = &calltab.p[ref->idx];
          for (int i = 0; i < call->narg; ++i)
-            use(blk, 0, 0, &call->args[i]);
+            use(blk, 0, op == Ocall ? call->abiargregs[i] : -1, &call->args[i]);
       } else if (op == Ophi) {
          struct phi *phi = &phitab.p[ref->idx];
          for (int i = 0; i < phi->n; ++i)

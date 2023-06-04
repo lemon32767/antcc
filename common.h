@@ -315,6 +315,7 @@ void freearena(struct arena *);
 void vinit_(void **p, int *pcap, void *inlbuf, int cap, uint siz);
 void vpush_(void **p, int *pcap, uint *pn, uint siz);
 void *vpushn_(void **p, int *pcap, uint *pn, uint siz, const void *dat, uint ndat);
+void vresize_(void **p, int *pcap, uint *pn, uint siz, uint N);
 extern void free(void *);
 #define VINIT(inlbuf, Cap) { (inlbuf), (Cap) }
 #define vfree(v) ((v)->_cap < 0 ? free((v)->p) : (void)0, memset((v), 0, sizeof*(v)))
@@ -322,6 +323,7 @@ extern void free(void *);
 #define vpush(v, x) (vpush_((void **)&(v)->p, &(v)->_cap, &(v)->n, sizeof *(v)->p), \
                      (v)->p[(v)->n++] = (x))
 #define vpushn(v, xs, N) vpushn_((void **)&(v)->p, &(v)->_cap, &(v)->n, sizeof *(v)->p, xs, N)
+#define vresize(v, N) vresize_((void **)&(v)->p, &(v)->_cap, &(v)->n, sizeof *(v)->p, N)
 
 struct bitset { uvlong u; };
 enum { BSNBIT = 8 * sizeof(uvlong) };
