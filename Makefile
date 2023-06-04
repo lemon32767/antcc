@@ -1,6 +1,7 @@
 SRC=main.c io.c mem.c parse.c lex.c type.c targ.c eval.c ir.c irdump.c abi0.c regalloc.c amd64/sysv.c
 CFLAGS=-Wall -std=c11 -pedantic
 OBJ=$(patsubst %.c,obj/%.o,$(SRC))
+DEP=$(OBJ:.o=.d)
 OUT=cchomp
 
 all: CFLAGS += -g -Og
@@ -17,21 +18,11 @@ $(OUT): $(OBJ)
 
 obj/%.o: %.c common.h
 	@mkdir -p `dirname $@`
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-ir.h: op.def intrin.def
-obj/main.o: parse.h
-obj/parse.o: parse.h ir.h
-obj/ir.o: ir.h
-obj/irdump.o: ir.h
-obj/lex.o: parse.h
-obj/eval.o: parse.h
-obj/io.o: parse.h keywords.def
-obj/abi0.o: ir.h
-obj/regalloc.o: ir.h
-obj/amd64/sysv.o: ir.h amd64/all.h
+	$(CC) $(CFLAGS) -MMD -MP -MT $@ -MF obj/$*.d -c -o $@ $<
 
 clean:
 	$(RM) -r obj/ $(OUT)
 
 .PHONY: clean
+
+-include $(DEP)
