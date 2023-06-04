@@ -1689,6 +1689,7 @@ stmt(struct parser *pr, struct function *fn)
       expect(pr, ')', NULL);
       if (!isscalar(ex.ty))
          error(&ex.span, "'while' condition is not a scalar (%ty)", ex.ty);
+      stmtterm(pr);
       EMITS {
          end = newblk(fn);
          if (!terminates) condjump(fn, &ex, begin, end);
