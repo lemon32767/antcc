@@ -896,10 +896,11 @@ Postfix:
       lex(pr, &tk);
       ek = bintab[tk.t].t;
       if (ek != ECOND) {
+         bool leftassoc = (bintab[tk.t].k & BCSET) == 0; /* only the assignment operators are right-associative */
          /* ex OP rhs */
          span.sl = tk.span.sl;
          span.ex = ex.span.ex;
-         rhs = exprparse(pr, opprec + 1);
+         rhs = exprparse(pr, opprec + leftassoc);
          if (!joinspan(&span.ex, tk.span.ex) || !joinspan(&span.ex, rhs.span.ex))
             span.ex = tk.span.ex;
          ty = bintypecheck(&span, tk.t, &ex, &rhs);
