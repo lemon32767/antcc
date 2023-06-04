@@ -51,6 +51,13 @@ void silly(struct pair *p, struct quad *q)
     *q = quad(1,2,3,4);
 }
 
+void test2(struct big *b) {
+    struct big s = *b;
+    extern void h(int, struct big, float);
+    s.x[5] += 2;
+    h(0, s, 0);
+}
+
 struct f2 { float f,g; };
 struct f2 f2test(struct f2 *r) {
     return *r;

@@ -1763,7 +1763,12 @@ block(struct parser *pr, struct function *fn)
                         error(&span, "cannot initialize '%ty' variable with '%ty'",
                               decl.ty, ini.ty);
                      }
-                     EMITS genstore(fn, decl.ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
+                     EMITS {
+                        if (isagg(decl.ty))
+                           structcopy(fn, mkref(RTMP, decl.id), &ini);
+                        else
+                           genstore(fn, decl.ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
+                     }
                   }
                   break;
                case SCTYPEDEF: break;

@@ -291,29 +291,28 @@ abi0(struct function *fn)
             int thisi = sretarghidden + ni + nf + ns;
             int first = abiargs.n;
             int ret = abiarg(&abiargs, &ni, &nf, &ns, pty);
+            union ref argss[2];
+            union irtype typss[2];
+            ret = patcharg(argss, typss, blk, &iinstr, call, i, ret, &abiargs.p[first]);
             if (structbyval) {
-               union ref argss[2];
-               union irtype typss[2];
-               assert(structbyval);
-               ret = patcharg(argss, typss, blk, &iinstr, call, i, ret, &abiargs.p[first]);
                vpushn(&newargs, argss, ret);
                vpushn(&newtyps, typss, ret);
-               if (call->vararg == i)
-                  vararg = thisi;
             }
+            if (call->vararg == i)
+               vararg = thisi;
          }
          call->sret = 0;
          call->vararg = vararg;
-         if (structbyval) {
-            if (newargs.n != call->narg) {
-               call->args = alloc(&fn->arena, newargs.n * (sizeof *newargs.p + sizeof *newtyps.p), 0);
-               call->typs = (union irtype *)((char *)call->args + newargs.n * sizeof *newargs.p);
-            }
-            memcpy(call->args, newargs.p, newargs.n * sizeof *call->args);
-            memcpy(call->typs, newtyps.p, newtyps.n * sizeof *call->typs);
-            call->abiargregs = alloc(&fn->arena, abiargs.n * sizeof *call->abiargregs, 0);
-            for (int i = 0; i < abiargs.n; ++i) call->abiargregs[i] = abiargs.p[i].reg;
+         if (structbyval && newargs.n != call->narg) {
+            call->args = alloc(&fn->arena, newargs.n * (sizeof *newargs.p + sizeof *newtyps.p), 0);
+            call->typs = (union irtype *)((char *)call->args + newargs.n * sizeof *newargs.p);
          }
+         memcpy(call->typs, newtyps.p, newtyps.n * sizeof *call->typs);
+         if (structbyval)
+            memcpy(call->args, newargs.p, newargs.n * sizeof *call->args);
+         call->abiargregs = alloc(&fn->arena, abiargs.n * sizeof *call->abiargregs, 0);
+         for (int i = 0; i < abiargs.n; ++i) call->abiargregs[i] = abiargs.p[i].reg;
+         call->narg = abiargs.n;
          vfree(&abiargs);
          vfree(&newargs);
          vfree(&newtyps);

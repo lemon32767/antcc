@@ -63,6 +63,10 @@ dumpref(enum op o, union ref ref)
             if (i > 0 || call->sret) efmt(", ");
             if (call->vararg == i)
                efmt("..., ");
+            if (call->abiargregs) {
+               short r = call->abiargregs[i];
+               efmt("(%ls) ", r != -1 ? mctarg->rnames[r] : "<stk>");
+            }
             prityp(call->typs[i]);
             efmt(" ");
             dumpref(0, call->args[i]);
