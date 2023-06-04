@@ -62,5 +62,7 @@ void fill(char *p, int c, unsigned long n)
     if (n) do t = *p++ = c; while (--n);
 }
 
+main(t) { putc(t); }
+
 
 //

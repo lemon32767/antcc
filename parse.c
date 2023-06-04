@@ -593,6 +593,17 @@ callexpr(struct parser *pr, const struct span *span_, const struct expr *callee)
    bool spanok = joinspan(&span.ex, span_->ex);
    bool printsig = 0;
 
+   if (callee->t == ESYM && !callee->ty.t) { /* implicit function decl.. */
+      const char *name = (void *)callee->sym;
+      struct decl decl = {
+         ty = mkfntype(mktype(TYINT), 0, NULL, NULL, /* kandr */ 1, 0),
+         .scls = SCEXTERN, .span = callee->span, .name = name
+      };
+      (ccopt.cstd > STDC89 ? error : warn)(&callee->span, "call to undeclared function '%s'", name);
+      ((struct expr *)callee)->sym = putdecl(pr, &decl);
+      td = &typedata[ty.dat];
+   }
+
    if (ty.t == TYPTR) /* auto-deref when calling a function pointer */
       ty = typechild(ty);
    if (ty.t != TYFUNC) error(&callee->span, "calling a value of type '%ty'", callee->ty);
@@ -693,8 +704,12 @@ Unary:
    case TKIDENT:
       decl = finddecl(pr, tk.s);
       if (!decl) {
-         error(&tk.span, "undeclared identifier %'tk", &tk);
-         ex = mkexpr(ESYM, tk.span, mktype(TYINT), .sym = NULL);
+         if (lexpeek(pr, NULL) == '(') { /* implicit function decl? */
+            ex = mkexpr(ESYM, tk.span, mktype(0), .sym = (void *)tk.s);
+         } else {
+            error(&tk.span, "undeclared identifier %'tk", &tk);
+            ex = mkexpr(ESYM, tk.span, mktype(TYINT), .sym = NULL);
+         }
       } else if (decl->scls == SCTYPEDEF) {
          error(&tk.span, "unexpected typename %'tk (expected expression)", &tk);
          ex = mkexpr(ESYM, tk.span, decl->ty, .sym = NULL);

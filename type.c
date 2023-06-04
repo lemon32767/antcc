@@ -8,6 +8,7 @@ static ushort
 hashtd(const struct typedata *td)
 {
    uint h = td->t*33;
+   bool t;
    switch (td->t) {
    case TYARRAY:
       h = hashb(h, &td->arrlen, sizeof td->arrlen);
@@ -23,6 +24,8 @@ hashtd(const struct typedata *td)
    case TYFUNC:
       h = hashb(h, &td->ret, sizeof td->ret);
       h = hashb(h, &td->nmemb, sizeof td->nmemb);
+      h = hashb(h, (t = td->kandr, &t), sizeof t);
+      h = hashb(h, (t = td->variadic, &t), sizeof t);
       for (int i = 0; i < td->nmemb; ++i) {
          uchar q = tdgetqual(td->quals, i);
          h = hashb(h, &td->param[i], sizeof *td->param);
@@ -52,6 +55,7 @@ tdequ(const struct typedata *a, const struct typedata *b)
       if (a->ret.bits != b->ret.bits) return 0;
       if (a->nmemb != b->nmemb) return 0;
       if (a->variadic != b->variadic) return 0;
+      if (a->kandr != b->kandr) return 0;
       for (int i = 0; i < a->nmemb; ++i) {
          if (!a->quals != !b->quals || a->param[i].bits != b->param[i].bits)
             return 0;
