@@ -135,6 +135,7 @@ patcharg(union ref newargs[2], union irtype newtyps[2], struct block *blk, int *
                ins.l = insertinstr(blk, (*icall)++ - 1,
                                    mkinstr(Oadd, KPTR, src,
                                            mkref(RICON, cls2siz[abi[0].ty.cls])));
+            newtyps[i] = (union irtype) { .cls = ins.cls };
             newargs[i] = insertinstr(blk, (*icall)++ - 1, ins);
          }
          return nabi;
