@@ -103,7 +103,11 @@ abiret(short r[2], uchar cls[2], int *ni, union irtype typ)
 {
    int ret;
 
-   if (!typ.isagg) return kisflt(cls[0] = typ.cls) ? XMM0 : RAX;
+   if (!typ.isagg) {
+      r[0] = kisflt(cls[0] = typ.cls) ? XMM0 : RAX;
+      return 1;
+   }
+
    cls[0] = cls[1] = 0;
    ret = classify(cls, &typedata[typ.dat], 0);
    if (!ret) { /* MEMORY */
