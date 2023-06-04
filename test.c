@@ -71,6 +71,14 @@ void fill(char *p, int c, unsigned long n)
 
 void zero(void *p, unsigned long n) { fill(p,0,n); }
 
+enum ball  {
+    Zero,
+    Two = 2,
+    Three,
+    One = Zero + 1,
+    W = 1l<<44
+};
+
 main(t) {
     putc(t + 1, t + 2);
 }

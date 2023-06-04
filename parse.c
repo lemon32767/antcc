@@ -63,11 +63,14 @@ enum declkind {
 struct decl {
    union type ty;
    uchar scls;
-   uchar qual;
-   ushort align;
+   uchar qual : 2;
+   uchar isenum : 1;
    struct span span;
    const char *name;
-   int id;
+   union {
+      struct { ushort align; int id; };
+      vlong value;
+   };
 };
 
 struct declstate {
@@ -713,6 +716,8 @@ Unary:
       } else if (decl->scls == SCTYPEDEF) {
          error(&tk.span, "unexpected typename %'tk (expected expression)", &tk);
          ex = mkexpr(ESYM, tk.span, decl->ty, .sym = NULL);
+      } else if (decl->isenum) {
+         ex = mkexpr(ENUMLIT, tk.span, decl->ty, .i = decl->value);
       } else {
          ex = mkexpr(ESYM, tk.span, decl->ty, .qual = decl->qual, .sym = decl);
       }
@@ -1902,11 +1907,45 @@ static union type
 buildenum(struct parser *pr, const char *name)
 {
    union type t;
-   struct typedata td = {TYENUM};
+   struct token tk;
    enum typetag backing = TYINT;
-
+   struct typedata td = {TYENUM, .backing = backing};
+   vlong iota = 0,
+         min = -(1ll << (8*targ_primsizes[TYINT] - 1)),
+         max = (1ll << (8*targ_primsizes[TYINT] - 1)) - 1;
    t = mktagtype(name, &td);
    t.backing = backing;
+
+   while (!match(pr, &tk, '}')) {
+      struct decl decl = {0};
+      peek(pr, &tk);
+      expect(pr, TKIDENT, NULL);
+      if (match(pr, NULL, '=') || (peek(pr, NULL) == TKNUMLIT && !expect(pr, '=', NULL))) {
+         struct expr ex = expr(pr);
+         if (eval(&ex, EVINTCONST)) {
+            iota = ex.i;
+         } else {
+            error(&ex.span, "enum value is not an integer constant");
+         }
+      } else if (tk.t != TKIDENT) {
+         lex(pr, NULL);
+         continue;
+      }
+      if (iota < min || iota > max)
+         warn(&tk.span, "enumerator value %ld doesn't fit in `int', will be silently truncated", iota);
+
+      decl.name = tk.s;
+      decl.ty = t;
+      decl.isenum = 1;
+      decl.value = iota++;
+      putdecl(pr, &decl);
+      if (!match(pr, &tk, ',')) {
+         if (expect(pr, '}', "or `,'"))
+            break;
+         else lex(pr, NULL);
+      }
+   }
+
    return t;
 }
 
@@ -1929,6 +1968,11 @@ tagtype(struct parser *pr, enum toktag kind)
          return mktype(0);
       }
       t = gettagged(pr, &span, tt, tag, /* def? */ peek(pr, NULL) == ';');
+      if (!t.t) {
+         assert(tt == TYENUM);
+         error(&span, "cannot forward-declare enum");
+         return mktype(TYINT);
+      }
    } else {
       if (tt != TYENUM) {
          if (tag) {
