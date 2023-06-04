@@ -257,7 +257,7 @@ Break2:
 }
 
 static union type
-deftagged(struct parser *pr, struct span *span, enum typetag tt, const char *name)
+deftagged(struct parser *pr, struct span *span, enum typetag tt, const char *name, union type ty)
 {
    struct tagged *l;
    struct typedata td = {0};
@@ -269,7 +269,7 @@ deftagged(struct parser *pr, struct span *span, enum typetag tt, const char *nam
       }
    }
    td.t = tt;
-   return envaddtagged(pr->env, mktagtype(name, &td), span)->ty;
+   return envaddtagged(pr->env, ty.t ? ty : mktagtype(name, &td), span)->ty;
 }
 
 /*******************/
@@ -2007,28 +2007,28 @@ tagtype(struct parser *pr, enum toktag kind)
          return mktype(0);
       }
       t = gettagged(pr, &span, tt, tag, /* def? */ peek(pr, NULL) == ';');
-      if (!t.t) {
-         assert(tt == TYENUM);
-         error(&span, "cannot forward-declare enum");
+      if (tt == TYENUM && !t.t) {
+         error(&tk.span, "cannot forward-declare enum");
          return mktype(TYINT);
       }
    } else {
       if (tt != TYENUM) {
          if (tag) {
-            t = deftagged(pr, &span, tt, tag);
+            t = deftagged(pr, &span, tt, tag, mktype(0));
             if (t.t != tt || !isincomplete(t)) {
                if (t.t != tt)
                   error(&tk.span,
                         "defining tagged type %'tk as %tt clashes with previous definition",
                         &tk, kind);
                else
-                  error(&tk.span, "redefinition of '%tt %s'", kind, tag);
+                  error(&tk.span, "redefinition of '%tt %s'", kind, tag, mktype(0));
                note(&span, "previous definition:");
             }
          }
          t = buildagg(pr, tt, tag, tag ? typedata[t.dat].id : -1);
       } else {
-         t = buildenum(pr, tag);
+         t = buildenum(pr, tag, &span);
+         if (tag) deftagged(pr, &span, TYENUM, tag, t);
       }
    }
 

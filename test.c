@@ -82,6 +82,7 @@ enum ball  {
     Z,
     W = ~0ul
 };
+enum ball x;
 
 main(t) {
     putc(t + 1, t + 2);
