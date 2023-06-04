@@ -1625,6 +1625,26 @@ stmt(struct parser *pr, struct function *fn)
          useblk(fn, end);
       }
       break;
+   case TKWdo:
+      lex(pr, NULL);
+      begin = end = NULL;
+      EMITS {
+         putbranch(fn, begin = newblk(fn));
+         useblk(fn, begin);
+      }
+      terminates = stmt(pr, fn);
+      expect(pr, TKWwhile, NULL);
+      expect(pr, '(', NULL);
+      ex = commaexpr(pr);
+      expect(pr, ')', NULL);
+      if (!isscalar(ex.ty))
+         error(&ex.span, "'while' condition is not a scalar (%ty)", ex.ty);
+      EMITS {
+         end = newblk(fn);
+         if (!terminates) condjump(fn, &ex, begin, end);
+         useblk(fn, end);
+      }
+      break;
    case TKWreturn:
       lex(pr, NULL);
       if (fn->retty.t != TYVOID) {
