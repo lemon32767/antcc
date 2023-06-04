@@ -72,11 +72,15 @@ void fill(char *p, int c, unsigned long n)
 void zero(void *p, unsigned long n) { fill(p,0,n); }
 
 enum ball  {
+    neg = -1,
     Zero,
     Two = 2,
     Three,
     One = Zero + 1,
-    W = 1l<<44
+    X = 2147483647,
+    Y,
+    Z,
+    W = ~0ul
 };
 
 main(t) {

@@ -1905,19 +1905,35 @@ buildagg(struct parser *pr, enum typetag tt, const char *name, int id)
    return t;
 }
 
+static inline void
+inttyminmax(vlong *min, uvlong *max, enum typetag tt)
+{
+   uint bits = 8*targ_primsizes[tt];
+   *min = isunsignedt(tt) ? 0 : -(1ll << (bits - 1));
+   *max = isunsignedt(tt) ? ~0ull >> (64 - bits) : (1ll << (bits - 1)) - 1;
+}
+
+/* the backing type of enum (without a C23 fixed backing type) is int or the
+ * smallest-rank type that all the enumerators fit in, or if it doesn't exist,
+ * then the biggest signed type. the type of enumeration constants is the type of
+ * its defining expression when present or the type of the previous enumerator
+ * or in case of overflow the smallest type that fits (previous value + 1)
+ * this isn't strictly conforming since pre C23 enums are pretty loosely defined,
+ * and this is similar to existing compiler's de-facto behaviour (though gcc
+ * prefers to use unsigned types when possible). should add support for -fshort-enums
+ */
 static union type
 buildenum(struct parser *pr, const char *name)
 {
-   union type t;
    struct token tk;
-   enum typetag backing = TYINT;
-   struct typedata td = {TYENUM, .backing = backing};
-   vlong iota = 0,
-         min = -(1ll << (8*targ_primsizes[TYINT] - 1)),
-         max = (1ll << (8*targ_primsizes[TYINT] - 1)) - 1;
-   t = mktagtype(name, &td);
-   t.backing = backing;
+   vlong tymin, minv = 0;
+   uvlong tymax, maxv = 0;
+   struct typedata td = {TYENUM, .backing = TYINT};
+   union type ty = mktype(td.backing);
+   struct span maxvspan;
+   vlong iota = 0;
 
+   inttyminmax(&tymin, &tymax, td.backing);
    while (!match(pr, &tk, '}')) {
       struct decl decl = {0};
       peek(pr, &tk);
@@ -1926,6 +1942,9 @@ buildenum(struct parser *pr, const char *name)
          struct expr ex = expr(pr);
          if (eval(&ex, EVINTCONST)) {
             iota = ex.i;
+            if (ex.ty.t != ty.t)
+               inttyminmax(&tymin, &tymax, ex.ty.t);
+            ty = ex.ty;
          } else {
             error(&ex.span, "enum value is not an integer constant");
          }
@@ -1933,11 +1952,15 @@ buildenum(struct parser *pr, const char *name)
          lex(pr, NULL);
          continue;
       }
-      if (iota < min || iota > max)
-         warn(&tk.span, "enumerator value %ld doesn't fit in `int', will be silently truncated", iota);
+      while (issigned(ty) ? (iota > (vlong)tymax || iota < tymin) : iota > tymax)
+         inttyminmax(&tymin, &tymax, ++ty.t);
+      if ((isunsigned(ty) || iota > 0) && iota > maxv)
+         maxv = iota, maxvspan = tk.span;
+      else if (issigned(ty) && iota < minv)
+         minv = iota;
 
       decl.name = tk.s;
-      decl.ty = t;
+      decl.ty = ty;
       decl.isenum = 1;
       decl.value = iota++;
       putdecl(pr, &decl);
@@ -1948,7 +1971,21 @@ buildenum(struct parser *pr, const char *name)
       }
    }
 
-   return t;
+   td.backing = 0;
+   for (int t = TYINT; t <= TYUVLONG; ++t) {
+      inttyminmax(&tymin, &tymax, t);
+      if (minv >= tymin && maxv <= tymax) {
+         td.backing = t;
+         break;
+      }
+   }
+   if (!td.backing) {
+      td.backing = TYVLONG;
+      warn(&maxvspan, "some enumerators are too large for the enum's backing type (%ty)", mktype(td.backing));
+   }
+   ty = mktagtype(name, &td);
+   ty.backing = td.backing;
+   return ty;
 }
 
 static union type
