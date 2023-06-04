@@ -602,7 +602,7 @@ callexpr(struct parser *pr, const struct span *span_, const struct expr *callee)
          ty = mkfntype(mktype(TYINT), 0, NULL, NULL, /* kandr */ 1, 0),
          .scls = SCEXTERN, .span = callee->span, .name = name
       };
-      (ccopt.cstd > STDC89 ? error : warn)(&callee->span, "call to undeclared function '%s'", name);
+      warn(&callee->span, "call to undeclared function '%s'", name);
       ((struct expr *)callee)->sym = putdecl(pr, &decl);
       td = &typedata[ty.dat];
    }
@@ -1816,7 +1816,7 @@ function(struct parser *pr, struct function *fn, const char **pnames, const stru
             }
          }
          putdecl(pr, &arg);
-      } else {
+      } else if (ccopt.cstd < STDC23) {
          warn(&pspans[i], "missing name of parameter #%d", i+1);
       }
    }
@@ -1873,6 +1873,15 @@ buildagg(struct parser *pr, enum typetag tt, const char *name, int id)
             uint siz = typesize(decl.ty);
             uint off = isunion ? 0 : alignup(td.siz, align);
             struct namedfield f = { decl.name, { decl.ty, off, .qual = decl.qual }};
+            if (!decl.name) {
+               if (!isagg(decl.ty) || ttypenames[typedata[decl.ty.dat].id]) {
+                  warn(&decl.span, "declaration does not declare anything");
+                  continue;
+               } else if (ccopt.cstd < STDC11 && ccopt.pedant) {
+                  warn(&decl.span, "anonymous %s in %M is an extension",
+                       decl.ty.t == TYUNION ? "union" : "struct");
+               }
+            }
             vpush(&fld, f);
             td.anyconst |= decl.qual & QCONST;
             if (isagg(decl.ty)) {
@@ -1888,6 +1897,8 @@ buildagg(struct parser *pr, enum typetag tt, const char *name, int id)
          }
       } while (st.more);
    }
+   if (td.flexi && ccopt.cstd < STDC99 && ccopt.pedant)
+      warn(&flexspan, "flexible array member in %M is an extension");
    if (fld.n == 0) {
       struct namedfield dummy = { "", { mktype(TYCHAR), 0 }};
       error(&tk.span, "%s cannot have zero members", tag);
@@ -1923,7 +1934,7 @@ inttyminmax(vlong *min, uvlong *max, enum typetag tt)
  * prefers to use unsigned types when possible). should add support for -fshort-enums
  */
 static union type
-buildenum(struct parser *pr, const char *name)
+buildenum(struct parser *pr, const char *name, const struct span *span)
 {
    struct token tk;
    vlong tymin, minv = 0;
@@ -1932,6 +1943,7 @@ buildenum(struct parser *pr, const char *name)
    union type ty = mktype(td.backing);
    struct span maxvspan;
    vlong iota = 0;
+   bool somelonglong = 0;
 
    inttyminmax(&tymin, &tymax, td.backing);
    while (!match(pr, &tk, '}')) {
@@ -1954,6 +1966,7 @@ buildenum(struct parser *pr, const char *name)
       }
       while (issigned(ty) ? (iota > (vlong)tymax || iota < tymin) : iota > tymax)
          inttyminmax(&tymin, &tymax, ++ty.t);
+      somelonglong |= ty.t >= TYVLONG;
       if ((isunsigned(ty) || iota > 0) && iota > maxv)
          maxv = iota, maxvspan = tk.span;
       else if (issigned(ty) && iota < minv)
@@ -1980,9 +1993,12 @@ buildenum(struct parser *pr, const char *name)
       }
    }
    if (!td.backing) {
-      td.backing = TYVLONG;
-      warn(&maxvspan, "some enumerators are too large for the enum's backing type (%ty)", mktype(td.backing));
+      td.backing = !somelonglong && ccopt.cstd == STDC89 && ccopt.pedant ? TYLONG : TYVLONG;
+      warn(&maxvspan, "enumerators exceed range of enum's backing type (%ty)", mktype(td.backing));
    }
+   if (td.backing >= TYVLONG && !somelonglong && ccopt.cstd == STDC89 && ccopt.pedant)
+      warn(span, "enum backing type is '%ty' in %M", mktype(td.backing));
+
    ty = mktagtype(name, &td);
    ty.backing = td.backing;
    return ty;
@@ -2137,6 +2153,11 @@ declspec(struct declstate *st, struct parser *pr)
       default:
          if (!span.ex.len) span.ex = tk.span.ex;
          goto End;
+      case TKW_BitInt: case TKW_Complex:
+      case TKW_Decimal128: case TKW_Decimal32:
+      case TKW_Decimal64: case TKW_Imaginary:
+         error(&tk.span, "%'tk is unsupported", &tk);
+         arith = arith ? arith : KINT;
       }
       if (!span.ex.len) span.ex = tk.span.ex;
       joinspan(&span.ex, tk.span.ex);
@@ -2148,6 +2169,7 @@ End:
       /* combining arith type specifiers and other types */
    Bad:
       error(&span, "invalid declaration specifier");
+      st->base = mktype(TYINT);
    } else if (!st->base.t && arith) {
       enum typetag t;
       ioflush(&bstderr);
@@ -2155,9 +2177,10 @@ End:
          t = TYFLOAT;
       else if (arith == KDOUBLE)
          t = TYDOUBLE;
-      else if (arith == (KLONG | KDOUBLE))
+      else if (arith == (KLONG | KDOUBLE)) {
          t = TYLDOUBLE;
-      else if (arith == KBOOL)
+         error(&span, "`long double' is unsupported");
+      } else if (arith == KBOOL)
          t = TYBOOL;
       else if (arith == KCHAR)
          t = TYCHAR;
@@ -2183,8 +2206,8 @@ End:
          t = TYUVLONG;
       else
          goto Bad;
-      st->base = mktype(t);
-   } else if (!st->base.t && ccopt.cstd < STDC99) {
+      st->base = mktype(t ? t : TYINT);
+   } else if (!st->base.t && ccopt.cstd < STDC23) {
       warn(&span, "type implicitly declared as int");
       st->base = mktype(TYINT);
    } else if (!st->base.t)

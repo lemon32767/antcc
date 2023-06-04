@@ -33,12 +33,14 @@ optparse(const char **file, const char **targ, char **args)
             continue;
         }
         if ((x = optval(arg, "std"))) {
-            if (!strcmp(x, "c89")) ccopt.cstd = STDC89;
+            if (!strcmp(x, "c89") || !strcmp(x, "c90")) ccopt.cstd = STDC89;
             else if (!strcmp(x, "c99")) ccopt.cstd = STDC99;
             else if (!strcmp(x, "c11")) ccopt.cstd = STDC11;
             else if (!strcmp(x, "c2x")) ccopt.cstd = STDC23;
             else if (!strcmp(x, "c23")) ccopt.cstd = STDC23;
             else goto Bad;
+        } else if (!strcmp(arg, "pedantic")) {
+            ccopt.pedant = 1;
         } else Bad: warn(NULL, "invalid option: %'s", arg-1);
     }
 }
@@ -61,6 +63,7 @@ main(int argc, char **argv)
 
     atexit(flushstd);
     detectcolor();
+    ccopt.cstd = STDC99; /* C99 by default */
     optparse(&file, &targ, argv);
     if (!file) {
         efmt("usage: %s [options] <file>\n", *argv);

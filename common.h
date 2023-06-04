@@ -93,6 +93,7 @@ enum cstd {
 };
 struct option {
    enum cstd cstd;
+   bool pedant;
    bool trigraph;
    bool nocolor;
 };

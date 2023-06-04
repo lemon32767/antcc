@@ -24,7 +24,7 @@ intern(const char *s)
    }   
 }
 
-static void
+static bool
 identkeyword(struct token *tk, const char *s, int len)
 {
    static const struct { const char *s; enum toktag t; enum cstd cstd; } kwtab[] = {
@@ -41,15 +41,17 @@ identkeyword(struct token *tk, const char *s, int len)
       cmp = strcmp(kwtab[i].s, s);
       if (cmp < 0) l = i + 1;
       else if (cmp > 0) h = i - 1;
-      else if (kwtab[i].cstd <= ccopt.cstd) {
+      else if (kwtab[i].cstd <= ccopt.cstd || kwtab[i].s[0] == '_') {
+         /* allow future keywords but only if they begin with _ */
          tk->t = kwtab[i].t;
          tk->s = kwtab[i].s;
-         return;
+         return kwtab[i].cstd <= ccopt.cstd;
       } else break;
    }
 ident:
    tk->t = TKIDENT;
    tk->s = intern(s);
+   return 1;
 }
 
 static int
@@ -174,7 +176,7 @@ parsenumlit(uvlong *outi, double *outf, const struct token *tk, bool ispp)
       static uvlong max4typ[TYUVLONG-TYINT+1];
       uvlong n = 0;
       int base = 10, nsx;
-      bool dec, u = 0, c99 = ccopt.cstd >= STDC99;
+      bool dec, u = 0, longlongok = ccopt.cstd >= STDC99 || !ccopt.pedant;
       enum typetag ty = 0;
       const char *sx; /*suffix*/
       char c;
@@ -209,13 +211,13 @@ parsenumlit(uvlong *outi, double *outf, const struct token *tk, bool ispp)
          if (nsx == 1) /* 'u' */ {}
          else if ((sx[1]|32) == 'l') {
             if (nsx == 2) /* 'ul' */ goto L;
-            if (c99 && sx[1] == sx[2] && nsx == 3) /* 'ull' */ goto LL;
+            if (sx[1] == sx[2] && nsx == 3) /* 'ull' */ goto LL;
             return 0;
          } else return 0;
       } else if ((sx[0]|32) == 'l') {
          if (nsx == 1) /* 'l' */ goto L;
          if ((sx[1]|32) == 'u' && nsx == 2) /* 'lu' */ { u=1; goto L; }
-         if (c99 && sx[1] == sx[0]) {
+         if (sx[1] == sx[0]) {
             if (nsx == 2) /* 'll' */ goto LL;
             if ((sx[2]|32) == 'u' && nsx == 3) /* 'llu' */ { u=1; goto LL; }
          }
@@ -229,8 +231,8 @@ parsenumlit(uvlong *outi, double *outf, const struct token *tk, bool ispp)
       if (u || !dec) I(TYUINT)
    L:
       I(TYLONG)
-      if (u || !dec || !c99) I(TYULONG)
-      if (c99) {
+      if (u || !dec || !longlongok) I(TYULONG)
+      if (longlongok) {
       LL:
          I(TYVLONG)
          if (u || !dec) I(TYUVLONG)
@@ -247,6 +249,8 @@ parsenumlit(uvlong *outi, double *outf, const struct token *tk, bool ispp)
          if (u) return TYUVLONG;
          else if (n <= max4typ[TYVLONG-TYINT]) return TYVLONG;
       }
+      if (ty >= TYVLONG && !longlongok)
+         warn(&tk->span, "'long long' in %M is an extension");
       return ty;
    }
 }
@@ -482,7 +486,9 @@ Begin:
             tmp[n++] = next(pr);
          }
          tmp[n] = 0;
-         identkeyword(tk, tmp, n);
+         if (!identkeyword(tk, tmp, n))
+            warn(&(struct span) {{ idx, pr->chridx - idx, pr->fileid }},
+                  "%'tk in %M is an extension", tk);
          goto End;
       }
    }

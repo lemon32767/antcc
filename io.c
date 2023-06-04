@@ -550,6 +550,11 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
          }
          if (!ccopt.nocolor) n += bputc(buf, 'm');
          break;
+      case 'M': /* cc mode */
+         iowrite(buf, &"C89\0C99\0C11\0C23"[ccopt.cstd*4], 3);
+         n += 3;
+         n += bwriteS(buf, " mode");
+         break;
       default:
          if (umod || lmod) {
             --fmt;

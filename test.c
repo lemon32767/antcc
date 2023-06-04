@@ -80,13 +80,18 @@ enum ball  {
     X = 2147483647,
     Y,
     Z,
-    W = ~0ul
+    W = ~0ull
 };
 enum ball x;
 
-main(t) {
-    putc(t + 1, t + 2);
+_Bool t(int t)
+{
+    return t;
 }
 
+struct f{
+    union { int x,y;} ;
+    char flex[];
+};
 
 //
