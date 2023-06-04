@@ -56,11 +56,9 @@ struct f2 f2test(struct f2 *r) {
     return *r;
 }
 
-void memset(char *p, int c, unsigned long n)
+void memset(volatile char *p, int c, unsigned long n)
 {
-    if (n) do {
-        *p++ = c;
-    } while (--n);
+    if (n) do *p++ = c; while (--n);
 }
 
 

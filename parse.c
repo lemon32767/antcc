@@ -950,8 +950,18 @@ commaexpr(struct parser *pr)
 /*********/
 
 static union ref expraddr(struct function *, const struct expr *);
-static union ref exprvalue(struct function *, const struct expr *);
+static union ref compileexpr(struct function *, const struct expr *, bool discard);
+static inline union ref
+exprvalue(struct function *fn, const struct expr *ex)
+{
+   return compileexpr(fn, ex, /*discard*/ 0);
+}
 
+static inline void
+expreffects(struct function *fn, const struct expr *ex)
+{
+   compileexpr(fn, ex, /*discard*/ 1);
+}
 
 
 static void
@@ -1012,7 +1022,7 @@ expraddr(struct function *fn, const struct expr *ex)
       structcopy(fn, r, &ex->sub[1]);
       return r;
    case ESEQ:
-      (void)exprvalue(fn, &ex->sub[0]);
+      expreffects(fn, &ex->sub[0]);
       return expraddr(fn, &ex->sub[1]);
    case ECALL:
       assert(isagg(ex->ty));
@@ -1162,7 +1172,7 @@ condjump(struct function *fn, const struct expr *ex, struct block *tr, struct bl
    struct block *next, *next2;
 Loop:
    while (ex->t == ESEQ) {
-      (void)exprvalue(fn, &ex->sub[0]);
+      expreffects(fn, &ex->sub[0]);
       ex = &ex->sub[1];
    }
    if (ex->t == ELOGAND) {
@@ -1215,7 +1225,7 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
    struct block *tr, *fl, *next;
    union ref r;
    while (ex->t == ESEQ) {
-      (void)exprvalue(fn, &ex->sub[0]);
+      expreffects(fn, &ex->sub[0]);
       ex = &ex->sub[1];
    }
    if (ex->t == ELOGAND) {
@@ -1308,7 +1318,7 @@ condexprvalue(struct function *fn, const struct expr *ex)
 }
 
 static union ref
-exprvalue(struct function *fn, const struct expr *ex)
+compileexpr(struct function *fn, const struct expr *ex, bool discard)
 {
    union type ty;
    union ref r, q;
@@ -1321,31 +1331,38 @@ exprvalue(struct function *fn, const struct expr *ex)
    sub = ex->sub;
 
    if (ex->ty.t != TYVOID && !isscalar(ex->ty))
+      /* fn & array designators evaluate to their address; so do aggregates for the purpose of code generation */
       return expraddr(fn, ex);
    switch (ex->t) {
    case ENUMLIT:
+      if (discard) return NOREF;
       if (isflt(ex->ty))
          return mkfltcon(fn, cls, ex->f);
       return mkintcon(fn, cls, ex->i);
    case ESYM:
+      if (discard && !(ex->qual & QVOLATILE)) return NOREF;
       return genload(fn, ex->ty, expraddr(fn, ex));
    case EGETF:
+      if (discard && !(ex->qual & QVOLATILE)) return NOREF;
       return genload(fn, ex->ty, expraddr(fn, ex));
    case ECAST:
       if (ex->ty.t == TYVOID) {
-         (void)exprvalue(fn, sub);
+         expreffects(fn, sub);
          return NOREF;
       }
       /* fallthru */
    case EPLUS:
-      return cvt(fn, ex->ty.t, sub->ty.t, exprvalue(fn, sub));
+      r = compileexpr(fn, sub, discard);
+      if (discard) return NOREF;
+      return cvt(fn, ex->ty.t, sub->ty.t, r);
    case ENEG:
       ins.op = Oneg;
       goto Unary;
    case ECOMPL:
       ins.op = Onot;
    Unary:
-      ins.l = exprvalue(fn, sub);
+      ins.l = compileexpr(fn, sub, discard);
+      if (discard) return NOREF;
       ins.l = cvt(fn, ex->ty.t, sub->ty.t, ins.l);
       ins.cls = cls;
       return addinstr(fn, ins);
@@ -1353,13 +1370,17 @@ exprvalue(struct function *fn, const struct expr *ex)
       for (; sub->t == ELOGNOT; ex = sub, sub = sub->sub)
          swp ^= 1;
       ins.op = Oequ + swp;
-      ins.l = exprvalue(fn, sub);
+      ins.l = compileexpr(fn, sub, discard);
+      if (discard) return NOREF;
       ins.l = cvt(fn, ex->ty.t, sub->ty.t, ins.l);
       ins.r = mkintcon(fn, cls, 0);
       ins.cls = cls;
       return addinstr(fn, ins);
    case EDEREF:
-      return genload(fn, ex->ty, exprvalue(fn, sub));
+      discard &= (ex->qual & QVOLATILE) == 0;
+      r = compileexpr(fn, sub, discard);
+      if (discard) return NOREF;
+      return genload(fn, ex->ty, r);
    case EADDROF:
       return expraddr(fn, sub);
    case EMUL:
@@ -1392,8 +1413,9 @@ exprvalue(struct function *fn, const struct expr *ex)
    case EADD:
       ins.op = Oadd;
    BinArith:
-      ins.l = exprvalue(fn, &sub[0]);
-      ins.r = exprvalue(fn, &sub[1]);
+      ins.l = compileexpr(fn, &sub[0], discard);
+      ins.r = compileexpr(fn, &sub[1], discard);
+      if (discard) return NOREF;
       if (ins.op == Osub && isptrcvt(sub[0].ty) && isptrcvt(sub[1].ty)) {
          /* ptr - ptr */
          return genptrdiff(fn, typesize(typechild(sub[0].ty)), ins.l, ins.r);
@@ -1432,6 +1454,7 @@ exprvalue(struct function *fn, const struct expr *ex)
          ins.r = mkref(RICON, 1);
       q = addinstr(fn, ins);
       genstore(fn, sub->ty, r, q);
+      if (discard) return NOREF;
       return narrow(fn, cls, ex->ty.t, q);
    case EEQU:
       ins.op = Oequ;
@@ -1457,9 +1480,10 @@ exprvalue(struct function *fn, const struct expr *ex)
       if (!ty.t) ty.t = TYPTR;
       if (isunsigned(ty) && in_range(ins.op, Olth, Olte))
          ins.op += Oulth - Olth;
-      ins.l = exprvalue(fn, &sub[0^swp]);
+      ins.l = compileexpr(fn, &sub[0^swp], discard);
+      ins.r = compileexpr(fn, &sub[1^swp], discard);
+      if (discard) return NOREF;
       ins.l = cvt(fn, ty.t, sub[0^swp].ty.t, ins.l);
-      ins.r = exprvalue(fn, &sub[1^swp]);
       ins.r = cvt(fn, ty.t, sub[1^swp].ty.t, ins.r);
       ins.cls = cls;
       return addinstr(fn, ins);
@@ -1468,6 +1492,7 @@ exprvalue(struct function *fn, const struct expr *ex)
       r = expraddr(fn, &sub[0]);
       q = cvt(fn, sub[0].ty.t, sub[1].ty.t, exprvalue(fn, &sub[1]));
       genstore(fn, ex->ty, r, q);
+      if (discard) return NOREF;
       return narrow(fn, cls, sub[0].ty.t, q);
    case ESETMUL:
       ins.op = isunsigned(ex->ty) ? Oumul : Omul;
@@ -1513,19 +1538,20 @@ exprvalue(struct function *fn, const struct expr *ex)
          q = genptroff(fn, ins.op, typesize(typechild(ex->ty)), ins.l, sub[1].ty.t, ins.r);
       }
       genstore(fn, ex->ty, r, q);
+      if (discard) return NOREF;
       return narrow(fn, cls, ex->ty.t, q);
    case ECALL:
       return compilecall(fn, ex);
    case ECOND:
       if (ex->ty.t == TYVOID) {
          struct block *tr, *fl, *end;
-         condjump(fn, &ex->sub[0], tr = newblk(fn), fl = newblk(fn));
+         condjump(fn, &sub[0], tr = newblk(fn), fl = newblk(fn));
          useblk(fn, tr);
-         (void)exprvalue(fn, &ex->sub[1]);
+         expreffects(fn, &sub[1]);
          end = newblk(fn);
          putbranch(fn, end);
          useblk(fn, fl);
-         (void)exprvalue(fn, &ex->sub[2]);
+         expreffects(fn, &sub[2]);
          putbranch(fn, end);
          useblk(fn, end);
          return NOREF;
@@ -1535,8 +1561,8 @@ exprvalue(struct function *fn, const struct expr *ex)
    case ELOGIOR:
       return condexprvalue(fn, ex);
    case ESEQ:
-      (void)exprvalue(fn, &sub[0]);
-      return exprvalue(fn, &sub[1]);
+      expreffects(fn, &sub[0]);
+      return compileexpr(fn, &sub[1], discard);
    default: assert(!"nyi expr");
    }
 }
@@ -1669,7 +1695,7 @@ stmt(struct parser *pr, struct function *fn)
    default:
       ex = commaexpr(pr);
       stmtterm(pr);
-      EMITS exprvalue(fn, &ex);
+      EMITS expreffects(fn, &ex);
       break;
    }
    freearena(pr->exarena);
