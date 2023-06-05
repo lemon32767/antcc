@@ -20,7 +20,7 @@ classifyarr(uchar cls[2], union type ty, uint off)
          if (!cls[offx/8])
             cls[offx/8] = KF8;
       } else { /* INTEGER */
-         assert(isint(chld));
+         assert(isint(chld) || chld.t == TYPTR);
          cls[offx/8] = KI8;
       }
    }
@@ -48,7 +48,7 @@ classify(uchar cls[2], const struct typedata *td, uint off)
          if (!cls[(fld->off + off)/8])
             cls[(fld->off + off)/8] = KF8;
       } else { /* INTEGER */
-         assert(isint(fld->t));
+         assert(isint(fld->t) || chld.t == TYPTR);
          cls[(fld->off +  off)/8] = KI8;
       }
    }
