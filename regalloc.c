@@ -90,11 +90,24 @@ regalloc(struct function *fn)
                   blk->jmp.t == Jret ? fn->abiret[i].reg : -1,
                   &blk->jmp.arg[i]);
       }
-      for (int i = blk->phi.n - 1; i >= 0; --i) {
-         ins = &instrtab[blk->phi.p[i]];
-         def(ins);
-         assert(ins->op == Ophi);
-         use(blk, Ophi, ins->reg - 1, &ins->l);
+      for (struct block *s = blk->s1; s; s = blk->s2) {
+         /* introduce necessary moves for successors' phis */
+         for (int i = 0; i < s->phi.n; ++i) {
+            ins = &instrtab[s->phi.p[i]];
+            struct phi *phi = &phitab.p[ins->l.i];
+            for (int i = 0; i < phi->n; ++i) {
+               if (phi->blk[i] == blk) {
+                  union ref src = phi->ref[i];
+                  int reg = ins->reg - 1;
+                  assert(reg >= 0);
+                  if (src.t != RTMP || instrtab[src.i].reg-1 != reg) /* not in the right register already */
+                     insertinstr(blk, blk->ins.n,
+                                 (struct instr){Ocopy, ins->cls, reg+1, .l = src});
+                  break;
+               }
+            }
+         }
+         if (s == blk->s2) break;
       }
       for (int i = blk->ins.n - 1; i >= 0; --i) {
          int hint0 = -1, hint1 = -1;
@@ -119,7 +132,15 @@ regalloc(struct function *fn)
             use(blk, ins->op, hint0, &ins->l);
          }
       }
+      for (int i = blk->phi.n - 1; i >= 0; --i) {
+         ins = &instrtab[blk->phi.p[i]];
+         assert(ins->op == Ophi);
+         def(ins);
+         use(blk, Ophi, ins->reg - 1, &ins->l);
+      }
    } while ((blk = blk->lprev) != last);
+
+   do vfree(&blk->phi); while ((blk = blk->lprev) != last);
 
    if (ccopt.dbg.r) {
       efmt("after regalloc:\n");
