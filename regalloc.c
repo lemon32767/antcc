@@ -37,33 +37,33 @@ use(struct block *blk, enum op op, int hint, union ref *ref)
    struct instr *ins;
    if (ref->t == RMORE) {
       if (op == Ocall || op == Ointrin) {
-         struct call *call = &calltab.p[ref->idx];
+         struct call *call = &calltab.p[ref->i];
          for (int i = 0; i < call->narg; ++i)
             use(blk, 0, op == Ocall ? call->abiargregs[i] : -1, &call->args[i]);
       } else if (op == Ophi) {
-         struct phi *phi = &phitab.p[ref->idx];
+         struct phi *phi = &phitab.p[ref->i];
          for (int i = 0; i < phi->n; ++i)
             use(blk, 0, hint, &phi->ref[i]);
       } else assert("ext?");
       return;
    } else if (ref->t != RTMP) return;
 
-   ins = &instrtab[ref->idx];
+   ins = &instrtab[ref->i];
    if (oisalloca(ins->op)) return;
    if (!ins->cls) return;
    if (!ins->reg) {
       if (op == -1) /* cond branch */
-         if (oiscmp(ins->op) && ref->idx == blk->ins.p[blk->ins.n-1])
+         if (oiscmp(ins->op) && ref->i == blk->ins.p[blk->ins.n-1])
             /* result of comparison instr is only used to conditionally branch,
              * doesn't usually need a reg (handled by isel) */
             return;
       /* TODO implement actual constraints and stuff */
       if (ins->op == Ocall) {
-         struct call *call = &calltab.p[ins->r.idx];
+         struct call *call = &calltab.p[ins->r.i];
          hint = call->abiret[0].reg;
       } else if (ins->op == Ocall2r) {
-         struct instr *ins2 = &instrtab[ins->l.idx];
-         struct call *call = &calltab.p[ins2->r.idx];
+         struct instr *ins2 = &instrtab[ins->l.i];
+         struct call *call = &calltab.p[ins2->r.i];
          assert(ins->l.t == RTMP && ins2->op == Ocall);
          hint = call->abiret[0].reg;
       }

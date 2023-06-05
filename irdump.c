@@ -76,14 +76,14 @@ dumpref(enum op o, union ref ref)
 {
    struct xcon *con;
    switch (ref.t) {
-   case RTMP: efmt("%%%d", ref.idx); break;
-   case RPARAM: efmt("%%param%d", ref.idx); break;
+   case RTMP: efmt("%%%d", ref.i); break;
+   case RPARAM: efmt("%%param%d", ref.i); break;
    case RICON:
       if (o == Ointrin) efmt("\"%s\"", intrinname[ref.i]);
       else efmt("%d", ref.i);
       break;
    case RXCON:
-      con = &conht[ref.idx];
+      con = &conht[ref.i];
       if (con->issym) efmt("$%s", con->sym);
       else switch (con->cls) {
       case KI4: efmt("%d", con->i4); break;
@@ -99,7 +99,7 @@ dumpref(enum op o, union ref ref)
       break;
    case RMORE:
       if (o == Ocall || o == Ointrin) {
-         struct call *call = &calltab.p[ref.idx];
+         struct call *call = &calltab.p[ref.i];
          if (call->sret) {
             efmt("sret ");
             prityp(call->typs[call->narg]);
@@ -117,7 +117,7 @@ dumpref(enum op o, union ref ref)
             dumpref(0, call->args[i]);
          }
       } else if (o == Ophi) {
-         struct phi *phi = &phitab.p[ref.idx];
+         struct phi *phi = &phitab.p[ref.i];
          for (int i = 0; i < phi->n; ++i) {
             if (i > 0) efmt(", ");
             efmt("[@%d ", phi->blk[i]->id);

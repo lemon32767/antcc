@@ -75,8 +75,7 @@ enum refkind {
 };
 
 union ref {
-   struct { uint t : 3, idx : 29; };
-   struct { signed _0: 3, i : 29; }; /* RICON */
+   struct { unsigned t : 3; signed i : 29; };
    uint bits;
 };
 
@@ -166,8 +165,8 @@ extern struct calltab {vec_of(struct call);} calltab;
 extern struct phitab {vec_of(struct phi);} phitab;
 extern struct dattab {vec_of(struct irdat);} dattab;
 #define NOREF ((union ref) {0})
+#define ZEROREF ((union ref) {{ RICON, 0 }})
 #define mkref(t, x) ((union ref) {{ (t), (x) }})
-#define mkzerocon() ((union ref) {{ RICON, 0 }})
 #define mkinstr(O, C, ...) ((struct instr) { .op = (O), .cls = (C), .reg=0, __VA_ARGS__ })
 void irinit(struct function *);
 void irfini(struct function *);

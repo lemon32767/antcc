@@ -1118,9 +1118,9 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
          if (from == TYBOOL) return ref;
          if (ref.t == RTMP)
             /* these instrs already have output range of [0,1] */
-            if (instrtab[ref.idx].op == Onot || oiscmp(instrtab[ref.idx].op))
+            if (instrtab[ref.i].op == Onot || oiscmp(instrtab[ref.i].op))
                return ref;
-         ins.op = Oneq, ins.r = mkzerocon();
+         ins.op = Oneq, ins.r = ZEROREF;
       }
       else if (kfrom == KI4 && issignedt(from)) ins.op = Oexts4;
       else if (kfrom == KI4) ins.op = Oextu4;
@@ -1761,7 +1761,7 @@ block(struct parser *pr, struct function *fn)
                      goto Err;
                   }
                   EMITS {
-                     decl.id = addinstr(fn, mkalloca(typesize(decl.ty), typealign(decl.ty))).idx;
+                     decl.id = addinstr(fn, mkalloca(typesize(decl.ty), typealign(decl.ty))).i;
                   }
                   if (st.varini) {
                      putdecl(pr, &decl);
@@ -1811,10 +1811,10 @@ function(struct parser *pr, struct function *fn, const char **pnames, const stru
                              .name = pnames[i], .scls = SCAUTO, .span = pspans[i] };
          EMITS {
             if (isscalar(arg.ty)) {
-               arg.id = addinstr(fn, mkalloca(typesize(arg.ty), typealign(arg.ty))).idx;
+               arg.id = addinstr(fn, mkalloca(typesize(arg.ty), typealign(arg.ty))).i;
                genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RPARAM, i));
             } else {
-               arg.id = addinstr(fn, mkinstr(Ocopy, KPTR, mkref(RPARAM, i))).idx;
+               arg.id = addinstr(fn, mkinstr(Ocopy, KPTR, mkref(RPARAM, i))).i;
             }
          }
          putdecl(pr, &arg);
@@ -1831,10 +1831,15 @@ function(struct parser *pr, struct function *fn, const char **pnames, const stru
    block(pr, fn);
    envup(pr);
    if (fn->curblk) {
-      if (fn->retty.t != TYVOID && !nerror) {
-         warn(&pr->fnblkspan, "non-void function may not return a value");
+      if (!strcmp(fn->name, "main") && fn->retty.t == TYINT) {
+         /* implicit return 0 for main function */
+         putreturn(fn, ZEROREF, NOREF);
+      } else {
+         if (fn->retty.t != TYVOID && !nerror) {
+            warn(&pr->fnblkspan, "non-void function may not return a value");
+         }
+         putreturn(fn, NOREF, NOREF);
       }
-      putreturn(fn, NOREF, NOREF);
    }
 }
 

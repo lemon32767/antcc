@@ -349,7 +349,7 @@ replref(struct function *fn, struct block *blk, int i0, union ref from, union re
 {
    do {
       if (!i0) for (int i = 0; i < blk->phi.n; ++i) {
-         struct phi *phi = &phitab.p[instrtab[blk->phi.p[i]].l.idx];
+         struct phi *phi = &phitab.p[instrtab[blk->phi.p[i]].l.i];
          for (int i = 0; i < phi->n; ++i)
             if (phi->ref[i].bits == to.bits) phi->ref[i] = from;
       }
@@ -360,7 +360,7 @@ replref(struct function *fn, struct block *blk, int i0, union ref from, union re
             union ref *r = &(&ins->l)[i];
             if (r->bits == from.bits) *r = to;
             else if (r->t == RMORE) {
-               struct call *call = &calltab.p[r->idx];
+               struct call *call = &calltab.p[r->i];
                assert(ins->op == Ocall || ins->op == Ointrin);
                for (int i = 0; i < call->narg; ++i)
                   if (call->args[i].bits == from.bits)

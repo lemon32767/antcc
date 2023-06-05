@@ -194,13 +194,13 @@ abi0(struct function *fn)
          union ref arg = blk->jmp.arg[0];
          if (blk->jmp.t != Jret) continue;
          if (!arg.t) continue;
-         if (arg.t != RTMP || !oisalloca(instrtab[arg.idx].op)) {
+         if (arg.t != RTMP || !oisalloca(instrtab[arg.i].op)) {
             rvovar = -1;
             break;
          }
          if (rvovar == -1) {
-            rvovar = arg.idx;
-         } else if (arg.idx != rvovar) {
+            rvovar = arg.i;
+         } else if (arg.i != rvovar) {
             rvovar = -1;
             break;
          }
@@ -214,7 +214,7 @@ abi0(struct function *fn)
       /* adjust calls */
       for (int iinstr = 0; iinstr < blk->ins.n; ++iinstr) {
          struct instr *ins = &instrtab[blk->ins.p[iinstr]];
-         struct call *call = &calltab.p[ins->r.idx];
+         struct call *call = &calltab.p[ins->r.i];
          static union ref newargsbuf[32];
          static union irtype newtypsbuf[32];
          vec_of(union ref) newargs = VINIT(newargsbuf, arraylength(newargsbuf));
