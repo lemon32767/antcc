@@ -1,4 +1,3 @@
-#include "common.h"
 #include "ir.h"
 
 extern struct xcon conht[];
@@ -150,7 +149,7 @@ irdump(struct function *fn, const char *fname)
    struct block *blk;
 
    efmt("function %s : %ty\n", fname, fn->fnty);
-   if (fn->abiarg || fn->retty.t != TYVOID) {
+   if (fn->abiarg || fn->nabiret) {
       efmt("abi: (");
       for (int i = 0; i < fn->nabiarg; ++i) {
          if (i > 0) efmt(", ");
@@ -173,6 +172,7 @@ irdump(struct function *fn, const char *fname)
    do {
       dumpblk(fn, blk);
    } while ((blk = blk->lnext) != fn->entry);
+   efmt("\n");
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

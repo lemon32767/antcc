@@ -217,8 +217,8 @@ abi0(struct function *fn)
          struct call *call = &calltab.p[ins->r.idx];
          static union ref newargsbuf[32];
          static union irtype newtypsbuf[32];
-         vec_of(union ref) newargs;
-         vec_of(union irtype) newtyps;
+         vec_of(union ref) newargs = VINIT(newargsbuf, arraylength(newargsbuf));
+         vec_of(union irtype) newtyps = VINIT(newtypsbuf, arraylength(newtypsbuf));
          bool structbyval;
          int vararg;
 
@@ -226,8 +226,6 @@ abi0(struct function *fn)
 
          vararg = call->vararg;
          vinit(&abiargs, abiargsbuf, arraylength(abiargsbuf));
-         vinit(&newargs, newargsbuf, arraylength(newargsbuf));
-         vinit(&newtyps, newtypsbuf, arraylength(newtypsbuf));
          if (!(structbyval = call->sret))
             for (int i = 0; i < call->narg; ++i)
                if ((structbyval = call->typs[i].isagg))
@@ -356,6 +354,11 @@ abi0(struct function *fn)
          }
       }
    } while ((blk = blk->lnext) != fn->entry);
+
+   if (ccopt.dbg.a) {
+      efmt("after abi0:\n");
+      irdump(fn, fn->name);
+   }
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

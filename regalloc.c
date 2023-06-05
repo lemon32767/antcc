@@ -110,6 +110,11 @@ regalloc(struct function *fn)
          if (ins->r.t) use(blk, ins->op, hint1, &ins->r);
       }
    } while ((blk = blk->lprev) != last);
+
+   if (ccopt.dbg.r) {
+      efmt("after regalloc:\n");
+      irdump(fn, fn->name);
+   }
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

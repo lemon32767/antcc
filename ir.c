@@ -1,5 +1,4 @@
 #include "ir.h"
-#include "common.h"
 
 uchar type2cls[NTYPETAG];
 uchar cls2siz[KF8+1];
@@ -385,8 +384,6 @@ irfini(struct function *fn)
    if (!nerror) {
       abi0(fn);
       regalloc(fn);
-      efmt("after regalloc:\n");
-      irdump(fn, fn->name);
    }
 
    freefn(fn);

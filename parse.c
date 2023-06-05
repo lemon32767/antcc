@@ -2582,7 +2582,6 @@ parse(struct parser *pr)
             }
             continue;
          }
-         if (decl.name) efmt("%s : %tq\n", decl.name, decl.ty, decl.qual);
          if (st.funcdef) {
             const struct typedata *td =  &typedata[decl.ty.dat];
             struct function fn = { pr->fnarena, decl.name, .globl = decl.scls != SCSTATIC };
@@ -2591,7 +2590,8 @@ parse(struct parser *pr)
             putdecl(pr, &decl);
             irinit(&fn);
             function(pr, &fn, st.pnames, st.pspans);
-            /* if (!nerror) irdump(&fn, decl.name); */
+            if (!nerror && ccopt.dbg.p)
+               irdump(&fn, decl.name);
             irfini(&fn);
          } else if (decl.name) {
             putdecl(pr, &decl);
@@ -2603,6 +2603,9 @@ parse(struct parser *pr)
                if (!eval(&ini, EVSTATICINI))
                   error(&ini.span, "cannot evaluate expression statically");
             }
+            if (ccopt.dbg.p) efmt("var %s : %tq\n", decl.name, decl.ty, decl.qual);
+         } else {
+            if (ccopt.dbg.p) efmt("type %ty\n", decl.ty);
          }
          freearena(pr->fnarena);
          freearena(pr->exarena);

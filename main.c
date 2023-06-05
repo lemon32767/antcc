@@ -12,10 +12,11 @@ flushstd(void)
     ioflush(&bstderr);
 }
 
+/* parse an argument of the form 'opt=abcd'
+ * e.g.  arg="foo=bar123"; opt="foo"; returns "bar123" */
 static const char *
 optval(const char *arg, const char *opt)
 {
-    /* arg="foo=bar123"; opt="foo"; returns "bar123" */
     uint n1 = strlen(arg), n2 = strlen(opt);
     if (n1 < n2+1 || memcmp(arg, opt, n2) != 0 || arg[n2] != '=')
         return NULL;
@@ -41,6 +42,14 @@ optparse(const char **file, const char **targ, char **args)
             else goto Bad;
         } else if (!strcmp(arg, "pedantic")) {
             ccopt.pedant = 1;
+        } else if (*arg == 'd' && arg[1]) {
+            /* see common.h§struct option */
+            while (*++arg) switch (*arg | 32) {
+            case 'p': ccopt.dbg.p = 1; break;
+            case 'a': ccopt.dbg.a = 1; break;
+            case 'r': ccopt.dbg.r = 1; break;
+            default: warn(NULL, "-d: invalid debug flag %'c", *arg);
+            }
         } else Bad: warn(NULL, "invalid option: %'s", arg-1);
     }
 }
