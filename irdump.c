@@ -1,6 +1,49 @@
 #include "ir.h"
 
 extern struct xcon conht[];
+static int nextdat;
+
+#define aisprint(c) in_range(c, ' ', '~')
+
+static void
+pridat(const struct irdat *dat)
+{
+   efmt("dat ^%d(align %d, size %d):\n\t", dat - dattab.p, dat->align, dat->siz);
+   assert(!dat->syms);
+   if (dat->siz <= 8) {
+      efmt("b ");
+      for (int i = 0; i < dat->siz; ++i)
+         efmt("%d,", dat->sdat[i]);
+   } else {
+      enum {
+         MINZERO = 4,
+         MAXLINE = 60,
+      };
+      int npri = 0;
+      int nzero = dat->siz - dat->dat.n;
+      int strbegin = 0, nstr = 0;
+      for (int i = 0; i < dat->dat.n + (nzero & -(nzero <= MINZERO)); ++i) {
+         int c = i < dat->dat.n ? dat->dat.p[i] : 0;
+         if (npri > MAXLINE) {
+            npri = 0;
+            efmt("\n\t");
+         }
+         if (aisprint(c)) {
+            if (!nstr++) strbegin = i;
+         } else {
+            if (nstr) {
+               npri += efmt("asc %'S,", dat->dat.p+strbegin, nstr);
+               nstr = 0;
+               efmt("b ");
+            }
+            npri += efmt("%d,", c);
+         }
+      }
+      if (nstr) npri += efmt("asc %'S,", dat->dat.p+strbegin, nstr);
+      if ((nzero -= MINZERO) > 0) efmt("z %d", nzero);
+   }
+   efmt("\n");
+}
 
 static const char *clsname[] = {
    "?", "i4", "i8", "ptr", "f4", "f8"
@@ -51,6 +94,9 @@ dumpref(enum op o, union ref ref)
       default: assert(0);
       }
       break;
+   case RDAT:
+      efmt("$^%d", ref.i);
+      break;
    case RMORE:
       if (o == Ocall || o == Ointrin) {
          struct call *call = &calltab.p[ref.idx];
@@ -74,7 +120,7 @@ dumpref(enum op o, union ref ref)
          struct phi *phi = &phitab.p[ref.idx];
          for (int i = 0; i < phi->n; ++i) {
             if (i > 0) efmt(", ");
-            efmt("[.L%d ", phi->blk[i]->id);
+            efmt("[@%d ", phi->blk[i]->id);
             dumpref(0, phi->ref[i]);
             efmt("]");
          }
@@ -120,7 +166,7 @@ dumpblk(struct function *fn, struct block *blk)
 {
    static const char *jnames[] = { 0, "b", "ret" };
    int i;
-   efmt("  .L%d:\n", blk->id);
+   efmt("  @%d:\n", blk->id);
    for (i = 0; i < blk->phi.n; ++i) {
       dumpinst(&instrtab[blk->phi.p[i]]);
    }
@@ -138,8 +184,8 @@ dumpblk(struct function *fn, struct block *blk)
       dumpref(0, blk->jmp.arg[i]);
    }
    if (i && blk->s1) efmt(", ");
-   if (blk->s1 && blk->s2) efmt(".L%d, .L%d", blk->s1->id, blk->s2->id);
-   else if (blk->s1) efmt(".L%d", blk->s1->id);
+   if (blk->s1 && blk->s2) efmt("@%d, @%d", blk->s1->id, blk->s2->id);
+   else if (blk->s1) efmt("@%d", blk->s1->id);
    efmt("\n");
 }
 
@@ -147,6 +193,9 @@ void
 irdump(struct function *fn, const char *fname)
 {
    struct block *blk;
+
+   /* print datas that have never been printed before */
+   while (nextdat < dattab.n) pridat(&dattab.p[nextdat++]);
 
    efmt("function %s : %ty\n", fname, fn->fnty);
    if (fn->abiarg || fn->nabiret) {

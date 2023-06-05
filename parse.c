@@ -977,7 +977,6 @@ exprvalue(struct function *fn, const struct expr *ex)
 {
    return compileexpr(fn, ex, /*discard*/ 0);
 }
-
 static inline void
 expreffects(struct function *fn, const struct expr *ex)
 {
@@ -1025,6 +1024,8 @@ expraddr(struct function *fn, const struct expr *ex)
          assert(0);
       }
       break;
+   case ESTRLIT:
+      return mkdatref(fn, ex->s.n+1, /*align*/ 1, ex->s.p, ex->s.n);
    case EDEREF:
       return exprvalue(fn, ex->sub);
    case EGETF:
@@ -1352,7 +1353,8 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    sub = ex->sub;
 
    if (ex->ty.t != TYVOID && !isscalar(ex->ty))
-      /* fn & array designators evaluate to their address; so do aggregates for the purpose of code generation */
+      /* fn & array designators evaluate to their address;
+       * so do aggregates for the purpose of code generation */
       return expraddr(fn, ex);
    switch (ex->t) {
    case ENUMLIT:

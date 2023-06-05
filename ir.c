@@ -4,12 +4,12 @@ uchar type2cls[NTYPETAG];
 uchar cls2siz[KF8+1];
 const uchar siz2intcls[] = { [1] = KI4, [2] = KI4, [4] = KI4, [8] = KI8 };
 
-static vec_of(struct irdat) dats;
 struct instr instrtab[1<<14];
 static int ninstr;
 static int instrfreelist;
 struct calltab calltab;
 struct phitab phitab;
+struct dattab dattab;
 
 void
 irinit(struct function *fn)
@@ -58,14 +58,6 @@ addcon(const struct xcon *con)
       assert(--n > 0 && "conht full");
    }
 }
-
-/* union ref
-adddat(struct function *fn, const struct irdat *dat)
-{
-   assert(dats.n < 1u<<29);
-   vpush(&dats, *dat);
-   return mkref(RDAT, dats.n - 1); 
-} */
 
 static void
 targwrite2(uchar *d, ushort x)
@@ -163,6 +155,19 @@ mksymref(struct function *fn, const char *s)
    return mkref(RXCON, addcon(&con));
 }
 
+union ref
+mkdatref(struct function *fn, uint siz, uint align, const void *bytes, uint n)
+{
+   struct irdat dat = { align, 0, siz };
+   if (siz <= 8) memcpy(dat.sdat, bytes, n < siz ? n : siz);
+   else {
+      while (((uchar *)bytes)[n-1] == 0) --n; /* nip trailing zeroes */
+      vpushn(&dat.dat, bytes, n);
+   }
+   vpush(&dattab, dat);
+   return mkref(RDAT, dattab.n - 1); 
+}
+
 struct instr
 mkalloca(uint siz, uint align)
 {
@@ -220,6 +225,7 @@ insertinstr(struct block *blk, int idx, struct instr ins)
    else {
       assert(idx >= 0 && idx < blk->ins.n);
       vpush_((void **)&blk->ins.p, &blk->ins._cap, &blk->ins.n, sizeof *blk->ins.p);
+      vresize(&blk->ins, blk->ins.n);
       for (int i = blk->ins.n++; i > idx; --i)
          blk->ins.p[i] = blk->ins.p[i - 1];
       blk->ins.p[idx] = new;

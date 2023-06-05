@@ -65,12 +65,13 @@ struct phi {
 
 enum refkind {
    RNONE,
-   RTMP,  /* reference to another instruction's result */
-   RPARAM,  /* function param */
-   RICON, /* small integer constants */
-   RXCON, /* other constants (incl. external symbols) */
+   RTMP,   /* reference to another instruction's result */
+   RPARAM, /* function param */
+   RICON,  /* small integer constants */
+   RXCON,  /* other constants (incl. external symbols) */
+   RDAT,   /* reference to irdat */
    RMORE,  /* reference to extra data for Ocall and Ophi */
-   RREG,  /* machine register */
+   RREG,   /* machine register */
 };
 
 union ref {
@@ -163,6 +164,7 @@ extern const uchar siz2intcls[];
 extern struct instr instrtab[];
 extern struct calltab {vec_of(struct call);} calltab;
 extern struct phitab {vec_of(struct phi);} phitab;
+extern struct dattab {vec_of(struct irdat);} dattab;
 #define NOREF ((union ref) {0})
 #define mkref(t, x) ((union ref) {{ (t), (x) }})
 #define mkzerocon() ((union ref) {{ RICON, 0 }})
@@ -173,6 +175,7 @@ union irtype mkirtype(union type);
 union ref mkintcon(struct function *, enum irclass, vlong);
 union ref mkfltcon(struct function *, enum irclass, double);
 union ref mksymref(struct function *, const char *);
+union ref mkdatref(struct function *, uint siz, uint align, const void *, uint n);
 struct instr mkalloca(uint siz, uint align);
 void conputdat(struct irdat *, uint off, enum typetag t, const void *dat);
 union ref mkcallarg(struct function *, bool sret, uint narg, int vararg, union ref *, union irtype *);
