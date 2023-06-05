@@ -51,18 +51,18 @@ void silly(struct pair *p, struct quad *q)
     *q = quad(1,2,3,4);
 }
 
-void test2(struct big *b) {
+int test2(struct big *b) {
     struct big s = *b;
-    extern void h(int, struct big, float);
+    extern int h(int,float, struct big, float);
     s.x[5] += 2;
-    h(0, s, 0);
+    return h(0, -.5f, s, 0);
 }
 
 struct f2 { float f,g; };
 struct f2 f2test(struct f2 *r) {
     return *r;
 }
-
+#if 0
 void fill(char *p, int c, unsigned long n)
 {
     int t;
@@ -93,5 +93,5 @@ struct f{
     union { int x,y;} ;
     char flex[];
 };
-
+#endif
 //

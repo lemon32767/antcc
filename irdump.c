@@ -76,7 +76,12 @@ dumpref(enum op o, union ref ref)
 {
    struct xcon *con;
    switch (ref.t) {
-   case RTMP: efmt("%%%d", ref.i); break;
+   case RTMP:
+      if (instrtab[ref.i].reg)
+         efmt("%s", mctarg->rnames[instrtab[ref.i].reg - 1]);
+      else
+         efmt("%%%d", ref.i);
+      break;
    case RPARAM: efmt("%%param%d", ref.i); break;
    case RICON:
       if (o == Ointrin) efmt("\"%s\"", intrinname[ref.i]);
@@ -97,36 +102,29 @@ dumpref(enum op o, union ref ref)
    case RDAT:
       efmt("$^%d", ref.i);
       break;
+   case RTYPE:
+      prityp(ref2type(ref));
+      break;
    case RMORE:
-      if (o == Ocall || o == Ointrin) {
-         struct call *call = &calltab.p[ref.i];
-         if (call->sret) {
-            efmt("sret ");
-            prityp(call->typs[call->narg]);
-         }
-         for (int i = 0; i < call->narg; ++i) {
-            if (i > 0 || call->sret) efmt(", ");
-            if (call->vararg == i)
-               efmt("..., ");
-            if (call->abiargregs) {
-               short r = call->abiargregs[i];
-               efmt("(%ls) ", r != -1 ? mctarg->rnames[r] : "<stk>");
-            }
-            prityp(call->typs[i]);
-            efmt(" ");
-            dumpref(0, call->args[i]);
-         }
-      } else if (o == Ophi) {
-         struct phi *phi = &phitab.p[ref.i];
-         for (int i = 0; i < phi->n; ++i) {
-            if (i > 0) efmt(", ");
-            efmt("[@%d ", phi->blk[i]->id);
-            dumpref(0, phi->ref[i]);
-            efmt("]");
-         }
-      } else assert(0);
+      assert(0);
       break;
    default: assert(!"ref");
+   }
+}
+
+static void
+dumpcall(struct call *call)
+{
+   if (call->ret.isagg) {
+      efmt("sret ");
+      prityp(call->ret);
+      efmt(", ");
+   }
+   if (call->vararg < 0) {
+      efmt("#%d", call->narg);
+   } else {
+      assert(call->vararg <= call->narg);
+      efmt("#%d, ... #%d", call->vararg, call->narg - call->vararg);
    }
 }
 
@@ -148,15 +146,22 @@ dumpinst(const struct instr *ins)
 {
    int i;
    efmt("    ");
-   if (ins->cls) {
+   if (ins->reg) {
+      if (ins->cls)
+         efmt("%s ", clsname[ins->cls]);
+      efmt("%s = ", mctarg->rnames[ins->reg - 1]);
+   } else if (ins->cls) {
       efmt("%s %%%d", clsname[ins->cls], ins - instrtab);
-      if (ins->reg) efmt("(%ls)", mctarg->rnames[ins->reg - 1]);
       efmt(" = ");
    }
    efmt("%s ", opname[ins->op]);
    for (i = 0; i < opnarg[ins->op]; ++i) {
       if (i) efmt(", ");
-      dumpref(ins->op, (&ins->l)[i]);
+      if (i == 1 && (ins->op == Ocall || ins->op == Ointrin)) {
+         dumpcall(&calltab.p[ins->r.i]);
+      } else {
+         dumpref(ins->op, (&ins->l)[i]);
+      }
    }
    efmt("\n");
 }
@@ -203,7 +208,7 @@ irdump(struct function *fn, const char *fname)
       for (int i = 0; i < fn->nabiarg; ++i) {
          if (i > 0) efmt(", ");
          if (fn->abiarg[i].reg != -1) {
-            efmt("%ls", mctarg->rnames[fn->abiarg[i].reg]);
+            efmt("%s", mctarg->rnames[fn->abiarg[i].reg]);
          } else {
             prityp(fn->abiarg[i].ty);
             efmt(" <stk>");
@@ -211,9 +216,9 @@ irdump(struct function *fn, const char *fname)
       }
       efmt(")");
       if (fn->retty.t != TYVOID) {
-         efmt(" -> %ls", mctarg->rnames[fn->abiret[0].reg]);
+         efmt(" -> %s", mctarg->rnames[fn->abiret[0].reg]);
          if (fn->nabiret > 1)
-            efmt(", %ls", mctarg->rnames[fn->abiret[1].reg]);
+            efmt(", %s", mctarg->rnames[fn->abiret[1].reg]);
       }
       efmt("\n");
    }

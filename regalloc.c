@@ -36,11 +36,7 @@ use(struct block *blk, enum op op, int hint, union ref *ref)
 {
    struct instr *ins;
    if (ref->t == RMORE) {
-      if (op == Ocall || op == Ointrin) {
-         struct call *call = &calltab.p[ref->i];
-         for (int i = 0; i < call->narg; ++i)
-            use(blk, 0, op == Ocall ? call->abiargregs[i] : -1, &call->args[i]);
-      } else if (op == Ophi) {
+      if (op == Ophi) {
          struct phi *phi = &phitab.p[ref->i];
          for (int i = 0; i < phi->n; ++i)
             use(blk, 0, hint, &phi->ref[i]);
@@ -57,7 +53,6 @@ use(struct block *blk, enum op op, int hint, union ref *ref)
             /* result of comparison instr is only used to conditionally branch,
              * doesn't usually need a reg (handled by isel) */
             return;
-      /* TODO implement actual constraints and stuff */
       if (ins->op == Ocall) {
          struct call *call = &calltab.p[ins->r.i];
          hint = call->abiret[0].reg;
@@ -105,9 +100,24 @@ regalloc(struct function *fn)
          int hint0 = -1, hint1 = -1;
          ins = &instrtab[blk->ins.p[i]];
          def(ins);
-         if (ins->op == Ocopy) hint0 = ins->reg - 1;
-         if (ins->l.t) use(blk, ins->op, hint0, &ins->l);
-         if (ins->r.t) use(blk, ins->op, hint1, &ins->r);
+         if (ins->op != Ocall) {
+            if (ins->op == Ocopy) hint0 = ins->reg - 1;
+            if (ins->l.t) use(blk, ins->op, hint0, &ins->l);
+            if (ins->r.t) use(blk, ins->op, hint1, &ins->r);
+         } else {
+            struct call *call = &calltab.p[ins->r.i];
+            for (int iarg = 0; iarg < call->narg; ++iarg) {
+               struct instr *arg = &instrtab[blk->ins.p[i - call->narg + iarg]];
+               int reg = call->abiargregs[iarg];
+               assert(arg->op == Oarg);
+               if (reg != -1) {
+                  assert(!bstest(taken, reg) && "nyi spill");
+                  arg->reg = reg + 1;
+                  bsset(taken, reg);
+               }
+            }
+            use(blk, ins->op, hint0, &ins->l);
+         }
       }
    } while ((blk = blk->lprev) != last);
 

@@ -48,7 +48,7 @@ classify(uchar cls[2], const struct typedata *td, uint off)
          if (!cls[(fld->off + off)/8])
             cls[(fld->off + off)/8] = KF8;
       } else { /* INTEGER */
-         assert(isint(fld->t) || chld.t == TYPTR);
+         assert(isint(fld->t) || fld->t.t == TYPTR);
          cls[(fld->off +  off)/8] = KI8;
       }
    }

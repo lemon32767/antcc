@@ -119,8 +119,7 @@ conputdat(struct irdat *dat, uint off, enum typetag t, const void *src)
 union irtype
 mkirtype(union type t)
 {
-   assert(t.t != TYVOID);
-   if (isscalar(t)) return (union irtype) { .cls = type2cls[t.t] };
+   if (t.t == TYVOID || isscalar(t)) return (union irtype) { .cls = type2cls[t.t] };
    assert(isagg(t));
    return (union irtype) { .isagg = 1, .dat = t.dat };
 }
@@ -179,17 +178,10 @@ mkalloca(uint siz, uint align)
 }
 
 union ref
-mkcallarg(struct function *fn, bool sret, uint narg, int vararg, union ref *args, union irtype *typs)
+mkcallarg(struct function *fn, union irtype ret, uint narg, int vararg)
 {
-   struct call call = { .sret=sret, .narg=narg, .vararg=vararg };
-
+   struct call call = { .ret=ret, .narg=narg, .vararg=vararg };
    assert((long) vararg <= narg);
-   if (narg) {
-      call.args = alloc(&fn->arena, narg*sizeof *args + (narg+sret)*sizeof(union irtype), 0);
-      call.typs = (union irtype *)((char *)call.args + narg*sizeof *args);
-      memcpy(call.args, args, narg*sizeof *args);
-      memcpy(call.typs, typs, (narg+sret)*sizeof *typs);
-   }
    vpush(&calltab, call);
    return mkref(RMORE, calltab.n-1);
 }
@@ -359,13 +351,6 @@ replref(struct function *fn, struct block *blk, int i0, union ref from, union re
          for (int i = 0; i < 2; ++i) {
             union ref *r = &(&ins->l)[i];
             if (r->bits == from.bits) *r = to;
-            else if (r->t == RMORE) {
-               struct call *call = &calltab.p[r->i];
-               assert(ins->op == Ocall || ins->op == Ointrin);
-               for (int i = 0; i < call->narg; ++i)
-                  if (call->args[i].bits == from.bits)
-                     call->args[i] = to;
-            }
          }
       }
       i0 = 0;

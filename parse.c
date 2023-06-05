@@ -987,10 +987,10 @@ expreffects(struct function *fn, const struct expr *ex)
 static void
 structcopy(struct function *fn, union type ty, union ref dst, union ref src)
 {
-   union ref args[2] = { dst, src };
-   union irtype typs[2] = { mkirtype(ty) };
-   typs[1] = typs[0];
-   addinstr(fn, mkintrin(fn, INstructcopy, 0, 2, args, typs));
+   union irtype typ = mkirtype(ty);
+   addinstr(fn, mkarginstr(typ, dst));
+   addinstr(fn, mkarginstr(typ, src));
+   addinstr(fn, mkintrin(fn, INstructcopy, 0, 2));
 }
 
 static union ref
@@ -1289,10 +1289,8 @@ compilecall(struct function *fn, const struct expr *ex)
    struct instr ins = {0};
    struct expr *sub = ex->sub;
    const struct typedata *td = &typedata[sub[0].ty.dat];
-   union ref argsbuf[10];
-   union irtype typbuf[10];
-   vec_of(union ref) args = VINIT(argsbuf, arraylength(argsbuf));
-   vec_of(union irtype) typs = VINIT(typbuf, arraylength(typbuf));
+   struct instr insnsbuf[10];
+   vec_of(struct instr) insns = VINIT(insnsbuf, arraylength(insnsbuf));
 
    ins.op = Ocall;
    if (isagg(ex->ty)) {
@@ -1302,21 +1300,16 @@ compilecall(struct function *fn, const struct expr *ex)
       ins.cls = type2cls[ex->ty.t];
    }
    ins.l = exprvalue(fn, &sub[0]);
-   vresize(&args, ex->narg);
-   vresize(&typs, ex->narg);
-   /* backwards because of RTL call stack order */
-   for (int i = ex->narg - 1; i >= 0; --i) {
+   for (int i = 0; i < ex->narg; ++i) {
       struct expr *arg = &sub[i+1];
       union type ty = i < td->nmemb ? td->param[i] : argpromote(arg->ty);
-      args.p[i] = cvt(fn, ty.t, arg->ty.t, exprvalue(fn, arg));
-      typs.p[i] = mkirtype(ty);
+      union ref r = cvt(fn, ty.t, arg->ty.t, exprvalue(fn, arg));
+      vpush(&insns, mkarginstr(mkirtype(ty), r));
    }
-   if (isagg(ex->ty))
-      vpush(&typs, mkirtype(ex->ty));
-   ins.r = mkcallarg(fn, isagg(ex->ty), ex->narg, td->variadic ? td->nmemb : td->kandr ? 0 : -1,
-                     args.p, typs.p);
-   vfree(&args);
-   vfree(&typs);
+   for (int i = 0; i < insns.n; ++i)
+      addinstr(fn, insns.p[i]);
+   vfree(&insns);
+   ins.r = mkcallarg(fn, mkirtype(ex->ty), ex->narg, td->variadic ? td->nmemb : td->kandr ? 0 : -1);
    return addinstr(fn, ins);
 }
 

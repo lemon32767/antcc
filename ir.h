@@ -48,11 +48,9 @@ struct abiarg {
 };
 
 struct call {
-   ushort narg : 15;
-   ushort sret : 1;
+   union irtype ret;
+   ushort narg;
    short vararg; /* first variadic arg or -1 */
-   union ref *args;
-   union irtype *typs;
    short *abiargregs;
    struct abiarg abiret[2];
 };
@@ -71,7 +69,7 @@ enum refkind {
    RXCON,  /* other constants (incl. external symbols) */
    RDAT,   /* reference to irdat */
    RMORE,  /* reference to extra data for Ocall and Ophi */
-   RREG,   /* machine register */
+   RTYPE,  /* irtype */
 };
 
 union ref {
@@ -167,7 +165,10 @@ extern struct dattab {vec_of(struct irdat);} dattab;
 #define NOREF ((union ref) {0})
 #define ZEROREF ((union ref) {{ RICON, 0 }})
 #define mkref(t, x) ((union ref) {{ (t), (x) }})
+#define mktyperef(t) ((union ref) {{ RTYPE, (t).bits }})
+#define ref2type(r) ((union irtype) {.bits = (r).i})
 #define mkinstr(O, C, ...) ((struct instr) { .op = (O), .cls = (C), .reg=0, __VA_ARGS__ })
+#define mkarginstr(ty, x) mkinstr(Oarg, 0, mktyperef(ty), (x))
 void irinit(struct function *);
 void irfini(struct function *);
 union irtype mkirtype(union type);
@@ -177,8 +178,8 @@ union ref mksymref(struct function *, const char *);
 union ref mkdatref(struct function *, uint siz, uint align, const void *, uint n);
 struct instr mkalloca(uint siz, uint align);
 void conputdat(struct irdat *, uint off, enum typetag t, const void *dat);
-union ref mkcallarg(struct function *, bool sret, uint narg, int vararg, union ref *, union irtype *);
-#define mkintrin(F, B, C, N, A, T) mkinstr(Ointrin, C, {.t=RICON,B}, mkcallarg(F,0,N,-1,A,T))
+union ref mkcallarg(struct function *, union irtype ret, uint narg, int vararg);
+#define mkintrin(F, B, C, N) mkinstr(Ointrin, C, {.t=RICON,B}, mkcallarg(F,(union irtype){{0}},N,-1))
 union ref addinstr(struct function *, struct instr);
 union ref insertinstr(struct block *, int idx, struct instr);
 void delinstr(struct block *, int idx);
