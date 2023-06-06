@@ -1,4 +1,4 @@
-SRC=main.c io.c mem.c parse.c lex.c type.c targ.c eval.c ir.c irdump.c abi0.c regalloc.c amd64/sysv.c
+SRC=main.c io.c mem.c parse.c lex.c type.c targ.c eval.c ir.c irdump.c abi0.c regalloc.c amd64/sysv.c amd64/emit.c obj.c
 CFLAGS=-Wall -std=c11 -pedantic
 OBJ=$(patsubst %.c,obj/%.o,$(SRC))
 DEP=$(OBJ:.o=.d)

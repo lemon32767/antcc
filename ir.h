@@ -87,6 +87,7 @@ enum op {
 #define oiscmp(o) in_range(o, Oequ, Oulte)
 #define oisalloca(o) in_range(o, Oalloca1, Oalloca16)
 #define oisstore(o) in_range(o, Ostore1, Ostore8)
+#define oisload(o) in_range(o, Oloads1, Oloadf8)
 
 enum intrin {
    INxxx,
@@ -153,7 +154,11 @@ struct mctarg {
     *                if passed by pointer cls[0] == KPTR, r[0] contains integer register or -1 if stack
     */
    int (*abiarg)(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype);
+
+   void (*emit)(struct function *);
 };
+
+enum { MAXINSTR = 1<<14 };
 
 extern uchar type2cls[];
 extern uchar cls2siz[];

@@ -1,5 +1,6 @@
 #include "common.h"
 #include "parse.h"
+#include "obj.h"
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -80,6 +81,8 @@ main(int argc, char **argv)
     }
 
     targ_init(targ ? targ : "amd64-sysv");
+    objini("a.out");
     initparser(&pr, file);
     parse(&pr);
+    if (!nerror) objfini();
 }

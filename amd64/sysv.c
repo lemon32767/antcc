@@ -143,6 +143,7 @@ const struct mctarg t_amd64_sysv = {
    .rnames = amd64_rnames,
    .abiret = abiret,
    .abiarg = abiarg,
+   .emit = amd64_emit
 };
 
 /* vim:set ts=3 sw=3 expandtab: */

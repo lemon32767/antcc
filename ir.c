@@ -4,7 +4,7 @@ uchar type2cls[NTYPETAG];
 uchar cls2siz[KF8+1];
 const uchar siz2intcls[] = { [1] = KI4, [2] = KI4, [4] = KI4, [8] = KI8 };
 
-struct instr instrtab[1<<14];
+struct instr instrtab[MAXINSTR];
 static int ninstr;
 static int instrfreelist;
 struct calltab calltab;
@@ -375,6 +375,7 @@ irfini(struct function *fn)
    if (!nerror) {
       abi0(fn);
       regalloc(fn);
+      mctarg->emit(fn);
    }
 
    freefn(fn);

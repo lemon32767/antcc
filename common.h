@@ -398,6 +398,8 @@ int bfmt(struct wbuf *, const char *, ...);
 #define efmt(...) bfmt(&bstderr, __VA_ARGS__)
 struct memfile mapopen(const char **err, const char *path);
 void mapclose(struct memfile *);
+void *mapzeros(uint);
+int munmap(void *, size_t);
 int openfile(const char **err, struct memfile **, const char *path);
 const char *getfilename(int id);
 struct memfile *getfile(int id);

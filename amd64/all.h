@@ -6,10 +6,12 @@
    _(XMM0) _(XMM1) _(XMM2) _(XMM3) _(XMM4) _(XMM5) _(XMM6) _(XMM7) \
    _(XMM8) _(XMM9) _(XMM10) _(XMM11) _(XMM12) _(XMM13) _(XMM14) _(XMM15)
 
-enum {
+enum reg {
 #define R(r) r,
    LIST_REGS(R)
 #undef R
 };
+
+void amd64_emit(struct function *);
 
 /* vim:set ts=3 sw=3 expandtab: */

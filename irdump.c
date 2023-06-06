@@ -106,7 +106,14 @@ dumpref(enum op o, union ref ref)
       prityp(ref2type(ref));
       break;
    case RMORE:
-      assert(0);
+      if (o == Ophi) {
+         struct phi *phi = &phitab.p[ref.i];
+         for (int i = 0; i < phi->n; ++i) {
+            if (i) efmt(", ");
+            efmt("@%d ", phi->blk[i]->id);
+            dumpref(0, phi->ref[i]);
+         }
+      } else assert(0);
       break;
    default: assert(!"ref");
    }

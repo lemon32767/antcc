@@ -671,19 +671,26 @@ Err:
 }
 
 void
-_assertfmt(const char *file, int line, const char *func, const char *expr)
-{
-   ioflush(&bstdout);
-   efmt("%s:%d: %s: Assertion `%s' failed.\n", file, line, func, expr);
-   ioflush(&bstderr);
-}
-
-void
 mapclose(struct memfile *f)
 {
    assert(f->p);
    munmap((void *)f->p, alignup(f->n, pagesiz) + pagesiz);
    memset(f, 0, sizeof *f);
+}
+
+void *
+mapzeros(uint N)
+{
+   void *p = mmap(NULL, N, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+   return p == MAP_FAILED ? NULL : p;
+}
+
+void
+_assertfmt(const char *file, int line, const char *func, const char *expr)
+{
+   ioflush(&bstdout);
+   efmt("%s:%d: %s: Assertion `%s' failed.\n", file, line, func, expr);
+   ioflush(&bstderr);
 }
 
 static struct file {
