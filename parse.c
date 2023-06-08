@@ -294,6 +294,7 @@ argpromote(union type t)
 {
    if (isint(t)) t.t = intpromote(t.t);
    else if (t.t == TYFLOAT) t.t = TYDOUBLE;
+   else if (t.t == TYARRAY) return mkptrtype(typechild(t), t.flag & TFCHLDQUAL);
    return t;
 }
 
@@ -499,7 +500,7 @@ bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct e
          /* num +/- num */
          ty = cvtarith(ty, rhs->ty);
          assert(ty.t);
-      } else if ((ty.t == TYPTR || ty.t == TYARRAY) && rhs->ty.t == TYINT) {
+      } else if ((ty.t == TYPTR || ty.t == TYARRAY) && isint(rhs->ty)) {
          /* ptr +/- int */
          union type pointee = typechild(ty);
          if (isincomplete(pointee))
