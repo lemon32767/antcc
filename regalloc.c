@@ -1,12 +1,19 @@
 #include "ir.h"
 
 static struct bitset taken[1];
+static struct bitset globusage[1];
 
 static void
 def(struct instr *ins)
 {
    if (ins->reg)
       bsclr(taken, ins->reg - 1);
+}
+
+static void
+take(int r) {
+   bsset(taken, r);
+   bsset(globusage, r);
 }
 
 static int
@@ -24,7 +31,7 @@ nextreg(enum irclass cls)
    } else assert(0);
    for (i = r0; i < rend; ++i) {
       if (!bstest(taken, i)) {
-         bsset(taken, i);
+         take(i);
          return i;
       }
    }
@@ -40,7 +47,11 @@ use(struct block *blk, enum op op, int hint, union ref *ref)
          struct phi *phi = &phitab.p[ref->i];
          for (int i = 0; i < phi->n; ++i)
             use(blk, 0, hint, &phi->ref[i]);
-      } else assert("ext?");
+      } else {
+         struct addr *addr = &addrtab.p[ref->i];
+         if (addr->base.t) use(blk, 0, hint, &addr->base);
+         if (addr->index.t) use(blk, 0, hint, &addr->index);
+      }
       return;
    } else if (ref->t != RTMP) return;
 
@@ -63,11 +74,12 @@ use(struct block *blk, enum op op, int hint, union ref *ref)
          hint = call->abiret[0].reg;
       }
       if (hint != -1 && !bstest(taken, hint)) {
-         bsset(taken, hint);
+         take(hint);
          ins->reg = hint + 1;
       } else {
          ins->reg = nextreg(ins->cls) + 1;
       }
+      *ref = mkref(RREG, ins->reg-1);
    }
 }
 
@@ -112,6 +124,10 @@ regalloc(struct function *fn)
       for (int i = blk->ins.n - 1; i >= 0; --i) {
          int hint0 = -1, hint1 = -1;
          ins = &instrtab[blk->ins.p[i]];
+         if (!ins->reg && ins->skip) { /* unused */
+            *ins = mkinstr(Onop, 0,);
+            continue;
+         }
          def(ins);
          if (ins->op != Ocall) {
             if (ins->op == Ocopy) hint0 = ins->reg - 1;
@@ -126,7 +142,7 @@ regalloc(struct function *fn)
                if (reg != -1) {
                   assert(!bstest(taken, reg) && "nyi spill");
                   arg->reg = reg + 1;
-                  bsset(taken, reg);
+                  take(reg);
                }
             }
             use(blk, ins->op, hint0, &ins->l);
@@ -146,6 +162,7 @@ regalloc(struct function *fn)
       efmt("after regalloc:\n");
       irdump(fn, fn->name);
    }
+   bscopy(fn->regusage, globusage, 1);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

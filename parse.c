@@ -1026,7 +1026,7 @@ expraddr(struct function *fn, const struct expr *ex)
       }
       break;
    case ESTRLIT:
-      return mkdatref(fn, ex->s.n+1, /*align*/ 1, ex->s.p, ex->s.n);
+      return mkdatref(fn, ex->s.n+1, /*align*/ 1, ex->s.p, ex->s.n, /*deref*/0);
    case EDEREF:
       return exprvalue(fn, ex->sub);
    case EGETF:
@@ -1125,6 +1125,7 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
       }
       else if (kfrom == KI4 && issignedt(from)) ins.op = Oexts4;
       else if (kfrom == KI4) ins.op = Oextu4;
+      else if (ref.t == RXCON && kfrom == KI8) return mkintcon(fn, KI4, (int)(conht[ref.i].i8));
       else ins.op = Ocopy;
    }
    return addinstr(fn, ins);
@@ -1422,7 +1423,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       ins.op = Oshl;
       goto BinArith;
    case ESHR:
-      ins.op = issigned(ex->ty) ? Osar : Oshr;
+      ins.op = issigned(ex->ty) ? Osar : Oslr;
       goto BinArith;
    case ESUB:
       ins.op = Osub;
@@ -1486,22 +1487,20 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       ins.op = Olte;
       goto Cmp;
    case EGTH:
-      ins.op = Olth;
-      swp = 1;
+      ins.op = Ogth;
       goto Cmp;
    case EGTE:
-      ins.op = Olte;
-      swp = 1;
+      ins.op = Ogte;
    Cmp:
       ty = cvtarith(sub[0].ty, sub[1].ty);
       if (!ty.t) ty.t = TYPTR;
       if (isunsigned(ty) && in_range(ins.op, Olth, Olte))
          ins.op += Oulth - Olth;
-      ins.l = compileexpr(fn, &sub[0^swp], discard);
-      ins.r = compileexpr(fn, &sub[1^swp], discard);
+      ins.l = compileexpr(fn, &sub[0], discard);
+      ins.r = compileexpr(fn, &sub[1], discard);
       if (discard) return NOREF;
-      ins.l = cvt(fn, ty.t, sub[0^swp].ty.t, ins.l);
-      ins.r = cvt(fn, ty.t, sub[1^swp].ty.t, ins.r);
+      ins.l = cvt(fn, ty.t, sub[0].ty.t, ins.l);
+      ins.r = cvt(fn, ty.t, sub[1].ty.t, ins.r);
       ins.cls = cls;
       return addinstr(fn, ins);
    case ESET:
@@ -1533,7 +1532,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       ins.op = Oshl;
       goto Compound;
    case ESETSHR:
-      ins.op = issigned(ex->ty) ? Osar : Oshr;
+      ins.op = issigned(ex->ty) ? Osar : Oslr;
       goto Compound;
    case ESETSUB:
       ins.op = Osub;

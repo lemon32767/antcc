@@ -1,6 +1,5 @@
 #include "ir.h"
 
-extern struct xcon conht[];
 static int nextdat;
 
 #define aisprint(c) in_range(c, ' ', '~')
@@ -8,7 +7,7 @@ static int nextdat;
 static void
 pridat(const struct irdat *dat)
 {
-   efmt("dat ^%d(align %d, size %d):\n\t", dat - dattab.p, dat->align, dat->siz);
+   efmt("%s .%d(align %d, size %d):\n\t", dat->mut ? "dat" : "rodat", dat - dattab.p, dat->align, dat->siz);
    assert(!dat->syms);
    if (dat->siz <= 8) {
       efmt("b ");
@@ -82,6 +81,9 @@ dumpref(enum op o, union ref ref)
       else
          efmt("%%%d", ref.i);
       break;
+   case RREG:
+      efmt("%s", mctarg->rnames[ref.i]);
+      break;
    case RPARAM: efmt("%%param%d", ref.i); break;
    case RICON:
       if (o == Ointrin) efmt("\"%s\"", intrinname[ref.i]);
@@ -89,7 +91,9 @@ dumpref(enum op o, union ref ref)
       break;
    case RXCON:
       con = &conht[ref.i];
+      if (con->deref) efmt("[");
       if (con->issym) efmt("$%s", con->sym);
+      else if (con->isdat) efmt("$.%d", con->dat);
       else switch (con->cls) {
       case KI4: efmt("%d", con->i4); break;
       case KI8: efmt("%ld", con->i8); break;
@@ -98,9 +102,7 @@ dumpref(enum op o, union ref ref)
       case KF8: efmt("%fd", con->fd); break;
       default: assert(0);
       }
-      break;
-   case RDAT:
-      efmt("$^%d", ref.i);
+      if (con->deref) efmt("]");
       break;
    case RTYPE:
       prityp(ref2type(ref));
@@ -108,12 +110,29 @@ dumpref(enum op o, union ref ref)
    case RMORE:
       if (o == Ophi) {
          struct phi *phi = &phitab.p[ref.i];
+         assert(phitab.n > ref.i);
          for (int i = 0; i < phi->n; ++i) {
             if (i) efmt(", ");
             efmt("@%d ", phi->blk[i]->id);
             dumpref(0, phi->ref[i]);
          }
-      } else assert(0);
+      } else {
+         struct addr *addr = &addrtab.p[ref.i];
+         bool k = 0;
+         assert(addrtab.n > ref.i);
+         efmt("addr [");
+         if ((k = addr->base.t)) dumpref(0, addr->base);
+         if (addr->index.t) {
+            if (k) efmt(" + ");
+            dumpref(0, addr->index);
+            if (addr->shift)
+               efmt(" * %d", 1<<addr->shift);
+            k = 1;
+         }
+         if (k && addr->disp) efmt(" + %d", addr->disp);
+         assert(k);
+         efmt("]");
+      }
       break;
    default: assert(!"ref");
    }
@@ -153,15 +172,19 @@ dumpinst(const struct instr *ins)
 {
    int i;
    efmt("    ");
-   if (ins->reg) {
-      if (ins->cls)
-         efmt("%s ", clsname[ins->cls]);
-      efmt("%s = ", mctarg->rnames[ins->reg - 1]);
-   } else if (ins->cls) {
-      efmt("%s %%%d", clsname[ins->cls], ins - instrtab);
-      efmt(" = ");
+   if (ins->op == Omove) {
+      efmt("move %s ", clsname[ins->cls]);
+   } else {
+      if (ins->reg) {
+         if (ins->cls)
+            efmt("%s ", clsname[ins->cls]);
+         efmt("%s = ", mctarg->rnames[ins->reg - 1]);
+      } else if (ins->cls && !ins->skip) {
+         efmt("%s %%%d", clsname[ins->cls], ins - instrtab);
+         efmt(" = ");
+      }
+      efmt("%s ", opname[ins->op]);
    }
-   efmt("%s ", opname[ins->op]);
    for (i = 0; i < opnarg[ins->op]; ++i) {
       if (i) efmt(", ");
       if (i == 1 && (ins->op == Ocall || ins->op == Ointrin)) {

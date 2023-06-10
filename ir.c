@@ -10,17 +10,22 @@ static int instrfreelist;
 struct calltab calltab;
 struct phitab phitab;
 struct dattab dattab;
+struct addrtab addrtab;
 
 void
 irinit(struct function *fn)
 {
    static struct call callsbuf[64];
    static struct phi phisbuf[64];
+   static struct irdat datsbuf[64];
+   static struct addr addrsbuf[64];
 
    ninstr = 0;
    instrfreelist = -1;
    vinit(&calltab, callsbuf, arraylength(callsbuf));
    vinit(&phitab, phisbuf, arraylength(phisbuf));
+   vinit(&dattab, datsbuf, arraylength(datsbuf));
+   vinit(&addrtab, addrsbuf, arraylength(addrsbuf));
    if (!type2cls[TYINT]) {
       for (int i = TYBOOL; i <= TYUVLONG; ++i) {
          int siz = targ_primsizes[i];
@@ -46,7 +51,7 @@ addcon(const struct xcon *con)
 {
    uint h = hashb(0, con, sizeof *con);
    uint i = h, n = arraylength(conht);
-   assert(con->issym || con->cls);
+   assert(con->issym || con->isdat || con->cls);
    for (;; ++i) {
       i &= arraylength(conht) - 1;
       if (!conht[i].issym && !conht[i].cls) {
@@ -127,13 +132,13 @@ mkirtype(union type t)
 union ref
 mkintcon(struct function *fn, enum irclass k, vlong i)
 {
-   if (i < 1ll << 28 && i >= -(1ll << 28)) {
+   if (i < 1l << 28 && i >= -(1l << 28)) {
       return mkref(RICON, i);
    } else if (k == KI4) {
-      struct xcon con = { 0, k, .i4 = i };
+      struct xcon con = { .cls = k, .i4 = i };
       return mkref(RXCON, addcon(&con));
    } else {
-      struct xcon con = { 0, k, .i8 = i };
+      struct xcon con = { .cls = k, .i8 = i };
       return mkref(RXCON, addcon(&con));
    }
 }
@@ -141,7 +146,7 @@ mkintcon(struct function *fn, enum irclass k, vlong i)
 union ref
 mkfltcon(struct function *fn, enum irclass k, double f)
 {
-   struct xcon con = { 0, k };
+   struct xcon con = { .cls = k };
    if (k == KF4) con.fs = f;
    else          con.fd = f;
    return mkref(RXCON, addcon(&con));
@@ -150,12 +155,12 @@ mkfltcon(struct function *fn, enum irclass k, double f)
 union ref
 mksymref(struct function *fn, const char *s)
 {
-   struct xcon con = { 1, KPTR, .sym = s };
+   struct xcon con = { .issym = 1, .sym = s };
    return mkref(RXCON, addcon(&con));
 }
 
 union ref
-mkdatref(struct function *fn, uint siz, uint align, const void *bytes, uint n)
+mkdatref(struct function *fn, uint siz, uint align, const void *bytes, uint n, bool deref)
 {
    struct irdat dat = { align, 0, siz };
    if (siz <= 8) memcpy(dat.sdat, bytes, n < siz ? n : siz);
@@ -164,7 +169,7 @@ mkdatref(struct function *fn, uint siz, uint align, const void *bytes, uint n)
       vpushn(&dat.dat, bytes, n);
    }
    vpush(&dattab, dat);
-   return mkref(RDAT, dattab.n - 1); 
+   return mkref(RXCON, addcon(&(struct xcon){.isdat = 1, .deref = deref, .dat = dattab.n - 1}));
 }
 
 struct instr
@@ -374,6 +379,7 @@ irfini(struct function *fn)
    extern int nerror;
    if (!nerror) {
       abi0(fn);
+      mctarg->isel(fn);
       regalloc(fn);
       mctarg->emit(fn);
    }

@@ -31,10 +31,11 @@ struct irdat {
 };
 
 struct xcon {
-   bool issym;
+   bool issym, isdat, deref;
    uchar cls;
    union {
       const char *sym;
+      int dat;
       int i4;
       vlong i8;
       float fs;
@@ -64,17 +65,22 @@ struct phi {
 enum refkind {
    RNONE,
    RTMP,   /* reference to another instruction's result */
+   RREG,   /* machine register */
    RPARAM, /* function param */
    RICON,  /* small integer constants */
    RXCON,  /* other constants (incl. external symbols) */
-   RDAT,   /* reference to irdat */
-   RMORE,  /* reference to extra data for Ocall and Ophi */
+   RMORE,  /* Ocall -> calltab idx, Ophi -> phitab idx, else -> addrtab idx */
    RTYPE,  /* irtype */
 };
 
 union ref {
    struct { unsigned t : 3; signed i : 29; };
    uint bits;
+};
+
+struct addr {
+   union ref base, index;
+   int shift, disp;
 };
 
 enum op {
@@ -98,7 +104,9 @@ enum intrin {
 
 struct instr {
    uchar op, cls;
-   ushort reg; /* 0 -> unallocated; else reg + 1 */
+   uchar skip : 1; /* ignore during codegen: forms part of one machine instruction */
+   uchar inplace : 1; /* set (by isel) for instructions which modify its first arg in place */
+   uchar reg; /* 0 -> no reg; else reg + 1 */
    union ref l, r;
 };
 
@@ -115,6 +123,8 @@ struct block {
    struct block *lprev, *lnext;
 };
 
+enum { MAXREGS = 64 };
+
 struct function {
    struct arena *arena;
    const char *name;
@@ -124,9 +134,8 @@ struct function {
    uint nblk;
    ushort nabiarg, nabiret;
    bool globl;
+   struct bitset regusage[1];
 };
-
-enum { MAXREGS = 64 };
 
 struct mctarg {
    short gpr0, /* first gpr */
@@ -155,6 +164,7 @@ struct mctarg {
     */
    int (*abiarg)(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype);
 
+   void (*isel)(struct function *);
    void (*emit)(struct function *);
 };
 
@@ -164,9 +174,11 @@ extern uchar type2cls[];
 extern uchar cls2siz[];
 extern const uchar siz2intcls[];
 extern struct instr instrtab[];
+extern struct xcon conht[];
 extern struct calltab {vec_of(struct call);} calltab;
 extern struct phitab {vec_of(struct phi);} phitab;
 extern struct dattab {vec_of(struct irdat);} dattab;
+extern struct addrtab {vec_of(struct addr);} addrtab;
 #define NOREF ((union ref) {0})
 #define ZEROREF ((union ref) {{ RICON, 0 }})
 #define mkref(t, x) ((union ref) {{ (t), (x) }})
@@ -180,7 +192,7 @@ union irtype mkirtype(union type);
 union ref mkintcon(struct function *, enum irclass, vlong);
 union ref mkfltcon(struct function *, enum irclass, double);
 union ref mksymref(struct function *, const char *);
-union ref mkdatref(struct function *, uint siz, uint align, const void *, uint n);
+union ref mkdatref(struct function *, uint siz, uint align, const void *, uint n, bool deref);
 struct instr mkalloca(uint siz, uint align);
 void conputdat(struct irdat *, uint off, enum typetag t, const void *dat);
 union ref mkcallarg(struct function *, union irtype ret, uint narg, int vararg);

@@ -99,6 +99,7 @@ struct option {
    struct {
       bool p : 1, /* after parsing */
            a : 1, /* after abi0 */
+           i : 1, /* after isel */
            r : 1; /* after regalloc */
    } dbg;
 };
@@ -336,7 +337,7 @@ enum { BSNBIT = 8 * sizeof(uvlong) };
 #define BSSIZE(nbit) ((nbit) / BSNBIT + ((nbit) % BSNBIT != 0))
 
 static inline bool
-bstest(struct bitset *bs, uint i)
+bstest(const struct bitset *bs, uint i)
 {
    return bs[i / BSNBIT].u >> i % BSNBIT & 1;
 }
@@ -357,6 +358,12 @@ static inline void
 bszero(struct bitset bs[/*siz*/], uint siz)
 {
    memset(bs, 0, siz * sizeof *bs);
+}
+
+static inline void
+bscopy(struct bitset dst[/*siz*/], const struct bitset src[/*siz*/], uint siz)
+{
+   while (--siz) dst++->u = src++->u;
 }
 
 static inline bool

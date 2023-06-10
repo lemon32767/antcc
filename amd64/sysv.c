@@ -143,6 +143,7 @@ const struct mctarg t_amd64_sysv = {
    .rnames = amd64_rnames,
    .abiret = abiret,
    .abiarg = abiarg,
+   .isel = amd64_isel,
    .emit = amd64_emit
 };
 
