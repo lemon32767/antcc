@@ -18,11 +18,11 @@ abiret(struct abiarg abiret[2], struct abiargsvec *abiargs, int *ni, union irtyp
    if (retty.isagg) {
       retreg = mctarg->abiret(r, cls, ni, retty);
       if (!retreg) {
-         vpush(abiargs, ((struct abiarg) { {.cls = KPTR}, r[1] }));
+         vpush(abiargs, ((struct abiarg) { cls2type(KPTR), .stk = r[1] }));
          if (r[0] == -1) {
             memset(abiret, 0, 2*sizeof *abiret);
          } else {
-            abiret[0].ty = (union irtype) {.cls = KPTR};
+            abiret[0].ty = cls2type(KPTR);
             abiret[0].reg = r[0];
          }
       }
@@ -31,7 +31,7 @@ abiret(struct abiarg abiret[2], struct abiargsvec *abiargs, int *ni, union irtyp
       assert(retreg == 1);
    }
    for (int i = 0; i < retreg; ++i) {
-      abiret[i].ty = (union irtype) {.cls = cls[i]};
+      abiret[i].ty = cls2type(cls[i]);
       abiret[i].reg = r[i];
    }
    return retreg;
@@ -43,65 +43,88 @@ abiarg(struct abiargsvec *abiargs, int *ni, int *nf, int *ns, union irtype ty)
    short r[2];
    uchar cls[2];
    int ret = mctarg->abiarg(r, cls, ni, nf, ns, ty);
-   if (!ret) { /* aggregate in stack */
-      vpush(abiargs, ((struct abiarg) { ty, -1 }));
+   if (!ret) { /* in stack */
+      vpush(abiargs, ((struct abiarg) { ty, .stk = r[0] }));
    } else if (ret == 1 && ty.isagg && cls[0] == KPTR) { /* aggregate by pointer */
-      vpush(abiargs, ((struct abiarg) { {.cls = cls[0]}, r[0] }));
-   } else {
-      vpush(abiargs, ((struct abiarg) { {.cls = cls[0]}, r[0] }));
+      vpush(abiargs, ((struct abiarg) { cls2type(cls[0]), .reg = r[0] }));
+   } else { /* by regs */
+      vpush(abiargs, ((struct abiarg) { cls2type(cls[0]), .reg = r[0] }));
       if (ret == 2)
-         vpush(abiargs, ((struct abiarg) { {.cls = cls[1]}, r[1] }));
+         vpush(abiargs, ((struct abiarg) { cls2type(cls[1]), .reg = r[1] }));
    }
    return ret;
 }
 
-/* RPARAM can only appear in the entry block (prologue), each RARG can only appear once.
- * this function patches param starting at instruction no. *start according to cls
- * to patch it to use arg no. `to' (and maybe also `to + 1') */
+static struct instr
+copyparam(struct abiarg abi)
+{
+   if (abi.reg >= 0) { /* reg */
+      assert(!abi.ty.isagg);
+      return mkinstr(Ocopy, abi.ty.cls, mkref(RREG, abi.reg));
+   } else if (!abi.ty.isagg) { /* scalar in stack */
+      enum op ld;
+      if (abi.ty.cls == KPTR) abi.ty.cls = siz2intcls[cls2siz[abi.ty.cls]];
+      switch (abi.ty.cls) {
+      default: assert(0);
+      case KI4: ld = Oloadu4; break;
+      case KI8: ld = Oloadi8; break;
+      case KF4: ld = Oloadf4; break;
+      case KF8: ld = Oloadf8; break;
+      }
+      vpush(&addrtab, ((struct addr) {.base = mkref(RREG, mctarg->spr), .disp = abi.reg}));
+      return mkinstr(ld, abi.ty.cls, mkref(RMORE, addrtab.n - 1));
+   } else { /* aggregate in stack */
+      vpush(&addrtab, ((struct addr) {.base = mkref(RREG, mctarg->spr), .disp = abi.reg}));
+      return mkinstr(Ocopy, KPTR, mkref(RMORE, addrtab.n - 1));
+   }
+}
+
 static void
-patchparam(struct function *fn, int *start, int param, int tydat, int to, struct abiarg abi[2])
+patchparam(struct function *fn, int *curi, int param, int tydat, int nabi, struct abiarg abi[2])
 {
    struct block *blk = fn->entry;
-   assert(!blk->phi.n);
-   while((*start)++ < blk->ins.n) {
-      struct instr *ins = &instrtab[blk->ins.p[*start - 1]];
-      if (ins->op == Ocopy && ins->l.t == RPARAM && ins->l.i == param) {
-         /* originally aggregate argument */
-         assert(tydat != -1);
-         if (abi[0].ty.isagg /* aggregate in stack */
-          || abi[0].ty.cls == KPTR) /* aggregate by pointer */
-         {
-            ins->l.i = to;
-         } else { /* aggregate in registers */
-            const struct typedata *td = &typedata[tydat];
-            /* transform
-             *  %x = copy %argX
-             * into
-             *  %x = alloca...
-             *  store* %x, %argN
-             *  store* %x + I, %argM
-             */
-            assert(td->siz <= 16 && td->align <= 16);
-            ins->op = Oalloca8 + (td->align == 16);
-            ins->l = mkref(RICON, td->align == 16 ? 1 : td->siz / 8);
-            insertinstr(blk, *start, mkinstr(Ostore1 + ilog2(cls2siz[abi[0].ty.cls]), 0,
-                                          mkref(RTMP, ins - instrtab), mkref(RPARAM, to)));
-            *start += 1;
-            if (td->siz > 8) {
-               struct instr tmp = mkinstr(Oadd, KPTR,
-                                          mkref(RTMP, ins - instrtab), mkref(RICON, cls2siz[abi[0].ty.cls]));
-               insertinstr(blk, *start+1, mkinstr(Ostore1 + ilog2(cls2siz[abi[1].ty.cls]), 0,
-                           insertinstr(blk, *start, tmp), mkref(RPARAM, to+1)));
-               *start += 2;
-            }
+   assert(in_range(nabi,1,2));
+
+   for (; *curi < blk->ins.n; ++*curi) {
+      struct instr *ins = &instrtab[blk->ins.p[*curi]];
+      if (ins->op != Oparam) continue;
+      assert(ins->l.t == RICON && ins->l.i == param);
+      assert(ins->r.t == RTYPE
+            && ins->r.i == (tydat < 0 ? abi[0].ty : (union irtype){.isagg=1, .dat=tydat}).bits);
+      if (abi[0].ty.isagg || tydat < 0) {
+         /* aggregate in stack or scalar, just copy */
+         assert(nabi == 1);
+         *ins = copyparam(abi[0]);
+      } else { /* aggregate in registers, materialize */
+         union ref alloc, r[2];
+         struct instr st;
+         const struct typedata *td;
+         uint nalloc;
+
+         assert(tydat >= 0);
+         td = &typedata[tydat];
+         assert(td->siz <= 16 && td->align <= 16);
+         nalloc = td->align == 16 ? 1 : td->siz/8 + (td->siz%8 != 0);
+         *ins = mkinstr(Oalloca8 + (td->align==16), KPTR, mkref(RICON, nalloc));
+         alloc = mkref(RTMP, ins - instrtab);
+         r[0] = insertinstr(blk, ++*curi, copyparam(abi[0]));
+         if (nabi > 1) r[1] = insertinstr(blk, ++*curi, copyparam(abi[1]));
+         /* transform
+          *  %x = copy %p
+          * into
+          *  %x = alloca...
+          *  store* %x, %a
+          *  store* %x + N, %b
+          */
+         st = mkinstr(Ostore1 + ilog2(cls2siz[abi[0].ty.cls]), 0, alloc, r[0]);
+         insertinstr(blk, ++*curi, st);
+         if (nabi > 1) {
+            struct instr tmp = mkinstr(Oadd, KPTR, alloc, mkref(RICON, cls2siz[abi[0].ty.cls]));
+            st = mkinstr(Ostore1 + ilog2(cls2siz[abi[1].ty.cls]), 0, insertinstr(blk, ++*curi, tmp), r[1]);
+            insertinstr(blk, ++*curi, st);
          }
-         break;
-      } else if (oisstore(ins->op) && ins->r.t == RPARAM && ins->r.i == param) {
-         /* normal scalar argument */
-         assert(tydat == -1);
-         ins->r.i = to;
-         break;
       }
+      break;
    }
 }
 
@@ -117,6 +140,10 @@ patcharg(struct block *blk, int *icall, struct call *call,
       if (abi[0].ty.isagg  /* aggregate in stack */
        || abi[0].ty.cls == KPTR) /* aggregate by pointer */
       {
+      Single:
+         if (abi[0].reg >= 0)
+            *arg = mkinstr(Omove, abi[0].ty.isagg ? KPTR : abi[0].ty.cls,
+                           mkref(RREG, abi[0].reg), arg->r);
          return 1;
       } else { /* aggregate in registers */
          union ref src = arg->r;
@@ -148,10 +175,8 @@ patcharg(struct block *blk, int *icall, struct call *call,
          *icall += arginst - (call->narg - argidx);
          return nabi;
       }
-   } else {
-      /* normal scalar argument */
-      return 1;
-   }
+   } else /* normal scalar argument */
+      goto Single;
 }
 
 void
@@ -164,16 +189,17 @@ abi0(struct function *fn)
    int rvovar = -1;
    int ni = 0, nf = 0, ns = 0, istart = 0;
    struct block *blk;
-   union ref sret;
+   union ref sret = {0};
    bool sretarghidden = 0;
 
    if (fn->retty.t == TYVOID) {
       fn->nabiret = 0;
    } else {
       fn->nabiret = abiret(fn->abiret, &abiargs, &ni, mkirtype(fn->retty));
-      if (!fn->nabiret && isagg(fn->retty)) { /* ret by hidden pointer */
+      if (!fn->nabiret && isagg(fn->retty)) { /* ret agg by hidden pointer */
+         struct instr param = copyparam(abiargs.p[0]);
          sretarghidden = ni == 0;
-         sret = insertinstr(fn->entry, 0, mkinstr(Ocopy, KPTR, mkref(RPARAM, 0)));
+         sret = insertinstr(fn->entry, 0, param);
          ++istart;
       }
    }
@@ -181,11 +207,9 @@ abi0(struct function *fn)
    /* adjust params */
    for (int i = 0; i < nparam; ++i) {
       union irtype pty = mkirtype(paramty[i]);
-      int thisi = sretarghidden + ni + nf + ns;
       int first = abiargs.n;
       int ret = abiarg(&abiargs, &ni, &nf, &ns, pty);
-      if (i != thisi || (pty.isagg && ret))
-         patchparam(fn, &istart, i, pty.isagg ? pty.dat : -1, thisi, &abiargs.p[first]);
+      patchparam(fn, &istart, i, pty.isagg ? pty.dat : -1, ret+!ret, &abiargs.p[first]);
    }
    fn->abiarg = alloccopy(&fn->arena, abiargs.p, abiargs.n * sizeof *abiargs.p, 0);
    fn->nabiarg = abiargs.n;
@@ -219,81 +243,86 @@ abi0(struct function *fn)
    do {
       /* adjust calls */
       for (int iinstr = 0; iinstr < blk->ins.n; ++iinstr) {
+         union ref retmem;
          struct instr *ins = &instrtab[blk->ins.p[iinstr]];
          struct call *call = &calltab.p[ins->r.i];
-         bool structbyval;
-         int vararg;
+         int vararg, nret = 0;
 
          if (ins->op != Ocall) continue;
 
          vararg = call->vararg;
          vinit(&abiargs, abiargsbuf, arraylength(abiargsbuf));
-         if (!(structbyval = call->ret.isagg))
-            for (int i = iinstr - call->narg; i < iinstr; ++i)
-               if ((structbyval = ref2type(instrtab[blk->ins.p[i]].l).isagg))
-                     break;
-
          ni = nf = ns = 0;
-         memset(call->abiret, 0, sizeof call->abiret);
+         assert(!ins->cls == !call->ret.bits);
+         nret = abiret(call->abiret, &abiargs, &ni, call->ret);
          if (call->ret.isagg) { /* adjust struct return */
-            union ref temp;
             union irtype retty = call->ret;
             struct instr alloca = { .cls = KPTR };
             struct typedata *td = &typedata[retty.dat];
-            int ret = abiret(call->abiret, &abiargs, &ni, retty);
 
             sretarghidden = ni == 0;
             alloca.op = Oalloca8 + (td->align == 16);
             alloca.l = mkref(RICON, td->align == 16 ? 1 : td->siz / 8);
-            temp = insertinstr(blk, iinstr++ - call->narg, alloca);
-            replref(fn, blk, iinstr, mkref(RTMP, ins - instrtab), temp);
-            if (!ret) { /* hidden pointer argument */
+            retmem = insertinstr(blk, iinstr++ - call->narg, alloca);
+            if (!nret) /* hidden pointer argument */
                insertinstr(blk, iinstr++ - call->narg,
-                           mkarginstr((union irtype){.cls = KPTR}, temp));
-               ins->cls = 0;
+                           mkinstr(Omove, KPTR, mkref(RREG, call->abiret[0].reg), retmem));
+         }
+
+         /* adjust args */
+         for (int i = 0, i2 = ni + sretarghidden; i < call->narg; ++i) {
+            union irtype pty = ref2type(instrtab[blk->ins.p[iinstr - call->narg + i]].l);
+            int first = abiargs.n;
+            int ret = abiarg(&abiargs, &ni, &nf, &ns, pty);
+            ret = patcharg(blk, &iinstr, call, i, ret, &abiargs.p[first]);
+            if (call->vararg == i) vararg = i2;
+            i2 += ret;
+         }
+         /* adjust return */
+         if (!call->ret.isagg) {
+            /* duplicate to reuse same TMP ref */
+            ins->cls = 0;
+            insertinstr(blk, iinstr++, *ins);
+            /* now ins will be Ocopy <reg> */
+         }
+         if (call->ret.isagg) {
+            replref(fn, blk, iinstr, mkref(RTMP, ins - instrtab), retmem);
+            if (!nret) { /* hidden pointer argument */
+               if (call->abiret[0].reg >= 0)
+                  ++nret;
             } else { /* aggregate returned in regs */
-               union ref call2r;
-               int to = iinstr + 1;
-               assert(in_range(ret, 1, 2));
-               ins->cls = call->abiret[0].ty.cls;
-               if (ret == 2)
-                  call2r = insertinstr(blk, to++, mkinstr(Ocall2r, call->abiret[1].ty.cls,
-                                                          mkref(RTMP, ins - instrtab)));
-               for (int i = 0; i < ret; ++i) {
-                  uchar cls;
+               union ref r[2];
+               struct instr ins;
+               assert(in_range(nret, 1, 2));
+               ins = mkinstr(Ocopy, call->abiret[0].ty.cls, mkref(RREG, call->abiret[0].reg));
+               r[0] = insertinstr(blk, ++iinstr, ins);
+               if (nret == 2) {
+                  ins =  mkinstr(Ocopy, call->abiret[1].ty.cls, mkref(RREG, call->abiret[1].reg));
+                  r[1] = insertinstr(blk, ++iinstr, ins);
+               }
+               for (int i = 0; i < nret; ++i) {
                   struct instr store = {0};
                   /* XXX this can generate unaligned stores */
-                  switch (cls = call->abiret[i].ty.cls) {
+                  switch (call->abiret[i].ty.cls) {
                   default: assert(0);
                   case KF4: case KI4: store.op = Ostore4; break;
                   case KI8: case KF8: store.op = Ostore8; break;
                   }
                   if (i == 0) {
-                     store.l = temp;
-                     store.r = mkref(RTMP, ins - instrtab);
+                     store.l = retmem;
                   } else {
-                     store.l = insertinstr(blk, to++,
-                                         mkinstr(Oadd, KPTR, temp,
+                     store.l = insertinstr(blk, ++iinstr,
+                                         mkinstr(Oadd, KPTR, retmem,
                                                  mkref(RICON, cls2siz[call->abiret[0].ty.cls])));
-                     store.r = call2r;
                   }
-                  insertinstr(blk, to++, store);
+                  store.r = r[i];
+                  insertinstr(blk, ++iinstr, store);
                }
             }
-         } else if (ins->cls) {
-            int ret = abiret(call->abiret, &abiargs, &ni, (union irtype){.cls = ins->cls});
-            assert(ret == 1 && !ni);
+         } else if (call->ret.cls) {
+            *ins = mkinstr(Ocopy, call->abiret[0].ty.cls, mkref(RREG, call->abiret[0].reg));
          }
 
-         for (int i = 0; i < call->narg; ++i) {
-            union irtype pty = ref2type(instrtab[blk->ins.p[iinstr - call->narg + i]].l);
-            int thisi = sretarghidden + ni + nf + ns;
-            int first = abiargs.n;
-            int ret = abiarg(&abiargs, &ni, &nf, &ns, pty);
-            ret = patcharg(blk, &iinstr, call, i, ret, &abiargs.p[first]);
-            if (call->vararg == i)
-               vararg = thisi;
-         }
          if (call->ret.isagg) call->ret = (union irtype){0};
          call->vararg = vararg;
          call->abiargregs = alloc(&fn->arena, abiargs.n * sizeof *call->abiargregs, 0);
@@ -336,6 +365,19 @@ abi0(struct function *fn)
             } else assert(blk->jmp.arg[0].bits == mkref(RTMP, rvovar).bits);
             if (fn->abiret[0].ty.cls) blk->jmp.arg[0] = rvovar == -1 ? sret : mkref(RTMP, rvovar);
             else memset(blk->jmp.arg, 0, sizeof blk->jmp.arg);
+         }
+      }
+      if (blk->jmp.t == Jret) {
+         if (blk->jmp.arg[0].t) {
+            insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[0].ty.cls,
+                                                 mkref(RREG, fn->abiret[0].reg), blk->jmp.arg[0]));
+            blk->jmp.arg[0] = mkref(RREG, fn->abiret[0].reg);
+            if (blk->jmp.arg[1].t) {
+               insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[1].ty.cls,
+                                                    mkref(RREG, fn->abiret[1].reg), blk->jmp.arg[1]));
+               blk->jmp.arg[1] = mkref(RREG, fn->abiret[1].reg);
+            }
+            memset(blk->jmp.arg, 0, sizeof blk->jmp.arg);
          }
       }
    } while ((blk = blk->lnext) != fn->entry);

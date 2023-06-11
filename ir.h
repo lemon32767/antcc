@@ -45,7 +45,10 @@ struct xcon {
 
 struct abiarg {
    union irtype ty;
-   short reg; /* -1 -> stack */
+   union {
+      short reg; /* >= 0 */
+      short stk; /* < 0 */
+   };
 };
 
 struct call {
@@ -66,7 +69,6 @@ enum refkind {
    RNONE,
    RTMP,   /* reference to another instruction's result */
    RREG,   /* machine register */
-   RPARAM, /* function param */
    RICON,  /* small integer constants */
    RXCON,  /* other constants (incl. external symbols) */
    RMORE,  /* Ocall -> calltab idx, Ophi -> phitab idx, else -> addrtab idx */
@@ -140,6 +142,7 @@ struct function {
 struct mctarg {
    short gpr0, /* first gpr */
          ngpr, /* gpr count */
+         spr,  /* stack pointer reg */
          fpr0, /* first fpr */
          nfpr; /* fpr count */
    struct bitset rcallee[1], /* callee-saved */
@@ -159,8 +162,9 @@ struct mctarg {
     *                         r & cls filled with reg and irclass of each scalar arg
     *                         if reg == -1 -> stack
     *  big struct -> returns 0,
-    *                if passed in stack   cls[0] == 0, r[0] == -1
-    *                if passed by pointer cls[0] == KPTR, r[0] contains integer register or -1 if stack
+    *                if passed in stack   cls[0] == 0, r[0] == negative SP offset
+    *                if passed by pointer cls[0] == KPTR, r[0] contains integer register
+    *                                                     or negative SP offset if stack
     */
    int (*abiarg)(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype);
 
@@ -188,6 +192,7 @@ extern struct addrtab {vec_of(struct addr);} addrtab;
 #define mkarginstr(ty, x) mkinstr(Oarg, 0, mktyperef(ty), (x))
 void irinit(struct function *);
 void irfini(struct function *);
+#define cls2type(k) ((union irtype){.cls=(k)})
 union irtype mkirtype(union type);
 union ref mkintcon(struct function *, enum irclass, vlong);
 union ref mkfltcon(struct function *, enum irclass, double);

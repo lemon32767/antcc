@@ -1,6 +1,6 @@
 #include "all.h"
 
-static bool mkaddr(struct function *fn, union ref *r);
+static bool fuseaddr(struct function *fn, union ref *r);
 
 static void
 fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, int *curi)
@@ -27,10 +27,6 @@ fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, 
       sh = r->i;
    ShiftImm: /* shift immediate is always 8bit */
       *r = mkref(RICON, sh & 255);
-   } else if (r->t == RPARAM) {
-      if (fn->abiarg[r->i].reg != -1) {
-         *r = mkref(RREG, fn->abiarg[r->i].reg);
-      }
    }
 }
 
@@ -99,7 +95,7 @@ aadd(struct function *fn, struct addr *addr, union ref r, bool rec)
 }
 
 static bool
-mkaddr(struct function *fn, union ref *r)
+fuseaddr(struct function *fn, union ref *r)
 {
    struct addr addr = { 0 };
    struct instr *ins = &instrtab[r->i];
@@ -167,7 +163,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          temp.op = Ocopy;
          temp.cls = ins->cls;
          temp.l = mkref(RTMP, ins - instrtab);
-         if (mkaddr(fn, &temp.l)) {
+         if (fuseaddr(fn, &temp.l)) {
             *ins = temp;
             break;
          }
@@ -193,12 +189,12 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Oloads4: case Oloadu4: case Oloadi8: case Oloadf4: case Oloadf8:
       if (ins->l.t != RTMP && ins->l.t != RREG)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
-      mkaddr(fn, &ins->l);
+      fuseaddr(fn, &ins->l);
       break;
    case Ostore1: case Ostore2: case Ostore4: case Ostore8:
       if (ins->l.t != RTMP && ins->l.t != RREG)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
-      mkaddr(fn, &ins->l);
+      fuseaddr(fn, &ins->l);
       fixarg(fn, &ins->r, ins, blk, curi);
       break;
    case Ocopy:
@@ -223,18 +219,6 @@ amd64_isel(struct function *fn)
       for (int i = 0; i < blk->ins.n; ++i) {
          ins = &instrtab[blk->ins.p[i]];
          sel(fn, ins, blk, &i);
-      }
-      if (blk->jmp.t == Jret) {
-         if (blk->jmp.arg[0].t) {
-            insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[0].ty.cls,
-                                                 mkref(RREG, fn->abiret[0].reg), blk->jmp.arg[0]));
-            blk->jmp.arg[0] = mkref(RREG, fn->abiret[0].reg);
-            if (blk->jmp.arg[1].t) {
-               insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[1].ty.cls,
-                                                    mkref(RREG, fn->abiret[1].reg), blk->jmp.arg[1]));
-               blk->jmp.arg[1] = mkref(RREG, fn->abiret[1].reg);
-            }
-         }
       }
    } while ((blk = blk->lnext) != fn->entry);
 

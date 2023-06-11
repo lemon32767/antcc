@@ -1797,6 +1797,16 @@ function(struct parser *pr, struct function *fn, const char **pnames, const stru
    const bool doemit = fn->curblk;
    struct env e;
    envdown(pr, &e);
+
+   /* emit Oparam instructions */
+   EMITS {
+      for (int i = 0; i < td->nmemb; ++i) {
+         union irtype pty = mkirtype(td->param[i]);
+         union ref r = addinstr(fn, mkinstr(Oparam, pty.isagg ? KPTR : pty.cls,
+                                            mkref(RICON, i), mktyperef(pty)));
+         assert(r.t == RTMP && r.i == i);
+      }
+   }
    /* add parameters to symbol table and create prologue (arguments) block */
    for (int i = 0; i < td->nmemb; ++i) {
       if (pnames[i]) {
@@ -1805,9 +1815,9 @@ function(struct parser *pr, struct function *fn, const char **pnames, const stru
          EMITS {
             if (isscalar(arg.ty)) {
                arg.id = addinstr(fn, mkalloca(typesize(arg.ty), typealign(arg.ty))).i;
-               genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RPARAM, i));
+               genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RTMP, i));
             } else {
-               arg.id = addinstr(fn, mkinstr(Ocopy, KPTR, mkref(RPARAM, i))).i;
+               arg.id = addinstr(fn, mkinstr(Ocopy, KPTR, mkref(RTMP, i))).i;
             }
          }
          putdecl(pr, &arg);

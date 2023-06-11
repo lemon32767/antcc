@@ -1,7 +1,7 @@
 #include "ir.h"
 
-static struct bitset taken[1];
 static struct bitset globusage[1];
+static struct bitset taken[1];
 
 static void
 def(struct instr *ins)
@@ -64,15 +64,7 @@ use(struct block *blk, enum op op, int hint, union ref *ref)
             /* result of comparison instr is only used to conditionally branch,
              * doesn't usually need a reg (handled by isel) */
             return;
-      if (ins->op == Ocall) {
-         struct call *call = &calltab.p[ins->r.i];
-         hint = call->abiret[0].reg;
-      } else if (ins->op == Ocall2r) {
-         struct instr *ins2 = &instrtab[ins->l.i];
-         struct call *call = &calltab.p[ins2->r.i];
-         assert(ins->l.t == RTMP && ins2->op == Ocall);
-         hint = call->abiret[0].reg;
-      }
+      assert(ins->op != Ocall);
       if (hint != -1 && !bstest(taken, hint)) {
          take(hint);
          ins->reg = hint + 1;
@@ -129,22 +121,14 @@ regalloc(struct function *fn)
             continue;
          }
          def(ins);
-         if (ins->op != Ocall) {
+         if (ins->op == Omove) {
+            use(blk, ins->op, ins->l.i, &ins->r);
+         } else if (ins->op != Ocall) {
             if (ins->op == Ocopy) hint0 = ins->reg - 1;
             if (ins->l.t) use(blk, ins->op, hint0, &ins->l);
             if (ins->r.t) use(blk, ins->op, hint1, &ins->r);
          } else {
             struct call *call = &calltab.p[ins->r.i];
-            for (int iarg = 0; iarg < call->narg; ++iarg) {
-               struct instr *arg = &instrtab[blk->ins.p[i - call->narg + iarg]];
-               int reg = call->abiargregs[iarg];
-               assert(arg->op == Oarg);
-               if (reg != -1) {
-                  assert(!bstest(taken, reg) && "nyi spill");
-                  arg->reg = reg + 1;
-                  take(reg);
-               }
-            }
             use(blk, ins->op, hint0, &ins->l);
          }
       }

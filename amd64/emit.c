@@ -6,7 +6,7 @@
 #define I32(w) (wr32le(*pcode, (w)), *pcode += 4)
 #define DS(S) D(S, sizeof S - 1)
 
-enum operkind { ONONE, OREG, OIMM, OMEM, ORDAT };
+enum operkind { ONONE, OREG, OIMM, OMEM, OCONR };
 static struct oper {
    uchar t;
    struct { uchar shift, index, base; }; /* OMEM */
@@ -14,7 +14,7 @@ static struct oper {
       uchar reg; /* OREG */
       int disp; /* OMEM */
       int imm; /* OIMM */
-      int dat; /* ORDAT */
+      int con; /* OCONR */
    };
 } ioper[MAXINSTR];
 #define mkoper(t, ...) ((struct oper){(t), __VA_ARGS__})
@@ -32,8 +32,8 @@ ref2oper(union ref r)
    case RXCON:
       if (conht[r.i].cls == KI4)
          return mkoper(OIMM, .imm = conht[r.i].i4);
-      else if (conht[r.i].deref)
-         return mkoper(ORDAT, .dat = conht[r.i].dat);
+      else if (conht[r.i].deref || conht[r.i].issym)
+         return mkoper(OCONR, .con = r.i);
       assert(0);
    case RMORE: return mkmemoper(r);
    default: assert(0);
@@ -56,6 +56,7 @@ addmemoper(struct oper mem, struct oper add)
 }
 
 enum operpat {
+   PNONE,
    PRAX,
    PGPR,
    PFPR,
@@ -63,16 +64,19 @@ enum operpat {
    PI8,
    PI32,
    PMEM,
+   PSYM,
 };
 enum operenc {
    EN_R = 1,  /* reg with /r */
    EN_RR,     /* reg, reg with /r */
    EN_MR,     /* mem, reg with /r */
    EN_RM,     /* reg, mem with /r */
+   EN_M,      /* mem */
    EN_RI8,    /* reg, imm8 with /0 */
    EN_RI32,   /* reg, imm32 with /0 */
-   EN_I32,    /* imm32 */
    EN_OI,     /* reg, imm32 with op + reg */
+   EN_I32,    /* imm32 */
+   EN_R32,    /* rel32 */
 };
 struct desc {
    uchar psiz; /* subset of {1,2,4,8} */
@@ -87,13 +91,15 @@ static inline bool
 opermatch(enum operpat pat, struct oper oper)
 {
    switch (pat) {
+   case PNONE: return !oper.t;
    case PRAX: return oper.t == OREG && oper.reg == RAX;
    case PGPR: return oper.t == OREG && oper.reg <= R15;
    case PFPR: return oper.t == OREG && oper.reg >= XMM0;
    case P1:   return oper.t == OIMM && oper.imm == 1;
    case PI8:  return oper.t == OIMM && (uint)(oper.imm+128) < 256;
    case PI32: return oper.t == OIMM;
-   case PMEM: return in_range(oper.t, OMEM, ORDAT);
+   case PMEM: return in_range(oper.t, OMEM, OCONR);
+   case PSYM: return oper.t == OCONR;
    }
    assert(0);
 }
@@ -143,17 +149,22 @@ encode(uchar **pcode, const struct desc *tab, int ntab, uint siz, struct oper ds
    case EN_RM:
       mem = src;
       reg = dst.reg;
+      goto Mem;
+   case EN_M:
+      mem = dst;
+      reg = en->ext;
    Mem:
-      if (mem.t == ORDAT) { /* RIP-relative addressing with relocation */
+      if (mem.t == OCONR) { /* RIP-relative addressing with relocation */
          mod = 0;
-         mem.disp = mem.dat;
+         mem.disp = mem.con;
          mem.base = RBP;
          sib = 0;
          if (rex) B(0x40 | rex);
          goto EmitMem;
       }
-      rex |= (     reg >> 3) << 2; /* REX.R */
-      rex |= (mem.base >> 3) << 0; /* REX.B */
+      rex |= mem.base >> 3; /* REX.B */
+      if (mem.t != EN_M)
+         rex |= (reg >> 3) << 2; /* REX.R */
       if (rex) B(0x40 | rex);
       else if (en->r8 && in_range(reg, RSP, RDI)) B(0x40);
       if (mem.index == NOINDEX && mem.shift == 0) sib = 0;
@@ -181,11 +192,6 @@ encode(uchar **pcode, const struct desc *tab, int ntab, uint siz, struct oper ds
       else if (en->operenc == EN_RI8)
          B(src.imm);
       break;
-   case EN_I32:
-      if (rex) B(0x40 | rex);
-      D(opc, nopc);
-      I32(src.imm);
-      break;
    case EN_OI:
       rex |= (dst.reg >> 3) << 0; /* REX.B */
       if (rex) B(0x40 | rex);
@@ -193,8 +199,26 @@ encode(uchar **pcode, const struct desc *tab, int ntab, uint siz, struct oper ds
       D(opc, nopc - 1);
       I32(src.imm);
       break;
+   case EN_I32:
+      if (rex) B(0x40 | rex);
+      D(opc, nopc);
+      I32(src.imm);
+      break;
+   case EN_R32:
+      if (rex) B(0x40 | rex);
+      D(opc, nopc);
+      I32(-1);
+      break;
    }
 }
+
+#define DEFINSTR1(X, ...)                                          \
+   static void                                                     \
+   X(uchar **pcode, uint siz, struct oper oper)                    \
+   {                                                               \
+      static const struct desc tab[] = { __VA_ARGS__ };            \
+      encode(pcode, tab, arraylength(tab), siz, oper, mkoper(0,)); \
+   }
 
 #define DEFINSTR2(X, ...)                                       \
    static void                                                  \
@@ -207,7 +231,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, uint siz, struct oper ds
 DEFINSTR2(Xmov,
    {1,   PMEM, PGPR, "\x88",     EN_MR, .r8=1}, /* MOV m8, r8 */
    {2,   PMEM, PGPR, "\x66\x89", EN_MR}, /* MOV m16, r16 */
-   {4|8, PGPR, PGPR, "\x89",     EN_RR}, /* MOV r32/64, r32/64 */
+   {4|8, PGPR, PGPR, "\x8B",     EN_RR}, /* MOV r32/64, r32/64 */
    {4|8, PMEM, PGPR, "\x89",     EN_MR}, /* MOV m32/64, r32/64 */
    {4|8, PGPR, PMEM, "\x8B",     EN_RM}, /* MOV r32/64, m32/64 */
    {4|8, PGPR, PI32, "\xB8",     EN_OI}, /* MOV r32/64, imm */
@@ -257,6 +281,11 @@ DEFINSTR2(Xadd,
 DEFINSTR2(Xshl,
    {4|8, PGPR, P1,   "\xD1", EN_R, .ext=4},    /* SHL r32/64, 1 */
    {4|8, PGPR, PI32, "\xC1", EN_RI8, .ext=4},  /* SHL r32/64, imm */
+)
+DEFINSTR1(Xcall,
+   {-1, PSYM, 0, "\xE8", EN_R32}, /* CALL rel32 */
+   {-1, PGPR, 0, "\xFF", EN_R, .ext=2}, /* CALL r64 */
+   {-1, PMEM, 0, "\xFF", EN_M, .ext=2}, /* CALL m64 */
 )
 
 static void
@@ -316,6 +345,15 @@ mkmemoper(union ref r)
       return mkoper(OMEM, .base = wop.reg, .index = NOINDEX);
    } else if (r.t == RMORE) {
       struct addr *addr = &addrtab.p[r.i];
+      struct oper mem;
+      if (addr->base.t == RTMP && ioper[addr->base.i].t == OMEM) {
+         mem = ioper[addr->base.i];
+         if (addr->index.t) addmemoper(mem, mkregoper(addr->index));
+         assert(!mem.shift);
+         mem.shift = addr->shift;
+         addmemoper(mem, mkoper(OIMM, .imm = addr->disp));
+         return mem;
+      }
       return mkoper(OMEM, .base = addr->base.t ? mkregoper(addr->base).reg : NOBASE,
                           .index = addr->index.t ? mkregoper(addr->index).reg : NOINDEX,
                           .disp = addr->disp,
@@ -367,7 +405,7 @@ gencopy(uchar **pcode, enum irclass cls, struct oper dst, union ref val)
    Lea:
       Xlea(pcode, cls2siz[cls], dst, ref2oper(val));
    } else if (val.t == RXCON && conht[val.i].isdat && !conht[val.i].deref) {
-      Xlea(pcode, cls2siz[cls], dst,  mkoper(ORDAT, .dat = conht[val.i].dat));
+      Xlea(pcode, cls2siz[cls], dst, mkoper(OCONR, .con = val.i));
    } else {
       struct oper src = mkimmregoper(val);
       if (memcmp(&dst, &src, sizeof dst) != 0)
@@ -388,24 +426,13 @@ emitinstr(uchar **pcode, uint *stktop, struct function *fn, struct block *blk, i
       *stktop += siz;
       *stktop = alignup(*stktop, 1 << alignlog2);
       ioper[ins - instrtab] = mkoper(OMEM, .base = RBP, .index = NOINDEX, .disp = -*stktop);
-   } else if (oisstore(ins->op)) {
-      dst = mkmemoper(ins->l);
-      if (ins->r.t == RPARAM) {
-         int off = 8;
-         struct abiarg abi;
-         for (int i = 0; i < ins->r.i; ++i) {
-            abi = fn->abiarg[ins->r.i];
-            if (abi.reg == -1)
-               off = alignup(off + typedata[abi.ty.dat].siz, 8);
-         }
-         assert(abi.reg == -1 && "reg par");
-         assert(!"nyi");
-      } else {
-         Xmov(pcode, 1 << (ins->op - Ostore1), dst, mkimmregoper(ins->r));
-      }
    } else switch (ins->op) {
    default: assert(!"nyi ins");
    case Onop: break;
+   case Ostore1: case Ostore2: case Ostore4: case Ostore8:
+      dst = mkmemoper(ins->l);
+      Xmov(pcode, 1 << (ins->op - Ostore1), dst, mkimmregoper(ins->r));
+      break;
    case Oexts1:  src = mkregoper(ins->l); goto Movsx1;
    case Oextu1:  src = mkregoper(ins->l); goto Movzx1;
    case Oexts2:  src = mkregoper(ins->l); goto Movsx2;
@@ -434,6 +461,9 @@ emitinstr(uchar **pcode, uint *stktop, struct function *fn, struct block *blk, i
    case Ocopy:
       dst = reg2oper(ins->reg-1);
       gencopy(pcode, ins->cls, dst, ins->l);
+      break;
+   case Ocall:
+      Xcall(pcode, -1, ref2oper(ins->l));
       break;
    }
    if (ins->reg) ioper[ins - instrtab] = reg2oper(ins->reg-1);

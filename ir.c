@@ -381,7 +381,8 @@ irfini(struct function *fn)
       abi0(fn);
       mctarg->isel(fn);
       regalloc(fn);
-      mctarg->emit(fn);
+      if (!ccopt.dbg.any)
+         mctarg->emit(fn);
    }
 
    freefn(fn);

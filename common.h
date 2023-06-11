@@ -96,11 +96,14 @@ struct option {
    bool pedant;
    bool trigraph;
    bool nocolor;
-   struct {
-      bool p : 1, /* after parsing */
-           a : 1, /* after abi0 */
-           i : 1, /* after isel */
-           r : 1; /* after regalloc */
+   union {
+      struct {
+         bool p : 1, /* after parsing */
+              a : 1, /* after abi0 */
+              i : 1, /* after isel */
+              r : 1; /* after regalloc */
+      };
+      uchar any;
    } dbg;
 };
 extern struct option ccopt;

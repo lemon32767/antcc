@@ -84,7 +84,6 @@ dumpref(enum op o, union ref ref)
    case RREG:
       efmt("%s", mctarg->rnames[ref.i]);
       break;
-   case RPARAM: efmt("%%param%d", ref.i); break;
    case RICON:
       if (o == Ointrin) efmt("\"%s\"", intrinname[ref.i]);
       else efmt("%d", ref.i);
@@ -129,7 +128,9 @@ dumpref(enum op o, union ref ref)
                efmt(" * %d", 1<<addr->shift);
             k = 1;
          }
-         if (k && addr->disp) efmt(" + %d", addr->disp);
+         if (k && addr->disp) {
+            efmt(" %c %d", "-+"[addr->disp > 0], addr->disp < 0 ? -addr->disp : addr->disp);
+         }
          assert(k);
          efmt("]");
       }
@@ -212,10 +213,6 @@ dumpblk(struct function *fn, struct block *blk)
    for (i = 0; i < 2; ++i) {
       if (!blk->jmp.arg[i].t) break;
       if (i > 0) efmt(", ");
-      if (blk->jmp.t == Jret && fn->nabiret > i) {
-         prityp(fn->abiret[i].ty);
-         efmt(" ");
-      }
       dumpref(0, blk->jmp.arg[i]);
    }
    if (i && blk->s1) efmt(", ");
@@ -237,7 +234,7 @@ irdump(struct function *fn, const char *fname)
       efmt("abi: (");
       for (int i = 0; i < fn->nabiarg; ++i) {
          if (i > 0) efmt(", ");
-         if (fn->abiarg[i].reg != -1) {
+         if (fn->abiarg[i].reg >= 0) {
             efmt("%s", mctarg->rnames[fn->abiarg[i].reg]);
          } else {
             prityp(fn->abiarg[i].ty);

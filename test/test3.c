@@ -19,5 +19,10 @@ double ff(double x, double y)
     return x + y + .5;
 }
 
+void testss() {
+    extern struct { long x,y; } aa();
+    long x = aa().x;
+}
+
 long fma(long x, long y) {
 return x + (y <<1) - 2147483648;}
