@@ -1,12 +1,14 @@
 #include "all.h"
 #include "../obj.h"
 
-#define B(b) (*(*pcode)++ = (b))
-#define D(xs, N) (memcpy(*pcode, (xs), (N)), (*pcode) += (N))
-#define I32(w) (wr32le(*pcode, (w)), *pcode += 4)
-#define DS(S) D(S, sizeof S - 1)
-
+/** Instruction operands **
+ *
+ * Can be a register, a 32-bit immediate,
+ * a memory reference [base + index * scale + disp],
+ * or a RIP-relative reference to some symbol
+ */
 enum operkind { ONONE, OREG, OIMM, OMEM, OCONR };
+enum { NOBASE = 99, NOINDEX = 99 };
 static struct oper {
    uchar t;
    struct { uchar shift, index, base; }; /* OMEM */
@@ -14,7 +16,7 @@ static struct oper {
       uchar reg; /* OREG */
       int disp; /* OMEM */
       int imm; /* OIMM */
-      int con; /* OCONR */
+      int con; /* OCONR, conht index*/
    };
 } ioper[MAXINSTR];
 #define mkoper(t, ...) ((struct oper){(t), __VA_ARGS__})
@@ -40,8 +42,6 @@ ref2oper(union ref r)
    }
 }
 
-enum { NOBASE = 99, NOINDEX = 99 };
-
 static void
 addmemoper(struct oper *mem, struct oper add)
 {
@@ -53,6 +53,89 @@ addmemoper(struct oper *mem, struct oper add)
       mem->index = add.reg;
    }
 }
+
+/* helpers to convert a reference to an operand of a specific kind,
+ * with assertions to make sure nothing went wrong */
+
+static inline struct oper
+mkregoper(union ref r)
+{
+   assert(r.t == RREG || (r.t == RTMP && ioper[r.i].t == RREG));
+   return r.t == RREG ? reg2oper(r.i) : ioper[r.i];
+}
+
+static inline struct oper
+mkimmoper(union ref r)
+{
+   assert(r.t == RICON || (r.t == RXCON && conht[r.i].cls == KI4));
+   return mkoper(OIMM, .imm = r.t == RICON ? r.i : conht[r.i].i4);
+}
+
+#define ismemref(ref) ((ref).t == RTMP && ioper[(ref).i].t == OMEM)
+#define isregref(ref) ((ref).t == RREG || ((ref).t == RTMP && ioper[(ref).i].t == OREG))
+
+static inline struct oper
+mkimmregoper(union ref r)
+{
+   assert(isregref(r) || r.t == RICON || (r.t == RXCON && conht[r.i].cls == KI4));
+   return ref2oper(r);
+}
+
+static inline struct oper
+mkdatregoper(union ref r)
+{
+   assert(isregref(r) || (r.t == RXCON && conht[r.i].deref));
+   return ref2oper(r);
+}
+
+static inline struct oper
+mkimmdatregoper(union ref r)
+{
+   assert(isregref(r) || r.t == RICON || (r.t == RXCON && (conht[r.i].cls == KI4 || conht[r.i].deref)));
+   return ref2oper(r);
+}
+
+static struct oper
+mkmemoper(union ref r)
+{
+   if (r.t == RTMP) {
+      struct oper wop = ioper[r.i];
+      if (wop.t == OMEM) return wop;
+      assert(wop.t == OREG);
+      return mkoper(OMEM, .base = wop.reg, .index = NOINDEX);
+   } else if (r.t == RMORE) {
+      struct addr *addr = &addrtab.p[r.i];
+      struct oper mem;
+      if (addr->base.t == RTMP && ioper[addr->base.i].t == OMEM) {
+         mem = ioper[addr->base.i];
+         if (addr->index.t) addmemoper(&mem, mkregoper(addr->index));
+         assert(!mem.shift);
+         mem.shift = addr->shift;
+         addmemoper(&mem, mkoper(OIMM, .imm = addr->disp));
+         return mem;
+      }
+      return mkoper(OMEM, .base = addr->base.t ? mkregoper(addr->base).reg : NOBASE,
+                          .index = addr->index.t ? mkregoper(addr->index).reg : NOINDEX,
+                          .disp = addr->disp,
+                          .shift = addr->shift);
+   } else {
+      return mkoper(OMEM, .base = isregref(r) ? ref2oper(r).reg : NOBASE,
+                          .index = NOINDEX,
+                          .disp = isregref(r) ? 0 : mkimmoper(r).imm);
+   }
+}
+
+/** Instruction description tables **
+ *
+ * Each instruction is a list of descs, and the first one that matches
+ * is emitted. Each entry has a size pattern field, which is a bitset
+ * of the sizes (in bytes) that the entry matches, and 2 operand patterns,
+ * which describe the operands that can match (for example, PRAX matches
+ * a RAX register operand, PGPR matches any integer register, I8 matches
+ * an immediate operand between [-128,127]) The rest of the fields describe
+ * the instruction's encoding.
+ * (reference:  https://www.felixcloutier.com/x86/  &  https://wiki.osdev.org/X86-64_Instruction_Encoding )
+ */
 
 enum operpat {
    PNONE,
@@ -81,12 +164,13 @@ enum operenc {
 struct desc {
    uchar psiz; /* subset of {1,2,4,8} */
    uchar ptd, pts; /* bitsets of enum operpat */
-   const char *opc;
+   const char *opc; /* opcode bytes */
    uchar operenc; /* enum operenc */
    uchar ext; /* ModR/M.reg opc extension */
-   bool r8 : 1;
+   bool r8 : 1; /* uses 8bit register */
 };
 
+/* match operand against pattern */
 static inline bool
 opermatch(enum operpat pat, struct oper oper)
 {
@@ -105,15 +189,19 @@ opermatch(enum operpat pat, struct oper oper)
    assert(0);
 }
 
+/* code output helpers */
+#define B(b) (*(*pcode)++ = (b))
+#define D(xs, N) (memcpy(*pcode, (xs), (N)), (*pcode) += (N))
+#define I32(w) (wr32le(*pcode, (w)), *pcode += 4)
+#define DS(S) D(S, sizeof S - 1)
+
+/* Given an instruction description table, find the first entry that matches
+ * the operands (where dst, src are the operands in intel syntax order) and encode it */
 static void
 encode(uchar **pcode, const struct desc *tab, int ntab, uint siz, struct oper dst, struct oper src)
 {
-   const uchar *opc;
-   int nopc, mod, rex;
-   bool sib = 0;
-   uchar reg;
-   struct oper mem;
-   const struct desc *en = NULL;
+   const uchar *opc; int nopc, mod, rex;
+   bool sib = 0; uchar reg; struct oper mem; const struct desc *en = NULL;
 
    for (int i = 0; i < ntab; ++i) {
       if ((tab[i].psiz & siz) && opermatch(tab[i].ptd, dst) && opermatch(tab[i].pts, src)) {
@@ -229,6 +317,8 @@ encode(uchar **pcode, const struct desc *tab, int ntab, uint siz, struct oper ds
       encode(pcode, tab, arraylength(tab), siz, dst, src);      \
    }
 
+/* XXX should split floating point instrs into their own functions? */
+
 DEFINSTR2(Xmov,
    {1,   PMEM, PGPR, "\x88",     EN_MR, .r8=1}, /* MOV m8, r8 */
    {2,   PMEM, PGPR, "\x66\x89", EN_MR}, /* MOV m16, r16 */
@@ -303,8 +393,12 @@ DEFINSTR2(Xshl,
    {4|8, PGPR, PI32, "\xC1", EN_RI8, .ext=4}, /* SHL r32/64, imm */
    {4|8, PGPR, PRCX, "\xD3", EN_R, .ext=4},   /* SHL r32/64, CL */
 )
-DEFINSTR1(Xinc, {4|8, PGPR, 0, "\xFF", EN_R, .ext=0} /* INC r32/64 */)
-DEFINSTR1(Xdec, {4|8, PGPR, 0, "\xFF", EN_R, .ext=1} /* DEC r32/64 */)
+DEFINSTR1(Xinc,
+      {4|8, PGPR, 0, "\xFF", EN_R, .ext=0} /* INC r32/64 */
+)
+DEFINSTR1(Xdec,
+      {4|8, PGPR, 0, "\xFF", EN_R, .ext=1} /* DEC r32/64 */
+)
 DEFINSTR1(Xidiv,
    {4|8, PGPR, 0, "\xF7", EN_R, .ext=7}, /* IDIV r32/64 */
    {4|8, PMEM, 0, "\xF7", EN_M, .ext=7}, /* IDIV m32/64 */
@@ -331,74 +425,7 @@ Xpop(uchar **pcode, enum reg reg)
    B(0x58 + (reg & 7));
 }
 
-#define ismemref(ref) ((ref).t == RTMP && ioper[(ref).i].t == OMEM)
-#define isregref(ref) ((ref).t == RREG || ((ref).t == RTMP && ioper[(ref).i].t == OREG))
-
-static inline struct oper
-mkregoper(union ref r)
-{
-   assert(r.t == RREG || (r.t == RTMP && ioper[r.i].t == RREG));
-   return r.t == RREG ? reg2oper(r.i) : ioper[r.i];
-}
-
-static inline struct oper
-mkimmoper(union ref r)
-{
-   assert(r.t == RICON || (r.t == RXCON && conht[r.i].cls == KI4));
-   return mkoper(OIMM, .imm = r.t == RICON ? r.i : conht[r.i].i4);
-}
-
-static inline struct oper
-mkimmregoper(union ref r)
-{
-   assert(isregref(r) || r.t == RICON || (r.t == RXCON && conht[r.i].cls == KI4));
-   return ref2oper(r);
-}
-
-static inline struct oper
-mkdatregoper(union ref r)
-{
-   assert(isregref(r) || (r.t == RXCON && conht[r.i].deref));
-   return ref2oper(r);
-}
-
-static inline struct oper
-mkimmdatregoper(union ref r)
-{
-   assert(isregref(r) || r.t == RICON || (r.t == RXCON && (conht[r.i].cls == KI4 || conht[r.i].deref)));
-   return ref2oper(r);
-}
-
-static struct oper
-mkmemoper(union ref r)
-{
-   if (r.t == RTMP) {
-      struct oper wop = ioper[r.i];
-      if (wop.t == OMEM) return wop;
-      assert(wop.t == OREG);
-      return mkoper(OMEM, .base = wop.reg, .index = NOINDEX);
-   } else if (r.t == RMORE) {
-      struct addr *addr = &addrtab.p[r.i];
-      struct oper mem;
-      if (addr->base.t == RTMP && ioper[addr->base.i].t == OMEM) {
-         mem = ioper[addr->base.i];
-         if (addr->index.t) addmemoper(&mem, mkregoper(addr->index));
-         assert(!mem.shift);
-         mem.shift = addr->shift;
-         addmemoper(&mem, mkoper(OIMM, .imm = addr->disp));
-         return mem;
-      }
-      return mkoper(OMEM, .base = addr->base.t ? mkregoper(addr->base).reg : NOBASE,
-                          .index = addr->index.t ? mkregoper(addr->index).reg : NOINDEX,
-                          .disp = addr->disp,
-                          .shift = addr->shift);
-   } else {
-      return mkoper(OMEM, .base = isregref(r) ? ref2oper(r).reg : NOBASE,
-                          .index = NOINDEX,
-                          .disp = isregref(r) ? 0 : mkimmoper(r).imm);
-   }
-}
-
+/* Copy dst = val, with some peephole optimizations */
 static void
 gencopy(uchar **pcode, enum irclass cls, struct oper dst, union ref val)
 {
@@ -439,6 +466,7 @@ gencopy(uchar **pcode, enum irclass cls, struct oper dst, union ref val)
    Lea:
       Xlea(pcode, cls2siz[cls], dst, ref2oper(val));
    } else if (val.t == RICON && val.i == 0 && dst.t == OREG) {
+      /* dst = 0 -> xor dst, dst */
       Xxor(pcode, cls2siz[cls], dst, dst);
    } else if (val.t == RXCON && conht[val.i].isdat && !conht[val.i].deref) {
       Xlea(pcode, cls2siz[cls], dst, mkoper(OCONR, .con = val.i));
@@ -490,7 +518,7 @@ emitinstr(uchar **pcode, uint *stktop, struct function *fn, struct block *blk, i
          Xadd(pcode, ksiz, dst, mkimmdatregoper(ins->r));
       } else { /* three-address add (lea) */
          struct oper mem = { OMEM, .index = NOINDEX };
-         dst = mkoper(OREG, .reg = ins->reg-1);
+         dst = reg2oper(ins->reg-1);
          if (isregref(ins->r)) mem.base = mkregoper(ins->r).reg;
          else mem.disp = mkimmoper(ins->r).imm;
          Xlea(pcode, ksiz, dst, mem);
