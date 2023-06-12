@@ -12,9 +12,21 @@ int shcl(int a, int b) {
     return a << (b+1);
 }
 
-int div(int a,int b) {
-    return a < 0 ? a / b : b / a;
+struct p { long x,y; };
+struct p divsh(int a) {
+    struct p p;
+    p.x = a << (a / 5);
+    p.y = a;
+    return p;
 }
+
+struct bitset { unsigned long long u; };
+static inline void
+bscopy(struct bitset dst[/*siz*/], const struct bitset src[/*siz*/], unsigned siz)
+{
+   while (siz--) dst++->u = src++->u;
+}
+
 
 #if 0
 long test(long x) {

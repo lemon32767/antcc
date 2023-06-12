@@ -171,7 +171,11 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       insertinstr(blk, ++(*curi), temp);
       break;
    case Osub:
-      if (iscon(ins->l)) {
+       if (ins->r.bits == mkref(RICON, 1).bits) {
+         /* sub x,1 -> dec x */
+         ins->op = Oxdec;
+         ins->r = NOREF;
+      } else if (iscon(ins->l)) {
          /* sub imm, x -> sub x, imm; neg x */
          struct instr sub = *ins;
          rswap(sub.l, sub.r);
@@ -181,6 +185,18 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       }
       goto ALU;
    case Oadd:
+      if (ins->l.bits == mkref(RICON, 1).bits) {
+         /* add 1,x -> inc x */
+         ins->op = Oxinc;
+         ins->l = ins->r;
+         ins->r = NOREF;
+         goto ALU;
+      } else if (ins->r.bits == mkref(RICON, 1).bits) {
+         /* add x,1 -> inc x */
+         ins->op = Oxinc;
+         ins->r = NOREF;
+         goto ALU;
+      }
       if (kisint(ins->cls) && (addarg4addrp(ins->l) || addarg4addrp(ins->r))) {
          temp.op = Ocopy;
          temp.cls = ins->cls;

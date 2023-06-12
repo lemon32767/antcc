@@ -67,3 +67,6 @@ _(arg,      2)
 _(call,     2)
 _(intrin,   2)
 _(phi,      1)
+/* machine-specific instructions */
+_(xinc,      1)
+_(xdec,      1)

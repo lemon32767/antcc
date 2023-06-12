@@ -280,11 +280,24 @@ DEFINSTR2(Xadd,
    {4, PFPR, PMEM, "\xF3\x0F\x58", EN_RM}, /* ADDSS xmm, m32 */
    {8, PFPR, PMEM, "\xF2\x0F\x58", EN_RM}, /* ADDSD xmm, m64 */
 )
+DEFINSTR2(Xsub,
+   {4|8, PGPR, PGPR, "\x2B", EN_RR},           /* SUB r32/64, r32/64 */
+   {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=5},  /* SUB r32/64, imm8 */
+   {4|8, PRAX, PI32, "\x2D", EN_I32},          /* SUB eax/rax, imm */
+   {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=5}, /* SUB r32/64, imm */
+   {  8, PGPR, PMEM, "\x2B", EN_RM},           /* SUB r64, m64 */
+   {4, PFPR, PFPR, "\xF3\x0F\x5C", EN_RR}, /* SUBSS xmm, xmm */
+   {8, PFPR, PFPR, "\xF2\x0F\x5C", EN_RR}, /* SUBSD xmm, xmm */
+   {4, PFPR, PMEM, "\xF3\x0F\x5C", EN_RM}, /* SUBSS xmm, m32 */
+   {8, PFPR, PMEM, "\xF2\x0F\x5C", EN_RM}, /* SUBSD xmm, m64 */
+)
 DEFINSTR2(Xshl,
    {4|8, PGPR, P1,   "\xD1", EN_R, .ext=4},   /* SHL r32/64, 1 */
    {4|8, PGPR, PI32, "\xC1", EN_RI8, .ext=4}, /* SHL r32/64, imm */
    {4|8, PGPR, PRCX, "\xD3", EN_R, .ext=4},   /* SHL r32/64, CL */
 )
+DEFINSTR1(Xinc, {4|8, PGPR, 0, "\xFF", EN_R, .ext=0} /* INC r32/64 */)
+DEFINSTR1(Xdec, {4|8, PGPR, 0, "\xFF", EN_R, .ext=1} /* DEC r32/64 */)
 DEFINSTR1(Xidiv,
    {4|8, PGPR, 0, "\xF7", EN_R, .ext=7}, /* IDIV r32/64 */
    {4|8, PMEM, 0, "\xF7", EN_M, .ext=7}, /* IDIV m32/64 */
@@ -433,6 +446,7 @@ emitinstr(uchar **pcode, uint *stktop, struct function *fn, struct block *blk, i
    struct oper dst, src;
    uchar ksiz = cls2siz[ins->cls];
    void (*X)(uchar **, uint, struct oper, struct oper) = NULL;
+   void (*X1)(uchar **, uint, struct oper) = NULL;
 
    if (oisalloca(ins->op)) {
       uint alignlog2 = ins->op - Oalloca1;
@@ -473,11 +487,19 @@ emitinstr(uchar **pcode, uint *stktop, struct function *fn, struct block *blk, i
          Xlea(pcode, ksiz, dst, mem);
       }
       break;
+   case Osub: X = Xsub; goto ALU2;
    case Oshl: X = Xshl; goto ALU2;
    ALU2:
       dst = mkregoper(ins->l);
       assert(ins->reg-1 == dst.reg);
       X(pcode, ksiz, dst, mkimmdatregoper(ins->r));
+      break;
+   case Oxinc: X1 = Xinc; goto ALU1;
+   case Oxdec: X1 = Xdec; goto ALU1;
+   ALU1:
+      dst = mkregoper(ins->l);
+      assert(ins->reg-1 == dst.reg);
+      X1(pcode, ksiz, dst);
       break;
    case Odiv: case Orem:
       switch (ins->cls) {

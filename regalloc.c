@@ -219,6 +219,7 @@ regalloc(struct function *fn)
                /* an in-place operation where the destination does not
                 * match the first operand, so we need to add a move */
                insertinstr(blk, i, mkmove(ins->cls, ins->reg-1, ins->l.i));
+               ins->l.i = ins->reg-1;
             }
          }
       }
