@@ -42,17 +42,16 @@ ref2oper(union ref r)
 
 enum { NOBASE = 99, NOINDEX = 99 };
 
-static struct oper
-addmemoper(struct oper mem, struct oper add)
+static void
+addmemoper(struct oper *mem, struct oper add)
 {
-   assert(mem.t == OMEM);
+   assert(mem->t == OMEM);
    if (add.t == OIMM) {
-      mem.disp += add.imm;
+      mem->disp += add.imm;
    } else if (add.t == OREG) {
-      assert(mem.index == NOINDEX);
-      mem.index = add.reg;
+      assert(mem->index == NOINDEX);
+      mem->index = add.reg;
    }
-   return mem;
 }
 
 enum operpat {
@@ -383,10 +382,10 @@ mkmemoper(union ref r)
       struct oper mem;
       if (addr->base.t == RTMP && ioper[addr->base.i].t == OMEM) {
          mem = ioper[addr->base.i];
-         if (addr->index.t) addmemoper(mem, mkregoper(addr->index));
+         if (addr->index.t) addmemoper(&mem, mkregoper(addr->index));
          assert(!mem.shift);
          mem.shift = addr->shift;
-         addmemoper(mem, mkoper(OIMM, .imm = addr->disp));
+         addmemoper(&mem, mkoper(OIMM, .imm = addr->disp));
          return mem;
       }
       return mkoper(OMEM, .base = addr->base.t ? mkregoper(addr->base).reg : NOBASE,
