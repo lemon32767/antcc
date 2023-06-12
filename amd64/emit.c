@@ -508,7 +508,7 @@ emitinstr(uchar **pcode, uint *stktop, struct function *fn, struct block *blk, i
                 assert(mkregoper(ins->l).reg == RAX);
                 Xidiv(pcode, ksiz, mkdatregoper(ins->r));
                 break;
-      case KF4: case KF8: assert(0);
+      case KF4: case KF8: assert(!"nyi");
       }
       break;
    case Omove:
