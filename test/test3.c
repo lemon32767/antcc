@@ -12,10 +12,13 @@ int shcl(int a, int b) {
     return a << (b+1);
 }
 
+int zero() { return 0; }
+float fzero() { return 0.0f; }
+
 struct p { long x,y; };
 struct p divsh(int a) {
     struct p p;
-    p.x = a << (a / 5);
+    p.x = a << (a % 5);
     p.y = a;
     return p;
 }

@@ -238,10 +238,10 @@ DEFINSTR2(Xmov,
    {4|8, PGPR, PMEM, "\x8B",     EN_RM}, /* MOV r32/64, m32/64 */
    {4|8, PGPR, PI32, "\xB8",     EN_OI}, /* MOV r32/64, imm */
    {4, PFPR, PFPR, "\xF3\x0F\x10", EN_RR}, /* MOVSS xmm, xmm */
-   {4, PFPR, PMEM, "\xF3\x0F\x10", EN_RM}, /* MOVSS xmm, m32 */
-   {4, PMEM, PFPR, "\xF3\x0F\x10", EN_MR}, /* MOVSS m32, xmm */
    {8, PFPR, PFPR, "\xF2\x0F\x10", EN_RR}, /* MOVSD xmm, xmm */
+   {4, PFPR, PMEM, "\xF3\x0F\x10", EN_RM}, /* MOVSS xmm, m32 */
    {8, PFPR, PMEM, "\xF2\x0F\x10", EN_RM}, /* MOVSD xmm, m64 */
+   {4, PMEM, PFPR, "\xF3\x0F\x10", EN_MR}, /* MOVSS m32, xmm */
    {8, PMEM, PFPR, "\xF2\x0F\x11", EN_MR}, /* MOVSS m64, xmm */
 )
 DEFINSTR2(Xmovsx4,
@@ -290,6 +290,14 @@ DEFINSTR2(Xsub,
    {8, PFPR, PFPR, "\xF2\x0F\x5C", EN_RR}, /* SUBSD xmm, xmm */
    {4, PFPR, PMEM, "\xF3\x0F\x5C", EN_RM}, /* SUBSS xmm, m32 */
    {8, PFPR, PMEM, "\xF2\x0F\x5C", EN_RM}, /* SUBSD xmm, m64 */
+)
+DEFINSTR2(Xxor,
+   {4|8, PGPR, PGPR, "\x33", EN_RR},           /* XOR r32/64, r32/64 */
+   {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=6},  /* XOR r32/64, imm8 */
+   {4|8, PRAX, PI32, "\x35", EN_I32},          /* XOR eax/rax, imm */
+   {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=6}, /* XOR r32/64, imm */
+   {  8, PGPR, PMEM, "\x33", EN_RM},           /* XOR r64, m64 */
+   {4|8, PFPR, PFPR, "\x0F\x57", EN_RR}, /* XORPS xmm, xmm */
 )
 DEFINSTR2(Xshl,
    {4|8, PGPR, P1,   "\xD1", EN_R, .ext=4},   /* SHL r32/64, 1 */
@@ -431,10 +439,12 @@ gencopy(uchar **pcode, enum irclass cls, struct oper dst, union ref val)
       /* normal (not 2-address) case */
    Lea:
       Xlea(pcode, cls2siz[cls], dst, ref2oper(val));
+   } else if (val.t == RICON && val.i == 0 && dst.t == OREG) {
+      Xxor(pcode, cls2siz[cls], dst, dst);
    } else if (val.t == RXCON && conht[val.i].isdat && !conht[val.i].deref) {
       Xlea(pcode, cls2siz[cls], dst, mkoper(OCONR, .con = val.i));
    } else {
-      struct oper src = mkimmregoper(val);
+      struct oper src = mkimmdatregoper(val);
       if (memcmp(&dst, &src, sizeof dst) != 0)
          Xmov(pcode, cls2siz[cls], dst, src);
    }

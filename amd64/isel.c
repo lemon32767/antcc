@@ -17,7 +17,12 @@ fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, 
          /* add X, INT32MAX+1 -> sub X, INT32MIN */
          ins->op = Oadd + (op == Oadd);
          *r = mkintcon(fn, KI4, -2147483648);
-      } else if (con->cls && (kisflt(con->cls) || con->cls == KI8)) {
+      } else if (in_range(op, Ocopy, Omove) && kisflt(con->cls)
+            && (con->cls == KF4 ? con->fs == 0.0f : con->fd == 0.0))
+      {
+         /* copy of float zero -> regular zero, that emit() will turn into xor x,x */
+         *r = mkref(RICON, 0);
+      } else if (kisflt(con->cls) || con->cls == KI8) {
          /* float immediates & >32b immediates are loaded from memory */
          uchar data[8];
          uint siz = cls2siz[con->cls];
@@ -140,6 +145,11 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    enum op op = ins->op;
 
    switch (op) {
+   default: assert(0);
+   case Onop: break;
+   case Oalloca1: case Oalloca2: case Oalloca4: case Oalloca8: case Oalloca16:
+   case Ocall: case Ointrin:
+      break;
    case Oshl: case Osar: case Oslr:
       if (!iscon(ins->r)) {
          /* shift amount register is always CL */
@@ -222,6 +232,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       if (ins->l.t != RTMP && ins->l.t != RREG)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
       if (ins->r.t)
+   case Omove:
          fixarg(fn, &ins->r, ins, blk, curi);
       break;
    case Oloads1: case Oloadu1: case Oloads2: case Oloadu2:
