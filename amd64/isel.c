@@ -6,7 +6,7 @@ static void
 fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, int *curi)
 {
    int sh;
-   enum op op = ins->op;
+   enum op op = ins ? ins->op : 0;
 
    if (r->t == RXCON) {
       struct xcon *con = &conht[r->i];

@@ -12,12 +12,8 @@ int shcl(int a, int b) {
     return a << (b+1);
 }
 
-struct p { long x,y; };
-struct p divsh(int a) {
-    struct p p;
-    p.x = a << (a / 5);
-    p.y = a;
-    return p;
+int div(int a,int b) {
+    return a < 0 ? a / b : b / a;
 }
 
 #if 0

@@ -129,15 +129,9 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
    int excl = other.t == RREG ? other.i : -1;
 
    if (ref->t == RMORE) {
-      if (op == Ophi) {
-         struct phi *phi = &phitab.p[ref->i];
-         for (int i = 0; i < phi->n; ++i)
-            use(ra, blk, curi, 0, hint, &phi->ref[i], NOREF);
-      } else {
-         struct addr *addr = &addrtab.p[ref->i];
-         if (addr->base.t) use(ra, blk, curi, 0, hint, &addr->base, addr->index);
-         if (addr->index.t) use(ra, blk, curi, 0, hint, &addr->index, NOREF);
-      }
+      struct addr *addr = &addrtab.p[ref->i];
+      if (addr->base.t) use(ra, blk, curi, 0, hint, &addr->base, addr->index);
+      if (addr->index.t) use(ra, blk, curi, 0, hint, &addr->index, NOREF);
       return;
    } else if (ref->t == RREG) {
       forcetake(ra, ref->i, *ref, blk, curi);
@@ -187,28 +181,11 @@ regalloc(struct function *fn)
    do {
       for (int i = 0; i < 2; ++i) {
          if (!blk->jmp.arg[i].t) break;
-         use(&ra, blk, blk->ins.n-1, (blk->jmp.t == Jb) - 1,
+         use(&ra, blk, blk->ins.n-1, (blk->jmp.t != Jb) - 1,
                   blk->jmp.t == Jret ? fn->abiret[i].reg : -1,
                   &blk->jmp.arg[i], blk->jmp.arg[!i]);
       }
-      for (struct block *s = blk->s1; s; s = blk->s2) {
-         /* introduce necessary moves for successors' phis */
-         for (int i = 0; i < s->phi.n; ++i) {
-            ins = &instrtab[s->phi.p[i]];
-            struct phi *phi = &phitab.p[ins->l.i];
-            for (int i = 0; i < phi->n; ++i) {
-               if (phi->blk[i] == blk) {
-                  union ref src = phi->ref[i];
-                  int reg = ins->reg - 1;
-                  assert(reg >= 0);
-                  if (src.t != RTMP || instrtab[src.i].reg-1 != reg) /* not in the right register already */
-                     insertinstr(blk, blk->ins.n, mkinstr(Omove, ins->cls, mkref(RREG, reg), src));
-                  break;
-               }
-            }
-         }
-         if (s == blk->s2) break;
-      }
+
       for (int i = blk->ins.n - 1; i >= 0; --i) {
          int hint0 = -1, hint1 = -1;
          ins = &instrtab[blk->ins.p[i]];
@@ -245,10 +222,19 @@ regalloc(struct function *fn)
          }
       }
       for (int i = blk->phi.n - 1; i >= 0; --i) {
+         struct phi *phi;
          ins = &instrtab[blk->phi.p[i]];
          assert(ins->op == Ophi);
+         phi = &phitab.p[ins->l.i];
+         if (ins->reg) {
+            /* introduce necessary moves in each pred,
+             * XXX this doesn't work for backwards branches */
+            for (int i = 0; i < phi->n; ++i) {
+               struct instr mov = mkinstr(Omove, ins->cls, mkref(RREG, ins->reg-1), phi->ref[i]);
+               insertinstr(phi->blk[i], phi->blk[i]->ins.n, mov);
+            }
+         }
          def(&ra, ins);
-         use(&ra, blk, 0, Ophi, ins->reg - 1, &ins->l, NOREF);
       }
    } while ((blk = blk->lprev) != last);
 
