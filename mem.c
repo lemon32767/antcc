@@ -176,7 +176,7 @@ imap_rehash(struct imapbase *m, void **v, uint vsiz)
          j &= N2 - 1;
          if (!bstest(newbs, j)) {
             bsset(newbs, j);
-            m->k[j] = k;
+            newk[j] = k;
             memcpy((char *)newv + j*vsiz, (char *)*v + i*vsiz, vsiz);
             break;
          }

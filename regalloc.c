@@ -156,8 +156,8 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
       } else {
          ins->reg = nextreg(ra, ins->cls, *ref, excl) + 1;
       }
-      *ref = mkref(RREG, ins->reg-1);
    }
+   *ref = mkref(RREG, ins->reg-1);
 }
 
 void
@@ -171,6 +171,7 @@ regalloc(struct function *fn)
    for (int i = 0; i < MAXREGS; ++i)
       if (in_range(i, mctarg->fpr0, mctarg->fpr0 + mctarg->nfpr - 1))
             bsset(floatregs, i);
+   bszero(globusage, 1);
 
    /* a dumb linear register allocator that visits instructions physically backwards
     * starting at the end of the function, when encountering a use of a new
@@ -197,7 +198,7 @@ regalloc(struct function *fn)
          if (ins->op != Ocall) {
             if (ins->op == Ocopy) hint0 = ins->reg - 1;
             if (ins->op == Omove) {
-               hint1 = ins->l.i;
+               if (ins->l.t == RREG) hint1 = ins->l.i;
                /* MOV Rx,Rx is used by isel to indicate a clobber,
                 * so it should be a def point for Rx but not a use point */
                if (ins->r.bits != ins->l.bits)
