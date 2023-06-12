@@ -389,7 +389,7 @@ bszero(struct bitset bs[/*siz*/], uint siz)
 static inline void
 bscopy(struct bitset dst[/*siz*/], const struct bitset src[/*siz*/], uint siz)
 {
-   while (--siz) dst++->u = src++->u;
+   while (siz--) dst++->u = src++->u;
 }
 
 static inline bool
