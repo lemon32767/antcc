@@ -461,11 +461,22 @@ emitinstr(uchar **pcode, uint *stktop, struct function *fn, struct block *blk, i
    case Oloadu4: src = mkmemoper(ins->l); Movzx4: Xmov(pcode, 4, reg2oper(ins->reg-1), src); break;
    case Oloadf4: case Oloadf8:
    case Oloadi8: Xmov(pcode, ksiz, reg2oper(ins->reg-1), mkmemoper(ins->l)); break;
-   case Oadd: X = Xadd; goto ALU2;
+   case Oadd:
+      dst = mkregoper(ins->l);
+      if (ins->reg-1 == dst.reg) { /* two-address add */
+         Xadd(pcode, ksiz, dst, mkimmdatregoper(ins->r));
+      } else { /* three-address add (lea) */
+         struct oper mem = { OMEM, .index = NOINDEX };
+         dst = mkoper(OREG, .reg = ins->reg-1);
+         if (isregref(ins->r)) mem.base = mkregoper(ins->r).reg;
+         else mem.disp = mkimmoper(ins->r).imm;
+         Xlea(pcode, ksiz, dst, mem);
+      }
+      break;
    case Oshl: X = Xshl; goto ALU2;
    ALU2:
-      dst = ref2oper(ins->l);
-      assert(dst.t == OREG && ins->reg-1 == dst.reg);
+      dst = mkregoper(ins->l);
+      assert(ins->reg-1 == dst.reg);
       X(pcode, ksiz, dst, mkimmdatregoper(ins->r));
       break;
    case Odiv: case Orem:
