@@ -6,14 +6,16 @@ static void
 fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, int *curi)
 {
    int sh;
+   enum op op = ins->op;
+
    if (r->t == RXCON) {
       struct xcon *con = &conht[r->i];
-      if (in_range(ins->op, Oshl, Oslr)) {
+      if (in_range(op, Oshl, Oslr)) {
          sh = con->cls == KI4 ? con->i4 : con->i8;
          goto ShiftImm;
-      } else if (in_range(ins->op, Oadd, Osub) && con->i8 == 2147483648) {
+      } else if (in_range(op, Oadd, Osub) && con->i8 == 2147483648) {
          /* add X, INT32MAX+1 -> sub X, INT32MIN */
-         ins->op = Oadd + (ins->op == Oadd);
+         ins->op = Oadd + (op == Oadd);
          *r = mkintcon(fn, KI4, -2147483648);
       } else if (con->cls && (kisflt(con->cls) || con->cls == KI8)) {
          /* float immediates & >32b immediates are loaded from memory */
@@ -22,8 +24,12 @@ fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, 
          if (con->cls == KI4 || con->cls == KF4) wr32le(data, con->i4);
          else wr64le(data, con->i8);
          *r = mkdatref(fn, siz, /*align*/siz, data, siz, /*deref*/1);
-      }
-   } else if (in_range(ins->op, Oshl, Oslr) && r->t == RICON) {
+      } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls))
+         goto DivImm;
+   } else if (r->t == RICON && in_range(op, Odiv, Ourem) && kisint(ins->cls)) {
+   DivImm: /* there is no division by immediate, must be copied to a register */
+      *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, *r));
+   } else if (r->t == RICON && in_range(op, Oshl, Oslr)) {
       sh = r->i;
    ShiftImm: /* shift immediate is always 8bit */
       *r = mkref(RICON, sh & 255);
@@ -131,8 +137,9 @@ static void
 sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 {
    struct instr temp = {0};
+   enum op op = ins->op;
 
-   switch (ins->op) {
+   switch (op) {
    case Oshl: case Osar: case Oslr:
       if (!iscon(ins->r)) {
          /* shift amount register is always CL */
@@ -144,10 +151,25 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Oulth: case Ougth: case Oulte: case Ougte:
       if (iscon(ins->l)) {
          /* lth imm, x -> gth x, imm */
-         ins->op = ((ins->op - Olth) ^ 1) + Olth;
+         ins->op = ((op - Olth) ^ 1) + Olth;
          rswap(ins->l, ins->r);
       }
       goto ALU;
+   case Odiv: case Oudiv: case Orem: case Ourem:
+      if (kisflt(ins->cls)) goto ALU;
+      /* TODO fuse div/rem pair */
+
+      /* (I)DIV dividend is always in RDX:RAX, output also in those regs */
+      insertinstr(blk, (*curi)++, mkinstr(Omove, ins->cls, mkref(RREG, RAX), ins->l));
+      /* mark RDX as clobbered. sign/zero-extending RAX into RDX is handled in emit() */
+      insertinstr(blk, (*curi)++, mkinstr(Omove, ins->cls, mkref(RREG, RDX), mkref(RREG, RDX)));
+      fixarg(fn, &ins->r, ins, blk, curi); /* make sure rhs is memory or reg */
+      ins->l = mkref(RREG, RAX);
+      insertinstr(blk, (*curi)++, *ins); /* duplicate ins to reuse tmp ref */
+      *ins = mkinstr(Ocopy, ins->cls, mkref(RREG, op < Orem ? RAX : RDX)); /* get output */
+      temp = mkinstr(Ocopy, ins->cls, mkref(RREG, op < Orem ? RDX : RAX)); /* clobber other reg*/
+      insertinstr(blk, ++(*curi), temp);
+      break;
    case Osub:
       if (iscon(ins->l)) {
          /* sub imm, x -> sub x, imm; neg x */
@@ -168,6 +190,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
             break;
          }
       }
+      /* fallthru */
    case Omul: case Oumul:
    case Oand: case Oxor: case Oior:
    case Oequ: case Oneq:
@@ -177,8 +200,8 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Oneg: case Onot:
    case Oexts1: case Oextu1: case Oexts2: case Oextu2: case Oexts4: case Oextu4:
    ALU:
-      if (!(ins->op == Oadd && kisint(ins->cls))) /* 3-address add is lea */
-      if (!(in_range(ins->op, Omul, Oumul) && kisint(ins->cls) && isimm32(ins->r))) /* for (I)MUL r,r/m,imm */
+      if (!(op == Oadd && kisint(ins->cls))) /* 3-address add is lea */
+      if (!(in_range(op, Omul, Oumul) && kisint(ins->cls) && isimm32(ins->r))) /* for (I)MUL r,r/m,imm */
          ins->inplace = 1;
       if (ins->l.t != RTMP && ins->l.t != RREG)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));

@@ -142,7 +142,7 @@ struct function {
 struct mctarg {
    short gpr0, /* first gpr */
          ngpr, /* gpr count */
-         spr,  /* stack pointer reg */
+         fpr,  /* frame pointer reg */
          fpr0, /* first fpr */
          nfpr; /* fpr count */
    struct bitset rcallee[1], /* callee-saved */

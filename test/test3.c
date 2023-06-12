@@ -8,11 +8,22 @@ int t(unsigned short *p, short i) {
     return p[i];
 }
 
-#if 1
+int shcl(int a, int b) {
+    return a << (b+1);
+}
+
+struct p { long x,y; };
+struct p divsh(int a) {
+    struct p p;
+    p.x = a << (a / 5);
+    p.y = a;
+    return p;
+}
+
+#if 0
 long test(long x) {
     return x + (long)"abc";
 }
-#endif
 
 double ff(double x, double y)
 {
@@ -26,3 +37,4 @@ void testss() {
 
 long fma(long x, long y) {
 return x + (y <<1) - 2147483648;}
+#endif

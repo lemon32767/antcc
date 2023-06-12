@@ -126,50 +126,46 @@ freearena(struct arena *ar)
    }
 }
 
-#if 0
-
-int
-map_get_(struct mapbase *m, int k)
-{
-   if (!m->N) return 0;
-   for (int i = k;; ++i) {
-      bool notempty = bstest(m->bs, k);
-      i &= m->N - 1;
-      if (notempty && m->k[i] == k)
-         return i;
-      if (!notempty)
-         return -1;
-   }
-}
-
-
 void
-map_init_(struct mapbase *m, void **v, uint vsiz, uint N)
+imap_init_(struct imapbase *m, void **v, uint vsiz, uint N)
 {
-   uint sizk = N*sizeof(int),
+   uint sizk = N*sizeof*m->k,
         sizv = N*vsiz,
-        sizbs = BSCOUNT(N)*sizeof(struct bitset);
+        sizbs = BSSIZE(N)*sizeof(struct bitset);
 
-   assert(N && (N & (N - 1)) == 0);
-   m->k = xcalloc(sizk + sizv + sizbs, "map_rehash");
+   assert(ispo2(N));
+   m->k = xcalloc(sizk + sizv + sizbs, "imap_init");
    *v = (char *)m->k + sizk;
    m->bs = (struct bitset *)((char *)*v + sizv);
    m->N = N;
 }
 
-static void
-map_rehash(struct mapbase *m, void **v, uint vsiz)
+int
+imap_get_(struct imapbase *m, short k)
 {
-   int *newk, i, k, j;
+   if (!m->N) return -1;
+   for (int i = k;; ++i) {
+      bool notempty = bstest(m->bs, i &= m->N - 1);
+      if (bstest(m->bs, i) && m->k[i] == k) return i;
+      if (!notempty) return -1;
+   }
+}
+
+static void
+imap_rehash(struct imapbase *m, void **v, uint vsiz)
+{
+   short *newk, k;
+   int i, j;
    void *newv;
    struct bitset *newbs;
-   uint N2 = m->N << 1,
-        sizk = N2*sizeof(int),
+   uint N2 = m->N ? m->N << 1 : 16,
+        sizk = N2*sizeof*m->k,
         sizv = N2*vsiz,
-        sizbs = BSCOUNT(N2)*sizeof(struct bitset);
+        sizbs = BSSIZE(N2)*sizeof(struct bitset);
 
    assert(N2);
-   newk = xrealloc(NULL, sizk + sizv + sizbs, "map_rehash");
+   newk = xcalloc(sizk + sizv + sizbs, "imap_rehash");
+   memset(newk, 0, sizk + sizv + sizbs);
    newv = (char *)newk + sizk;
    newbs = (struct bitset *)((char *)newv + sizv);
    for (i = 0; i < m->N; ++i) {
@@ -178,8 +174,8 @@ map_rehash(struct mapbase *m, void **v, uint vsiz)
       j = k = m->k[i];
       for (;; ++j) {
          j &= N2 - 1;
-         if (!bstest(newbs, i)) {
-            bsset(newbs, i);
+         if (!bstest(newbs, j)) {
+            bsset(newbs, j);
             m->k[j] = k;
             memcpy((char *)newv + j*vsiz, (char *)*v + i*vsiz, vsiz);
             break;
@@ -187,8 +183,6 @@ map_rehash(struct mapbase *m, void **v, uint vsiz)
       }
    }
    free(m->k);
-   free(*v);
-   free(m->bs);
    m->k = newk;
    *v = newv;
    m->bs = newbs;
@@ -196,16 +190,14 @@ map_rehash(struct mapbase *m, void **v, uint vsiz)
 }
 
 int
-map_set_(struct mapbase *m, void **v, uint vsiz, int k)
+imap_set_(struct imapbase *m, void **v, uint vsiz, short k)
 {
-   if (!m->N) return 0;
    if (m->n >= m->N >> 1) {
-      map_rehash(m, v, vsiz);
+      imap_rehash(m, v, vsiz);
       assert(m->n < m->N);
    }
    for (int i = k;; ++i) {
-      bool notempty = bstest(m->bs, k);
-      i &= m->N - 1;
+      bool notempty = bstest(m->bs, i &= m->N - 1);
       if (notempty && m->k[i] == k)
          return i;
       if (!notempty) {
@@ -217,6 +209,79 @@ map_set_(struct mapbase *m, void **v, uint vsiz, int k)
    }
 }
 
-#endif
+void
+pmap_init_(struct pmapbase *m, void **v, uint vsiz, uint N)
+{
+   uint sizk = N*sizeof(int),
+        sizv = N*vsiz;
+
+   assert(ispo2(N));
+   m->k = xcalloc(sizk + sizv, "pmap_init");
+   *v = (char *)m->k + sizk;
+   m->N = N;
+}
+
+int pmap_get_(struct pmapbase *m, void *k)
+{
+   assert(k && "null key");
+   if (!m->N) return -1;
+   for (int i = ptrhash(k);; ++i) {
+      i &= m->N - 1;
+      if (m->k[i] == k) return i;
+      if (!m->k[i]) return -1;
+   }
+}
+
+static void
+pmap_rehash(struct pmapbase *m, void **v, uint vsiz)
+{
+   void **newk;
+   int i, j;
+   void *k;
+   void *newv;
+   uint N2 = m->N << 1,
+        sizk = N2*sizeof*m->k,
+        sizv = N2*vsiz;
+
+   assert(N2);
+   newk = xcalloc(sizk + sizv, "pmap_rehash");
+   newv = (char *)newk + sizk;
+   for (i = 0; i < m->N; ++i) {
+      if (!m->k[i])
+         continue;
+      j = ptrhash(k = m->k[i]);
+      for (;; ++j) {
+         j &= N2 - 1;
+         if (!newk[j]) {
+            newk[j] = k;
+            memcpy((char *)newv + j*vsiz, (char *)*v + i*vsiz, vsiz);
+            break;
+         }
+      }
+   }
+   free(m->k);
+   m->k = newk;
+   *v = newv;
+   m->N = N2;
+}
+
+int pmap_set_(struct pmapbase *m, void **v, uint vsiz, void *k)
+{
+   assert(k && "null key");
+   if (m->n >= m->N >> 1) {
+      pmap_rehash(m, v, vsiz);
+      assert(m->n < m->N);
+   }
+   for (int i = ptrhash(k);; ++i) {
+      i &= m->N - 1;
+      if (m->k[i] == k)
+         return i;
+      if (!m->k[i]) {
+         m->k[i] = k;
+         ++m->n;
+         return i;
+      }
+   }
+}
 
 /* vim:set ts=3 sw=3 expandtab: */

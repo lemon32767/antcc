@@ -58,6 +58,7 @@ addmemoper(struct oper mem, struct oper add)
 enum operpat {
    PNONE,
    PRAX,
+   PRCX,
    PGPR,
    PFPR,
    P1, /* imm = 1 */
@@ -93,6 +94,7 @@ opermatch(enum operpat pat, struct oper oper)
    switch (pat) {
    case PNONE: return !oper.t;
    case PRAX: return oper.t == OREG && oper.reg == RAX;
+   case PRCX: return oper.t == OREG && oper.reg == RCX;
    case PGPR: return oper.t == OREG && oper.reg <= R15;
    case PFPR: return oper.t == OREG && oper.reg >= XMM0;
    case P1:   return oper.t == OIMM && oper.imm == 1;
@@ -240,7 +242,7 @@ DEFINSTR2(Xmov,
    {4, PMEM, PFPR, "\xF3\x0F\x10", EN_MR}, /* MOVSS m32, xmm */
    {8, PFPR, PFPR, "\xF2\x0F\x10", EN_RR}, /* MOVSD xmm, xmm */
    {8, PFPR, PMEM, "\xF2\x0F\x10", EN_RM}, /* MOVSD xmm, m64 */
-   {8, PMEM, PFPR, "\xF2\x0F\x10", EN_MR}, /* MOVSS m64, xmm */
+   {8, PMEM, PFPR, "\xF2\x0F\x11", EN_MR}, /* MOVSS m64, xmm */
 )
 DEFINSTR2(Xmovsx4,
    {8, PGPR, PMEM, "\x63", EN_RM}, /* MOVSXD r64, m32 */
@@ -279,8 +281,13 @@ DEFINSTR2(Xadd,
    {8, PFPR, PMEM, "\xF2\x0F\x58", EN_RM}, /* ADDSD xmm, m64 */
 )
 DEFINSTR2(Xshl,
-   {4|8, PGPR, P1,   "\xD1", EN_R, .ext=4},    /* SHL r32/64, 1 */
-   {4|8, PGPR, PI32, "\xC1", EN_RI8, .ext=4},  /* SHL r32/64, imm */
+   {4|8, PGPR, P1,   "\xD1", EN_R, .ext=4},   /* SHL r32/64, 1 */
+   {4|8, PGPR, PI32, "\xC1", EN_RI8, .ext=4}, /* SHL r32/64, imm */
+   {4|8, PGPR, PRCX, "\xD3", EN_R, .ext=4},   /* SHL r32/64, CL */
+)
+DEFINSTR1(Xidiv,
+   {4|8, PGPR, 0, "\xF7", EN_R, .ext=7}, /* IDIV r32/64 */
+   {4|8, PMEM, 0, "\xF7", EN_M, .ext=7}, /* IDIV m32/64 */
 )
 DEFINSTR1(Xcall,
    {-1, PSYM, 0, "\xE8", EN_R32}, /* CALL rel32 */
@@ -325,6 +332,13 @@ static inline struct oper
 mkimmregoper(union ref r)
 {
    assert(isregref(r) || r.t == RICON || (r.t == RXCON && conht[r.i].cls == KI4));
+   return ref2oper(r);
+}
+
+static inline struct oper
+mkdatregoper(union ref r)
+{
+   assert(isregref(r) || (r.t == RXCON && conht[r.i].deref));
    return ref2oper(r);
 }
 
@@ -453,6 +467,16 @@ emitinstr(uchar **pcode, uint *stktop, struct function *fn, struct block *blk, i
       dst = ref2oper(ins->l);
       assert(dst.t == OREG && ins->reg-1 == dst.reg);
       X(pcode, ksiz, dst, mkimmdatregoper(ins->r));
+      break;
+   case Odiv: case Orem:
+      switch (ins->cls) {
+      case KI8: B(0x48); /* REX.W */
+      case KI4: B(0x99); /* CDQ/CQO */
+                assert(mkregoper(ins->l).reg == RAX);
+                Xidiv(pcode, ksiz, mkdatregoper(ins->r));
+                break;
+      case KF4: case KF8: assert(0);
+      }
       break;
    case Omove:
       dst = ref2oper(ins->l);

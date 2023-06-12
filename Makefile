@@ -4,7 +4,7 @@ OBJ=$(patsubst %.c,obj/%.o,$(SRC))
 DEP=$(OBJ:.o=.d)
 OUT=cchomp
 
-all: CFLAGS += -g -Og
+all: CFLAGS += -g
 all: $(OUT)
 
 opt: CFLAGS += -O2

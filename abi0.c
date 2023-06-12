@@ -71,10 +71,10 @@ copyparam(struct abiarg abi)
       case KF4: ld = Oloadf4; break;
       case KF8: ld = Oloadf8; break;
       }
-      vpush(&addrtab, ((struct addr) {.base = mkref(RREG, mctarg->spr), .disp = abi.reg}));
+      vpush(&addrtab, ((struct addr) {.base = mkref(RREG, mctarg->fpr), .disp = abi.stk}));
       return mkinstr(ld, abi.ty.cls, mkref(RMORE, addrtab.n - 1));
    } else { /* aggregate in stack */
-      vpush(&addrtab, ((struct addr) {.base = mkref(RREG, mctarg->spr), .disp = abi.reg}));
+      vpush(&addrtab, ((struct addr) {.base = mkref(RREG, mctarg->fpr), .disp = abi.stk}));
       return mkinstr(Ocopy, KPTR, mkref(RMORE, addrtab.n - 1));
    }
 }
