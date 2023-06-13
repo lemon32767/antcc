@@ -71,10 +71,10 @@ copyparam(struct abiarg abi)
       case KF4: ld = Oloadf4; break;
       case KF8: ld = Oloadf8; break;
       }
-      vpush(&addrtab, ((struct addr) {.base = mkref(RREG, mctarg->fpr), .disp = abi.stk}));
+      vpush(&addrtab, ((struct addr) {.base = mkref(RREG, mctarg->bpr), .disp = -abi.stk}));
       return mkinstr(ld, abi.ty.cls, mkref(RMORE, addrtab.n - 1));
    } else { /* aggregate in stack */
-      vpush(&addrtab, ((struct addr) {.base = mkref(RREG, mctarg->fpr), .disp = abi.stk}));
+      vpush(&addrtab, ((struct addr) {.base = mkref(RREG, mctarg->bpr), .disp = -abi.stk}));
       return mkinstr(Ocopy, KPTR, mkref(RMORE, addrtab.n - 1));
    }
 }
@@ -361,7 +361,7 @@ abi0(struct function *fn)
                union irtype typ = mkirtype(fn->retty);
                insertinstr(blk, blk->ins.n, mkarginstr(typ, sret));
                insertinstr(blk, blk->ins.n, mkarginstr(typ, blk->jmp.arg[0]));
-               insertinstr(blk, blk->ins.n, mkintrin(fn, INstructcopy, 0, 2));
+               insertinstr(blk, blk->ins.n, mkintrin(INstructcopy, 0, 2));
             } else assert(blk->jmp.arg[0].bits == mkref(RTMP, rvovar).bits);
             if (fn->abiret[0].ty.cls) blk->jmp.arg[0] = rvovar == -1 ? sret : mkref(RTMP, rvovar);
             else memset(blk->jmp.arg, 0, sizeof blk->jmp.arg);
@@ -383,8 +383,8 @@ abi0(struct function *fn)
    } while ((blk = blk->lnext) != fn->entry);
 
    if (ccopt.dbg.a) {
-      efmt("after abi0:\n");
-      irdump(fn, fn->name);
+      efmt("<< After abi0 >>\n");
+      irdump(fn);
    }
 }
 

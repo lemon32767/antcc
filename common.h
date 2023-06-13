@@ -314,6 +314,10 @@ struct arena {
 
 #define vec_of(T) struct { T *p; int _cap; uint n; }
 
+extern void *xcalloc(size_t n, const char *);
+extern void *xrealloc(void *, size_t n, const char *);
+#define xcalloc(n) xcalloc(n, __func__)
+#define xrealloc(p,n) xrealloc(p, n, __func__)
 struct arena *newarena(uint chunksiz);
 void *alloc(struct arena **, uint siz, uint align);
 static inline void *

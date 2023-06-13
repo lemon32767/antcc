@@ -5,7 +5,7 @@ uchar cls2siz[KF8+1];
 const uchar siz2intcls[] = { [1] = KI4, [2] = KI4, [4] = KI4, [8] = KI8 };
 
 struct instr instrtab[MAXINSTR];
-static int ninstr;
+int ninstr;
 static int instrfreelist;
 struct calltab calltab;
 struct phitab phitab;
@@ -130,7 +130,7 @@ mkirtype(union type t)
 }
 
 union ref
-mkintcon(struct function *fn, enum irclass k, vlong i)
+mkintcon(enum irclass k, vlong i)
 {
    if (i < 1l << 28 && i >= -(1l << 28)) {
       return mkref(RICON, i);
@@ -144,7 +144,7 @@ mkintcon(struct function *fn, enum irclass k, vlong i)
 }
 
 union ref
-mkfltcon(struct function *fn, enum irclass k, double f)
+mkfltcon(enum irclass k, double f)
 {
    struct xcon con = { .cls = k };
    if (k == KF4) con.fs = f;
@@ -153,14 +153,14 @@ mkfltcon(struct function *fn, enum irclass k, double f)
 }
 
 union ref
-mksymref(struct function *fn, const char *s)
+mksymref(const char *s)
 {
    struct xcon con = { .issym = 1, .sym = s };
    return mkref(RXCON, addcon(&con));
 }
 
 union ref
-mkdatref(struct function *fn, uint siz, uint align, const void *bytes, uint n, bool deref)
+mkdatref(uint siz, uint align, const void *bytes, uint n, bool deref)
 {
    struct irdat dat = { align, 0, siz };
    if (siz <= 8) memcpy(dat.sdat, bytes, n < siz ? n : siz);
@@ -183,7 +183,7 @@ mkalloca(uint siz, uint align)
 }
 
 union ref
-mkcallarg(struct function *fn, union irtype ret, uint narg, int vararg)
+mkcallarg(union irtype ret, uint narg, int vararg)
 {
    struct call call = { .ret=ret, .narg=narg, .vararg=vararg };
    assert((long) vararg <= narg);

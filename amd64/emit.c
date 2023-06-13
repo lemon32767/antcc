@@ -478,20 +478,14 @@ gencopy(uchar **pcode, enum irclass cls, struct oper dst, union ref val)
 }
 
 static void
-emitinstr(uchar **pcode, uint *stktop, struct function *fn, struct block *blk, int ii, struct instr *ins)
+emitinstr(uchar **pcode, struct function *fn, struct block *blk, int ii, struct instr *ins)
 {
    struct oper dst, src;
    uchar ksiz = cls2siz[ins->cls];
    void (*X)(uchar **, uint, struct oper, struct oper) = NULL;
    void (*X1)(uchar **, uint, struct oper) = NULL;
 
-   if (oisalloca(ins->op)) {
-      uint alignlog2 = ins->op - Oalloca1;
-      uint siz = ins->l.i << alignlog2;
-      *stktop += siz;
-      *stktop = alignup(*stktop, 1 << alignlog2);
-      ioper[ins - instrtab] = mkoper(OMEM, .base = RBP, .index = NOINDEX, .disp = -*stktop);
-   } else switch (ins->op) {
+   switch (ins->op) {
    default: assert(!"nyi ins");
    case Onop: break;
    case Ostore1: case Ostore2: case Ostore4: case Ostore8:
@@ -581,25 +575,6 @@ calleerestore(uchar **pcode, struct function *fn)
    if (bstest(fn->regusage, RBX)) Xpop(pcode, RBX);
 }
 
-static bool /* stack frame size <= 128? */
-smallstack(struct function *fn)
-{
-   uint stktop = 0;
-   struct block *blk = fn->entry;
-   do {
-      for (int i = 0; i < blk->ins.n; ++i) {
-         struct instr *ins = &instrtab[blk->ins.p[i]];
-         if (oisalloca(ins->op)) {
-            uint align = 1 << (ins->op - Oalloca1);
-            uint siz = ins->l.i * align;
-            stktop = alignup(stktop + siz, align);
-            if (alignup(stktop, 16) > 128) return 0;
-         }
-      }
-   } while ((blk = blk->lnext) != fn->entry);
-   return 1;
-}
-
 /* align code using NOPs */
 static void
 aligncode(uchar **pcode, int align)
@@ -625,9 +600,6 @@ static void
 emitbin(struct function *fn)
 {
    struct block *blk;
-   uchar *rspdisp;
-   uint stktop = 0;
-   bool stack8 = smallstack(fn);
    uchar **pcode = &objout.code;
 
    aligncode(pcode, 16);
@@ -637,15 +609,17 @@ emitbin(struct function *fn)
    DS("\x55\x48\x89\xE5");
    calleesave(pcode, fn);
    /* sub rsp, <stack size> */
-   if (stack8)
-      DS("\x48\x83\xEC"), rspdisp = *pcode, DS("\xAA");
+   if (fn->stksiz < 128)
+      DS("\x48\x83\xEC"), B(fn->stksiz);
+   else if (fn->stksiz == 128)
+      DS("\x48\x83\xC4\x80"); /* add rsp, -128 */
    else
-      DS("\x48\x81\xEC"), rspdisp = *pcode, DS("\xAA\xAA\xAA\xAA");
+      DS("\x48\x81\xEC"), I32(fn->stksiz);
 
    blk = fn->entry;
    do {
       for (int i = 0; i < blk->ins.n; ++i) {
-         emitinstr(pcode, &stktop, fn, blk, i, &instrtab[blk->ins.p[i]]);
+         emitinstr(pcode, fn, blk, i, &instrtab[blk->ins.p[i]]);
       }
       if (blk->jmp.t == Jret) {
          /* epilogue */
@@ -653,19 +627,6 @@ emitbin(struct function *fn)
          DS("\xC9\xC3"); /* leave; ret */
       }
    } while ((blk = blk->lnext) != fn->entry);
-
-   stktop = alignup(stktop, 16);
-   if (stack8) {
-      assert(stktop <= 128);
-      if (stktop < 128) *rspdisp = stktop;
-      else {
-         /* cannot encode `sub rsp, 128` with 8bit imm, turn into `add rsp, -128` */
-         rspdisp[-1] = 0xC4;
-         *rspdisp = -128;
-      }
-   } else {
-      wr32le(rspdisp, alignup(stktop, 16));
-   }
 }
 
 void

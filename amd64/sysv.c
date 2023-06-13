@@ -68,7 +68,7 @@ abiarg(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype typ)
       } else if (*ni < NINT) {
          r[0] = intregs[(*ni)++];
       } else {
-         r[0] = -*ns - 8;
+         r[0] = -*ns - 16;
          *ns += 8;
          return 0; /* MEMORY */
       }
@@ -77,7 +77,7 @@ abiarg(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype typ)
    cls[0] = cls[1] = 0;
    ret = classify(cls, &typedata[typ.dat], 0);
    if (!ret) { /*MEMORY*/
-      r[0] = -*ns - 8;
+      r[0] = -*ns - 16;
       *ns = alignup(*ns + typedata[typ.dat].siz, 8);
       return 0;
    }
@@ -91,7 +91,7 @@ abiarg(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype typ)
          r[i] = intregs[(*ni)++];
       else { /* MEMORY */
          *ni = ni_save, *nf = nf_save;
-         r[0] = -*ns - 8;
+         r[0] = -*ns - 16;
          *ns = alignup(*ns + typedata[typ.dat].siz, 8);
          r[1] = -1;
          return cls[0] = cls[1] = 0;
@@ -139,7 +139,7 @@ const char amd64_rnames[][6] = {
 
 const struct mctarg t_amd64_sysv = {
    .gpr0 = RAX, .ngpr = R15 - RAX + 1,
-   .fpr = RBP,
+   .bpr = RBP,
    .fpr0 = XMM0, .nfpr = XMM15 - XMM0 + 1,
    .rcallee = {{1<<RBX | 1<<R12 | 1<<R13 | 1<<R14 | 1<<R15}},
    .rglob = {{1<<RSP | 1<<RBP}},

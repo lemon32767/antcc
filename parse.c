@@ -991,7 +991,7 @@ structcopy(struct function *fn, union type ty, union ref dst, union ref src)
    union irtype typ = mkirtype(ty);
    addinstr(fn, mkarginstr(typ, dst));
    addinstr(fn, mkarginstr(typ, src));
-   addinstr(fn, mkintrin(fn, INstructcopy, 0, 2));
+   addinstr(fn, mkintrin(INstructcopy, 0, 2));
 }
 
 static union ref
@@ -1017,7 +1017,7 @@ expraddr(struct function *fn, const struct expr *ex)
       case SCAUTO: case SCREGISTER:
          return mkref(RTMP, decl->id);
       case SCEXTERN: case SCNONE:
-         return mksymref(fn, decl->name);
+         return mksymref(decl->name);
       case SCSTATIC:
          assert(!"nyi");
          break;
@@ -1026,7 +1026,7 @@ expraddr(struct function *fn, const struct expr *ex)
       }
       break;
    case ESTRLIT:
-      return mkdatref(fn, ex->s.n+1, /*align*/ 1, ex->s.p, ex->s.n, /*deref*/0);
+      return mkdatref(ex->s.n+1, /*align*/ 1, ex->s.p, ex->s.n, /*deref*/0);
    case EDEREF:
       return exprvalue(fn, ex->sub);
    case EGETF:
@@ -1036,7 +1036,7 @@ expraddr(struct function *fn, const struct expr *ex)
       ins.cls = KPTR;
       ins.op = Oadd;
       ins.l = r;
-      ins.r = mkintcon(fn, KI4, ex->fld.off);
+      ins.r = mkintcon(KI4, ex->fld.off);
       return addinstr(fn, ins);
    case ESET:
       assert(isagg(ex->ty));
@@ -1104,10 +1104,10 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
    if (kisflt(kto) || kisflt(kfrom)) {
       if (ref.t == RICON) {
          assert(kisflt(kto) && kisint(kfrom));
-         return mkfltcon(fn, kto, kto == KF4 ? (float)ref.i : (double)ref.i);
+         return mkfltcon(kto, kto == KF4 ? (float)ref.i : (double)ref.i);
       }
       if (kisflt(kto) && kfrom == KI4) ins.op = issignedt(from) ? Ocvts4f : Ocvtu4f;
-      else if (to == TYBOOL && kisflt(kfrom)) ins.op = Oneq, ins.r = mkfltcon(fn, kfrom, 0.0);
+      else if (to == TYBOOL && kisflt(kfrom)) ins.op = Oneq, ins.r = mkfltcon(kfrom, 0.0);
       else if (kisflt(kto) && kfrom == KI8) ins.op = issignedt(from) ? Ocvts8f : Ocvtu8f;
       else if (kto == KF8 && kfrom == KF4) ins.op = Ocvtf4f8;
       else if (kto == KF4 && kfrom == KF8) ins.op = Ocvtf8f4;
@@ -1125,7 +1125,7 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
       }
       else if (kfrom == KI4 && issignedt(from)) ins.op = Oexts4;
       else if (kfrom == KI4) ins.op = Oextu4;
-      else if (ref.t == RXCON && kfrom == KI8) return mkintcon(fn, KI4, (int)(conht[ref.i].i8));
+      else if (ref.t == RXCON && kfrom == KI8) return mkintcon(KI4, (int)(conht[ref.i].i8));
       else ins.op = Ocopy;
    }
    return addinstr(fn, ins);
@@ -1162,13 +1162,13 @@ genptroff(struct function *fn, enum op op, uint siz, union ref ptr,
    idx = cvt(fn, targ_sizetype, tt, idx);
    if (siz ==  1) off = idx;
    else if (idx.t == RICON)
-      off = mkintcon(fn, cls, idx.i * siz);
+      off = mkintcon(cls, idx.i * siz);
    else if (ispo2(siz))
       off = addinstr(fn,
-            mkinstr(Oshl, cls, .l = idx, .r = mkintcon(fn, cls, ilog2(siz))));
+            mkinstr(Oshl, cls, .l = idx, .r = mkintcon(cls, ilog2(siz))));
    else
       off = addinstr(fn,
-            mkinstr(Omul, cls, .l = idx, .r = mkintcon(fn, cls, siz)));
+            mkinstr(Omul, cls, .l = idx, .r = mkintcon(cls, siz)));
    assert(in_range(op, Oadd, Osub));
    return addinstr(fn, mkinstr(op, KPTR, .l = ptr, .r = off));
 }
@@ -1181,9 +1181,9 @@ genptrdiff(struct function *fn, uint siz, union ref a, union ref b)
    a = addinstr(fn, mkinstr(Osub, cls, .l = a, .r = b));
    if (siz == 1) return a;
    else if ((siz & (siz-1)) == 0) /* is power of 2 */
-      return addinstr(fn, mkinstr(Osar, cls, a, mkintcon(fn, cls, ilog2(siz))));
+      return addinstr(fn, mkinstr(Osar, cls, a, mkintcon(cls, ilog2(siz))));
    else
-      return addinstr(fn, mkinstr(Odiv, cls, a, mkintcon(fn, cls, siz)));
+      return addinstr(fn, mkinstr(Odiv, cls, a, mkintcon(cls, siz)));
 }
 
 /* used to emit the jumps in an in if (), while (), etc condition */
@@ -1273,7 +1273,7 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
       if (boolcon == -2)
          r = cvt(fn, TYBOOL, ex->ty.t, r);
       if (boolcon >= 0)
-         vpush(&phis->ref, mkintcon(fn, KI4, boolcon));
+         vpush(&phis->ref, mkintcon(KI4, boolcon));
       else
          vpush(&phis->ref, r);
       if (zero) {
@@ -1311,7 +1311,7 @@ compilecall(struct function *fn, const struct expr *ex)
    for (int i = 0; i < insns.n; ++i)
       addinstr(fn, insns.p[i]);
    vfree(&insns);
-   ins.r = mkcallarg(fn, mkirtype(ex->ty), ex->narg, td->variadic ? td->nmemb : td->kandr ? 0 : -1);
+   ins.r = mkcallarg(mkirtype(ex->ty), ex->narg, td->variadic ? td->nmemb : td->kandr ? 0 : -1);
    return addinstr(fn, ins);
 }
 
@@ -1355,8 +1355,8 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    case ENUMLIT:
       if (discard) return NOREF;
       if (isflt(ex->ty))
-         return mkfltcon(fn, cls, ex->f);
-      return mkintcon(fn, cls, ex->i);
+         return mkfltcon(cls, ex->f);
+      return mkintcon(cls, ex->i);
    case ESYM:
       if (discard && !(ex->qual & QVOLATILE)) return NOREF;
       return genload(fn, ex->ty, expraddr(fn, ex));
@@ -1391,7 +1391,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       ins.l = compileexpr(fn, sub, discard);
       if (discard) return NOREF;
       ins.l = cvt(fn, ex->ty.t, sub->ty.t, ins.l);
-      ins.r = mkintcon(fn, cls, 0);
+      ins.r = mkintcon(cls, 0);
       ins.cls = cls;
       return addinstr(fn, ins);
    case EDEREF:
@@ -1455,7 +1455,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       r = expraddr(fn, sub);
       ins.l = genload(fn, sub->ty, r);
       if (ex->ty.t == TYPTR)
-         ins.r = mkintcon(fn, KI4, typesize(typechild(ex->ty)));
+         ins.r = mkintcon(KI4, typesize(typechild(ex->ty)));
       else
          ins.r = mkref(RICON, 1);
       genstore(fn, sub->ty, r, addinstr(fn, ins));
@@ -1467,7 +1467,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       r = expraddr(fn, sub);
       ins.l = genload(fn, sub->ty, r);
       if (ex->ty.t == TYPTR)
-         ins.r = mkintcon(fn, KI4, typesize(typechild(ex->ty)));
+         ins.r = mkintcon(KI4, typesize(typechild(ex->ty)));
       else
          ins.r = mkref(RICON, 1);
       q = addinstr(fn, ins);
@@ -1505,8 +1505,8 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       return addinstr(fn, ins);
    case ESET:
       assert(isscalar(ex->ty));
-      r = expraddr(fn, &sub[0]);
       q = cvt(fn, sub[0].ty.t, sub[1].ty.t, exprvalue(fn, &sub[1]));
+      r = expraddr(fn, &sub[0]);
       genstore(fn, ex->ty, r, q);
       if (discard) return NOREF;
       return narrow(fn, cls, sub[0].ty.t, q);
@@ -2601,7 +2601,7 @@ parse(struct parser *pr)
             irinit(&fn);
             function(pr, &fn, st.pnames, st.pspans);
             if (!nerror && ccopt.dbg.p)
-               irdump(&fn, decl.name);
+               irdump(&fn);
             irfini(&fn);
          } else if (decl.name) {
             putdecl(pr, &decl);

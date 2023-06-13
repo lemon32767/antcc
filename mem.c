@@ -10,16 +10,16 @@
    abort();                              \
 } while (0)
 
-static void *
-xcalloc(size_t n, const char *f)
+void *
+(xcalloc)(size_t n, const char *f)
 {
    void *p = calloc(n, 1);
    if (!p) ALLOCERR(f);
    return p;
 }
 
-static void *
-xrealloc(void *p, size_t n, const char *f)
+void *
+(xrealloc)(void *p, size_t n, const char *f)
 {
    p = p ? realloc(p, n) : malloc(n);
    if (!p) ALLOCERR(f);
@@ -36,7 +36,7 @@ vinit_(void **p, int *pcap, void *inlbuf, int cap, uint siz)
    if (inlbuf) {
       *p = inlbuf; 
    } else if (cap) {
-      *p = xrealloc(0, cap*siz, "vinit");
+      *p = xrealloc(0, cap*siz);
       *pcap = -cap;
    }
 }
@@ -46,10 +46,10 @@ vpush_(void **p, int *pcap, uint *pn, uint siz)
 {
    if (*pn == *pcap) { /* empty or inline buffer */
       int cap = *pcap ? *pcap * 2 : 8;
-      *p = xrealloc(NULL, cap * siz, "vpush");
+      *p = xrealloc(NULL, cap * siz);
       *pcap = -cap;
    } else if (*pn == -*pcap) { /* dyn buf */
-      *p = xrealloc(*p, -(*pcap *= 2) * siz, "vpush");
+      *p = xrealloc(*p, -(*pcap *= 2) * siz);
    }
    assert(-(volatile int)*pcap > *pn && "overflow");
 }
@@ -78,7 +78,7 @@ vresize_(void **p, int *pcap, uint *pn, uint siz, uint N)
 struct arena *
 newarena(uint chunksiz)
 {
-   struct arena *ar = xcalloc(offsetof(struct arena, mem) + chunksiz, "newarena");
+   struct arena *ar = xcalloc(offsetof(struct arena, mem) + chunksiz);
    assert(chunksiz < 1u<<31 && "toobig");
    ar->cap = chunksiz;
    ar->dyn = 1;
@@ -134,7 +134,7 @@ imap_init_(struct imapbase *m, void **v, uint vsiz, uint N)
         sizbs = BSSIZE(N)*sizeof(struct bitset);
 
    assert(ispo2(N));
-   m->k = xcalloc(sizk + sizv + sizbs, "imap_init");
+   m->k = xcalloc(sizk + sizv + sizbs);
    *v = (char *)m->k + sizk;
    m->bs = (struct bitset *)((char *)*v + sizv);
    m->N = N;
@@ -164,7 +164,7 @@ imap_rehash(struct imapbase *m, void **v, uint vsiz)
         sizbs = BSSIZE(N2)*sizeof(struct bitset);
 
    assert(N2);
-   newk = xcalloc(sizk + sizv + sizbs, "imap_rehash");
+   newk = xcalloc(sizk + sizv + sizbs);
    memset(newk, 0, sizk + sizv + sizbs);
    newv = (char *)newk + sizk;
    newbs = (struct bitset *)((char *)newv + sizv);
@@ -216,7 +216,7 @@ pmap_init_(struct pmapbase *m, void **v, uint vsiz, uint N)
         sizv = N*vsiz;
 
    assert(ispo2(N));
-   m->k = xcalloc(sizk + sizv, "pmap_init");
+   m->k = xcalloc(sizk + sizv);
    *v = (char *)m->k + sizk;
    m->N = N;
 }
@@ -244,7 +244,7 @@ pmap_rehash(struct pmapbase *m, void **v, uint vsiz)
         sizv = N2*vsiz;
 
    assert(N2);
-   newk = xcalloc(sizk + sizv, "pmap_rehash");
+   newk = xcalloc(sizk + sizv);
    newv = (char *)newk + sizk;
    for (i = 0; i < m->N; ++i) {
       if (!m->k[i])

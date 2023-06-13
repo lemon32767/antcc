@@ -1,7 +1,5 @@
 #include "all.h"
 
-static bool fuseaddr(struct function *fn, union ref *r);
-
 static void
 fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, int *curi)
 {
@@ -16,7 +14,7 @@ fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, 
       } else if (in_range(op, Oadd, Osub) && con->i8 == 2147483648) {
          /* add X, INT32MAX+1 -> sub X, INT32MIN */
          ins->op = Oadd + (op == Oadd);
-         *r = mkintcon(fn, KI4, -2147483648);
+         *r = mkintcon(KI4, -2147483648);
       } else if (in_range(op, Ocopy, Omove) && kisflt(con->cls)
             && (con->cls == KF4 ? con->fs == 0.0f : con->fd == 0.0))
       {
@@ -28,7 +26,7 @@ fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, 
          uint siz = cls2siz[con->cls];
          if (con->cls == KI4 || con->cls == KF4) wr32le(data, con->i4);
          else wr64le(data, con->i8);
-         *r = mkdatref(fn, siz, /*align*/siz, data, siz, /*deref*/1);
+         *r = mkdatref(siz, /*align*/siz, data, siz, /*deref*/1);
       } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls))
          goto DivImm;
    } else if (r->t == RICON && in_range(op, Odiv, Ourem) && kisint(ins->cls)) {
@@ -46,7 +44,7 @@ fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, 
 #define rswap(a,b) do { union ref _t = (a); (a) = (b); (b) = _t; } while (0)
 
 static bool
-acon(struct function *fn, struct addr *addr, union ref r)
+acon(struct addr *addr, union ref r)
 {
    vlong a = addr->disp;
    if (r.t == RICON) {
@@ -63,7 +61,7 @@ acon(struct function *fn, struct addr *addr, union ref r)
 }
 
 static bool
-ascale(struct function *fn, struct addr *addr, union ref a, union ref b)
+ascale(struct addr *addr, union ref a, union ref b)
 {
    if (b.t != RICON) return 0;
    if (addr->index.t) return 0;
@@ -75,33 +73,41 @@ ascale(struct function *fn, struct addr *addr, union ref a, union ref b)
 }
 
 static bool
-aadd(struct function *fn, struct addr *addr, union ref r, bool rec)
+aadd(struct addr *addr, union ref r, bool rec)
 {
-   struct instr *ins = &instrtab[r.i];
-   if (r.t == RTMP && ins->op == Oadd) {
-      if (!aadd(fn, addr, ins->l, rec)) return 0;
-      if (!aadd(fn, addr, ins->r, rec)) return 0;
-      ins->skip = 1;
-   } else if (r.t == RTMP && ins->op == Oshl) {
-      if (!ascale(fn, addr, ins->l, ins->r)) return 0;
-      ins->skip = 1;
-   } else if (!rec && r.t == RTMP && ins->op == Ocopy && ins->l.t == RMORE) {
-      struct addr save = *addr, *addr2 = &addrtab.p[ins->l.i];
-      if ((!addr2->base.t || aadd(fn, addr, addr2->base, 1))
-       && aadd(fn, addr, mkintcon(fn, KI4, addr2->disp), 1)
-       && (!addr2->index.t || ascale(fn, addr, addr2->index, mkref(RICON, addr2->shift))))
-      {
+   if (r.t == RTMP) {
+      struct instr *ins = &instrtab[r.i];
+
+      if (ins->op == Oadd) {
+         if (!aadd(addr, ins->l, rec)) return 0;
+         if (!aadd(addr, ins->r, rec)) return 0;
          ins->skip = 1;
-      } else {
-         *addr = save;
-         goto Ref;
-      }
-   } else if (iscon(r)) return acon(fn, addr, r);
-   else Ref: {
+      } else if (ins->op == Oshl) {
+         if (!ascale(addr, ins->l, ins->r)) return 0;
+         ins->skip = 1;
+      } else if (!rec && ins->op == Ocopy && ins->l.t == RMORE) {
+         struct addr save = *addr, *addr2 = &addrtab.p[ins->l.i];
+         if ((!addr2->base.t || aadd(addr, addr2->base, 1))
+          && aadd(addr, mkintcon(KI4, addr2->disp), 1)
+          && (!addr2->index.t || ascale(addr, addr2->index, mkref(RICON, addr2->shift))))
+         {
+            ins->skip = 1;
+         } else {
+            *addr = save;
+            goto Ref;
+         }
+      } else goto Ref;
+   } else if (iscon(r)) {
+      return acon(addr, r);
+   } else if (r.t == RREG) {
+      /* temporaries are single assignment, but register aren't, so they can't be *
+       * safely hoisted into an address value, unless they have global lifetime */
+      if (!bstest(mctarg->rglob, r.i)) return 0;
+   Ref:
       if (!addr->base.t) addr->base = r;
       else if (!addr->index.t) addr->index = r;
       else return 0;
-   }
+   } else return 0;
    return 1;
 }
 
@@ -109,21 +115,12 @@ static bool
 fuseaddr(struct function *fn, union ref *r)
 {
    struct addr addr = { 0 };
-   struct instr *ins = &instrtab[r->i];
+
    if (r->t == RMORE) return 1;
-   else if (r->t != RTMP) return 0;
-   else if (ins->op == Oadd) {
-      if (ins->l.t == RTMP && instrtab[ins->l.i].op == Ocopy && instrtab[ins->l.i].l.t == RMORE)
-         /* put ADDR in rhs because this code is dumb and it might be better */
-         rswap(ins->l, ins->r);
-      if (!aadd(fn, &addr, ins->l, 0)) return 0;
-      if (!aadd(fn, &addr, ins->r, 0)) return 0;
-      ins->skip = 1;
-   } else if (ins->op == Oshl) {
-      if (!ascale(fn, &addr, ins->l, ins->r)) return 0;
-      ins->skip = 1;
-   }
-   else return 0;
+   if (r->t != RTMP) return 0;
+
+   if (!aadd(&addr, *r, 0)) return 0;
+
    vpush(&addrtab, addr);
    *r = mkref(RMORE, addrtab.n-1);
    return 1;
@@ -141,6 +138,7 @@ addarg4addrp(union ref r)
 static void
 sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 {
+   uint siz, alignlog2;
    struct instr temp = {0};
    enum op op = ins->op;
 
@@ -148,6 +146,13 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    default: assert(0);
    case Onop: break;
    case Oalloca1: case Oalloca2: case Oalloca4: case Oalloca8: case Oalloca16:
+      alignlog2 = ins->op - Oalloca1;
+      siz = ins->l.i << alignlog2;
+      fn->stksiz += siz;
+      fn->stksiz = alignup(fn->stksiz, 1 << alignlog2);
+      if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
+      *ins = mkinstr(Oadd, KPTR, mkref(RREG, mctarg->bpr), mkref(RICON, -fn->stksiz));
+      break;
    case Ocall: case Ointrin:
       break;
    case Oshl: case Osar: case Oslr:
@@ -206,8 +211,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          ins->op = Oxinc;
          ins->r = NOREF;
          goto ALU;
-      }
-      if (kisint(ins->cls) && (addarg4addrp(ins->l) || addarg4addrp(ins->r))) {
+      } else if (kisint(ins->cls) && (addarg4addrp(ins->l) || addarg4addrp(ins->r))) {
          temp.op = Ocopy;
          temp.cls = ins->cls;
          temp.l = mkref(RTMP, ins - instrtab);
@@ -258,8 +262,9 @@ amd64_isel(struct function *fn)
 {
    struct block *blk = fn->entry;
 
+   fn->stksiz = 0;
+
    do {
-      struct instr *ins;
       for (int i = 0; i < blk->phi.n; ++i) {
          struct phi *phi = &phitab.p[instrtab[blk->phi.p[i]].l.i];
          for (int i = 0; i < phi->n; ++i) {
@@ -267,14 +272,14 @@ amd64_isel(struct function *fn)
          }
       }
       for (int i = 0; i < blk->ins.n; ++i) {
-         ins = &instrtab[blk->ins.p[i]];
-         sel(fn, ins, blk, &i);
+         sel(fn, &instrtab[blk->ins.p[i]], blk, &i);
       }
    } while ((blk = blk->lnext) != fn->entry);
+   fn->stksiz = alignup(fn->stksiz, 16);
 
    if (ccopt.dbg.i) {
-      efmt("after isel:\n");
-      irdump(fn, fn->name);
+      efmt("<< After isel >>\n");
+      irdump(fn);
    }
 }
 

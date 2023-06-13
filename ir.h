@@ -134,6 +134,7 @@ struct function {
    union type fnty, retty;
    struct abiarg *abiarg, abiret[2];
    uint nblk;
+   int stksiz;
    ushort nabiarg, nabiret;
    bool globl;
    struct bitset regusage[1];
@@ -142,7 +143,7 @@ struct function {
 struct mctarg {
    short gpr0, /* first gpr */
          ngpr, /* gpr count */
-         fpr,  /* frame pointer reg */
+         bpr,  /* frame/base pointer reg */
          fpr0, /* first fpr */
          nfpr; /* fpr count */
    struct bitset rcallee[1], /* callee-saved */
@@ -194,14 +195,14 @@ void irinit(struct function *);
 void irfini(struct function *);
 #define cls2type(k) ((union irtype){.cls=(k)})
 union irtype mkirtype(union type);
-union ref mkintcon(struct function *, enum irclass, vlong);
-union ref mkfltcon(struct function *, enum irclass, double);
-union ref mksymref(struct function *, const char *);
-union ref mkdatref(struct function *, uint siz, uint align, const void *, uint n, bool deref);
+union ref mkintcon(enum irclass, vlong);
+union ref mkfltcon(enum irclass, double);
+union ref mksymref(const char *);
+union ref mkdatref(uint siz, uint align, const void *, uint n, bool deref);
 struct instr mkalloca(uint siz, uint align);
 void conputdat(struct irdat *, uint off, enum typetag t, const void *dat);
-union ref mkcallarg(struct function *, union irtype ret, uint narg, int vararg);
-#define mkintrin(F, B, C, N) mkinstr(Ointrin, C, {.t=RICON,B}, mkcallarg(F,(union irtype){{0}},N,-1))
+union ref mkcallarg(union irtype ret, uint narg, int vararg);
+#define mkintrin(B, C, N) mkinstr(Ointrin, C, {.t=RICON,B}, mkcallarg((union irtype){{0}},N,-1))
 union ref addinstr(struct function *, struct instr);
 union ref insertinstr(struct block *, int idx, struct instr);
 void delinstr(struct block *, int idx);
@@ -215,7 +216,7 @@ void putcondbranch(struct function *, union ref arg, struct block *t, struct blo
 void putreturn(struct function *, union ref r0, union ref r1);
 void replref(struct function *, struct block *, int, union ref from, union ref to);
 
-void irdump(struct function *, const char *fname);
+void irdump(struct function *);
 
 void abi0(struct function *);
 void regalloc(struct function *);

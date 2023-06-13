@@ -180,7 +180,7 @@ dumpinst(const struct instr *ins)
          if (ins->cls)
             efmt("%s ", clsname[ins->cls]);
          efmt("%s = ", mctarg->rnames[ins->reg - 1]);
-      } else if (ins->cls && !ins->skip) {
+      } else if (ins->cls) {
          efmt("%s %%%d", clsname[ins->cls], ins - instrtab);
          efmt(" = ");
       }
@@ -222,14 +222,14 @@ dumpblk(struct function *fn, struct block *blk)
 }
 
 void
-irdump(struct function *fn, const char *fname)
+irdump(struct function *fn)
 {
    struct block *blk;
 
    /* print datas that have never been printed before */
    while (nextdat < dattab.n) pridat(&dattab.p[nextdat++]);
 
-   efmt("function %s : %ty\n", fname, fn->fnty);
+   efmt("function %s : %ty\n", fn->name, fn->fnty);
    if (fn->abiarg || fn->nabiret) {
       efmt("abi: (");
       for (int i = 0; i < fn->nabiarg; ++i) {

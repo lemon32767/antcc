@@ -15,7 +15,7 @@ struct alloc { ushort t : 2, a : 14; };
 
 struct rega {
    union ref regs[MAXREGS]; /* map reg -> value holding reg */
-   imap_of(struct alloc) allocs; /* map tmpidx -> allocation */
+   struct alloc *allocs; /* map tmpidx -> allocation */
    int nfreegpr, nfreefpr;
 };
 
@@ -27,14 +27,15 @@ def(struct rega *ra, struct instr *ins)
    if (ins->op != Omove) {
       var = ins - instrtab;
       // efmt("def %%%d\n",var);
-      if ((alloc = imap_get(&ra->allocs, var))) {
-         if (alloc->t == AREG) {
-            reg = alloc->a;
-            // efmt("-- free %s for %%%d\n", mctarg->rnames[alloc->a], var);
-            assert(ra->regs[reg].bits == mkref(RTMP, var).bits);
-         } else assert(0);
-         *alloc = afree();
-      }
+      alloc = &ra->allocs[var];
+      if (alloc->t == ADEAD) {
+         return;
+      } else if (alloc->t == AREG) {
+         reg = alloc->a;
+         // efmt("-- free %s for %%%d\n", mctarg->rnames[alloc->a], var);
+         assert(ra->regs[reg].bits == mkref(RTMP, var).bits);
+      } else assert(0);
+      *alloc = afree();
    } else {
       reg = ins->l.i;
       assert(ins->l.t == RREG);
@@ -52,7 +53,7 @@ take(struct rega *ra, int reg, union ref ref) {
    // efmt("-- take %s for %d %d\n", mctarg->rnames[reg], ref.t, ref.i);
    assert(!ra->regs[reg].t && "taken");
    if (ref.t == RTMP)
-      imap_set(&ra->allocs, ref.i, areg(reg));
+      ra->allocs[ref.i] = areg(reg);
    ra->regs[reg] = ref;
    bsset(globusage, reg);
    if (isfpr(reg)) --ra->nfreefpr;
@@ -96,8 +97,8 @@ forcetake(struct rega *ra, int reg, union ref ref, struct block *blk, int curi) 
    }
    assert(ra->regs[reg].t == RTMP);
    var = ra->regs[reg].i;
-   alloc = imap_get(&ra->allocs, var);
-   assert(alloc && alloc->a == reg);
+   alloc = &ra->allocs[var];
+   assert(alloc->a == reg);
    *alloc = afree();
    /* try to move temp to another register */
    if (isgpr(reg) ? ra->nfreegpr > 0 : ra->nfreefpr > 0) {
@@ -113,7 +114,7 @@ forcetake(struct rega *ra, int reg, union ref ref, struct block *blk, int curi) 
       instrtab[var].reg = rename+1;
       ra->regs[rename] = mkref(RTMP, var);
       bsset(globusage, rename);
-      imap_set(&ra->allocs, var, areg(rename));
+      *alloc = areg(rename);
       ra->regs[reg].bits = 0;
    } else {
       assert(!"spill");
@@ -163,11 +164,12 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
 void
 regalloc(struct function *fn)
 {
+   extern int ninstr;
    struct instr *ins;
    struct block *last = fn->entry->lprev, *blk;
-   struct rega ra = {0};
+   struct rega ra = {.allocs = xcalloc(ninstr * sizeof(struct alloc))};
    ra.nfreegpr = mctarg->ngpr - popcnt(mctarg->rglob->u);
-   ra.nfreefpr = mctarg->fpr;
+   ra.nfreefpr = mctarg->nfpr;
    for (int i = 0; i < MAXREGS; ++i)
       if (in_range(i, mctarg->fpr0, mctarg->fpr0 + mctarg->nfpr - 1))
             bsset(floatregs, i);
@@ -243,10 +245,11 @@ regalloc(struct function *fn)
    do vfree(&blk->phi); while ((blk = blk->lprev) != last);
 
    if (ccopt.dbg.r) {
-      efmt("after regalloc:\n");
-      irdump(fn, fn->name);
+      efmt("<< After regalloc >>\n");
+      irdump(fn);
    }
    bscopy(fn->regusage, globusage, 1);
+   free(ra.allocs);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */
