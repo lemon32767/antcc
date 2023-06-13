@@ -240,12 +240,12 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       break;
    case Oloads1: case Oloadu1: case Oloads2: case Oloadu2:
    case Oloads4: case Oloadu4: case Oloadi8: case Oloadf4: case Oloadf8:
-      if (ins->l.t != RTMP && ins->l.t != RREG)
+      if (ins->l.t != RTMP && ins->l.t != RREG && ins->l.t != RMORE)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
       fuseaddr(fn, &ins->l);
       break;
    case Ostore1: case Ostore2: case Ostore4: case Ostore8:
-      if (ins->l.t != RTMP && ins->l.t != RREG)
+      if (ins->l.t != RTMP && ins->l.t != RREG && ins->l.t != RMORE)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
       fuseaddr(fn, &ins->l);
       fixarg(fn, &ins->r, ins, blk, curi);

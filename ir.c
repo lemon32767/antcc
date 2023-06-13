@@ -218,7 +218,7 @@ newinstr(void)
 {
    if (instrfreelist != -1) {
       int t = instrfreelist;
-      memcpy(&instrfreelist, &instrtab[instrfreelist], sizeof(int));
+      memcpy(&instrfreelist, &instrtab[t], sizeof(int));
       return t;
    }
    assert(ninstr < arraylength(instrtab));
@@ -257,7 +257,7 @@ delinstr(struct block *blk, int idx)
 {
    assert(idx >= 0 && idx < blk->ins.n);
    memcpy(&instrtab[blk->ins.p[idx]], &instrfreelist, sizeof(int));
-   instrfreelist = idx;
+   instrfreelist = blk->ins.p[idx];
    for (int i = idx; i < blk->ins.n; ++i)
       blk->ins.p[i] = blk->ins.p[i + 1];
    --blk->ins.n;
@@ -401,6 +401,7 @@ irfini(struct function *fn)
    extern int nerror;
    if (!nerror) {
       abi0(fn);
+      lowerintrin(fn);
       mctarg->isel(fn);
       regalloc(fn);
       if (!ccopt.dbg.any)

@@ -219,7 +219,9 @@ void replref(struct function *, struct block *, int, union ref from, union ref t
 
 void irdump(struct function *);
 
+void lowerintrin(struct function *);
 void abi0(struct function *);
+void abi0_call(struct function *, struct instr *, struct block *blk, int *curi);
 void regalloc(struct function *);
 
 /* vim:set ts=3 sw=3 expandtab: */
