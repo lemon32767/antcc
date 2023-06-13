@@ -265,7 +265,7 @@ abi0(struct function *fn)
             retmem = insertinstr(blk, iinstr++ - call->narg, alloca);
             if (!nret) /* hidden pointer argument */
                insertinstr(blk, iinstr++ - call->narg,
-                           mkinstr(Omove, KPTR, mkref(RREG, call->abiret[0].reg), retmem));
+                           mkinstr(Omove, KPTR, mkref(RREG, abiargs.p[0].reg), retmem));
          }
 
          /* adjust args */
