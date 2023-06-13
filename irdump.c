@@ -116,9 +116,8 @@ dumpref(enum op o, union ref ref)
             dumpref(0, phi->ref[i]);
          }
       } else {
-         struct addr *addr = &addrtab.p[ref.i];
+         const struct addr *addr = &addrht[ref.i];
          bool k = 0;
-         assert(addrtab.n > ref.i);
          efmt("addr [");
          if ((k = addr->base.t)) dumpref(0, addr->base);
          if (addr->index.t) {

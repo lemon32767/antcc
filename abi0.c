@@ -58,6 +58,7 @@ abiarg(struct abiargsvec *abiargs, int *ni, int *nf, int *ns, union irtype ty)
 static struct instr
 copyparam(struct abiarg abi)
 {
+   struct addr addr = {.base = mkref(RREG, mctarg->bpr), .disp = -abi.stk};
    if (abi.reg >= 0) { /* reg */
       assert(!abi.ty.isagg);
       return mkinstr(Ocopy, abi.ty.cls, mkref(RREG, abi.reg));
@@ -71,11 +72,9 @@ copyparam(struct abiarg abi)
       case KF4: ld = Oloadf4; break;
       case KF8: ld = Oloadf8; break;
       }
-      vpush(&addrtab, ((struct addr) {.base = mkref(RREG, mctarg->bpr), .disp = -abi.stk}));
-      return mkinstr(ld, abi.ty.cls, mkref(RMORE, addrtab.n - 1));
+      return mkinstr(ld, abi.ty.cls, mkaddr(addr));
    } else { /* aggregate in stack */
-      vpush(&addrtab, ((struct addr) {.base = mkref(RREG, mctarg->bpr), .disp = -abi.stk}));
-      return mkinstr(Ocopy, KPTR, mkref(RMORE, addrtab.n - 1));
+      return mkinstr(Ocopy, KPTR, mkaddr(addr));
    }
 }
 

@@ -86,7 +86,7 @@ aadd(struct addr *addr, union ref r, bool rec)
          if (!ascale(addr, ins->l, ins->r)) return 0;
          ins->skip = 1;
       } else if (!rec && ins->op == Ocopy && ins->l.t == RMORE) {
-         struct addr save = *addr, *addr2 = &addrtab.p[ins->l.i];
+         struct addr save = *addr, *addr2 = &addrht[ins->l.i];
          if ((!addr2->base.t || aadd(addr, addr2->base, 1))
           && aadd(addr, mkintcon(KI4, addr2->disp), 1)
           && (!addr2->index.t || ascale(addr, addr2->index, mkref(RICON, addr2->shift))))
@@ -121,8 +121,7 @@ fuseaddr(struct function *fn, union ref *r)
 
    if (!aadd(&addr, *r, 0)) return 0;
 
-   vpush(&addrtab, addr);
-   *r = mkref(RMORE, addrtab.n-1);
+   *r = mkaddr(addr);
    return 1;
 }
 

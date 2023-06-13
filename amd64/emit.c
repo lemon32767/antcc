@@ -104,7 +104,7 @@ mkmemoper(union ref r)
       assert(wop.t == OREG);
       return mkoper(OMEM, .base = wop.reg, .index = NOINDEX);
    } else if (r.t == RMORE) {
-      struct addr *addr = &addrtab.p[r.i];
+      const struct addr *addr = &addrht[r.i];
       struct oper mem;
       if (addr->base.t == RTMP && ioper[addr->base.i].t == OMEM) {
          mem = ioper[addr->base.i];
@@ -432,7 +432,7 @@ gencopy(uchar **pcode, enum irclass cls, struct oper dst, union ref val)
    assert(dst.t == OREG);
    if (val.t == RMORE) {
       /* this is a LEA, but maybe it can be lowered to a 2-address instruction */
-      struct addr *addr = &addrtab.p[val.i];
+      const struct addr *addr = &addrht[val.i];
       if (addr->base.t && dst.reg == mkregoper(addr->base).reg) { /* base = dst */
          if (addr->index.t && !addr->disp && !addr->shift){
             /* lea Rx, [Rx + Ry] -> add Rx, Ry */

@@ -10,7 +10,7 @@ static int instrfreelist;
 struct calltab calltab;
 struct phitab phitab;
 struct dattab dattab;
-struct addrtab addrtab;
+struct addr addrht[1 << 12];
 
 void
 irinit(struct function *fn)
@@ -18,14 +18,13 @@ irinit(struct function *fn)
    static struct call callsbuf[64];
    static struct phi phisbuf[64];
    static struct irdat datsbuf[64];
-   static struct addr addrsbuf[64];
 
    ninstr = 0;
    instrfreelist = -1;
    vinit(&calltab, callsbuf, arraylength(callsbuf));
    vinit(&phitab, phisbuf, arraylength(phisbuf));
    vinit(&dattab, datsbuf, arraylength(datsbuf));
-   vinit(&addrtab, addrsbuf, arraylength(addrsbuf));
+   memset(addrht, 0, sizeof addrht);
    if (!type2cls[TYINT]) {
       for (int i = TYBOOL; i <= TYUVLONG; ++i) {
          int siz = targ_primsizes[i];
@@ -42,6 +41,23 @@ irinit(struct function *fn)
    fn->entry = fn->curblk = alloc(&fn->arena, sizeof(struct block), 0);
    memset(fn->entry, 0, sizeof *fn->entry);
    fn->entry->lprev = fn->entry->lnext = fn->entry;
+}
+
+static int
+addaddr(const struct addr *addr)
+{
+   uint h = hashb(0, addr, sizeof *addr);
+   uint i = h, n = arraylength(addrht);
+   for (;; ++i) {
+      i &= arraylength(addrht) - 1;
+      if (!addrht[i].base.t && !addrht[i].index.t) {
+         addrht[i] = *addr;
+         return i;
+      } else if (!memcmp(&addrht[i], addr, sizeof *addr)) {
+         return i;
+      }
+      assert(--n > 0 && "addrht full");
+   }
 }
 
 struct xcon conht[1 << 12];
@@ -189,6 +205,12 @@ mkcallarg(union irtype ret, uint narg, int vararg)
    assert((long) vararg <= narg);
    vpush(&calltab, call);
    return mkref(RMORE, calltab.n-1);
+}
+
+union ref
+mkaddr(struct addr addr)
+{
+   return mkref(RMORE, addaddr(&addr));
 }
 
 static inline int

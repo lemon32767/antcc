@@ -130,9 +130,10 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
    int excl = other.t == RREG ? other.i : -1;
 
    if (ref->t == RMORE) {
-      struct addr *addr = &addrtab.p[ref->i];
-      if (addr->base.t) use(ra, blk, curi, 0, hint, &addr->base, addr->index);
-      if (addr->index.t) use(ra, blk, curi, 0, hint, &addr->index, NOREF);
+      struct addr addr = addrht[ref->i];
+      if (addr.base.t) use(ra, blk, curi, 0, hint, &addr.base, addr.index);
+      if (addr.index.t) use(ra, blk, curi, 0, hint, &addr.index, NOREF);
+      *ref = mkaddr(addr);
       return;
    } else if (ref->t == RREG) {
       forcetake(ra, ref->i, *ref, blk, curi);

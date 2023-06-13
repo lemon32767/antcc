@@ -183,7 +183,7 @@ extern struct xcon conht[];
 extern struct calltab {vec_of(struct call);} calltab;
 extern struct phitab {vec_of(struct phi);} phitab;
 extern struct dattab {vec_of(struct irdat);} dattab;
-extern struct addrtab {vec_of(struct addr);} addrtab;
+extern struct addr addrht[];
 #define NOREF ((union ref) {0})
 #define ZEROREF ((union ref) {{ RICON, 0 }})
 #define mkref(t, x) ((union ref) {{ (t), (x) }})
@@ -203,6 +203,7 @@ struct instr mkalloca(uint siz, uint align);
 void conputdat(struct irdat *, uint off, enum typetag t, const void *dat);
 union ref mkcallarg(union irtype ret, uint narg, int vararg);
 #define mkintrin(B, C, N) mkinstr(Ointrin, C, {.t=RICON,B}, mkcallarg((union irtype){{0}},N,-1))
+union ref mkaddr(struct addr);
 union ref addinstr(struct function *, struct instr);
 union ref insertinstr(struct block *, int idx, struct instr);
 void delinstr(struct block *, int idx);
