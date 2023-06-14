@@ -150,11 +150,10 @@ mkintcon(enum irclass k, vlong i)
 {
    if (i < 1l << 28 && i >= -(1l << 28)) {
       return mkref(RICON, i);
-   } else if (k == KI4) {
-      struct xcon con = { .cls = k, .i4 = i };
-      return mkref(RXCON, addcon(&con));
    } else {
-      struct xcon con = { .cls = k, .i8 = i };
+      struct xcon con = { .cls = k, .i = i };
+      if (cls2siz[k] == 4) /* check upper half is zero or -1 */
+         assert(in_range((i >> 32) + 1, 0, 1));
       return mkref(RXCON, addcon(&con));
    }
 }
@@ -162,9 +161,7 @@ mkintcon(enum irclass k, vlong i)
 union ref
 mkfltcon(enum irclass k, double f)
 {
-   struct xcon con = { .cls = k };
-   if (k == KF4) con.fs = f;
-   else          con.fd = f;
+   struct xcon con = { .cls = k, .f = k == KF4 ? (float) f : f };
    return mkref(RXCON, addcon(&con));
 }
 

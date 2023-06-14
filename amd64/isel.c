@@ -9,23 +9,26 @@ fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, 
    if (r->t == RXCON) {
       struct xcon *con = &conht[r->i];
       if (in_range(op, Oshl, Oslr)) {
-         sh = con->cls == KI4 ? con->i4 : con->i8;
+         sh = con->i;
          goto ShiftImm;
-      } else if (in_range(op, Oadd, Osub) && con->i8 == 2147483648) {
+      } else if (in_range(op, Oadd, Osub) && con->i == 2147483648) {
          /* add X, INT32MAX+1 -> sub X, INT32MIN */
          ins->op = Oadd + (op == Oadd);
          *r = mkintcon(KI4, -2147483648);
-      } else if (in_range(op, Ocopy, Omove) && kisflt(con->cls)
-            && (con->cls == KF4 ? con->fs == 0.0f : con->fd == 0.0))
-      {
+      } else if (in_range(op, Ocopy, Omove) && kisflt(con->cls) && con->f == 0) {
          /* copy of float zero -> regular zero, that emit() will turn into xor x,x */
          *r = mkref(RICON, 0);
       } else if (kisflt(con->cls) || con->cls == KI8) {
          /* float immediates & >32b immediates are loaded from memory */
          uchar data[8];
          uint siz = cls2siz[con->cls];
-         if (con->cls == KI4 || con->cls == KF4) wr32le(data, con->i4);
-         else wr64le(data, con->i8);
+         if (ins) assert(ins->cls == con->cls);
+         if (con->cls == KI4) wr32le(data, con->i);
+         else if (con->cls != KF4) wr64le(data, con->i);
+         else {
+            union { float f; int i; } pun = { con->f };
+            wr32le(data, pun.i);
+         }
          *r = mkdatref(siz, /*align*/siz, data, siz, /*deref*/1);
       } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls))
          goto DivImm;
@@ -39,20 +42,15 @@ fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, 
    }
 }
 
-#define iscon(r) (in_range((r).t, RICON, RXCON))
-#define isimm32(r) ((r).t == RICON || ((r).t == RXCON && conht[(r).i].cls == KI4))
+#define isimm32(r) (concls(r) == KI4)
 #define rswap(a,b) do { union ref _t = (a); (a) = (b); (b) = _t; } while (0)
 
 static bool
 acon(struct addr *addr, union ref r)
 {
    vlong a = addr->disp;
-   if (r.t == RICON) {
-      a += r.i;
-   } else {
-      assert(r.t == RXCON && kisint(conht[r.i].cls));
-      a += conht[r.i].cls == KI4 ? conht[r.i].i4 : conht[r.i].i8;
-   }
+   assert(isintcon(r));
+   a += intconval(r);
    if ((int)a == a) {
       addr->disp = a;
       return 1;
@@ -88,7 +86,7 @@ aadd(struct addr *addr, union ref r, bool rec)
       } else if (!rec && ins->op == Ocopy && ins->l.t == RMORE) {
          struct addr save = *addr, *addr2 = &addrht[ins->l.i];
          if ((!addr2->base.t || aadd(addr, addr2->base, 1))
-          && aadd(addr, mkintcon(KI4, addr2->disp), 1)
+          && acon(addr, mkintcon(KI4, addr2->disp))
           && (!addr2->index.t || ascale(addr, addr2->index, mkref(RICON, addr2->shift))))
          {
             ins->skip = 1;

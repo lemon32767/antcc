@@ -1125,7 +1125,8 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
       }
       else if (kfrom == KI4 && issignedt(from)) ins.op = Oexts4;
       else if (kfrom == KI4) ins.op = Oextu4;
-      else if (ref.t == RXCON && kfrom == KI8) return mkintcon(KI4, (int)(conht[ref.i].i8));
+      else if (kto == KI4 && isintcon(ref))
+         return issignedt(to) ? mkintcon(kto, (int)intconval(ref)) : mkintcon(kto, (uint)intconval(ref));
       else ins.op = Ocopy;
    }
    return addinstr(fn, ins);

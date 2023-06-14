@@ -36,10 +36,8 @@ struct xcon {
    union {
       const char *sym;
       int dat;
-      int i4;
-      vlong i8;
-      float fs;
-      double fd;
+      vlong i;
+      double f;
    };
 };
 
@@ -197,6 +195,12 @@ void irfini(struct function *);
 union irtype mkirtype(union type);
 union ref mkintcon(enum irclass, vlong);
 union ref mkfltcon(enum irclass, double);
+#define iscon(r) in_range((r).t, RICON, RXCON)
+#define concls(r) ((r).t == RICON ? KI4 : conht[(r).i].cls)
+#define isintcon(r) (iscon(r) && kisint(concls(r)))
+#define isfltcon(r) ((r).t == RXCON && kisflt(conht[(r).i].cls))
+#define intconval(r) ((r).t == RICON ? (r).i : conht[(r).i].i)
+#define fltconval(r) (conht[(r).i].f)
 union ref mksymref(const char *);
 union ref mkdatref(uint siz, uint align, const void *, uint n, bool deref);
 struct instr mkalloca(uint siz, uint align);

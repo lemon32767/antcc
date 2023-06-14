@@ -33,7 +33,7 @@ ref2oper(union ref r)
    case RICON: return mkoper(OIMM, .imm = r.i);
    case RXCON:
       if (conht[r.i].cls == KI4)
-         return mkoper(OIMM, .imm = conht[r.i].i4);
+         return mkoper(OIMM, .imm = conht[r.i].i);
       else if (conht[r.i].deref || conht[r.i].issym)
          return mkoper(OCONR, .con = r.i);
       assert(0);
@@ -67,8 +67,8 @@ mkregoper(union ref r)
 static inline struct oper
 mkimmoper(union ref r)
 {
-   assert(r.t == RICON || (r.t == RXCON && conht[r.i].cls == KI4));
-   return mkoper(OIMM, .imm = r.t == RICON ? r.i : conht[r.i].i4);
+   assert(iscon(r) && concls(r) == KI4);
+   return mkoper(OIMM, .imm = intconval(r));
 }
 
 #define ismemref(ref) ((ref).t == RTMP && ioper[(ref).i].t == OMEM)
@@ -77,7 +77,7 @@ mkimmoper(union ref r)
 static inline struct oper
 mkimmregoper(union ref r)
 {
-   assert(isregref(r) || r.t == RICON || (r.t == RXCON && conht[r.i].cls == KI4));
+   assert(isregref(r) || (iscon(r) && concls(r) == KI4));
    return ref2oper(r);
 }
 

@@ -94,11 +94,11 @@ dumpref(enum op o, union ref ref)
       if (con->issym) efmt("$%s", con->sym);
       else if (con->isdat) efmt("$.%d", con->dat);
       else switch (con->cls) {
-      case KI4: efmt("%d", con->i4); break;
-      case KI8: efmt("%ld", con->i8); break;
-      case KPTR: efmt("%'x", con->i8); break;
-      case KF4: efmt("%fs", con->fs); break;
-      case KF8: efmt("%fd", con->fd); break;
+      case KI4: efmt("%d", (int)con->i); break;
+      case KI8: efmt("%ld", con->i); break;
+      case KPTR: efmt("%'lx", con->i); break;
+      case KF4: efmt("%fs", con->f); break;
+      case KF8: efmt("%fd", con->f); break;
       default: assert(0);
       }
       if (con->deref) efmt("]");
