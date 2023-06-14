@@ -205,13 +205,13 @@ opermatch(enum operpat pat, struct oper oper)
 /* Given an instruction description table, find the first entry that matches
  * the operands (where dst, src are the operands in intel syntax order) and encode it */
 static void
-encode(uchar **pcode, const struct desc *tab, int ntab, uint siz, struct oper dst, struct oper src)
+encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct oper dst, struct oper src)
 {
    const uchar *opc; int nopc, mod, rex;
    bool sib = 0; uchar reg; struct oper mem; const struct desc *en = NULL;
 
    for (int i = 0; i < ntab; ++i) {
-      if ((tab[i].psiz & siz) && opermatch(tab[i].ptd, dst) && opermatch(tab[i].pts, src)) {
+      if ((tab[i].psiz & cls2siz[k]) && opermatch(tab[i].ptd, dst) && opermatch(tab[i].pts, src)) {
          en = &tab[i];
          break;
       }
@@ -225,7 +225,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, uint siz, struct oper ds
    /* mandatory prefixes go before REX */
    if (*opc == 0x66 || *opc == 0xF2 || *opc == 0xF3)
       B(*opc++), --nopc;
-   rex = -(en->ptd != PFPR && en->pts != PFPR) & (siz == 8) << 3; /* REX.W */
+   rex = in_range(k, KI8, KPTR) << 3; /* REX.W */
    if (en->norexw) rex = 0;
    switch (en->operenc) {
    case EN_RR: /* mod = 11; reg = dst; rm = src */
@@ -311,57 +311,69 @@ encode(uchar **pcode, const struct desc *tab, int ntab, uint siz, struct oper ds
 
 #define DEFINSTR1(X, ...)                                          \
    static void                                                     \
-   X(uchar **pcode, uint siz, struct oper oper)                    \
+   X(uchar **pcode, enum irclass k, struct oper oper)              \
    {                                                               \
       static const struct desc tab[] = { __VA_ARGS__ };            \
-      encode(pcode, tab, arraylength(tab), siz, oper, mkoper(0,)); \
+      encode(pcode, tab, arraylength(tab), k, oper, mkoper(0,));   \
    }
 
-#define DEFINSTR2(X, ...)                                       \
-   static void                                                  \
-   X(uchar **pcode, uint siz, struct oper dst, struct oper src) \
-   {                                                            \
-      static const struct desc tab[] = { __VA_ARGS__ };         \
-      encode(pcode, tab, arraylength(tab), siz, dst, src);      \
+#define DEFINSTR2(X, ...)                                             \
+   static void                                                        \
+   X(uchar **pcode, enum irclass k, struct oper dst, struct oper src) \
+   {                                                                  \
+      static const struct desc tab[] = { __VA_ARGS__ };               \
+      encode(pcode, tab, arraylength(tab), k, dst, src);              \
    }
 
-/* XXX should split floating point instrs into their own functions? */
-
-DEFINSTR2(Xmov,
-   {1,   PMEM, PGPR, "\x88",     EN_MR, .r8=1}, /* MOV m8, r8 */
-   {2,   PMEM, PGPR, "\x66\x89", EN_MR}, /* MOV m16, r16 */
-   {4|8, PGPR, PGPR, "\x8B",     EN_RR}, /* MOV r32/64, r32/64 */
-   {4|8, PMEM, PGPR, "\x89",     EN_MR}, /* MOV m32/64, r32/64 */
-   {4|8, PGPR, PMEM, "\x8B",     EN_RM}, /* MOV r32/64, m32/64 */
-   {4  , PGPR, PI32, "\xB8",     EN_OI}, /* MOV r32, imm */
-   {  8, PGPR, PU32, "\xB8",     EN_OI, .norexw=1}, /* MOV r64, uimm */
-   {  8, PGPR, PI32, "\xC7",     EN_RI32}, /* MOV r64, imm */
-   {4, PFPR, PFPR, "\xF3\x0F\x10", EN_RR}, /* MOVSS xmm, xmm */
-   {8, PFPR, PFPR, "\xF2\x0F\x10", EN_RR}, /* MOVSD xmm, xmm */
-   {4, PFPR, PMEM, "\xF3\x0F\x10", EN_RM}, /* MOVSS xmm, m32 */
-   {8, PFPR, PMEM, "\xF2\x0F\x10", EN_RM}, /* MOVSD xmm, m64 */
-   {4, PMEM, PFPR, "\xF3\x0F\x10", EN_MR}, /* MOVSS m32, xmm */
-   {8, PMEM, PFPR, "\xF2\x0F\x11", EN_MR}, /* MOVSS m64, xmm */
+DEFINSTR2(Xmovb,
+   {-1, PMEM, PGPR, "\x88", EN_MR, .r8=1}, /* MOV m8, r8 */
 )
-DEFINSTR2(Xmovsx4,
+DEFINSTR2(Xmovw,
+   {-1, PMEM, PGPR, "\x66\x89", EN_MR}, /* MOV m16, r16 */
+)
+static void Xmov(uchar **pcode, enum irclass k, struct oper dst, struct oper src)
+{
+   static const struct desc all[] = {
+      {4  , PGPR, PI32, "\xB8",     EN_OI}, /* MOV r32, imm */
+      {4|8, PGPR, PGPR, "\x8B",     EN_RR}, /* MOV r32/64, r32/64 */
+      {4|8, PMEM, PGPR, "\x89",     EN_MR}, /* MOV m32/64, r32/64 */
+      {4|8, PGPR, PMEM, "\x8B",     EN_RM}, /* MOV r32/64, m32/64 */
+      {  8, PGPR, PU32, "\xB8",     EN_OI, .norexw=1}, /* MOV r64, uimm */
+      {  8, PGPR, PI32, "\xC7",     EN_RI32}, /* MOV r64, imm */
+      {4, PFPR, PFPR, "\xF3\x0F\x10", EN_RR}, /* MOVSS xmm, xmm */
+      {4, PFPR, PMEM, "\xF3\x0F\x10", EN_RM}, /* MOVSS xmm, m32 */
+      {4, PMEM, PFPR, "\xF3\x0F\x10", EN_MR}, /* MOVSS m32, xmm */
+      {8, PFPR, PFPR, "\xF2\x0F\x10", EN_RR}, /* MOVSD xmm, xmm */
+      {8, PFPR, PMEM, "\xF2\x0F\x10", EN_RM}, /* MOVSD xmm, m64 */
+      {8, PMEM, PFPR, "\xF2\x0F\x11", EN_MR}, /* MOVSS m64, xmm */
+   };
+   static const uchar k2off[] = {
+      [KI4] = 0,
+      [KI8] = 1, [KPTR] = 1,
+      [KF4] = 6,
+      [KF8] = 9,
+   };
+   encode(pcode, all + k2off[k], arraylength(all) - k2off[k], k, dst, src);
+}
+DEFINSTR2(Xmovsxl,
    {8, PGPR, PMEM, "\x63", EN_RM}, /* MOVSXD r64, m32 */
    {8, PGPR, PGPR, "\x63", EN_RR}, /* MOVSXD r64, r32 */
    {4, PGPR, PMEM, "\x8B", EN_RM}, /* MOV r32, m32 */
    {4, PGPR, PGPR, "\x89", EN_RR}, /* MOV r32, r32 */
 )
-DEFINSTR2(Xmovsx2,
+DEFINSTR2(Xmovsxw,
    {4|8, PGPR, PMEM, "\x0F\xBF", EN_RM}, /* MOVSX r64, m16 */
    {4|8, PGPR, PGPR, "\x0F\xBF", EN_RR}, /* MOVSX r64, r16 */
 )
-DEFINSTR2(Xmovsx1,
+DEFINSTR2(Xmovsxb,
    {4|8, PGPR, PMEM, "\x0F\xBE", EN_RM}, /* MOVSX r64, m8 */
    {4|8, PGPR, PGPR, "\x0F\xBE", EN_RR, .r8=1}, /* MOVSX r64, r8 */
 )
-DEFINSTR2(Xmovzx2,
+DEFINSTR2(Xmovzxw,
    {4|8, PGPR, PMEM, "\x0F\xB7", EN_RM}, /* MOVZX r64, m16 */
    {4|8, PGPR, PGPR, "\x0F\xB7", EN_RR}, /* MOVZX r64, r16 */
 )
-DEFINSTR2(Xmovzx1,
+DEFINSTR2(Xmovzxb,
    {4|8, PGPR, PMEM, "\x0F\xB6", EN_RM}, /* MOVZX r64, m8 */
    {4|8, PGPR, PGPR, "\x0F\xB6", EN_RR, .r8=1}, /* MOVZX r64, r8 */
 )
@@ -374,6 +386,8 @@ DEFINSTR2(Xadd,
    {4|8, PRAX, PI32, "\x05", EN_I32},  /* ADD eax/rax, imm */
    {4|8, PGPR, PI32, "\x81", EN_RI32}, /* ADD r32/64, imm */
    {  8, PGPR, PMEM, "\x03", EN_RM},   /* ADD r64, m64 */
+)
+DEFINSTR2(Xaddf,
    {4, PFPR, PFPR, "\xF3\x0F\x58", EN_RR}, /* ADDSS xmm, xmm */
    {8, PFPR, PFPR, "\xF2\x0F\x58", EN_RR}, /* ADDSD xmm, xmm */
    {4, PFPR, PMEM, "\xF3\x0F\x58", EN_RM}, /* ADDSS xmm, m32 */
@@ -385,6 +399,8 @@ DEFINSTR2(Xsub,
    {4|8, PRAX, PI32, "\x2D", EN_I32},          /* SUB eax/rax, imm */
    {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=5}, /* SUB r32/64, imm */
    {  8, PGPR, PMEM, "\x2B", EN_RM},           /* SUB r64, m64 */
+)
+DEFINSTR2(Xsubf,
    {4, PFPR, PFPR, "\xF3\x0F\x5C", EN_RR}, /* SUBSS xmm, xmm */
    {8, PFPR, PFPR, "\xF2\x0F\x5C", EN_RR}, /* SUBSD xmm, xmm */
    {4, PFPR, PMEM, "\xF3\x0F\x5C", EN_RM}, /* SUBSS xmm, m32 */
@@ -404,10 +420,10 @@ DEFINSTR2(Xshl,
    {4|8, PGPR, PRCX, "\xD3", EN_R, .ext=4},   /* SHL r32/64, CL */
 )
 DEFINSTR1(Xinc,
-      {4|8, PGPR, 0, "\xFF", EN_R, .ext=0} /* INC r32/64 */
+   {4|8, PGPR, 0, "\xFF", EN_R, .ext=0} /* INC r32/64 */
 )
 DEFINSTR1(Xdec,
-      {4|8, PGPR, 0, "\xFF", EN_R, .ext=1} /* DEC r32/64 */
+   {4|8, PGPR, 0, "\xFF", EN_R, .ext=1} /* DEC r32/64 */
 )
 DEFINSTR1(Xidiv,
    {4|8, PGPR, 0, "\xF7", EN_R, .ext=7}, /* IDIV r32/64 */
@@ -446,27 +462,27 @@ gencopy(uchar **pcode, enum irclass cls, struct oper dst, union ref val)
       if (addr->base.t && dst.reg == mkregoper(addr->base).reg) { /* base = dst */
          if (addr->index.t && !addr->disp && !addr->shift){
             /* lea Rx, [Rx + Ry] -> add Rx, Ry */
-            Xadd(pcode, cls2siz[cls], dst, mkregoper(addr->index));
+            Xadd(pcode, cls, dst, mkregoper(addr->index));
             return;
          } else if (!addr->index.t) {
             if (!addr->disp) /* lea Rx, [Rx] -> mov Rx, Rx */
-               Xmov(pcode, cls2siz[cls], dst, dst);
+               Xmov(pcode, cls, dst, dst);
             else /* lea Rx, [Rx + Imm] -> add Rx, Imm */
-               Xadd(pcode, cls2siz[cls], dst, mkoper(OIMM, .imm = addr->disp));
+               Xadd(pcode, cls, dst, mkoper(OIMM, .imm = addr->disp));
             return;
          }
       } else if (addr->index.t && dst.reg == mkregoper(addr->index).reg) { /* index = dst */
          if (addr->base.t && !addr->disp && !addr->shift) {
             /* lea Rx, [Ry + Rx] -> add Rx, Ry */
-            Xadd(pcode, cls2siz[cls], dst, mkregoper(addr->base));
+            Xadd(pcode, cls, dst, mkregoper(addr->base));
             return;
          } else if (!addr->base.t) {
             if (!addr->disp && !addr->shift) /* lea Rx, [Rx] -> mov Rx, Rx */
-               Xmov(pcode, cls2siz[cls], dst, dst);
+               Xmov(pcode, cls, dst, dst);
             else if (!addr->shift) /* lea Rx, [Rx + Imm] -> add Rx, Imm */
-               Xadd(pcode, cls2siz[cls], dst, mkoper(OIMM, .imm = addr->disp));
+               Xadd(pcode, cls, dst, mkoper(OIMM, .imm = addr->disp));
             else if (!addr->disp) /* lea Rx, [Rx LSL s] -> shl Rx, s */
-               Xshl(pcode, cls2siz[cls], dst, mkoper(OIMM, .imm = addr->shift));
+               Xshl(pcode, cls, dst, mkoper(OIMM, .imm = addr->shift));
             else
                goto Lea;
             return;
@@ -474,16 +490,16 @@ gencopy(uchar **pcode, enum irclass cls, struct oper dst, union ref val)
       }
       /* normal (not 2-address) case */
    Lea:
-      Xlea(pcode, cls2siz[cls], dst, ref2oper(val));
+      Xlea(pcode, cls, dst, ref2oper(val));
    } else if (val.t == RICON && val.i == 0 && dst.t == OREG) {
       /* dst = 0 -> xor dst, dst */
-      Xxor(pcode, cls2siz[cls], dst, dst);
+      Xxor(pcode, cls, dst, dst);
    } else if (val.t == RXCON && conht[val.i].isdat && !conht[val.i].deref) {
-      Xlea(pcode, cls2siz[cls], dst, mkoper(OCONR, .con = val.i));
+      Xlea(pcode, cls, dst, mkoper(OCONR, .con = val.i));
    } else {
       struct oper src = mkimmdatregoper(val);
       if (memcmp(&dst, &src, sizeof dst) != 0)
-         Xmov(pcode, cls2siz[cls], dst, src);
+         Xmov(pcode, cls, dst, src);
    }
 }
 
@@ -491,77 +507,87 @@ static void
 emitinstr(uchar **pcode, struct function *fn, struct block *blk, int ii, struct instr *ins)
 {
    struct oper dst, src;
-   uchar ksiz = cls2siz[ins->cls];
-   void (*X)(uchar **, uint, struct oper, struct oper) = NULL;
-   void (*X1)(uchar **, uint, struct oper) = NULL;
+   enum irclass cls = ins->cls;
+   void (*X)(uchar **, enum irclass, struct oper, struct oper) = NULL;
+   void (*X1)(uchar **, enum irclass, struct oper) = NULL;
 
    switch (ins->op) {
    default: assert(!"nyi ins");
    case Onop: break;
-   case Ostore1: case Ostore2: case Ostore4: case Ostore8:
-      dst = mkmemoper(ins->l);
-      Xmov(pcode, 1 << (ins->op - Ostore1), dst, mkimmregoper(ins->r));
+   case Ostore1: cls = KI4, X = Xmovb; goto Store;
+   case Ostore2: cls = KI4, X = Xmovw; goto Store;
+   case Ostore4: cls = KI4, X = Xmov; goto Store;
+   case Ostore8: cls = KI8, X = Xmov;
+   Store:
+      src = mkimmregoper(ins->r);
+      if (cls == KI4 && src.t == OREG && src.reg >= XMM0) cls = KF4;
+      if (cls == KI8 && src.t == OREG && src.reg >= XMM0) cls = KF8;
+      X(pcode, cls, mkmemoper(ins->l), src);
       break;
-   case Oexts1:  src = mkregoper(ins->l); goto Movsx1;
-   case Oextu1:  src = mkregoper(ins->l); goto Movzx1;
-   case Oexts2:  src = mkregoper(ins->l); goto Movsx2;
-   case Oextu2:  src = mkregoper(ins->l); goto Movzx2;
-   case Oexts4:  src = mkregoper(ins->l); goto Movsx4;
-   case Oextu4:  src = mkregoper(ins->l); goto Movzx4;
-   case Oloads1: src = mkmemoper(ins->l); Movsx1: Xmovsx1(pcode, ksiz, reg2oper(ins->reg-1), src); break;
-   case Oloadu1: src = mkmemoper(ins->l); Movzx1: Xmovzx1(pcode, ksiz, reg2oper(ins->reg-1), src); break;
-   case Oloads2: src = mkmemoper(ins->l); Movsx2: Xmovsx2(pcode, ksiz, reg2oper(ins->reg-1), src); break;
-   case Oloadu2: src = mkmemoper(ins->l); Movzx2: Xmovzx2(pcode, ksiz, reg2oper(ins->reg-1), src); break;
-   case Oloads4: src = mkmemoper(ins->l); Movsx4: Xmovsx4(pcode, ksiz, reg2oper(ins->reg-1), src); break;
-   case Oloadu4: src = mkmemoper(ins->l); Movzx4: Xmov(pcode, 4, reg2oper(ins->reg-1), src); break;
-   case Oloadf4: case Oloadf8:
-   case Oloadi8: Xmov(pcode, ksiz, reg2oper(ins->reg-1), mkmemoper(ins->l)); break;
+   case Oexts1:  src = mkregoper(ins->l); goto Movsxb;
+   case Oextu1:  src = mkregoper(ins->l); goto Movzxb;
+   case Oexts2:  src = mkregoper(ins->l); goto Movsxw;
+   case Oextu2:  src = mkregoper(ins->l); goto Movzxw;
+   case Oexts4:  src = mkregoper(ins->l); goto Movsxl;
+   case Oextu4:  src = mkregoper(ins->l); goto Movzxl;
+   case Oloads1: src = mkmemoper(ins->l); Movsxb: Xmovsxb(pcode, cls, reg2oper(ins->reg-1), src); break;
+   case Oloadu1: src = mkmemoper(ins->l); Movzxb: Xmovzxb(pcode, cls, reg2oper(ins->reg-1), src); break;
+   case Oloads2: src = mkmemoper(ins->l); Movsxw: Xmovsxw(pcode, cls, reg2oper(ins->reg-1), src); break;
+   case Oloadu2: src = mkmemoper(ins->l); Movzxw: Xmovzxw(pcode, cls, reg2oper(ins->reg-1), src); break;
+   case Oloads4: src = mkmemoper(ins->l); Movsxl: Xmovsxl(pcode, cls, reg2oper(ins->reg-1), src); break;
+   case Oloadu4: src = mkmemoper(ins->l); Movzxl: Xmov(pcode, KI4, reg2oper(ins->reg-1), src); break;
+   case Oloadf4: case Oloadf8: Xmov(pcode, cls, reg2oper(ins->reg-1), mkmemoper(ins->l)); break;
+   case Oloadi8: Xmov(pcode, KI8, reg2oper(ins->reg-1), mkmemoper(ins->l)); break;
    case Oadd:
       dst = mkregoper(ins->l);
-      if (ins->reg-1 == dst.reg) { /* two-address add */
-         Xadd(pcode, ksiz, dst, mkimmdatregoper(ins->r));
+      if (kisflt(cls)) {
+         Xaddf(pcode, cls, dst, mkimmdatregoper(ins->r));
+      } else if (ins->reg-1 == dst.reg) { /* two-address add */
+         Xadd(pcode, cls, dst, mkimmdatregoper(ins->r));
       } else { /* three-address add (lea) */
          struct oper mem = { OMEM, .base = NOBASE, .index = NOINDEX };
          dst = reg2oper(ins->reg-1);
          addmemoper(&mem, ref2oper(ins->l));
          addmemoper(&mem, ref2oper(ins->r));
-         Xlea(pcode, ksiz, dst, mem);
+         Xlea(pcode, cls, dst, mem);
       }
       break;
-   case Osub: X = Xsub; goto ALU2;
+   case Osub: X = kisint(cls) ? Xsub : Xsubf; goto ALU2;
    case Oshl: X = Xshl; goto ALU2;
    ALU2:
       dst = mkregoper(ins->l);
       assert(ins->reg-1 == dst.reg);
-      X(pcode, ksiz, dst, mkimmdatregoper(ins->r));
+      X(pcode, cls, dst, mkimmdatregoper(ins->r));
       break;
    case Oxinc: X1 = Xinc; goto ALU1;
    case Oxdec: X1 = Xdec; goto ALU1;
    ALU1:
       dst = mkregoper(ins->l);
       assert(ins->reg-1 == dst.reg);
-      X1(pcode, ksiz, dst);
+      X1(pcode, cls, dst);
       break;
-   case Odiv: case Orem:
-      switch (ins->cls) {
+   case Odiv:
+      switch (cls) {
+      default: assert(0);
+      case KPTR:
       case KI8: B(0x48); /* REX.W */
       case KI4: B(0x99); /* CDQ/CQO */
                 assert(mkregoper(ins->l).reg == RAX);
-                Xidiv(pcode, ksiz, mkdatregoper(ins->r));
+                Xidiv(pcode, cls, mkdatregoper(ins->r));
                 break;
       case KF4: case KF8: assert(!"nyi");
       }
       break;
    case Omove:
       dst = ref2oper(ins->l);
-      gencopy(pcode, ins->cls, dst, ins->r);
+      gencopy(pcode, cls, dst, ins->r);
       break;
    case Ocopy:
       dst = reg2oper(ins->reg-1);
-      gencopy(pcode, ins->cls, dst, ins->l);
+      gencopy(pcode, cls, dst, ins->l);
       break;
    case Ocall:
-      Xcall(pcode, -1, ref2oper(ins->l));
+      Xcall(pcode, KPTR, ref2oper(ins->l));
       break;
    }
    if (ins->reg) ioper[ins - instrtab] = reg2oper(ins->reg-1);

@@ -180,6 +180,8 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       insertinstr(blk, (*curi)++, mkinstr(Omove, ins->cls, mkref(RREG, RDX), mkref(RREG, RDX)));
       fixarg(fn, &ins->r, ins, blk, curi); /* make sure rhs is memory or reg */
       ins->l = mkref(RREG, RAX);
+      if (op == Orem) ins->op = Odiv;
+      else if (op == Ourem) ins->op = Oudiv;
       insertinstr(blk, (*curi)++, *ins); /* duplicate ins to reuse tmp ref */
       *ins = mkinstr(Ocopy, ins->cls, mkref(RREG, op < Orem ? RAX : RDX)); /* get output */
       temp = mkinstr(Ocopy, ins->cls, mkref(RREG, op < Orem ? RDX : RAX)); /* clobber other reg*/
