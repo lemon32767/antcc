@@ -625,7 +625,7 @@ aligncode(uchar **pcode, int align)
       case 6: B(0x66);
       case 5: DS("\x0f\x1f\x44\x00\x00"); break;
       case 4: DS("\x0f\x1f\x40\x00"); break;
-      case 3: DS("\x0f\1f\00"); break;
+      case 3: DS("\x0f\x1f\00"); break;
       case 2: B(0x66);
       case 1: B(0x90); break;
       }
