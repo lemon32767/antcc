@@ -2,7 +2,7 @@ SRC=main.c io.c mem.c c.c lex.c type.c targ.c eval.c ir.c irdump.c intrin.c abi0
 CFLAGS=-Wall -std=c11 -pedantic
 OBJ=$(patsubst %.c,obj/%.o,$(SRC))
 DEP=$(OBJ:.o=.d)
-OUT=cchomp
+OUT=antcc
 
 all: CFLAGS += -g
 all: $(OUT)
