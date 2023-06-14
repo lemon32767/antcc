@@ -38,6 +38,14 @@ static int allocreg(struct rega *ra, enum irclass cls, union ref ref, int excl);
 #endif
 
 static void
+freereg(struct rega *ra, int r)
+{
+   ra->regs[r] = NOREF;
+   if (isfpr(r)) ++ra->nfreefpr;
+   else          ++ra->nfreegpr;
+}
+
+static void
 def(struct rega *ra, struct instr *ins, struct block *blk, int curi)
 {
    int reg = -1, var;
@@ -72,19 +80,12 @@ def(struct rega *ra, struct instr *ins, struct block *blk, int curi)
    } else {
       struct call *call = &calltab.p[ins->r.i];
       for (int i = 0; i < 2; ++i) {
-         if (!call->abiret[0].ty.cls) break;
-         reg = call->abiret[0].reg;
-         ra->regs[reg] = NOREF;
-         if (isfpr(reg)) ++ra->nfreefpr;
-         else            ++ra->nfreegpr;
-         return;
+         if (!call->abiret[i].ty.cls) break;
+         freereg(ra, call->abiret[i].reg);
       }
+      return;
    }
-   if (reg != -1) {
-      ra->regs[reg] = NOREF;
-      if (isfpr(reg)) ++ra->nfreefpr;
-      else            ++ra->nfreegpr;
-   }
+   if (reg != -1) freereg(ra, reg);
 }
 
 static void
@@ -147,7 +148,6 @@ spill(struct rega *ra, int reg, struct block *blk, int curi) {
    if (!ra->regs[reg].t) return;
    var = ra->regs[reg].i;
    assert(ra->regs[reg].t == RTMP && *(ushort *)&ra->allocs[var] == *(ushort *)&areg(reg));
-   ra->regs[reg] = NOREF;
    s = allocstk(ra, var);
    DBG("-- spill %%%d %s -> s%d\n", var, mctarg->rnames[reg], s);
    instrtab[var].reg = 0;
@@ -155,9 +155,7 @@ spill(struct rega *ra, int reg, struct block *blk, int curi) {
    load = mkinstr(Oloads1 + 2*ilog2(cls2siz[instrtab[var].cls]), instrtab[var].cls, mkref(RICON, s*8));
    load.reg = reg+1;
    addstkslotref(insertinstr(blk, ++curi, load));
-   if (isfpr(reg)) --ra->nfreefpr;
-   else            --ra->nfreegpr;
-
+   freereg(ra, reg);
 }
 
 #define mkmove(k, rd, rs) mkinstr(Omove, k, mkref(RREG, rd), mkref(RREG, rs))
@@ -369,6 +367,7 @@ regalloc(struct function *fn)
    }
    bscopy(fn->regusage, globusage, 1);
    free(ra.allocs);
+   vfree(&ra.freestk);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */
