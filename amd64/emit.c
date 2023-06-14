@@ -49,8 +49,12 @@ addmemoper(struct oper *mem, struct oper add)
    if (add.t == OIMM) {
       mem->disp += add.imm;
    } else if (add.t == OREG) {
-      assert(mem->index == NOINDEX);
-      mem->index = add.reg;
+      if (mem->base == NOBASE)
+         mem->base = add.reg;
+      else if (mem->index == NOINDEX)
+         mem->index = add.reg;
+      else
+         assert(0);
    }
 }
 
@@ -146,6 +150,7 @@ enum operpat {
    P1, /* imm = 1 */
    PI8,
    PI32,
+   PU32,
    PMEM,
    PSYM,
 };
@@ -168,6 +173,7 @@ struct desc {
    uchar operenc; /* enum operenc */
    uchar ext; /* ModR/M.reg opc extension */
    bool r8 : 1; /* uses 8bit register */
+   bool norexw : 1; /* do not use REX.W even if size is 64 bits */
 };
 
 /* match operand against pattern */
@@ -183,6 +189,7 @@ opermatch(enum operpat pat, struct oper oper)
    case P1:   return oper.t == OIMM && oper.imm == 1;
    case PI8:  return oper.t == OIMM && (uint)(oper.imm+128) < 256;
    case PI32: return oper.t == OIMM;
+   case PU32: return oper.t == OIMM && oper.imm >= 0;
    case PMEM: return in_range(oper.t, OMEM, OCONR);
    case PSYM: return oper.t == OCONR;
    }
@@ -219,6 +226,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, uint siz, struct oper ds
    if (*opc == 0x66 || *opc == 0xF2 || *opc == 0xF3)
       B(*opc++), --nopc;
    rex = -(en->ptd != PFPR && en->pts != PFPR) & (siz == 8) << 3; /* REX.W */
+   if (en->norexw) rex = 0;
    switch (en->operenc) {
    case EN_RR: /* mod = 11; reg = dst; rm = src */
       rex |= (dst.reg >> 3) << 2; /* REX.R */
@@ -325,7 +333,9 @@ DEFINSTR2(Xmov,
    {4|8, PGPR, PGPR, "\x8B",     EN_RR}, /* MOV r32/64, r32/64 */
    {4|8, PMEM, PGPR, "\x89",     EN_MR}, /* MOV m32/64, r32/64 */
    {4|8, PGPR, PMEM, "\x8B",     EN_RM}, /* MOV r32/64, m32/64 */
-   {4|8, PGPR, PI32, "\xB8",     EN_OI}, /* MOV r32/64, imm */
+   {4  , PGPR, PI32, "\xB8",     EN_OI}, /* MOV r32, imm */
+   {  8, PGPR, PU32, "\xB8",     EN_OI, .norexw=1}, /* MOV r64, uimm */
+   {  8, PGPR, PI32, "\xC7",     EN_RI32}, /* MOV r64, imm */
    {4, PFPR, PFPR, "\xF3\x0F\x10", EN_RR}, /* MOVSS xmm, xmm */
    {8, PFPR, PFPR, "\xF2\x0F\x10", EN_RR}, /* MOVSD xmm, xmm */
    {4, PFPR, PMEM, "\xF3\x0F\x10", EN_RM}, /* MOVSS xmm, m32 */
@@ -511,10 +521,10 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int ii, struct 
       if (ins->reg-1 == dst.reg) { /* two-address add */
          Xadd(pcode, ksiz, dst, mkimmdatregoper(ins->r));
       } else { /* three-address add (lea) */
-         struct oper mem = { OMEM, .index = NOINDEX };
+         struct oper mem = { OMEM, .base = NOBASE, .index = NOINDEX };
          dst = reg2oper(ins->reg-1);
-         if (isregref(ins->r)) mem.base = mkregoper(ins->r).reg;
-         else mem.disp = mkimmoper(ins->r).imm;
+         addmemoper(&mem, ref2oper(ins->l));
+         addmemoper(&mem, ref2oper(ins->r));
          Xlea(pcode, ksiz, dst, mem);
       }
       break;
@@ -632,6 +642,8 @@ emitbin(struct function *fn)
 void
 amd64_emit(struct function *fn)
 {
+   fn->stksiz = alignup(fn->stksiz, 16);
+   if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
    emitbin(fn);
 }
 

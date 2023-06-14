@@ -71,21 +71,21 @@ ascale(struct addr *addr, union ref a, union ref b)
 }
 
 static bool
-aadd(struct addr *addr, union ref r, bool rec)
+aadd(struct addr *addr, union ref r)
 {
    if (r.t == RTMP) {
       struct instr *ins = &instrtab[r.i];
 
       if (ins->op == Oadd) {
-         if (!aadd(addr, ins->l, rec)) return 0;
-         if (!aadd(addr, ins->r, rec)) return 0;
+         if (!aadd(addr, ins->l)) goto Ref;
+         if (!aadd(addr, ins->r)) goto Ref;
          ins->skip = 1;
       } else if (ins->op == Oshl) {
-         if (!ascale(addr, ins->l, ins->r)) return 0;
+         if (!ascale(addr, ins->l, ins->r)) goto Ref;
          ins->skip = 1;
-      } else if (!rec && ins->op == Ocopy && ins->l.t == RMORE) {
+      } else if (ins->op == Ocopy && ins->l.t == RMORE) {
          struct addr save = *addr, *addr2 = &addrht[ins->l.i];
-         if ((!addr2->base.t || aadd(addr, addr2->base, 1))
+         if ((!addr2->base.t || aadd(addr, addr2->base))
           && acon(addr, mkintcon(KI4, addr2->disp))
           && (!addr2->index.t || ascale(addr, addr2->index, mkref(RICON, addr2->shift))))
          {
@@ -94,6 +94,9 @@ aadd(struct addr *addr, union ref r, bool rec)
             *addr = save;
             goto Ref;
          }
+      } else if (ins->op == Ocopy) {
+         if (!aadd(addr, ins->l)) goto Ref;
+         ins->skip = 1;
       } else goto Ref;
    } else if (iscon(r)) {
       return acon(addr, r);
@@ -117,7 +120,7 @@ fuseaddr(struct function *fn, union ref *r)
    if (r->t == RMORE) return 1;
    if (r->t != RTMP) return 0;
 
-   if (!aadd(&addr, *r, 0)) return 0;
+   if (!aadd(&addr, *r)) return 0;
 
    *r = mkaddr(addr);
    return 1;
@@ -272,7 +275,6 @@ amd64_isel(struct function *fn)
          sel(fn, &instrtab[blk->ins.p[i]], blk, &i);
       }
    } while ((blk = blk->lnext) != fn->entry);
-   fn->stksiz = alignup(fn->stksiz, 16);
 
    if (ccopt.dbg.i) {
       efmt("<< After isel >>\n");

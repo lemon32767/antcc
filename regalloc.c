@@ -16,30 +16,69 @@ struct alloc { ushort t : 2, a : 14; };
 struct rega {
    union ref regs[MAXREGS]; /* map reg -> value holding reg */
    struct alloc *allocs; /* map tmpidx -> allocation */
+   vec_of(ushort) freestk; /* available stack slots */
    int nfreegpr, nfreefpr;
+   int maxstk, stktop;
 };
 
+static vec_of(union ref *) stkslotrefs;
+
 static void
-def(struct rega *ra, struct instr *ins)
+addstkslotref(union ref inst)
+{
+   vpush(&stkslotrefs, &instrtab[inst.i].l);
+}
+
+static int allocreg(struct rega *ra, enum irclass cls, union ref ref, int excl);
+
+#if 0
+#define DBG efmt
+#else
+#define DBG(...) ((void)0)
+#endif
+
+static void
+def(struct rega *ra, struct instr *ins, struct block *blk, int curi)
 {
    int reg = -1, var;
    struct alloc *alloc;
-   if (ins->op != Omove) {
+   if (ins->op != Omove && ins->op != Ocall) {
       var = ins - instrtab;
-      // efmt("def %%%d\n",var);
+      DBG("def %%%d\n",var);
       alloc = &ra->allocs[var];
       if (alloc->t == ADEAD) {
          return;
       } else if (alloc->t == AREG) {
          reg = alloc->a;
-         // efmt("-- free %s for %%%d\n", mctarg->rnames[alloc->a], var);
+         DBG("-- free %s for %%%d\n", mctarg->rnames[alloc->a], var);
          assert(ra->regs[reg].bits == mkref(RTMP, var).bits);
-      } else assert(0);
+      } else  if (alloc->t == ASTACK) {
+         /* unspill, insert 'store [slot], reg' */
+         int reg = allocreg(ra, ins->cls, mkref(RTMP, var), -1);
+         struct instr store = mkinstr(Ostore1 + ilog2(cls2siz[ins->cls]), 0,
+                                      mkref(RICON, alloc->a*8), mkref(RREG, reg));
+         DBG("-- unspill %%%d s%d -> %s\n", var, alloc->a, mctarg->rnames[ins->reg+1]);
+         addstkslotref(insertinstr(blk, ++curi, store));
+         vpush(&ra->freestk, alloc->a);
+         ins->reg = reg+1;
+         def(ra, ins, blk, curi); /* and free the reg again */
+         return;
+      }
       *alloc = afree();
-   } else {
+   } else if (ins->op == Omove) {
       reg = ins->l.i;
       assert(ins->l.t == RREG);
-      // efmt("-- free %s\n", mctarg->rnames[ins->l.i]);
+      DBG("-- free %s\n", mctarg->rnames[ins->l.i]);
+   } else {
+      struct call *call = &calltab.p[ins->r.i];
+      for (int i = 0; i < 2; ++i) {
+         if (!call->abiret[0].ty.cls) break;
+         reg = call->abiret[0].reg;
+         ra->regs[reg] = NOREF;
+         if (isfpr(reg)) ++ra->nfreefpr;
+         else            ++ra->nfreegpr;
+         return;
+      }
    }
    if (reg != -1) {
       ra->regs[reg] = NOREF;
@@ -50,18 +89,19 @@ def(struct rega *ra, struct instr *ins)
 
 static void
 take(struct rega *ra, int reg, union ref ref) {
-   // efmt("-- take %s for %d %d\n", mctarg->rnames[reg], ref.t, ref.i);
+   DBG("-- take %s for %c%d\n", mctarg->rnames[reg], "R%"[ref.t==RTMP], ref.i);
    assert(!ra->regs[reg].t && "taken");
    if (ref.t == RTMP)
       ra->allocs[ref.i] = areg(reg);
    ra->regs[reg] = ref;
+   assert(ra->regs[reg].bits);
    bsset(globusage, reg);
    if (isfpr(reg)) --ra->nfreefpr;
    else            --ra->nfreegpr;
 }
 
 static int
-nextreg(struct rega *ra, enum irclass cls, union ref ref, int excl)
+allocreg(struct rega *ra, enum irclass cls, union ref ref, int excl)
 {
    int r0, rend, reg;
 
@@ -81,6 +121,43 @@ nextreg(struct rega *ra, enum irclass cls, union ref ref, int excl)
       }
    }
    assert(!"no more reg");
+}
+
+static int
+allocstk(struct rega *ra, int var)
+{
+   int s;
+
+   if (ra->freestk.n) {
+      s = ra->freestk.p[--ra->freestk.n];
+      ra->allocs[var] = astack(s);
+   } else {
+      if (ra->stktop+1 >= ra->maxstk) ra->maxstk = ra->stktop+1;
+      s = ra->stktop++;
+   }
+   ra->allocs[var] = astack(s);
+   return s;
+}
+
+static void
+spill(struct rega *ra, int reg, struct block *blk, int curi) {
+   int var, s;
+   struct instr load;
+
+   if (!ra->regs[reg].t) return;
+   var = ra->regs[reg].i;
+   assert(ra->regs[reg].t == RTMP && *(ushort *)&ra->allocs[var] == *(ushort *)&areg(reg));
+   ra->regs[reg] = NOREF;
+   s = allocstk(ra, var);
+   DBG("-- spill %%%d %s -> s%d\n", var, mctarg->rnames[reg], s);
+   instrtab[var].reg = 0;
+   /* insert 'reg = load [slot]' */
+   load = mkinstr(Oloads1 + 2*ilog2(cls2siz[instrtab[var].cls]), instrtab[var].cls, mkref(RICON, s*8));
+   load.reg = reg+1;
+   addstkslotref(insertinstr(blk, ++curi, load));
+   if (isfpr(reg)) --ra->nfreefpr;
+   else            --ra->nfreegpr;
+
 }
 
 #define mkmove(k, rd, rs) mkinstr(Omove, k, mkref(RREG, rd), mkref(RREG, rs))
@@ -107,8 +184,8 @@ forcetake(struct rega *ra, int reg, union ref ref, struct block *blk, int curi) 
        * e.g.: given 'R0 = copy R1'; if R1 => %x, we need to prevent renaming %x => R0
        */
       int excl = instrtab[blk->ins.p[curi]].reg-1;
-      int rename = nextreg(ra, isgpr(reg) ? KI4 : KF4, ra->regs[reg], excl);
-      if (ccopt.dbg.r) efmt("-- rename %%%d %s -> %s\n", var, mctarg->rnames[reg], mctarg->rnames[rename]);
+      int rename = allocreg(ra, isgpr(reg) ? KI4 : KF4, ra->regs[reg], excl);
+      if (ccopt.dbg.r)DBG("-- rename %%%d %s -> %s\n", var, mctarg->rnames[reg], mctarg->rnames[rename]);
       /* introduce move from rename -> original (since we allocate backwards) */
       insertinstr(blk, ++curi, mkmove(instrtab[var].cls, reg, rename));
       instrtab[var].reg = rename+1;
@@ -117,7 +194,7 @@ forcetake(struct rega *ra, int reg, union ref ref, struct block *blk, int curi) 
       *alloc = areg(rename);
       ra->regs[reg].bits = 0;
    } else {
-      assert(!"spill");
+      spill(ra, reg, blk, curi);
    }
    take(ra, reg, ref);
 }
@@ -136,6 +213,7 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
       *ref = mkaddr(addr);
       return;
    } else if (ref->t == RREG) {
+      assert(ref->i != excl);
       forcetake(ra, ref->i, *ref, blk, curi);
    }
    if (ref->t != RTMP) return;
@@ -144,11 +222,10 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
    if (oisalloca(ins->op)) return;
    if (!ins->cls) return;
    if (!ins->reg) {
-      if (op == -1) /* cond branch */
-         if (oiscmp(ins->op) && ref->i == blk->ins.p[blk->ins.n-1])
-            /* result of comparison instr is only used to conditionally branch,
-             * doesn't usually need a reg (this should be handled by isel) */
-            return;
+      int s = -1;
+      if (ra->allocs[ref->i].t == ASTACK)
+         s = ra->allocs[ref->i].a;
+
       assert(ins->op != Ocall);
       if (hint == -1 && ins->op == Ocopy && ins->l.t == RREG) /* for '%x = copy Rx', hint %x to use Rx */
          hint = ins->l.i;
@@ -156,7 +233,16 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
          take(ra, hint, *ref);
          ins->reg = hint + 1;
       } else {
-         ins->reg = nextreg(ra, ins->cls, *ref, excl) + 1;
+         ins->reg = allocreg(ra, ins->cls, *ref, excl) + 1;
+      }
+      if (s >= 0) {
+         /* unspill, insert 'store [slot], reg' */
+         DBG("-- unspill %%%d s%d -> %s\n", ref->i, s, mctarg->rnames[ins->reg-1]);
+         struct instr store = mkinstr(Ostore1 + ilog2(cls2siz[ins->cls]), 0,
+                                      mkref(RICON, s*8),
+                                      mkref(RREG, ins->reg-1));
+         addstkslotref(insertinstr(blk, ++curi, store));
+         vpush(&ra->freestk, s);
       }
    }
    *ref = mkref(RREG, ins->reg-1);
@@ -168,13 +254,18 @@ regalloc(struct function *fn)
    extern int ninstr;
    struct instr *ins;
    struct block *last = fn->entry->lprev, *blk;
-   struct rega ra = {.allocs = xcalloc(ninstr * sizeof(struct alloc))};
+   static union ref *stkslotrefsbuf[64];
+   struct rega ra = {0};
+
+   vinit(&stkslotrefs, stkslotrefsbuf, arraylength(stkslotrefsbuf));
+   ra.allocs = xcalloc(ninstr * sizeof(struct alloc));
    ra.nfreegpr = mctarg->ngpr - popcnt(mctarg->rglob->u);
    ra.nfreefpr = mctarg->nfpr;
    for (int i = 0; i < MAXREGS; ++i)
       if (in_range(i, mctarg->fpr0, mctarg->fpr0 + mctarg->nfpr - 1))
             bsset(floatregs, i);
    bszero(globusage, 1);
+   fn->stksiz = alignup(fn->stksiz, 8);
 
    /* a dumb linear register allocator that visits instructions physically backwards
     * starting at the end of the function, when encountering a use of a new
@@ -193,11 +284,11 @@ regalloc(struct function *fn)
       for (int i = blk->ins.n - 1; i >= 0; --i) {
          int hint0 = -1, hint1 = -1;
          ins = &instrtab[blk->ins.p[i]];
-         if (!ins->reg && ins->skip) { /* unused */
+         if (ins->op != Ocopy && !ra.allocs[ins - instrtab].t && ins->skip) { /* unused */
             *ins = mkinstr(Onop, 0,);
             continue;
          }
-         def(&ra, ins);
+         def(&ra, ins, blk, i);
          if (ins->op != Ocall) {
             if (ins->op == Ocopy) hint0 = ins->reg - 1;
             if (ins->op == Omove) {
@@ -212,6 +303,27 @@ regalloc(struct function *fn)
             }
          } else {
             struct call *call = &calltab.p[ins->r.i];
+            struct bitset rspill[1] = {0};
+
+            for (int r = mctarg->gpr0; r < mctarg->gpr0 + mctarg->ngpr; ++r)
+               if (!bstest(mctarg->rglob, r) && !bstest(mctarg->rcallee, r))
+                  bsset(rspill, r);
+            for (int r = mctarg->fpr0; r < mctarg->fpr0 + mctarg->nfpr; ++r)
+               if (!bstest(mctarg->rglob, r) && !bstest(mctarg->rcallee, r))
+                  bsset(rspill, r);
+
+            if (call->abiret[0].ty.bits) bsclr(rspill, call->abiret[0].reg);
+            if (call->abiret[1].ty.bits) bsclr(rspill, call->abiret[1].reg);
+            for (uint r = 0; bsiter(&r, rspill, 1); ++r) {
+               spill(&ra, r, blk, i);
+            }
+            for (int j = 0; j < call->narg; ++j) {
+               short reg = call->abiargregs[j];
+               if (reg >= 0) {
+                  forcetake(&ra, reg, mkref(RREG, reg), blk, i);
+               }
+            }
+
             use(&ra, blk, i, ins->op, hint0, &ins->l, NOREF);
          }
          if (ins->op == Ocopy && !ins->reg)
@@ -239,12 +351,18 @@ regalloc(struct function *fn)
                insertinstr(phi->blk[i], phi->blk[i]->ins.n, mov);
             }
          }
-         def(&ra, ins);
+         def(&ra, ins, NULL, 0);
       }
    } while ((blk = blk->lprev) != last);
 
    do vfree(&blk->phi); while ((blk = blk->lprev) != last);
 
+   fn->stksiz += ra.maxstk*8;
+   if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
+   while (stkslotrefs.n) {
+      union ref *adr = stkslotrefs.p[--stkslotrefs.n];
+      *adr = mkaddr((struct addr) { .base = mkref(RREG, mctarg->bpr), .disp = -fn->stksiz + adr->i });
+   }
    if (ccopt.dbg.r) {
       efmt("<< After regalloc >>\n");
       irdump(fn);

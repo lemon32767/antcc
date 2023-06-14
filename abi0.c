@@ -227,8 +227,13 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    if (call->ret.isagg) {
       replref(fn, blk, (*curi), mkref(RTMP, ins - instrtab), retmem);
       if (!nret) { /* hidden pointer argument */
-         if (call->abiret[0].reg >= 0)
+         if (call->abiret[0].reg >= 0) {
+            /* the result location pointer is also returned by the callee, like in x86 */
             ++nret;
+            insertinstr(blk, ++*curi, mkinstr(Ocopy, KPTR, mkref(RREG, call->abiret[0].reg)));
+            /* even if this is not used it the register copy
+             * must be emitted for the register allocator to know */
+         }
       } else { /* aggregate returned in regs */
          union ref r[2];
          struct instr ins;

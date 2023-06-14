@@ -62,7 +62,7 @@ popcnt(uvlong x) {
    return __builtin_popcountll(x);
 #else
    uint n = 0;
-   while (x) x >>= 1, ++n;
+   while (x) n += x&1, x >>= 1;
    return n;
 #endif
 }
@@ -375,13 +375,13 @@ bstest(const struct bitset *bs, uint i)
 static inline void
 bsset(struct bitset *bs, uint i)
 {
-   bs[i / BSNBIT].u |= 1 << i % BSNBIT;
+   bs[i / BSNBIT].u |= 1ull << i % BSNBIT;
 }
 
 static inline void
 bsclr(struct bitset *bs, uint i)
 {
-   bs[i / BSNBIT].u &= ~(1 << i % BSNBIT);
+   bs[i / BSNBIT].u &= ~(1ull << i % BSNBIT);
 }
 
 static inline void

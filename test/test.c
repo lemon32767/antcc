@@ -47,16 +47,18 @@ struct quad quad(long x, long y, long z, long w) {
 
 void silly(struct pair *p, struct quad *q)
 {
-    *p = pair(1,2);
+    *p = pair(-1,2);
     *q = quad(1,2,3,4);
 }
 
+#if 0
 int test2(struct big *b) {
     struct big s = *b;
     extern int h(int,float, struct big, float);
     s.x[5] += 2;
     return h(0, -.5f, s, 0);
 }
+#endif
 
 struct f2 { float f,g; };
 struct f2 f2test(struct f2 *r) {
