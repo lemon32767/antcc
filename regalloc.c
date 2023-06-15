@@ -287,7 +287,7 @@ regalloc(struct function *fn)
          }
          def(&ra, ins, blk, i);
          if (ins->op != Ocall) {
-            if (ins->op == Ocopy) hint0 = ins->reg - 1;
+            if (ins->op == Ocopy || ins->inplace) hint0 = ins->reg - 1;
             if (ins->op == Omove) {
                if (ins->l.t == RREG) hint1 = ins->l.i;
                /* MOV Rx,Rx is used by isel to indicate a clobber,
