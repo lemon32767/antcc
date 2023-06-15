@@ -11,6 +11,9 @@ struct calltab calltab;
 struct phitab phitab;
 struct dattab dattab;
 struct addr addrht[1 << 12];
+static int naddrht;
+struct xcon conht[1 << 12];
+static int nconht;
 
 void
 irinit(struct function *fn)
@@ -24,7 +27,10 @@ irinit(struct function *fn)
    vinit(&calltab, callsbuf, arraylength(callsbuf));
    vinit(&phitab, phisbuf, arraylength(phisbuf));
    vinit(&dattab, datsbuf, arraylength(datsbuf));
-   memset(addrht, 0, sizeof addrht);
+   if (naddrht >= arraylength(addrht)/2)
+      memset(addrht, naddrht = 0, sizeof addrht);
+   if (nconht >= arraylength(conht)/2)
+      memset(addrht, nconht = 0, sizeof addrht);
    if (!type2cls[TYINT]) {
       for (int i = TYBOOL; i <= TYUVLONG; ++i) {
          int siz = targ_primsizes[i];
@@ -52,6 +58,7 @@ addaddr(const struct addr *addr)
       i &= arraylength(addrht) - 1;
       if (!addrht[i].base.t && !addrht[i].index.t) {
          addrht[i] = *addr;
+         ++naddrht;
          return i;
       } else if (!memcmp(&addrht[i], addr, sizeof *addr)) {
          return i;
@@ -59,8 +66,6 @@ addaddr(const struct addr *addr)
       assert(--n > 0 && "addrht full");
    }
 }
-
-struct xcon conht[1 << 12];
 
 static int
 addcon(const struct xcon *con)
@@ -72,6 +77,7 @@ addcon(const struct xcon *con)
       i &= arraylength(conht) - 1;
       if (!conht[i].issym && !conht[i].cls) {
          conht[i] = *con;
+         ++nconht;
          return i;
       } else if (!memcmp(&conht[i], con, sizeof *con)) {
          return i;

@@ -1,4 +1,3 @@
-#include "common.h"
 #include "ir.h"
 
 static struct bitset globusage[1];

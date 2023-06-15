@@ -1,5 +1,4 @@
 #include "parse.h"
-#include "common.h"
 #include "ir.h"
 
 static struct arena *tlarena;
