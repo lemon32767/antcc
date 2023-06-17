@@ -50,7 +50,7 @@ vpush_(void **p, int *pcap, uint *pn, uint siz)
       *pcap = -cap;
    } else if (*pn == -*pcap) { /* dyn buf */
       *p = xrealloc(*p, -(*pcap *= 2) * siz);
-   }
+   } else return;
    assert(-(volatile int)*pcap > *pn && "overflow");
 }
 
@@ -221,7 +221,7 @@ pmap_init_(struct pmapbase *m, void **v, uint vsiz, uint N)
    m->N = N;
 }
 
-int pmap_get_(struct pmapbase *m, void *k)
+int pmap_get_(struct pmapbase *m, const void *k)
 {
    assert(k && "null key");
    if (!m->N) return -1;
@@ -239,7 +239,7 @@ pmap_rehash(struct pmapbase *m, void **v, uint vsiz)
    int i, j;
    void *k;
    void *newv;
-   uint N2 = m->N << 1,
+   uint N2 = m->N ? m->N << 1 : 16,
         sizk = N2*sizeof*m->k,
         sizv = N2*vsiz;
 
@@ -265,7 +265,7 @@ pmap_rehash(struct pmapbase *m, void **v, uint vsiz)
    m->N = N2;
 }
 
-int pmap_set_(struct pmapbase *m, void **v, uint vsiz, void *k)
+int pmap_set_(struct pmapbase *m, void **v, uint vsiz, const void *k)
 {
    assert(k && "null key");
    if (m->n >= m->N >> 1) {
@@ -277,7 +277,7 @@ int pmap_set_(struct pmapbase *m, void **v, uint vsiz, void *k)
       if (m->k[i] == k)
          return i;
       if (!m->k[i]) {
-         m->k[i] = k;
+         m->k[i] = (void *)k;
          ++m->n;
          return i;
       }

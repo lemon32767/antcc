@@ -13,6 +13,12 @@ enum reg {
 };
 
 static inline void
+wr16le(uchar *p, ushort x)
+{
+   p[0] = x >>  0; p[1] = x >>  8;
+}
+
+static inline void
 wr32le(uchar *p, uint x)
 {
    p[0] = x >>  0; p[1] = x >>  8;

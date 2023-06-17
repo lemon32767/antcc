@@ -149,6 +149,7 @@ enum operpat {
    PFPR,
    P1, /* imm = 1 */
    PI8,
+   PI16,
    PI32,
    PU32,
    PMEM,
@@ -162,6 +163,9 @@ enum operenc {
    EN_M,      /* mem */
    EN_RI8,    /* reg, imm8 with /0 */
    EN_RI32,   /* reg, imm32 with /0 */
+   EN_MI8,    /* mem, imm8 with /x */
+   EN_MI16,   /* mem, imm16 with /x */  
+   EN_MI32,   /* mem, imm32 with /x */
    EN_OI,     /* reg, imm32 with op + reg */
    EN_I32,    /* imm32 */
    EN_R32,    /* rel32 */
@@ -188,6 +192,7 @@ opermatch(enum operpat pat, struct oper oper)
    case PFPR: return oper.t == OREG && oper.reg >= XMM0;
    case P1:   return oper.t == OIMM && oper.imm == 1;
    case PI8:  return oper.t == OIMM && (uint)(oper.imm+128) < 256;
+   case PI16: return oper.t == OIMM && (short)oper.imm == oper.imm;
    case PI32: return oper.t == OIMM;
    case PU32: return oper.t == OIMM && oper.imm >= 0;
    case PMEM: return in_range(oper.t, OMEM, OCONR);
@@ -199,6 +204,7 @@ opermatch(enum operpat pat, struct oper oper)
 /* code output helpers */
 #define B(b) (*(*pcode)++ = (b))
 #define D(xs, N) (memcpy(*pcode, (xs), (N)), (*pcode) += (N))
+#define I16(w) (wr16le(*pcode, (w)), *pcode += 4)
 #define I32(w) (wr32le(*pcode, (w)), *pcode += 4)
 #define DS(S) D(S, sizeof S - 1)
 
@@ -247,7 +253,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       mem = src;
       reg = dst.reg;
       goto Mem;
-   case EN_M:
+   case EN_M: case EN_MI8: case EN_MI16: case EN_MI32:
       mem = dst;
       reg = en->ext;
    Mem:
@@ -277,7 +283,16 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       if (sib)
          B(mem.shift << 6 | (mem.index & 7) << 3 | (mem.base & 7));
       if (mod == 1) B(mem.disp);
-      else if (mod == 2 || (mod == 0 && mem.base == RBP)) I32(mem.disp);
+      else if (mod == 2 || (mod == 0 && mem.base == RBP/*RIP-rel*/)) {
+         if (mem.t == OCONR) {
+            objreloc(xcon2sym(mem.con), REL_PCREL32, Stext, *pcode - objout.textbegin, -4);
+            mem.disp = 0;
+         }
+         I32(mem.disp);
+      }
+      if (en->operenc == EN_MI8) B(src.imm);
+      if (en->operenc == EN_MI16) I16(src.imm);
+      if (en->operenc == EN_MI32) I32(src.imm);
       break;
    case EN_R: case EN_RI32: case EN_RI8:
       rex |= (dst.reg >> 3) << 0; /* REX.B */
@@ -304,7 +319,9 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
    case EN_R32:
       if (rex) B(0x40 | rex);
       D(opc, nopc);
-      I32(-1);
+      assert(dst.t == OCONR);
+      objreloc(xcon2sym(dst.con), REL_PCREL32, Stext, *pcode - objout.textbegin, -4);
+      I32(0);
       break;
    }
 }
@@ -326,10 +343,12 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
    }
 
 DEFINSTR2(Xmovb,
-   {-1, PMEM, PGPR, "\x88", EN_MR, .r8=1}, /* MOV m8, r8 */
+   {-1, PMEM, PGPR, "\x88", EN_MR,  .r8=1}, /* MOV m8, r8 */
+   {-1, PMEM, PI8,  "\xC6", EN_MI8, .r8=1}, /* MOV m8, imm8 */
 )
 DEFINSTR2(Xmovw,
    {-1, PMEM, PGPR, "\x66\x89", EN_MR}, /* MOV m16, r16 */
+   {-1, PMEM, PI16,  "\xC6", EN_MI16},    /* MOV m16, imm16 */
 )
 static void Xmov(uchar **pcode, enum irclass k, struct oper dst, struct oper src)
 {
@@ -430,9 +449,9 @@ DEFINSTR1(Xidiv,
    {4|8, PMEM, 0, "\xF7", EN_M, .ext=7}, /* IDIV m32/64 */
 )
 DEFINSTR1(Xcall,
-   {-1, PSYM, 0, "\xE8", EN_R32}, /* CALL rel32 */
-   {-1, PGPR, 0, "\xFF", EN_R, .ext=2}, /* CALL r64 */
-   {-1, PMEM, 0, "\xFF", EN_M, .ext=2}, /* CALL m64 */
+   {-1, PSYM, 0, "\xE8", EN_R32, .norexw=1}, /* CALL rel32 */
+   {-1, PGPR, 0, "\xFF", EN_R, .ext=2, .norexw=1}, /* CALL r64 */
+   {-1, PMEM, 0, "\xFF", EN_M, .ext=2, .norexw=1}, /* CALL m64 */
 )
 
 static void
@@ -637,8 +656,10 @@ emitbin(struct function *fn)
 {
    struct block *blk;
    uchar **pcode = &objout.code;
+   uchar *start;
 
    aligncode(pcode, 16);
+   start = *pcode;
 
    /** prologue **/
    if (fn->stksiz != 0)
@@ -667,6 +688,7 @@ emitbin(struct function *fn)
          B(0xC3); /* ret */
       }
    } while ((blk = blk->lnext) != fn->entry);
+   objdeffunc(fn->name, fn->globl, start - objout.textbegin, *pcode - start);
 }
 
 void

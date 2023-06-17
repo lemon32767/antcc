@@ -202,7 +202,15 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       }
       goto ALU;
    case Oadd:
-      if (ins->l.bits == mkref(RICON, 1).bits) {
+      if (kisint(ins->cls) && (addarg4addrp(ins->l) || addarg4addrp(ins->r))) {
+         temp.op = Ocopy;
+         temp.cls = ins->cls;
+         temp.l = mkref(RTMP, ins - instrtab);
+         if (fuseaddr(fn, &temp.l)) {
+            *ins = temp;
+            break;
+         }
+      } else if (ins->l.bits == mkref(RICON, 1).bits) {
          /* add 1,x -> inc x */
          ins->op = op = Oxinc;
          ins->l = ins->r;
@@ -213,14 +221,6 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          ins->op = op = Oxinc;
          ins->r = NOREF;
          goto ALU;
-      } else if (kisint(ins->cls) && (addarg4addrp(ins->l) || addarg4addrp(ins->r))) {
-         temp.op = Ocopy;
-         temp.cls = ins->cls;
-         temp.l = mkref(RTMP, ins - instrtab);
-         if (fuseaddr(fn, &temp.l)) {
-            *ins = temp;
-            break;
-         }
       }
       /* fallthru */
    case Omul: case Oumul:

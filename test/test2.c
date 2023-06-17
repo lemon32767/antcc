@@ -15,6 +15,9 @@ v2d add(v2d a, v2d b)
 }
 
 short s(int a, int b) {
+    extern h();
+    h(a +a * a);
+    ++a;
     return a + b;
 }
 

@@ -296,7 +296,7 @@ typearrlen(union type t)
 extern uchar targ_primsizes[];
 extern uchar targ_primalign[];
 extern enum typetag targ_sizetype, targ_ptrdifftype;
-extern bool targ_charsigned, targ_bigendian;
+extern bool targ_charsigned, targ_bigendian, targ_64bit;
 extern const struct mctarg *mctarg;
 void targ_init(const char *);
 
@@ -351,20 +351,23 @@ int imap_get_(struct imapbase *, short k);
 int imap_set_(struct imapbase *, void **v, uint vsiz, short k);
 #define imap_free(m) (free((m)->mb.k), memset((m), 0, sizeof *(m)))
 #define imap_init(m, N) (imap_free(m), imap_init_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, (N))
+#define imap_clear(m) ((m)->mb.bs ? bszero((m)->mb.bs, BSSIZE((m)->mb.N)) : (void)0, \
+                       (m)->mb.n = 0)
 #define imap_get(m, k) (((m)->tmp = imap_get_(&(m)->mb, k)) < 0 ? NULL : &(m)->v[(m)->tmp])
 #define imap_set(m, k, x) ((m)->tmp = imap_set_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, k), \
                            (m)->v[(m)->tmp] = (x))
 
 struct pmapbase { void **k; uint n, N; };
 /* map of non-null ptr -> T */
-#define pmap_of(T) struct { T *v; int tmp; struct imapbase mb; }
+#define pmap_of(T) struct { T *v; int tmp; struct pmapbase mb; }
 void pmap_init_(struct pmapbase *, void **v, uint vsiz, uint N);
-int pmap_get_(struct pmapbase *, void *k);
-int pmap_set_(struct pmapbase *, void **v, uint vsiz, void *k);
+int pmap_get_(struct pmapbase *, const void *k);
+int pmap_set_(struct pmapbase *, void **v, uint vsiz, const void *k);
 #define pmap_free(m) (free((m)->mb.k), memset((m), 0, sizeof *(m)))
 #define pmap_init(m, N) (pmap_free(m), pmap_init_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, (N))
 #define pmap_get(m, k) (((m)->tmp = pmap_get_(&(m)->mb, k)) < 0 ? NULL : &(m)->v[(m)->tmp])
-#define pmap_set(m, k, x) ((m)->v[pmap_set_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, k)] = (x))
+#define pmap_set(m, k, x) ((m)->tmp = pmap_set_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, k), \
+                           (m)->v[(m)->tmp] = (x))
 
 static inline bool
 bstest(const struct bitset *bs, uint i)

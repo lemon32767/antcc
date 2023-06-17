@@ -208,6 +208,7 @@ union ref mkfltcon(enum irclass, double);
 #define fltconval(r) (conht[(r).i].f)
 union ref mksymref(const char *);
 union ref mkdatref(uint siz, uint align, const void *, uint n, bool deref);
+const char *xcon2sym(int ref);
 struct instr mkalloca(uint siz, uint align);
 void conputdat(struct irdat *, uint off, enum typetag t, const void *dat);
 union ref mkcallarg(union irtype ret, uint narg, int vararg);

@@ -25,10 +25,10 @@ optval(const char *arg, const char *opt)
 }
 
 static void
-optparse(const char **file, const char **targ, char **args)
+optparse(const char **file, const char **outfile, const char **targ, char **args)
 {
     const char *arg, *x;
-    *file = *targ = NULL;
+    *outfile = *file = *targ = NULL;
     while ((arg = *++args)) {
         if (*arg++ != '-') {
             *file = arg-1;
@@ -52,6 +52,10 @@ optparse(const char **file, const char **targ, char **args)
             case 'r': ccopt.dbg.r = 1; break;
             default: warn(NULL, "-d: invalid debug flag %'c", *arg);
             }
+        } else if (*arg == 'o') {
+            if (arg[1]) *outfile = arg+1;
+            else if (args[1]) *outfile = *++args;
+            else goto Bad;
         } else Bad: warn(NULL, "invalid option: %'s", arg-1);
     }
 }
@@ -70,19 +74,19 @@ int
 main(int argc, char **argv)
 {
     struct parser pr;
-    const char *file, *targ;
+    const char *file, *outfile, *targ;
 
     atexit(flushstd);
     detectcolor();
     ccopt.cstd = STDC99; /* C99 by default */
-    optparse(&file, &targ, argv);
+    optparse(&file, &outfile, &targ, argv);
     if (!file) {
         efmt("usage: %s [options] <file>\n", *argv);
         return 1;
     }
 
     targ_init(targ ? targ : "amd64-sysv");
-    objini("a.out");
+    objini(outfile ? outfile : "a.out");
     initparser(&pr, file);
     parse(&pr);
     if (!nerror) objfini();

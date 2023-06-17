@@ -1,4 +1,5 @@
 #include "ir.h"
+#include "common.h"
 
 uchar type2cls[NTYPETAG];
 uchar cls2siz[KF8+1];
@@ -189,6 +190,22 @@ mkdatref(uint siz, uint align, const void *bytes, uint n, bool deref)
    }
    vpush(&dattab, dat);
    return mkref(RXCON, addcon(&(struct xcon){.isdat = 1, .deref = deref, .dat = dattab.n - 1}));
+}
+
+const char *
+xcon2sym(int ref)
+{
+   extern const char *intern(const char *);
+   char buf[32];
+   struct wbuf wbuf = MEMBUF(buf, sizeof buf);
+   struct xcon *con = &conht[ref];
+
+   assert(con->isdat || con->issym);
+   if (con->issym) return con->sym;
+   bfmt(&wbuf, ".L.%d", con->dat);
+   ioputc(&wbuf, 0);
+   assert(!wbuf.err);
+   return intern(buf);
 }
 
 struct instr
