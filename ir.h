@@ -138,6 +138,9 @@ struct function {
    struct bitset regusage[1];
 };
 
+enum objkind { OBJELF };
+enum mcisa { ISamd64 };
+
 struct mctarg {
    short gpr0, /* first gpr */
          ngpr, /* gpr count */
@@ -147,6 +150,8 @@ struct mctarg {
    struct bitset rcallee[1], /* callee-saved */
                  rglob[1];   /* globally live (never used for regalloc) */
    const char (*rnames)[6];
+   enum objkind objkind;
+   enum mcisa isa;
    /* abiret: lower return type:
     *  scalar/small struct -> returns number of regs (1..2),
     *                         r & cls filled with reg and irclass of each scalar return
@@ -219,6 +224,7 @@ void useblk(struct function *, struct block *);
 void putbranch(struct function *, struct block *);
 void putcondbranch(struct function *, union ref arg, struct block *t, struct block *f);
 void putreturn(struct function *, union ref r0, union ref r1);
+void blkreplref(struct block *, int, union ref from, union ref to);
 void replref(struct function *, struct block *, int, union ref from, union ref to);
 
 void irdump(struct function *);

@@ -190,7 +190,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Osub:
        if (ins->r.bits == mkref(RICON, 1).bits) {
          /* sub x,1 -> dec x */
-         ins->op = Oxdec;
+         ins->op = op = Oxdec;
          ins->r = NOREF;
       } else if (iscon(ins->l)) {
          /* sub imm, x -> sub x, imm; neg x */
@@ -204,13 +204,13 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Oadd:
       if (ins->l.bits == mkref(RICON, 1).bits) {
          /* add 1,x -> inc x */
-         ins->op = Oxinc;
+         ins->op = op = Oxinc;
          ins->l = ins->r;
          ins->r = NOREF;
          goto ALU;
       } else if (ins->r.bits == mkref(RICON, 1).bits) {
          /* add x,1 -> inc x */
-         ins->op = Oxinc;
+         ins->op = op = Oxinc;
          ins->r = NOREF;
          goto ALU;
       } else if (kisint(ins->cls) && (addarg4addrp(ins->l) || addarg4addrp(ins->r))) {

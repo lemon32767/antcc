@@ -367,22 +367,28 @@ putreturn(struct function *fn, union ref r0, union ref r1)
 #undef putjump
 
 void
+blkreplref(struct block *blk, int i0, union ref from, union ref to)
+{
+   if (i0 == 0) for (int i = 0; i < blk->phi.n; ++i) {
+      struct phi *phi = &phitab.p[instrtab[blk->phi.p[i]].l.i];
+      for (int i = 0; i < phi->n; ++i)
+         if (phi->ref[i].bits == to.bits) phi->ref[i] = from;
+   }
+
+   for (int i = i0; i < blk->ins.n; ++i) {
+      struct instr *ins = &instrtab[blk->ins.p[i]];
+      for (int i = 0; i < 2; ++i) {
+         union ref *r = &(&ins->l)[i];
+         if (r->bits == from.bits) *r = to;
+      }
+   }
+}
+
+void
 replref(struct function *fn, struct block *blk, int i0, union ref from, union ref to)
 {
    do {
-      if (!i0) for (int i = 0; i < blk->phi.n; ++i) {
-         struct phi *phi = &phitab.p[instrtab[blk->phi.p[i]].l.i];
-         for (int i = 0; i < phi->n; ++i)
-            if (phi->ref[i].bits == to.bits) phi->ref[i] = from;
-      }
-
-      for (int i = i0; i < blk->ins.n; ++i) {
-         struct instr *ins = &instrtab[blk->ins.p[i]];
-         for (int i = 0; i < 2; ++i) {
-            union ref *r = &(&ins->l)[i];
-            if (r->bits == from.bits) *r = to;
-         }
-      }
+      blkreplref(blk, i0, from, to);
       i0 = 0;
    } while ((blk = blk->lnext) != fn->entry);
 }

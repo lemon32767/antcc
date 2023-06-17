@@ -16,7 +16,7 @@ static const struct targ {
 uchar targ_primsizes[TYPTR+1];
 uchar targ_primalign[TYPTR+1];
 enum typetag targ_sizetype, targ_ptrdifftype;
-bool targ_charsigned, targ_bigendian;
+bool targ_charsigned, targ_bigendian, targ_64bit;
 const struct mctarg *mctarg;
 
 void
@@ -43,5 +43,6 @@ targ_init(const char *starg)
    targ_ptrdifftype = t->ptrdifftype;
    targ_charsigned = t->charsigned;
    targ_bigendian = 0;
+   targ_64bit = t->ptrsize == 8;
    mctarg = t->mctarg;
 }

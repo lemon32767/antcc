@@ -641,16 +641,19 @@ emitbin(struct function *fn)
    aligncode(pcode, 16);
 
    /** prologue **/
-   /* push rbp; mov rbp, rsp */
-   DS("\x55\x48\x89\xE5");
+   if (fn->stksiz != 0)
+      /* push rbp; mov rbp, rsp */
+      DS("\x55\x48\x89\xE5");
    calleesave(pcode, fn);
-   /* sub rsp, <stack size> */
-   if (fn->stksiz < 128)
-      DS("\x48\x83\xEC"), B(fn->stksiz);
-   else if (fn->stksiz == 128)
-      DS("\x48\x83\xC4\x80"); /* add rsp, -128 */
-   else
-      DS("\x48\x81\xEC"), I32(fn->stksiz);
+   if (fn->stksiz != 0) {
+      /* sub rsp, <stack size> */
+      if (fn->stksiz < 128)
+         DS("\x48\x83\xEC"), B(fn->stksiz);
+      else if (fn->stksiz == 128)
+         DS("\x48\x83\xC4\x80"); /* add rsp, -128 */
+      else
+         DS("\x48\x81\xEC"), I32(fn->stksiz);
+   }
 
    blk = fn->entry;
    do {
@@ -660,7 +663,8 @@ emitbin(struct function *fn)
       if (blk->jmp.t == Jret) {
          /* epilogue */
          calleerestore(pcode, fn);
-         DS("\xC9\xC3"); /* leave; ret */
+         if (fn->stksiz) B(0xC9); /* leave */
+         B(0xC3); /* ret */
       }
    } while ((blk = blk->lnext) != fn->entry);
 }
