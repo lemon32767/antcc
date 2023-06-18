@@ -1,4 +1,5 @@
 #include "all.h"
+#include "../endian.h"
 
 static void
 fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, int *curi)

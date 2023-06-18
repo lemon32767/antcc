@@ -17,6 +17,13 @@ typedef unsigned long long uvlong;
 typedef   signed long long vlong;
 typedef unsigned uint;
 
+
+#ifdef __has_builtin
+#define HAS_BUILTIN(b) __has_builtin(__builtin_##b)
+#else
+#define HAS_BUILTIN(_) 0
+#endif
+#define static_assert(x) _Static_assert(x, #x)
 #define in_range(x, Lo, Hi) ((uint) (x) - (Lo) <= (Hi) - (Lo)) /* lo <= x <= hi; lo > 0, hi > 0 */
 #define alignup(x, A) (((x) + ((A) - 1)) & -(A))
 #define arraylength(a) (sizeof(a) / sizeof 0[a])
@@ -32,7 +39,7 @@ struct span {
 };
 
 void _assertfmt(const char *file, int line, const char *func, const char *expr);
-#ifdef __GNUC__
+#if HAS_BUILTIN(trap)
 #define assert(x) (!(x) ? _assertfmt(__FILE__,__LINE__,__func__,#x), __builtin_trap() : (void)0)
 #else
 #define assert(x) (void)(!(x) ? _assertfmt(__FILE__,__LINE__,__func__,#x), *(volatile int *)0 : 0)
@@ -58,7 +65,7 @@ ptrhash(const void *p) {
 }
 static inline uint
 popcnt(uvlong x) {
-#if defined __has_builtin && __has_builtin(__builtin_popcountll)
+#if HAS_BUILTIN(popcountll)
    return __builtin_popcountll(x);
 #else
    uint n = 0;
@@ -72,7 +79,7 @@ ispo2(uvlong x) {
 }
 static inline uint
 ilog2(uint x) { /* assumes x is a power of 2 */
-#if defined __has_builtin && __has_builtin(__builtin_ctz)
+#if HAS_BUILTIN(ctz)
    return __builtin_ctz(x);
 #else
    uint n = 0;

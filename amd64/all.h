@@ -12,26 +12,6 @@ enum reg {
 #undef R
 };
 
-static inline void
-wr16le(uchar *p, ushort x)
-{
-   p[0] = x >>  0; p[1] = x >>  8;
-}
-
-static inline void
-wr32le(uchar *p, uint x)
-{
-   p[0] = x >>  0; p[1] = x >>  8;
-   p[2] = x >> 16; p[3] = x >> 24;
-}
-
-static inline void
-wr64le(uchar *p, uvlong x)
-{
-   wr32le(p+0, x>>00);
-   wr32le(p+4, x>>32);
-}
-
 void amd64_isel(struct function *);
 void amd64_emit(struct function *);
 

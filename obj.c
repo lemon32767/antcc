@@ -51,7 +51,7 @@ objreloc(const char *sym, enum relockind reloc, enum section section, uint off, 
 void
 objfini(void)
 {
-   static char buf[1<<10];
+   static char buf[1<<12];
    struct wbuf out = FDBUF(buf, sizeof buf, open(objout.file, O_WRONLY | O_CREAT | O_TRUNC, 0666));
    if (out.fd < 0) fatal(NULL, "could not open %'s for writing: %s", objout.file, strerror(errno));
 

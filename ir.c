@@ -1,5 +1,5 @@
 #include "ir.h"
-#include "common.h"
+#include "endian.h"
 
 uchar type2cls[NTYPETAG];
 uchar cls2siz[KF8+1];
@@ -87,33 +87,6 @@ addcon(const struct xcon *con)
    }
 }
 
-static void
-targwrite2(uchar *d, ushort x)
-{
-   if (targ_bigendian)
-      d[0] = x >> 8, d[1] = x;
-   else
-      d[0] = x, d[1] = x >> 8;
-}
-
-static void
-targwrite4(uchar *d, uint x)
-{
-   if (targ_bigendian)
-      d[0] = x >> 24, d[1] = x >> 16, d[2] = x >> 8, d[3] = x;
-   else
-      d[0] = x, d[1] = x >> 8, d[2] = x >> 16, d[3] = x >> 24;
-}
-
-static void
-targwrite8(uchar *d, uvlong x)
-{
-   if (targ_bigendian)
-      targwrite4(d, x >> 32), targwrite4(d + 4, x);
-   else
-      targwrite4(d, x), targwrite4(d + 4, x >> 32);
-}
-
 void
 conputdat(struct irdat *dat, uint off, enum typetag t, const void *src)
 {
@@ -137,9 +110,9 @@ conputdat(struct irdat *dat, uint off, enum typetag t, const void *src)
 
    switch (siz) {
    case 1: pdat[off] = *(uchar *)src; break;
-   case 2: targwrite2(&pdat[off], *(ushort *)src); break;
-   case 4: targwrite4(&pdat[off], *(uint *)src); break;
-   case 8: targwrite8(&pdat[off], *(uvlong *)src); break;
+   case 2: wr16targ(&pdat[off], *(ushort *)src); break;
+   case 4: wr32targ(&pdat[off], *(uint *)src); break;
+   case 8: wr64targ(&pdat[off], *(uvlong *)src); break;
    default: assert(0);
    }
 }
