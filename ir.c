@@ -183,10 +183,12 @@ union ref
 mkdatref(const char *name, uint siz, uint align, const void *bytes, uint n, bool deref)
 {
    struct irdat dat = { .align = align, .siz = siz, .name = name };
-   if (siz <= 8) memcpy(dat.sdat, bytes, n < siz ? n : siz);
-   else {
-      while (((uchar *)bytes)[n-1] == 0) --n; /* nip trailing zeroes */
-      if (n) vpushn(&dat.dat, bytes, n);
+   if (bytes) {
+      if (siz <= 8) memcpy(dat.sdat, bytes, n < siz ? n : siz);
+      else {
+         while (((uchar *)bytes)[n-1] == 0) --n; /* nip trailing zeroes */
+         if (n) vpushn(&dat.dat, bytes, n);
+      }
    }
    if (!name) {
       extern const char *intern(const char *);

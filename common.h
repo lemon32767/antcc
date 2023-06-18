@@ -54,7 +54,7 @@ hashb(uint h, const void *d, uint n)
 }
 static inline uint
 ptrhash(const void *p) {
-   return (uint)(size_t)p * 2654435761;
+   return (uint)(size_t)p * 2654435761u;
 }
 static inline uint
 popcnt(uvlong x) {

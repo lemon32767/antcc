@@ -44,13 +44,15 @@ vinit_(void **p, int *pcap, void *inlbuf, int cap, uint siz)
 void
 vpush_(void **p, int *pcap, uint *pn, uint siz)
 {
-   if (*pn == *pcap) { /* empty or inline buffer */
+   if (*pcap >= 0 && *pn >= *pcap) { /* empty or inline buffer */
       int cap = *pcap ? *pcap * 2 : 8;
       *p = xrealloc(NULL, cap * siz);
       *pcap = -cap;
-   } else if (*pn == -*pcap) { /* dyn buf */
+   } else if (*pcap < 0 && *pn >= -*pcap) { /* dyn buf */
       *p = xrealloc(*p, -(*pcap *= 2) * siz);
    } else return;
+   while (*pn >= -*pcap)
+      *p = xrealloc(*p, -(*pcap *= 2) * siz);
    assert(-(volatile int)*pcap > *pn && "overflow");
 }
 
@@ -59,11 +61,11 @@ vpushn_(void **p, int *pcap, uint *pn, uint siz, const void *dat, uint ndat)
 {
    void *beg;
 
-   for (uint i = 0; i < ndat; ++i)
-      vpush_(p, pcap, pn, siz);
-   beg = (char *)*p + *pn * siz;
-   memcpy(beg, dat, ndat * siz);
    *pn += ndat;
+   while (*pn >= (*pcap < 0 ? -*pcap : *pcap))
+      vpush_(p, pcap, pn, siz);
+   beg = (char *)*p + (*pn - ndat) * siz;
+   memcpy(beg, dat, ndat * siz);
    return beg;
 }
 
