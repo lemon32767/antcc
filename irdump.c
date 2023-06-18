@@ -7,7 +7,7 @@ static int nextdat;
 static void
 pridat(const struct irdat *dat)
 {
-   efmt("%s .%d(align %d, size %d):\n\t", dat->mut ? "dat" : "rodat", dat - dattab.p, dat->align, dat->siz);
+   efmt("%s %'s(align %d, size %d):\n\t", dat->mut ? "dat" : "rodat", dat->name, dat->align, dat->siz);
    assert(!dat->syms);
    if (dat->siz <= 8) {
       efmt("b ");

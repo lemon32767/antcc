@@ -29,7 +29,7 @@ fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, 
             union { float f; int i; } pun = { con->f };
             wr32le(data, pun.i);
          }
-         *r = mkdatref(siz, /*align*/siz, data, siz, /*deref*/1);
+         *r = mkdatref(NULL, siz, /*align*/siz, data, siz, /*deref*/1);
       } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls))
          goto DivImm;
    } else if (r->t == RICON && in_range(op, Odiv, Ourem) && kisint(ins->cls)) {

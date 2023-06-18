@@ -15,6 +15,9 @@ struct reloc {
    uint off;
    vlong addend;
 };
+uchar dataalign = 1, rodataalign = 1, bssalign = 1;
+uint nbss;
+static vec_of(uchar) data, rodata;
 static uint ntextrel, nrodatarel, ndatarel;
 static vec_of(struct reloc) relocs;
 
@@ -111,6 +114,49 @@ elfreloc(const char *sym, enum relockind kind, enum section section, uint off, v
    }
    assert(kind < NRELOCKIND);
    vpush(&relocs, ((struct reloc) { section, relktab[mctarg->isa][kind], snam, off, addend}));
+}
+
+void
+elfputdat(const struct irdat *dat)
+{
+   static const char zero[8];
+   enum section s;
+   uint off;
+   uint ndat = dat->siz < 8 ? dat->siz : dat->dat.n;
+   uint nzr = dat->siz - ndat; 
+   const uchar *d = dat->siz < 8 ? dat->sdat : dat->dat.p;
+
+   assert(dat->siz);
+   if (!dat->syms && (dat->siz >= 8 ? !d : !memcmp(d, zero, dat->siz))) {
+      /* all zeroes */
+      s = Sbss;
+   } else {
+      s = dat->mut ? Sdata : Srodata;
+   }
+
+   switch (s) {
+   default: assert(0);
+   case Srodata:
+      if (dat->align > rodataalign) rodataalign = dat->align;
+      while (rodata.n & (dat->align - 1)) vpush(&rodata, 0);
+      off = rodata.n;
+      vpushn(&rodata, d, ndat);
+      while (nzr--) vpush(&rodata, 0);
+      break;
+   case Sdata:
+      if (dat->align > dataalign) dataalign = dat->align;
+      while (data.n & (dat->align - 1)) vpush(&data, 0);
+      off = data.n;
+      vpushn(&data, d, ndat);
+      while (nzr--) vpush(&data, 0);
+      break;
+   case Sbss:
+      if (dat->align > bssalign) bssalign = dat->align;
+      off = alignup(nbss, dat->align);
+      nbss = off + dat->siz;
+      break;
+   }
+   elfaddsym(dat->name, ELF_S_INFO(dat->globl, STT_OBJECT), s, off, dat->siz);
 }
 
 static void
@@ -247,17 +293,17 @@ elffini(struct wbuf *out)
       sym = findsym(rel->sym);
       if (sym) rel->sym = sym - symtab.p;
       else {
-         sym = &(struct elfsym) { rel->sym, ELF_S_INFO(STB_GLOBAL, STT_FUNC), 0, SHN_UND };
+         sym = &(struct elfsym) { rel->sym, ELF_S_INFO(STB_GLOBAL, STT_NOTYPE), 0, SHN_UND };
          rel->sym = symtab.n;
          vpush(&symtab, *sym);
       }
    }
    size_t codesize = alignup(objout.code - objout.textbegin, align),
           rodataoff = hdr.ehsize + codesize,
-          rodatasize = 0,
+          rodatasize = rodata.n,
           dataoff = rodataoff + rodatasize,
-          datasize = 0,
-          bsssize = 0,
+          datasize = data.n,
+          bsssize = nbss,
           shstrsoff = dataoff + datasize,
           shstrssize = sizeof(shstrs),
           strsoff = shstrsoff + shstrssize,
@@ -301,8 +347,10 @@ elffini(struct wbuf *out)
    iowrite(out, objout.textbegin, codesize);
 
    /* .rodata progbits */
+   iowrite(out, rodata.p, rodata.n);
 
    /* .data progbits */
+   iowrite(out, data.p, data.n);
 
    /* section names */
    iowrite(out, shstrs, sizeof shstrs);
@@ -343,19 +391,19 @@ elffini(struct wbuf *out)
          .name = shnam_rodata, .type = SHT_PROGBITS,
          .flags = SHF_ALLOC,
          .offset = rodataoff, .size = rodatasize,
-         .addralign = 1,});
+         .addralign = rodataalign,});
    /* §3 .data */
    elfputshdr(out, &(struct elfshdr){
          .name = shnam_data, .type = SHT_PROGBITS,
          .flags = SHF_ALLOC | SHF_WRITE,
          .offset = dataoff, .size = datasize,
-         .addralign = 1,});
+         .addralign = dataalign,});
    /* §4 .bss */
    elfputshdr(out, &(struct elfshdr){
          .name = shnam_bss, .type = SHT_NOBITS,
          .size = bsssize,
          .flags = SHF_ALLOC | SHF_WRITE,
-         .addralign = 1,});
+         .addralign = bssalign,});
    /* §5 .shstrtab */
    elfputshdr(out, &(struct elfshdr){
          .name = shnam_shstrtab, .type = SHT_STRTAB,

@@ -8,6 +8,7 @@
 void elfinit(void);
 void elfaddsym(const char *, int info, enum section, uvlong value, uvlong size);
 void elfreloc(const char *sym, enum relockind, enum section, uint off, vlong addend);
+void elfputdat(const struct irdat *);
 void elffini(struct wbuf *);
 
 struct objfile objout;
@@ -53,6 +54,10 @@ objfini(void)
    static char buf[1<<10];
    struct wbuf out = FDBUF(buf, sizeof buf, open(objout.file, O_WRONLY | O_CREAT | O_TRUNC, 0666));
    if (out.fd < 0) fatal(NULL, "could not open %'s for writing: %s", objout.file, strerror(errno));
+
+   for (int i = 0; i < dattab.n; ++i) {
+      elfputdat(&dattab.p[i]);
+   }
 
    switch (mctarg->objkind) {
    case OBJELF: elffini(&out); break;

@@ -180,13 +180,23 @@ mksymref(const char *s)
 }
 
 union ref
-mkdatref(uint siz, uint align, const void *bytes, uint n, bool deref)
+mkdatref(const char *name, uint siz, uint align, const void *bytes, uint n, bool deref)
 {
-   struct irdat dat = { align, 0, siz };
+   struct irdat dat = { .align = align, .siz = siz, .name = name };
    if (siz <= 8) memcpy(dat.sdat, bytes, n < siz ? n : siz);
    else {
       while (((uchar *)bytes)[n-1] == 0) --n; /* nip trailing zeroes */
-      vpushn(&dat.dat, bytes, n);
+      if (n) vpushn(&dat.dat, bytes, n);
+   }
+   if (!name) {
+      extern const char *intern(const char *);
+      char buf[32];
+      struct wbuf wbuf = MEMBUF(buf, sizeof buf);
+
+      bfmt(&wbuf, ".L.%d", dattab.n);
+      ioputc(&wbuf, 0);
+      assert(!wbuf.err);
+      dat.name = intern(buf);
    }
    vpush(&dattab, dat);
    return mkref(RXCON, addcon(&(struct xcon){.isdat = 1, .deref = deref, .dat = dattab.n - 1}));
@@ -195,17 +205,9 @@ mkdatref(uint siz, uint align, const void *bytes, uint n, bool deref)
 const char *
 xcon2sym(int ref)
 {
-   extern const char *intern(const char *);
-   char buf[32];
-   struct wbuf wbuf = MEMBUF(buf, sizeof buf);
-   struct xcon *con = &conht[ref];
-
-   assert(con->isdat || con->issym);
-   if (con->issym) return con->sym;
-   bfmt(&wbuf, ".L.%d", con->dat);
-   ioputc(&wbuf, 0);
-   assert(!wbuf.err);
-   return intern(buf);
+   struct xcon con = conht[ref];
+   assert(con.issym ^ con.isdat);
+   return con.issym ? con.sym : dattab.p[con.dat].name;
 }
 
 struct instr

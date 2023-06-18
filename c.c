@@ -1025,7 +1025,7 @@ expraddr(struct function *fn, const struct expr *ex)
       }
       break;
    case ESTRLIT:
-      return mkdatref(ex->s.n+1, /*align*/ 1, ex->s.p, ex->s.n, /*deref*/0);
+      return mkdatref(NULL, ex->s.n+1, /*align*/ 1, ex->s.p, ex->s.n, /*deref*/0);
    case EDEREF:
       return exprvalue(fn, ex->sub);
    case EGETF:
