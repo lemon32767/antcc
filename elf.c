@@ -2,12 +2,29 @@
 #include "common.h"
 #include "obj.h"
 #include "ir.h"
+#include "endian.h"
 #include <unistd.h>
 #include <stdlib.h> /* qsort */
 
-static struct elfhdr hdr;
+static union {
+   ELF_HDRIDENT;
+   struct elf32hdr h32;
+   struct elf64hdr h64;
+} hdr;
 static vec_of(uchar) strs;
-static vec_of(struct elfsym) symtab;
+struct sym {
+   uint   name;
+   uchar  bind : 4,
+          type : 4;
+   ushort shndx;
+   uvlong value,
+          size;
+};
+static vec_of(struct sym) symtab;
+uchar dataalign = 1, rodataalign = 1, bssalign = 1;
+uint nbss;
+static vec_of(uchar) data, rodata;
+static uint ntextrel, nrodatarel, ndatarel;
 struct reloc {
    uchar section;
    ushort kind;
@@ -15,10 +32,6 @@ struct reloc {
    uint off;
    vlong addend;
 };
-uchar dataalign = 1, rodataalign = 1, bssalign = 1;
-uint nbss;
-static vec_of(uchar) data, rodata;
-static uint ntextrel, nrodatarel, ndatarel;
 static vec_of(struct reloc) relocs;
 
 void
@@ -30,15 +43,20 @@ elfinit(void)
    hdr.i_version = ELFVERSION;
    hdr.i_osabi = ELFOSABI_SYSV;
    hdr.i_abiversion = 0;
-   hdr.type = ET_REL;
+   hdr.h32.type = ET_REL;
    switch (mctarg->isa) {
-   case ISamd64: hdr.machine = EM_X86_64; break;
+   case ISamd64: hdr.h32.machine = EM_X86_64; break;
    }
-   hdr.version = ELFVERSION;
-   hdr.ehsize = targ_64bit ? 64 : 52;
-   hdr.shentsize = targ_64bit ? 64 : 40;
-   vpush(&symtab, ((struct elfsym) { 0 }));
-   vpush(&symtab, ((struct elfsym) { 0, ELF_S_INFO(0, STT_FILE) }));
+   hdr.h32.version = ELFVERSION;
+   if (targ_64bit) {
+      hdr.h64.ehsize = sizeof(struct elf64hdr);
+      hdr.h64.shentsize = sizeof(struct elf64shdr);
+   } else {
+      hdr.h32.ehsize = sizeof(struct elf32hdr);
+      hdr.h32.shentsize = sizeof(struct elf32shdr);
+   }
+   vpush(&symtab, ((struct sym) { 0 }));
+   vpush(&symtab, ((struct sym) { .type = STT_FILE }));
 }
 
 uint
@@ -55,7 +73,7 @@ str2idx(const char *s)
    return i;
 }
 
-static struct elfsym *
+static struct sym *
 findsym(uint name)
 {
    for (int i = 0; i < symtab.n; ++i)
@@ -75,14 +93,14 @@ void
 elfaddsym(const char *nam, int info, enum section sect, uvlong value, uvlong size)
 {
    uint str = str2idx(nam);
-   struct elfsym *sym = findsym(str), sym0 = {0};
+   struct sym *sym = findsym(str), sym0 = {0};
 
    if (!sym) {
       sym = &sym0;
       sym->name = str;
    }
-   sym->info = info;
-   sym->other = 0;
+   sym->bind = info >> 4;
+   sym->type = info & 0xF;
    switch (sect) {
    case Snone:   sym->shndx = SHN_UND; break;
    case Stext:   sym->shndx = TEXT_SHNDX; break;
@@ -159,96 +177,185 @@ elfputdat(const struct irdat *dat)
    elfaddsym(dat->name, ELF_S_INFO(dat->globl, STT_OBJECT), s, off, dat->siz);
 }
 
+
 static void
-put16le(struct wbuf *out, ushort x)
+elf64puthdr(struct wbuf *out, struct elf64hdr *hdr)
 {
-   uchar b[2] = { x, x >> 8 };
-   iowrite(out, b, 2);
+   if (!hostntarg_sameendian()) {
+      hdr->type = bswap16(hdr->type);
+      hdr->machine = bswap16(hdr->machine);
+      hdr->version = bswap32(hdr->version);
+      hdr->entry = bswap64(hdr->entry);
+      hdr->phoff = bswap64(hdr->phoff);
+      hdr->shoff = bswap64(hdr->shoff);
+      hdr->flags = bswap32(hdr->flags);
+      hdr->ehsize = bswap16(hdr->ehsize);
+      hdr->phentsize = bswap16(hdr->phentsize);
+      hdr->phnum = bswap16(hdr->phnum);
+      hdr->shentsize = bswap16(hdr->shentsize);
+      hdr->shnum = bswap16(hdr->shnum);
+      hdr->shstrndx = bswap16(hdr->shstrndx);
+   }
+   iowrite(out, hdr, sizeof *hdr);
 }
 
 static void
-put16be(struct wbuf *out, ushort x)
+elf32puthdr(struct wbuf *out, struct elf32hdr *hdr)
 {
-   uchar b[2] = { x >> 8, x };
-   iowrite(out, b, 2);
+   if (!hostntarg_sameendian()) {
+      hdr->type = bswap16(hdr->type);
+      hdr->machine = bswap16(hdr->machine);
+      hdr->version = bswap32(hdr->version);
+      hdr->entry = bswap32(hdr->entry);
+      hdr->phoff = bswap32(hdr->phoff);
+      hdr->shoff = bswap32(hdr->shoff);
+      hdr->flags = bswap32(hdr->flags);
+      hdr->ehsize = bswap16(hdr->ehsize);
+      hdr->phentsize = bswap16(hdr->phentsize);
+      hdr->phnum = bswap16(hdr->phnum);
+      hdr->shentsize = bswap16(hdr->shentsize);
+      hdr->shnum = bswap16(hdr->shnum);
+      hdr->shstrndx = bswap16(hdr->shstrndx);
+   }
+   iowrite(out, hdr, sizeof *hdr);
 }
 
 static void
-put32le(struct wbuf *out, uint x)
+elf64putshdr(struct wbuf *out, struct elf64shdr *shdr)
 {
-   uchar b[4] = { x, x >> 8, x >> 16, x >> 24 };
-   iowrite(out, b, 4);
+   if (!hostntarg_sameendian()) {
+      shdr->name = bswap32(shdr->name);
+      shdr->type = bswap32(shdr->type);
+      shdr->flags = bswap64(shdr->flags);
+      shdr->addr = bswap64(shdr->addr);
+      shdr->offset = bswap64(shdr->offset);
+      shdr->size = bswap64(shdr->size);
+      shdr->link = bswap32(shdr->link);
+      shdr->info = bswap32(shdr->info);
+      shdr->addralign = bswap64(shdr->addralign);
+      shdr->entsize = bswap64(shdr->entsize);
+   }
+   iowrite(out, shdr, sizeof *shdr);
 }
 
 static void
-put32be(struct wbuf *out, uint x)
+elf32putshdr(struct wbuf *out, struct elf32shdr *shdr)
 {
-   uchar b[4] = { x >> 24, x >> 16, x >> 8, x };
-   iowrite(out, b, 4);
+   if (!hostntarg_sameendian()) {
+      shdr->name = bswap32(shdr->name);
+      shdr->type = bswap32(shdr->type);
+      shdr->flags = bswap32(shdr->flags);
+      shdr->addr = bswap32(shdr->addr);
+      shdr->offset = bswap32(shdr->offset);
+      shdr->size = bswap32(shdr->size);
+      shdr->link = bswap32(shdr->link);
+      shdr->info = bswap32(shdr->info);
+      shdr->addralign = bswap32(shdr->addralign);
+      shdr->entsize = bswap32(shdr->entsize);
+   }
+   iowrite(out, shdr, sizeof *shdr);
 }
 
 static void
-putword64le(struct wbuf *out, uvlong x)
+elf64putsym(struct wbuf *out, struct elf64sym *sym)
 {
-   uchar b[8] = { x, x >> 8, x >> 16, x >> 24, x >> 32, x >> 40, x >> 48, x >> 56 };
-   iowrite(out, b, 8);
+   if (!hostntarg_sameendian()) {
+      sym->name = bswap32(sym->name);
+      sym->shndx = bswap16(sym->shndx);
+      sym->value = bswap64(sym->value);
+      sym->size = bswap64(sym->size);
+   }
+   iowrite(out, sym, sizeof *sym);
 }
 
 static void
-putword64be(struct wbuf *out, uvlong x)
+elf32putsym(struct wbuf *out, struct elf32sym *sym)
 {
-   uchar b[8] = { x >> 56, x >> 48, x >> 40, x >> 32, x >> 24, x >> 16, x >> 8, x };
-   iowrite(out, b, 8);
+   if (!hostntarg_sameendian()) {
+      sym->name = bswap32(sym->name);
+      sym->value = bswap32(sym->value);
+      sym->size = bswap32(sym->size);
+      sym->shndx = bswap16(sym->shndx);
+   }
+   iowrite(out, sym, sizeof *sym);
 }
 
 static void
-putword32le(struct wbuf *out, uvlong x) { put32le(out, x); }
-static void
-putword32be(struct wbuf *out, uvlong x) { put32be(out, x); }
-
-static void (*putword)(struct wbuf *, uvlong);
-static void (*put16)(struct wbuf *, ushort);
-static void (*put32)(struct wbuf *, uint);
-
-static void
-elfputshdr(struct wbuf *out, const struct elfshdr *shdr)
+putsym(struct wbuf *out, const struct sym *sym)
 {
-   put32(out, shdr->name);
-   put32(out, shdr->type);
-   putword(out, shdr->flags);
-   putword(out, shdr->addr);
-   putword(out, shdr->offset);
-   putword(out, shdr->size);
-   put32(out, shdr->link);
-   put32(out, shdr->info);
-   putword(out, shdr->addralign);
-   putword(out, shdr->entsize);
+   if (targ_64bit) {
+      elf64putsym(out, &(struct elf64sym) {
+            sym->name, .info = ELF_S_INFO(sym->bind, sym->type),
+            .shndx = sym->shndx, .value = sym->value, .size = sym->size });
+   } else {
+      elf32putsym(out, &(struct elf32sym) {
+            sym->name, .info = ELF_S_INFO(sym->bind, sym->type),
+            .shndx = sym->shndx, .value = sym->value, .size = sym->size });
+   }
 }
 
 static void
-elfputsym(struct wbuf *out, const struct elfsym *sym)
+elf64putrel(struct wbuf *out, struct elf64rel *rel)
 {
-   put32(out, sym->name);
-   ioputc(out, sym->info);
-   ioputc(out, sym->other);
-   put16(out, sym->shndx);
-   putword(out, sym->value);
-   putword(out, sym->size);
+   if (!hostntarg_sameendian()) {
+      rel->offset = bswap64(rel->offset);
+      rel->info = bswap64(rel->info);
+   }
+   iowrite(out, rel, sizeof *rel);
 }
 
 static void
-elfputrel(struct wbuf *out, const struct elfrel *rel)
+elf32putrel(struct wbuf *out, struct elf32rel *rel)
 {
-   putword(out, rel->offset);
-   putword(out, rel->info);
+   if (!hostntarg_sameendian()) {
+      rel->offset = bswap32(rel->offset);
+      rel->info = bswap32(rel->info);
+   }
+   iowrite(out, rel, sizeof *rel);
 }
 
 static void
-elfputrela(struct wbuf *out, const struct elfrela *rel)
+elf64putrela(struct wbuf *out, struct elf64rela *rel)
 {
-   putword(out, rel->offset);
-   putword(out, rel->info);
-   putword(out, rel->addend);
+   if (!hostntarg_sameendian()) {
+      rel->offset = bswap64(rel->offset);
+      rel->info = bswap64(rel->info);
+      rel->addend = bswap64(rel->addend);
+   }
+   iowrite(out, rel, sizeof *rel);
+}
+
+static void
+elf32putrela(struct wbuf *out, struct elf32rela *rel)
+{
+   if (!hostntarg_sameendian()) {
+      rel->offset = bswap32(rel->offset);
+      rel->info = bswap32(rel->info);
+      rel->addend = bswap32(rel->addend);
+   }
+   iowrite(out, rel, sizeof *rel);
+}
+
+static void
+putreloc(struct wbuf *out, const struct reloc *rel, bool userela)
+{
+   if (userela) {
+      if (targ_64bit) {
+         elf64putrela(out, &(struct elf64rela) {
+               rel->off, ELF64_R_INFO(rel->sym, rel->kind), rel->addend });
+      } else {
+         elf32putrela(out, &(struct elf32rela) {
+               rel->off, ELF32_R_INFO(rel->sym, rel->kind), rel->addend });
+      }
+   } else {
+      if (targ_64bit) {
+         elf64putrel(out, &(struct elf64rel) {
+               rel->off, ELF64_R_INFO(rel->sym, rel->kind) });
+      } else {
+         elf32putrel(out, &(struct elf32rel) {
+               rel->off, ELF32_R_INFO(rel->sym, rel->kind) });
+      }
+   }
 }
 
 /* ensure .symtab entries are ordered like this:
@@ -261,7 +368,7 @@ elfputrela(struct wbuf *out, const struct elfrela *rel)
 static int
 symcmp(const void *L, const void *R)
 {
-   const struct elfsym *l = L, *r = R;
+   const struct elf64sym *l = L, *r = R;
    int tmp, lbind = l->info >> 4, rbind = r->info >> 4;
    if ((tmp = lbind - rbind)) return tmp; /* locals prio */
    if ((tmp = r->shndx - l->shndx)) return tmp; /* section prio (real sections > SHN_UND) */
@@ -275,31 +382,55 @@ wordalign(struct wbuf *out, int align)
    while (off++ & (align - 1)) ioputc(out, 0);
 }
 
+static const bool userelatab[] = { [ISamd64] = 1 };
+
 void
 elffini(struct wbuf *out)
 {
-   enum { shnam_text = 1, shnam_rodata = 7, shnam_data = 15, shnam_bss = 21, shnam_shstrtab = 26,
-          shnam_strtab = 36, shnam_symtab = 44, shnam_reltext = 52, shnam_relrodata = 62, shnam_reldata = 74 };
-   static const char shstrs[] = "\0.text\0.rodata\0.data\0.bss\0.shstrtab\0.strtab\0.symtab\0"
-                                ".rel.text\0.rel.rodata\0.rel.data";
+   enum {
+      shnam_text = 1, shnam_rodata = 7, shnam_data = 15, shnam_bss = 21, shnam_shstrtab = 26,
+      shnam_strtab = 36, shnam_symtab = 44, shnam_reltext = 52, shnam_relrodata = 63, shnam_reldata = 76
+   };
    int align = targ_64bit ? 8 : 4;
+   bool userela = userelatab[mctarg->isa];
+   char shstrs[] = "\0.text\0.rodata\0.data\0.bss\0.shstrtab\0.strtab\0.symtab\0"
+                   ".rela.text\0.rela.rodata\0.rela.data";
+   if (!userela) {
+      /* .rela -> .rel */
+      memcpy(shstrs + shnam_reltext + 4, ".text\0", 6);
+      memcpy(shstrs + shnam_relrodata + 4, ".rodata\0", 8);
+      memcpy(shstrs + shnam_reldata + 4, ".data\0", 6);
+   }
 
    symtab.p[1].name = str2idx(getfilename(0));
    qsort(symtab.p+2, symtab.n-2, sizeof *symtab.p, symcmp);
    /* fixup relocs */
    for (int i = 0; i < relocs.n; ++i) {
       struct reloc *rel = &relocs.p[i];
-      struct elfsym *sym;
+      struct sym *sym;
       sym = findsym(rel->sym);
       if (sym) rel->sym = sym - symtab.p;
       else {
-         sym = &(struct elfsym) { rel->sym, ELF_S_INFO(STB_GLOBAL, STT_NOTYPE), 0, SHN_UND };
+         sym = &(struct sym) { rel->sym, .bind = STB_GLOBAL, .type = STT_NOTYPE, .shndx = SHN_UND };
          rel->sym = symtab.n;
          vpush(&symtab, *sym);
       }
+      if (!userela) {
+         uchar *p;
+         switch (rel->section) {
+         default: assert(0);
+         case Sdata:   p = data.p + rel->off; break;
+         case Srodata: p = rodata.p + rel->off; break;
+         case Stext:   p = objout.textbegin + rel->off; break;
+         }
+         if (targ_64bit)
+            wr64targ(p, rel->addend);
+         else
+            wr32targ(p, rel->addend);
+      }
    }
    size_t codesize = alignup(objout.code - objout.textbegin, align),
-          rodataoff = hdr.ehsize + codesize,
+          rodataoff = (targ_64bit ? sizeof hdr.h64 : sizeof hdr.h32) + codesize,
           rodatasize = rodata.n,
           dataoff = rodataoff + rodatasize,
           datasize = data.n,
@@ -311,37 +442,32 @@ elffini(struct wbuf *out)
           symtaboff = alignup(strsoff + strssize, align),
           symtabsize = symtab.n * (targ_64bit ? 24 : 16),
           reltextoff = symtaboff + symtabsize,
-          reltextsize = ntextrel * (targ_64bit ? 24 : 12),
+          relxsiz = userela ? (targ_64bit ? 24 : 12) : (targ_64bit ? 16 : 8),
+          reltextsize = ntextrel * relxsiz,
           relrodataoff = reltextoff + reltextsize,
-          relrodatasize = nrodatarel * (targ_64bit ? 24 : 12),
+          relrodatasize = nrodatarel * relxsiz,
           reldataoff = relrodataoff + relrodatasize,
-          reldatasize = ndatarel * (targ_64bit ? 24 : 12);
+          reldatasize = ndatarel * relxsiz;
    int nlocal = 0;
 
-   put16 = !targ_bigendian ? put16le : put16be;
-   put32 = !targ_bigendian ? put32le : put32be;
-   if (!targ_bigendian) putword = !targ_64bit ? putword32le : putword64le;
-   else                 putword = !targ_64bit ? putword32be : putword64be;
+#define CHECKOFF(s, x) \
+   efmt(s " expect OFF: %u ; ACTUAL %u\n", (uint)(x),(uint)(lseek(out->fd, 0, SEEK_CUR) + out->len))
 
-   hdr.shoff = alignup(reldataoff + reldatasize, align);
-   hdr.shnum = 11;
-   hdr.shstrndx = 5;
+   if (targ_64bit) {
+      hdr.h64.shoff = alignup(reldataoff + reldatasize, align);
+      hdr.h64.shnum = 11;
+      hdr.h64.shstrndx = 5;
+   } else {
+      hdr.h32.shoff = alignup(reldataoff + reldatasize, align);
+      hdr.h32.shnum = 11;
+      hdr.h32.shstrndx = 5;
+   }
 
    /* elf header */
-   iowrite(out, &hdr, offsetof(struct elfhdr, type));
-   put16(out, hdr.type);
-   put16(out, hdr.machine);
-   put32(out, hdr.version);
-   putword(out, hdr.entry);
-   putword(out, hdr.phoff);
-   putword(out, hdr.shoff);
-   put32(out, hdr.flags);
-   put16(out, hdr.ehsize);
-   put16(out, hdr.phentsize);
-   put16(out, hdr.phnum);
-   put16(out, hdr.shentsize);
-   put16(out, hdr.shnum);
-   put16(out, hdr.shstrndx);
+   if (targ_64bit)
+      elf64puthdr(out, &hdr.h64);
+   else
+      elf32puthdr(out, &hdr.h32);
 
    /* .text progbits */
    iowrite(out, objout.textbegin, codesize);
@@ -361,10 +487,11 @@ elffini(struct wbuf *out)
    /* symtab */
    wordalign(out, align);
    for (int i = 0; i < symtab.n; ++i) {
-      struct elfsym *sym = &symtab.p[i];
-      if (sym->info >> 4 == STB_LOCAL) ++nlocal;
-      elfputsym(out, sym);
+      struct sym *sym = &symtab.p[i];
+      if (sym->bind == STB_LOCAL) ++nlocal;
+      putsym(out, sym);
    }
+
 
    /* rel.* */
    assert(relocs.n == ntextrel + nrodatarel + ndatarel);
@@ -372,77 +499,67 @@ elffini(struct wbuf *out)
       for (int i = 0; i < relocs.n; ++i) {
          struct reloc *rel = &relocs.p[i];
          if (rel->section != s) continue;
-         elfputrela(out, &(struct elfrela) {rel->off, ELF_R_INFO(rel->sym, rel->kind), rel->addend});
+         putreloc(out, rel, userela);
       }
    }
 
    /** Section Headers **/
    wordalign(out, align);
+#define putshdr(...) if (targ_64bit) elf64putshdr(out, &(struct elf64shdr) { __VA_ARGS__ }); \
+                     else            elf32putshdr(out, &(struct elf32shdr) { __VA_ARGS__ });
    /* §0 null section */
-   elfputshdr(out, &(struct elfshdr){0});
+   putshdr(0);
    /* §1 .text */
-   elfputshdr(out, &(struct elfshdr){
-         .name = shnam_text, .type = SHT_PROGBITS,
-         .flags = SHF_ALLOC | SHF_EXECINSTR,
-         .offset = hdr.ehsize, .size = codesize,
-         .addralign = align,});
+   putshdr(.name = shnam_text, .type = SHT_PROGBITS,
+           .flags = SHF_ALLOC | SHF_EXECINSTR,
+           .offset = targ_64bit ? hdr.h64.ehsize : hdr.h32.ehsize, .size = codesize,
+           .addralign = align);
    /* §2 .rodata */
-   elfputshdr(out, &(struct elfshdr){
-         .name = shnam_rodata, .type = SHT_PROGBITS,
-         .flags = SHF_ALLOC,
-         .offset = rodataoff, .size = rodatasize,
-         .addralign = rodataalign,});
+   putshdr(.name = shnam_rodata, .type = SHT_PROGBITS,
+           .flags = SHF_ALLOC,
+           .offset = rodataoff, .size = rodatasize,
+           .addralign = rodataalign,);
    /* §3 .data */
-   elfputshdr(out, &(struct elfshdr){
-         .name = shnam_data, .type = SHT_PROGBITS,
-         .flags = SHF_ALLOC | SHF_WRITE,
-         .offset = dataoff, .size = datasize,
-         .addralign = dataalign,});
+   putshdr(.name = shnam_data, .type = SHT_PROGBITS,
+           .flags = SHF_ALLOC | SHF_WRITE,
+           .offset = dataoff, .size = datasize,
+           .addralign = dataalign,);
    /* §4 .bss */
-   elfputshdr(out, &(struct elfshdr){
-         .name = shnam_bss, .type = SHT_NOBITS,
-         .size = bsssize,
-         .flags = SHF_ALLOC | SHF_WRITE,
-         .addralign = bssalign,});
+   putshdr(.name = shnam_bss, .type = SHT_NOBITS,
+           .size = bsssize,
+           .flags = SHF_ALLOC | SHF_WRITE,
+           .addralign = bssalign,);
    /* §5 .shstrtab */
-   elfputshdr(out, &(struct elfshdr){
-         .name = shnam_shstrtab, .type = SHT_STRTAB,
-         .offset = shstrsoff, .size = shstrssize,
-         .flags = SHF_STRINGS });
+   putshdr(.name = shnam_shstrtab, .type = SHT_STRTAB,
+           .offset = shstrsoff, .size = shstrssize,
+           .flags = SHF_STRINGS );
    /* §6 .strtab */
-   elfputshdr(out, &(struct elfshdr){
-         .name = shnam_strtab, .type = SHT_STRTAB,
-         .offset = strsoff, .size = strssize,
-         .flags = SHF_STRINGS });
+   putshdr(.name = shnam_strtab, .type = SHT_STRTAB,
+           .offset = strsoff, .size = strssize,
+           .flags = SHF_STRINGS );
    /* §7 .symtab */
-   elfputshdr(out, &(struct elfshdr){
-         .name = shnam_symtab, .type = SHT_SYMTAB,
-         .offset = symtaboff, .size = symtabsize,
-         .flags = SHF_STRINGS,
-         .link = 6, /* .strtab */
-         .info = nlocal,
-         .entsize = targ_64bit ? 24 : 16 });
+   putshdr(.name = shnam_symtab, .type = SHT_SYMTAB,
+           .offset = symtaboff, .size = symtabsize,
+           .flags = SHF_STRINGS,
+           .link = 6, /* .strtab */
+           .info = nlocal,
+           .entsize = targ_64bit ? 24 : 16 );
    /* §8 .rel.text */
-   elfputshdr(out, &(struct elfshdr){
-         .name = shnam_reltext, .type = SHT_RELA,
-         .offset = reltextoff, .size = reltextsize,
-         .link = 7, /* .symtab */
-         .entsize = targ_64bit ? 24 : 12,
-         .info = TEXT_SHNDX });
+   putshdr(.name = shnam_reltext, .type = SHT_RELA,
+           .offset = reltextoff, .size = reltextsize,
+           .link = 7, /* .symtab */
+           .entsize = relxsiz,
+           .info = TEXT_SHNDX );
    /* §9 .rel.rodata */
-   elfputshdr(out, &(struct elfshdr){
-         .name = shnam_relrodata, .type = SHT_RELA,
-         .offset = relrodataoff, .size = relrodatasize,
-         .link = 7, /* .symtab */
-         .entsize = targ_64bit ? 24 : 12,
-         .info = RODATA_SHNDX });
+   putshdr(.name = shnam_relrodata, .type = SHT_RELA,
+           .offset = relrodataoff, .size = relrodatasize,
+           .link = 7, /* .symtab */
+           .entsize = relxsiz,
+           .info = RODATA_SHNDX );
    /* §10 .rel.data */
-   elfputshdr(out, &(struct elfshdr){
-         .name = shnam_reldata, .type = SHT_RELA,
-         .offset = reldataoff, .size = reldatasize,
-         .link = 7, /* .symtab */
-         .entsize = targ_64bit ? 24 : 12,
-         .info = DATA_SHNDX });
+   putshdr(.name = shnam_reldata, .type = SHT_RELA,
+           .offset = reldataoff, .size = reldatasize,
+           .link = 7, /* .symtab */
+           .entsize = relxsiz,
+           .info = DATA_SHNDX );
 }
-
-/* vim:set ts=3 sw=3 expandtab: */
