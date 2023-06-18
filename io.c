@@ -24,7 +24,9 @@ iowrite(struct wbuf *buf, const void *Src, int n)
 
       memcpy(buf->buf + buf->len, src, amt);
       n -= amt;
-      if ((buf->len += amt) == buf->cap) {
+      src += amt;
+      buf->len += amt;
+      if (n > 0 && buf->len == buf->cap) {
          if (buf->fd < 0) {
             buf->err = 1;
             return;
@@ -47,6 +49,7 @@ ioflush(struct wbuf *buf)
    for (i = 0; buf->len > 0;) {
       ret = write(buf->fd, buf->buf + i, buf->len);
       if (ret > 0) {
+         assert(ret <= buf->len);
          buf->len -= ret;
          i += ret;
       } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
