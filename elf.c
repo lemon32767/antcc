@@ -21,8 +21,8 @@ struct sym {
           size;
 };
 static vec_of(struct sym) symtab;
-uchar dataalign = 1, rodataalign = 1, bssalign = 1;
-uint nbss;
+static uchar dataalign = 1, rodataalign = 1, bssalign = 1;
+static uint nbss;
 static vec_of(uchar) data, rodata;
 static uint ntextrel, nrodatarel, ndatarel;
 struct reloc {

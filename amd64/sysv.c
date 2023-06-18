@@ -131,7 +131,7 @@ abiret(short r[2], uchar cls[2], int *ni, union irtype typ)
    return ret;
 }
 
-const char amd64_rnames[][6] = {
+static const char amd64_rnames[][6] = {
 #define R(r) #r,
    LIST_REGS(R)
 #undef R
