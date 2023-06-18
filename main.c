@@ -1,7 +1,10 @@
 #include "common.h"
 #include "parse.h"
 #include "obj.h"
+#include <errno.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 struct option ccopt;
@@ -9,8 +12,8 @@ struct option ccopt;
 static void
 flushstd(void)
 {
-    ioflush(&bstdout);
-    ioflush(&bstderr);
+   ioflush(&bstdout);
+   ioflush(&bstderr);
 }
 
 /* parse an argument of the form 'opt=abcd'
@@ -18,76 +21,306 @@ flushstd(void)
 static const char *
 optval(const char *arg, const char *opt)
 {
-    uint n1 = strlen(arg), n2 = strlen(opt);
-    if (n1 < n2+1 || memcmp(arg, opt, n2) != 0 || arg[n2] != '=')
-        return NULL;
-    return arg + n2 + 1;
+   uint n1 = strlen(arg), n2 = strlen(opt);
+   if (n1 < n2+1 || memcmp(arg, opt, n2) != 0 || arg[n2] != '=')
+      return NULL;
+   return arg + n2 + 1;
+}
+
+/* "foo.bar" -> "bar"; ".dotfile" -> "" */
+static const char *
+fileext(const char *path)
+{
+   const char *dot = NULL;
+   assert(path && *path && "empty");
+
+   for (++path; *path; ++path) {
+      if (*path == '.') dot = path;
+   }
+   return dot ? dot+1 : "";
+}
+
+enum inft { IFTauto, IFTc, IFTasm, IFTobj };
+
+static enum inft
+ftdetect(const char *s)
+{
+   const char *ext = fileext(s);
+   if (!strcmp(ext, "c")) return IFTc;
+   if (!strcmp(ext, "o")) return IFTobj;
+   if (!strcmp(ext, "s")) return IFTasm;
+   warn(NULL, "assuming %'s is C source file", s);
+   return IFTc;
+}
+
+/* withext("x/y.c", "o") -> "y.o"; withext("f9", "s") -> "f9.s" */
+static const char *
+withext(const char *path, const char *ext)
+{
+   char *res;
+   size_t len;
+   const char *oext, *file = path;
+
+   while (*path)
+      if (*path++ == '/')
+         file = path;
+   assert(*file && "no filename");
+   oext = fileext(file);
+   if (!*oext)
+      len = strlen(file);
+   else
+      len = oext - file - 1;
+   res = xcalloc(len + 1 + strlen(ext) + 1);
+   memcpy(res, file, len);
+   res[len] = '.';
+   memcpy(res + len + 1, ext, strlen(ext));
+   return res;
+}
+
+static struct task {
+   enum outft { OFTexe, OFTdll, OFTobj, OFTasm } outft;
+   const char *out;
+   const char *targ;
+   const char *inf[64];
+   enum inft inft[64];
+   int ninf;
+   bool verbose;
+} task;
+
+static void
+optparse(char **args)
+{
+   const char *arg, *x;
+   enum inft ft = IFTauto;
+
+   while ((arg = *++args)) {
+      if (*arg++ != '-' || !*arg) {
+         assert(task.ninf < arraylength(task.inf) && "too many infiles");
+         task.inf[task.ninf] = arg-1;
+         task.inft[task.ninf] = ft ? ft : ftdetect(arg-1);
+         ++task.ninf;
+         ft = IFTauto;
+         continue;
+      }
+      if ((x = optval(arg, "std"))) {
+         if (!strcmp(x, "c89") || !strcmp(x, "c90")) ccopt.cstd = STDC89;
+         else if (!strcmp(x, "c99")) ccopt.cstd = STDC99;
+         else if (!strcmp(x, "c11")) ccopt.cstd = STDC11;
+         else if (!strcmp(x, "c2x")) ccopt.cstd = STDC23;
+         else if (!strcmp(x, "c23")) ccopt.cstd = STDC23;
+         else goto Bad;
+      } else if (!strcmp(arg, "pedantic")) {
+         ccopt.pedant = 1;
+      } else if (*arg == 'd' && arg[1]) {
+         /* see common.h§struct option */
+         while (*++arg) switch (*arg | 32) {
+         case 'p': ccopt.dbg.p = 1; break;
+         case 'a': ccopt.dbg.a = 1; break;
+         case 'i': ccopt.dbg.i = 1; break;
+         case 'r': ccopt.dbg.r = 1; break;
+         default: warn(NULL, "-d: invalid debug flag %'c", *arg);
+         }
+      } else if (*arg == 'o') {
+         if (arg[1]) task.out = arg+1;
+         else if (args[1]) task.out = *++args;
+         else goto Bad;
+      } else if (!strcmp(arg, "v") || !strcmp(arg, "-verbose")) {
+         task.verbose = 1;
+      } else if (!strcmp(arg, "c")) {
+         task.outft = OFTobj;
+      } else Bad: warn(NULL, "invalid option: %'s", arg-1);
+   }
+
+   if (!task.ninf) fatal(NULL, "no input files");
+
+   if (!task.out) {
+      switch (task.outft) {
+      case OFTdll:
+      case OFTexe: task.out = "a.out"; break;
+      case OFTasm: task.out = withext(*task.inf, "s"); break;
+      case OFTobj: task.out = withext(*task.inf, "o"); break;
+      }
+   }
+   if (!in_range(task.outft, OFTexe, OFTdll) && task.ninf > 1)
+      fatal(NULL, "too many input files");
+}
+
+static const char *
+tempfile(const char *path, const char *ext)
+{
+   long time(void *);
+   int id;
+   static int id2;
+   static char sbuf[1024];
+   const char *tmpdir;
+   const char *file = path;
+   struct wbuf fbuf = MEMBUF(sbuf, sizeof sbuf);
+
+   tmpdir = getenv("TMPDIR");
+   tmpdir = tmpdir ? tmpdir : "/tmp";
+   id = getpid();
+   id = id < 0 ? time(NULL) : id;
+
+   while (*path)
+      if (*path++ == '/')
+         file = path;
+   bfmt(&fbuf, "%s/cc%x@%u@", tmpdir, id, id2++);
+   while (*file++) {
+      char c = file[-1];
+      if (in_range(c, 'a', 'z') || in_range(c, 'A', 'Z') || in_range(c, '0', '9')
+       || c == '_' || c == '-')
+      {
+         ioputc(&fbuf, c);
+      } else if (c == '.') break;
+      else ioputc(&fbuf, '_');
+   }
+   bfmt(&fbuf, "%s%s", &"."[!ext], ext ? ext : "");
+   assert(!fbuf.err);
+   return memcpy(xcalloc(fbuf.len + 1), fbuf.buf, fbuf.len);
+}
+
+static int cc1(const char *out, const char *in);
+
+static const char *tempobj[arraylength(task.inf)];
+static void
+mktemps(void) {
+   for (int i = 0; i < task.ninf; ++i)
+      tempobj[i] = tempfile(task.inf[i], "o");
+}
+static void
+cleantemps(void)
+{
+   for (int i = 0; i < task.ninf; ++i) {
+      if (!tempobj[i]) break;
+      unlink(tempobj[i]);
+   }
 }
 
 static void
-optparse(const char **file, const char **outfile, const char **targ, char **args)
+compileobjs(void)
 {
-    const char *arg, *x;
-    *outfile = *file = *targ = NULL;
-    while ((arg = *++args)) {
-        if (*arg++ != '-') {
-            *file = arg-1;
-            continue;
-        }
-        if ((x = optval(arg, "std"))) {
-            if (!strcmp(x, "c89") || !strcmp(x, "c90")) ccopt.cstd = STDC89;
-            else if (!strcmp(x, "c99")) ccopt.cstd = STDC99;
-            else if (!strcmp(x, "c11")) ccopt.cstd = STDC11;
-            else if (!strcmp(x, "c2x")) ccopt.cstd = STDC23;
-            else if (!strcmp(x, "c23")) ccopt.cstd = STDC23;
-            else goto Bad;
-        } else if (!strcmp(arg, "pedantic")) {
-            ccopt.pedant = 1;
-        } else if (*arg == 'd' && arg[1]) {
-            /* see common.h§struct option */
-            while (*++arg) switch (*arg | 32) {
-            case 'p': ccopt.dbg.p = 1; break;
-            case 'a': ccopt.dbg.a = 1; break;
-            case 'i': ccopt.dbg.i = 1; break;
-            case 'r': ccopt.dbg.r = 1; break;
-            default: warn(NULL, "-d: invalid debug flag %'c", *arg);
-            }
-        } else if (*arg == 'o') {
-            if (arg[1]) *outfile = arg+1;
-            else if (args[1]) *outfile = *++args;
-            else goto Bad;
-        } else Bad: warn(NULL, "invalid option: %'s", arg-1);
-    }
+   int wstat;
+   pid_t p;
+
+   mktemps();
+   for (int i = 0; i < task.ninf; ++i) {
+      flushstd();
+      if ((p = fork()) < 0) {
+         error(NULL, "fork(): %s\n", strerror(errno));
+         exit(1);
+      } else if (p == 0) {
+         exit(cc1(tempobj[i], task.inf[i]));
+      }
+      waitpid(p, &wstat, 0);
+      if (!WIFEXITED(wstat)) exit(127);
+      if (WEXITSTATUS(wstat) != 0) {
+         cleantemps();
+         exit(WEXITSTATUS(wstat));
+      }
+   }
+   atexit(cleantemps);
+}
+
+static int
+dolink(void)
+{
+   static const char *cmdbuf[10];
+   pid_t p;
+   int wstat;
+   vec_of(const char *) cmd = VINIT(cmdbuf, arraylength(cmdbuf));
+
+   /* TODO don't depend on external c compiler, find lib and runtime paths and
+    * invoke linker directly.. */
+
+   vpush(&cmd, "/bin/gcc");
+   if (task.outft == OFTdll) {
+      vpush(&cmd, "-shared");
+   }
+   vpush(&cmd, "-no-pie");
+   vpush(&cmd, "-o");
+   vpush(&cmd, task.out);
+   assert(task.ninf > 0);
+   for (int i = 0; i < task.ninf; ++i) {
+      vpush(&cmd, tempobj[i]);
+   }
+   if (task.verbose) {
+      efmt("> ");
+      for (int i = 0; i < cmd.n; ++i)
+         efmt("%s ", cmd.p[i]);
+      efmt("\n");
+   }
+   vpush(&cmd, NULL);
+   flushstd();
+   if ((p = fork()) < 0) {
+      error(NULL, "fork(): %s\n", strerror(errno));
+      exit(1);
+   } else if (p == 0) {
+      if (!execv(cmd.p[0], (char **)cmd.p)) {
+         error(NULL, "execv(): %s\n", strerror(errno));
+         exit(1);
+      }
+   }
+   waitpid(p, &wstat, 0);
+   if (!WIFEXITED(wstat)) return 127;
+   return WEXITSTATUS(wstat);
+}
+
+static int
+driver(void)
+{
+   if (task.verbose)
+      efmt("# Target: %s\n", task.targ);
+   if (task.outft == OFTobj) {
+      assert(task.ninf == 1);
+      assert(*task.inft == IFTc && "nyi");
+      return cc1(task.out, *task.inf);
+   } else if (task.outft == OFTexe || task.outft == OFTdll) {
+      compileobjs();
+      return dolink();
+   }
+   assert(0);
+}
+
+static int
+cc1(const char *out, const char *in)
+{
+   struct parser pr;
+
+   if (task.verbose) efmt("cc1(/*out*/ %'s, /*in*/ %'s)\n", out, in);
+   objini(out);
+   initparser(&pr, in);
+   parse(&pr);
+   if (!nerror) objfini();
+   return !!nerror;
 }
 
 static void
 detectcolor(void)
 {
-    const char *s;
-    if (!isatty(STDERR_FILENO)
-     || ((s = getenv("NO_COLOR")) && *s)
-     || ((s = getenv("TERM")) && !strcmp(s, "dumb")))
-        ccopt.nocolor = 1;
+   const char *s;
+   if (!isatty(STDERR_FILENO)
+    || ((s = getenv("NO_COLOR")) && *s)
+    || ((s = getenv("TERM")) && !strcmp(s, "dumb")))
+      ccopt.nocolor = 1;
 }
 
 int
 main(int argc, char **argv)
 {
-    struct parser pr;
-    const char *file, *outfile, *targ;
+   atexit(flushstd);
 
-    atexit(flushstd);
-    detectcolor();
-    ccopt.cstd = STDC99; /* C99 by default */
-    optparse(&file, &outfile, &targ, argv);
-    if (!file) {
-        efmt("usage: %s [options] <file>\n", *argv);
-        return 1;
-    }
+   /* setup defaults */
+   detectcolor();
+   ccopt.cstd = STDC99;
 
-    targ_init(targ ? targ : "amd64-sysv");
-    objini(outfile ? outfile : "a.out");
-    initparser(&pr, file);
-    parse(&pr);
-    if (!nerror) objfini();
+   /* parse cli ags */
+   optparse(argv);
+
+   /* global init */
+   task.targ = task.targ ? task.targ : "amd64-sysv";
+   targ_init(task.targ);
+
+   return driver();
 }
+
+/* vim:set ts=3 sw=3 expandtab: */

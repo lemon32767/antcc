@@ -1,4 +1,4 @@
-printf();
-int main(int argc) {
-    printf("hello world\n");
+int printf(char *, ...);
+int main(int argc, char **argv) {
+   printf("hello world\n");
 }
