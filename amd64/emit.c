@@ -351,8 +351,8 @@ DEFINSTR2(Xmovb,
    {-1, PMEM, PI8,  "\xC6", EN_MI8, .r8=1}, /* MOV m8, imm8 */
 )
 DEFINSTR2(Xmovw,
-   {-1, PMEM, PGPR, "\x66\x89", EN_MR}, /* MOV m16, r16 */
-   {-1, PMEM, PI16,  "\xC6", EN_MI16},    /* MOV m16, imm16 */
+   {-1, PMEM, PGPR, "\x66\x89", EN_MR},   /* MOV m16, r16 */
+   {-1, PMEM, PI16, "\x66\xC7", EN_MI16}, /* MOV m16, imm16 */
 )
 static void Xmov(uchar **pcode, enum irclass k, struct oper dst, struct oper src)
 {
@@ -385,16 +385,16 @@ DEFINSTR2(Xmovsxl,
    {4, PGPR, PGPR, "\x89", EN_RR}, /* MOV r32, r32 */
 )
 DEFINSTR2(Xmovsxw,
-   {4|8, PGPR, PMEM, "\x0F\xBF", EN_RM}, /* MOVSX r64, m16 */
-   {4|8, PGPR, PGPR, "\x0F\xBF", EN_RR}, /* MOVSX r64, r16 */
+   {4|8, PGPR, PMEM, "\x66\x0F\xBF", EN_RM}, /* MOVSX r64, m16 */
+   {4|8, PGPR, PGPR, "\x66\x0F\xBF", EN_RR}, /* MOVSX r64, r16 */
 )
 DEFINSTR2(Xmovsxb,
    {4|8, PGPR, PMEM, "\x0F\xBE", EN_RM}, /* MOVSX r64, m8 */
    {4|8, PGPR, PGPR, "\x0F\xBE", EN_RR, .r8=1}, /* MOVSX r64, r8 */
 )
 DEFINSTR2(Xmovzxw,
-   {4|8, PGPR, PMEM, "\x0F\xB7", EN_RM}, /* MOVZX r64, m16 */
-   {4|8, PGPR, PGPR, "\x0F\xB7", EN_RR}, /* MOVZX r64, r16 */
+   {4|8, PGPR, PMEM, "\x66\x0F\xB7", EN_RM}, /* MOVZX r64, m16 */
+   {4|8, PGPR, PGPR, "\x66\x0F\xB7", EN_RR}, /* MOVZX r64, r16 */
 )
 DEFINSTR2(Xmovzxb,
    {4|8, PGPR, PMEM, "\x0F\xB6", EN_RM}, /* MOVZX r64, m8 */
