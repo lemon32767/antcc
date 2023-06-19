@@ -1617,7 +1617,7 @@ stmtterm(struct comp *cm)
 
 static void block(struct comp *cm, struct function *fn);
 static bool stmt(struct comp *cm, struct function *fn);
-static void localdecl(struct comp *cm, struct function *fn);
+static void localdecl(struct comp *cm, struct function *fn, bool forinit);
 
 static bool
 loopbody(struct comp *cm, struct function *fn, struct block *brk, struct block *cont)
@@ -1778,7 +1778,7 @@ stmt(struct comp *cm, struct function *fn)
       envdown(cm, &e);
       if (!match(cm, NULL, ';')) { /* init */
          if (isdecltok(cm)) {
-            localdecl(cm, fn);
+            localdecl(cm, fn, 1);
          } else {
             ex = commaexpr(cm);
             EMITS expreffects(fn, &ex);
@@ -1866,7 +1866,7 @@ stmt(struct comp *cm, struct function *fn)
 }
 
 static void
-localdecl(struct comp *cm, struct function *fn)
+localdecl(struct comp *cm, struct function *fn, bool forini)
 {
    struct expr ini;
    const bool doemit = fn->curblk;
@@ -1879,6 +1879,8 @@ localdecl(struct comp *cm, struct function *fn)
 
          switch (decl.scls) {
          case SCSTATIC:
+            if (forini)
+               error(&decl.span, "static declaration in 'for' loop initializer");
             decl.id = ++staticid;
             break;
          case SCNONE:
@@ -1914,8 +1916,14 @@ localdecl(struct comp *cm, struct function *fn)
                }
             }
             break;
-         case SCTYPEDEF: break;
-         case SCEXTERN: break;
+         case SCTYPEDEF:
+            if (forini)
+               error(&decl.span, "typedef in 'for' loop initializer");
+            break;
+         case SCEXTERN:
+            if (forini)
+               error(&decl.span, "extern declaration in 'for' loop initializer");
+            break;
          default: assert(0);
          }
       Err:
@@ -1931,7 +1939,7 @@ block(struct comp *cm, struct function *fn)
 
    while (!match(cm, &tk, '}')) {
       if (isdecltok(cm))
-         localdecl(cm, fn);
+         localdecl(cm, fn, 0);
       else
          stmt(cm, fn);
    }
