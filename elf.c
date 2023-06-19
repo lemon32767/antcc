@@ -368,9 +368,9 @@ putreloc(struct wbuf *out, const struct reloc *rel, bool userela)
 static int
 symcmp(const void *L, const void *R)
 {
-   const struct elf64sym *l = L, *r = R;
-   int tmp, lbind = l->info >> 4, rbind = r->info >> 4;
-   if ((tmp = lbind - rbind)) return tmp; /* locals prio */
+   const struct sym *l = L, *r = R;
+   int tmp;
+   if ((tmp = l->bind - r->bind)) return tmp; /* locals prio */
    if ((tmp = r->shndx - l->shndx)) return tmp; /* section prio (real sections > SHN_UND) */
    return l->name - r->name;
 }
