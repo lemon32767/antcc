@@ -3,6 +3,6 @@ Things to finish before moving onto compiler optimizations, C extensions, other 
 - regalloc: fix phi-eliminating moves
 - frontend: try to repr vars as ssa temps until they have their address taken or are mutated (to reduce no. of mem instrs)??
 - ir: implement mem2reg
-- frontend: finish C impl: initializers, preprocessor (#include, fn-like macros, etc), forward declarations, for, switch, break-continue, goto
+- frontend: finish C impl: initializers, preprocessor (#include, fn-like macros, etc), forward declarations, switch, goto
 
 at some point add another backend like arm64 to make sure the non target specific stuff is generic enough..

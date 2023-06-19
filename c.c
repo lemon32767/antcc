@@ -1118,7 +1118,7 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
          if (from == TYBOOL) return ref;
          if (ref.t == RTMP)
             /* these instrs already have output range of [0,1] */
-            if (instrtab[ref.i].op == Onot || oiscmp(instrtab[ref.i].op))
+            if (oiscmp(instrtab[ref.i].op))
                return ref;
          ins.op = Oneq, ins.r = ZEROREF;
       }
@@ -1593,13 +1593,35 @@ stmtterm(struct parser *pr)
 }
 
 static void block(struct parser *pr, struct function *fn);
+static bool stmt(struct parser *pr, struct function *fn);
+static void localdecl(struct parser *pr, struct function *fn);
 
-static bool /* return 1 if stmt is terminating (all codepaths return) */
+static bool
+loopbody(struct parser *pr, struct function *fn, struct block *brk, struct block *cont)
+{
+   struct block *save[2];
+   bool terminates = 0;
+
+   save[0] = pr->loopbreak, save[1] = pr->loopcont;
+   pr->loopbreak = brk, pr->loopcont = cont;
+   ++pr->loopdepth;
+
+   terminates = stmt(pr, fn);
+
+   --pr->loopdepth;
+   pr->loopbreak = save[0], pr->loopcont = save[1];
+
+   return terminates;
+}
+
+static bool /* return 1 if stmt is terminating (ends with a jump) */
 stmt(struct parser *pr, struct function *fn)
 {
    struct block *tr, *fl, *end, *begin;
    struct expr ex;
+   struct env e;
    union ref r;
+   struct token tk;
    bool terminates = 0;
    const bool doemit = fn->curblk;
 
@@ -1608,12 +1630,9 @@ stmt(struct parser *pr, struct function *fn)
    switch (peek(pr, NULL)) {
    case '{':
       lex(pr, NULL);
-      {
-         struct env e;
-         envdown(pr, &e);
-         block(pr, fn);
-         envup(pr);
-      }
+      envdown(pr, &e);
+      block(pr, fn);
+      envup(pr);
       break;
    case ';':
       lex(pr, NULL);
@@ -1649,7 +1668,7 @@ stmt(struct parser *pr, struct function *fn)
       }
       EMITS if (!terminates) useblk(fn, end);
       break;
-   case TKWwhile:
+   case TKWwhile: /* while ( <cond> ) <body> */
       lex(pr, NULL);
       expect(pr, '(', NULL);
       ex = commaexpr(pr);
@@ -1657,27 +1676,46 @@ stmt(struct parser *pr, struct function *fn)
       if (!isscalar(ex.ty))
          error(&ex.span, "'while' condition is not a scalar (%ty)", ex.ty);
       tr = begin = end = NULL;
+      /* @begin:
+       *   <cond>
+       *   b <cond>, @tr, @end
+       * @tr:
+       *   <body>
+       *   b @begin
+       * @end:
+       *   <-
+       */
       EMITS {
-         begin = newblk(fn);
-         putbranch(fn, begin);
+         putbranch(fn, begin = newblk(fn));
          useblk(fn, begin);
          condjump(fn, &ex, tr = newblk(fn), end = newblk(fn));
          useblk(fn, tr);
       }
-      terminates = stmt(pr, fn);
+      terminates = loopbody(pr, fn, end, begin);
       EMITS {
          if (!terminates) putbranch(fn, begin);
          useblk(fn, end);
       }
       break;
-   case TKWdo:
+   case TKWdo: /* do <body> while ( <cond> ) ; */
       lex(pr, NULL);
-      begin = end = NULL;
+      begin = tr = end = NULL;
+      /* @begin:
+       *   <body>
+       *   b @tr
+       * @tr:  <- necessary for continue stmt
+       *   <cond>
+       *    b <cond>, @begin, @end
+       * @end:
+       *   <-
+       */
       EMITS {
          putbranch(fn, begin = newblk(fn));
          useblk(fn, begin);
+         tr = newblk(fn);
+         end = newblk(fn);
       }
-      terminates = stmt(pr, fn);
+      terminates = loopbody(pr, fn, end, tr);
       expect(pr, TKWwhile, NULL);
       expect(pr, '(', NULL);
       ex = commaexpr(pr);
@@ -1686,10 +1724,92 @@ stmt(struct parser *pr, struct function *fn)
          error(&ex.span, "'while' condition is not a scalar (%ty)", ex.ty);
       stmtterm(pr);
       EMITS {
-         end = newblk(fn);
-         if (!terminates) condjump(fn, &ex, begin, end);
+         if (!terminates) putbranch(fn, tr);
+         useblk(fn, tr);
+         condjump(fn, &ex, begin, end);
          useblk(fn, end);
       }
+      break;
+   case TKWfor: /* for ( <init>? ; <cond>? ; <iter>? ) <body> */
+      lex(pr, NULL);
+      begin = tr = end = fl = NULL;
+      expect(pr, '(', NULL);
+      /*   ->
+       *   <init>
+       *   b @begin
+       * @begin:
+       *   <cond>
+       *   b <cond>, @tr, @fl
+       * @tr:
+       *   <body>
+       *   b @end
+       * @end:  <- necessary for continue stmt
+       *   <iter>
+       *   b @begin
+       * @fl:
+       *   <-
+       *
+       * if cond omitted, tr = begin
+       * if iter omitted, end = begin
+       */
+      envdown(pr, &e);
+      if (!match(pr, NULL, ';')) { /* init */
+         if (isdecltok(pr)) {
+            localdecl(pr, fn);
+         } else {
+            ex = commaexpr(pr);
+            EMITS expreffects(fn, &ex);
+            expect(pr, ';', NULL);
+         }
+      }
+      EMITS {
+         putbranch(fn, end = tr = begin = newblk(fn));
+         useblk(fn, begin);
+         fl = newblk(fn);
+      }
+      if (!match(pr, NULL, ';')) { /* cond */
+         ex = commaexpr(pr);
+         expect(pr, ';', NULL);
+         if (!isscalar(ex.ty))
+            error(&ex.span, "'for' condition is not a scalar (%ty)", ex.ty);
+         EMITS {
+            tr = newblk(fn);
+            condjump(fn, &ex, tr, fl);
+            useblk(fn, tr);
+         }
+      }
+      if (!match(pr, NULL, ')')) { /* iter */
+         ex = commaexpr(pr);
+         end = newblk(fn);
+         expect(pr, ')', NULL);
+      }
+
+      terminates = loopbody(pr, fn, fl, end);
+
+      EMITS {
+         if (end != begin) { /* have iter */
+            if (!terminates) putbranch(fn, end);
+            useblk(fn, end);
+            expreffects(fn, &ex);
+            putbranch(fn, begin);
+         } else if (!terminates) putbranch(fn, begin);
+         useblk(fn, fl);
+      }
+      envup(pr);
+      break;
+   case TKWbreak:
+      lex(pr, &tk);
+      if (!pr->loopdepth && !pr->switchdepth)
+         error(&tk.span, "'break' outside of loop or switch statement");
+      EMITS putbranch(fn, pr->loopbreak);
+      stmtterm(pr);
+      break;
+   case TKWcontinue:
+      lex(pr, &tk);
+      if (!pr->loopdepth)
+         error(&tk.span, "'continue' outside of loop");
+      EMITS putbranch(fn, pr->loopcont);
+      stmtterm(pr);
       break;
    case TKWreturn:
       lex(pr, NULL);
@@ -1723,69 +1843,74 @@ stmt(struct parser *pr, struct function *fn)
 }
 
 static void
+localdecl(struct parser *pr, struct function *fn)
+{
+   struct expr ini;
+   const bool doemit = fn->curblk;
+   struct declstate st = { DFUNCVAR };
+   do {
+      struct decl decl = pdecl(&st, pr);
+      if (decl.name) {
+         static int staticid;
+         bool put = 0;
+
+         switch (decl.scls) {
+         case SCSTATIC:
+            decl.id = ++staticid;
+            break;
+         case SCNONE:
+            decl.scls = SCAUTO;
+         case SCAUTO:
+         case SCREGISTER:
+            if (isincomplete(decl.ty) || decl.ty.t == TYFUNC) {
+               error(&decl.span,
+                     "declaring variable '%s' with %s type '%ty'",
+                     decl.name, decl.ty.t == TYFUNC ? "function" : "incomplete",
+                     decl.ty);
+               goto Err;
+            }
+            EMITS {
+               decl.id = addinstr(fn, mkalloca(typesize(decl.ty), typealign(decl.ty))).i;
+            }
+            if (st.varini) {
+               putdecl(pr, &decl);
+               put = 1;
+               ini = expr(pr);
+               pdecl(&st, pr);
+               if (!assigncheck(decl.ty, &ini)) {
+                  struct span span = decl.span;
+                  joinspan(&span.ex, ini.span.ex);
+                  error(&span, "cannot initialize '%ty' variable with '%ty'",
+                        decl.ty, ini.ty);
+               }
+               EMITS {
+                  if (isagg(decl.ty))
+                     structcopy(fn, decl.ty, mkref(RTMP, decl.id), expraddr(fn, &ini));
+                  else
+                     genstore(fn, decl.ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
+               }
+            }
+            break;
+         case SCTYPEDEF: break;
+         case SCEXTERN: break;
+         default: assert(0);
+         }
+      Err:
+         if (!put) putdecl(pr, &decl);
+      }
+   } while (st.more);
+}
+
+static void
 block(struct parser *pr, struct function *fn)
 {
    struct token tk;
-   const bool doemit = fn->curblk;
 
    while (!match(pr, &tk, '}')) {
-      if (isdecltok(pr)) { /* decl */
-         struct expr ini;
-         struct declstate st = { DFUNCVAR };
-         do {
-            struct decl decl = pdecl(&st, pr);
-            if (decl.name) {
-               static int staticid;
-               bool put = 0;
-
-               switch (decl.scls) {
-               case SCSTATIC:
-                  decl.id = ++staticid;
-                  break;
-               case SCNONE:
-                  decl.scls = SCAUTO;
-               case SCAUTO:
-               case SCREGISTER:
-                  if (isincomplete(decl.ty) || decl.ty.t == TYFUNC) {
-                     error(&decl.span,
-                           "declaring variable '%s' with %s type '%ty'",
-                           decl.name, decl.ty.t == TYFUNC ? "function" : "incomplete",
-                           decl.ty);
-                     goto Err;
-                  }
-                  EMITS {
-                     decl.id = addinstr(fn, mkalloca(typesize(decl.ty), typealign(decl.ty))).i;
-                  }
-                  if (st.varini) {
-                     putdecl(pr, &decl);
-                     put = 1;
-                     ini = expr(pr);
-                     pdecl(&st, pr);
-                     if (!assigncheck(decl.ty, &ini)) {
-                        struct span span = decl.span;
-                        joinspan(&span.ex, ini.span.ex);
-                        error(&span, "cannot initialize '%ty' variable with '%ty'",
-                              decl.ty, ini.ty);
-                     }
-                     EMITS {
-                        if (isagg(decl.ty))
-                           structcopy(fn, decl.ty, mkref(RTMP, decl.id), expraddr(fn, &ini));
-                        else
-                           genstore(fn, decl.ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
-                     }
-                  }
-                  break;
-               case SCTYPEDEF: break;
-               case SCEXTERN: break;
-               default: assert(0);
-               }
-            Err:
-               if (!put) putdecl(pr, &decl);
-            }
-         } while (st.more);
-      } else {
+      if (isdecltok(pr))
+         localdecl(pr, fn);
+      else
          stmt(pr, fn);
-      }
    }
    pr->fnblkspan = tk.span;
 }

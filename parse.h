@@ -104,6 +104,8 @@ struct parser {
    struct env *env;
    struct arena *fnarena, *exarena;
    struct span fnblkspan;
+   uint loopdepth, switchdepth;
+   struct block *loopbreak, *loopcont;
 };
 
 const char *intern(const char *);
