@@ -5,6 +5,13 @@ uchar type2cls[NTYPETAG];
 uchar cls2siz[KF8+1];
 const uchar siz2intcls[] = { [1] = KI4, [2] = KI4, [4] = KI4, [8] = KI8 };
 
+const char *opnames[] = {
+   "?\??",
+#define _(o,...) #o,
+#include "op.def"
+#undef _
+};
+
 struct instr instrtab[MAXINSTR];
 int ninstr;
 static int instrfreelist;
@@ -46,6 +53,7 @@ irinit(struct function *fn)
       cls2siz[KPTR] = targ_primsizes[TYPTR];
    }
    fn->entry = fn->curblk = alloc(&fn->arena, sizeof(struct block), 0);
+   fn->nblk = 1;
    memset(fn->entry, 0, sizeof *fn->entry);
    fn->entry->lprev = fn->entry->lnext = fn->entry;
 }
@@ -325,6 +333,7 @@ useblk(struct function *fn, struct block *blk)
       blk->lprev = fn->entry->lprev;
       blk->lprev->lnext = blk;
       blk->id = blk->lprev->id + 1;
+      ++fn->nblk;
       fn->entry->lprev = blk;
    }
    fn->curblk = blk;

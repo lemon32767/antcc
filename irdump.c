@@ -151,12 +151,6 @@ dumpcall(struct call *call)
    }
 }
 
-static const char *opname[] = {
-   "?\??",
-#define _(o,...) #o,
-#include "op.def"
-#undef _
-};
 static const uchar opnarg[] = {
    0,
 #define _(o,n) n,
@@ -180,7 +174,7 @@ dumpinst(const struct instr *ins)
          efmt("%s %%%d", clsname[ins->cls], ins - instrtab);
          efmt(" = ");
       }
-      efmt("%s ", opname[ins->op]);
+      efmt("%s ", opnames[ins->op]);
    }
    for (i = 0; i < opnarg[ins->op]; ++i) {
       if (i) efmt(", ");

@@ -95,6 +95,7 @@ enum op {
 #define oisalloca(o) in_range(o, Oalloca1, Oalloca16)
 #define oisstore(o) in_range(o, Ostore1, Ostore8)
 #define oisload(o) in_range(o, Oloads1, Oloadf8)
+extern const char *opnames[];
 
 enum intrin {
    INxxx,

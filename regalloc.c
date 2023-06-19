@@ -242,7 +242,9 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
          vpush(&ra->freestk, s);
       }
    }
-   *ref = mkref(RREG, ins->reg-1);
+   /* do not patch ref if it's cond branch arg, emit() wants to know what instr it is */
+   if (ref != blk->jmp.arg || blk->jmp.t != Jb)
+      *ref = mkref(RREG, ins->reg-1);
 }
 
 void
@@ -273,6 +275,9 @@ regalloc(struct function *fn)
    do {
       for (int i = 0; i < 2; ++i) {
          if (!blk->jmp.arg[i].t) break;
+         /* do not allocate a reg for a cmp op used a branch argument, since it's a pseudo op */
+         if (blk->jmp.t == Jb && blk->jmp.arg[i].t == RTMP && oiscmp(instrtab[blk->jmp.arg[i].i].op))
+            break;
          use(&ra, blk, blk->ins.n-1, (blk->jmp.t != Jb) - 1,
                   blk->jmp.t == Jret ? fn->abiret[i].reg : -1,
                   &blk->jmp.arg[i], blk->jmp.arg[!i]);

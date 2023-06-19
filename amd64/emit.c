@@ -168,7 +168,7 @@ enum operenc {
    EN_RI8,    /* reg, imm8 with /0 */
    EN_RI32,   /* reg, imm32 with /0 */
    EN_MI8,    /* mem, imm8 with /x */
-   EN_MI16,   /* mem, imm16 with /x */  
+   EN_MI16,   /* mem, imm16 with /x */
    EN_MI32,   /* mem, imm32 with /x */
    EN_OI,     /* reg, imm32 with op + reg */
    EN_I32,    /* imm32 */
@@ -361,6 +361,7 @@ static void Xmov(uchar **pcode, enum irclass k, struct oper dst, struct oper src
       {4|8, PGPR, PGPR, "\x8B",     EN_RR}, /* MOV r32/64, r32/64 */
       {4|8, PMEM, PGPR, "\x89",     EN_MR}, /* MOV m32/64, r32/64 */
       {4|8, PGPR, PMEM, "\x8B",     EN_RM}, /* MOV r32/64, m32/64 */
+      {4|8, PMEM, PI32, "\xC7",     EN_MI32}, /* MOV m32/64, imm */
       {  8, PGPR, PU32, "\xB8",     EN_OI, .norexw=1}, /* MOV r64, uimm */
       {  8, PGPR, PI32, "\xC7",     EN_RI32}, /* MOV r64, imm */
       {4, PFPR, PFPR, "\xF3\x0F\x10", EN_RR}, /* MOVSS xmm, xmm */
@@ -373,8 +374,8 @@ static void Xmov(uchar **pcode, enum irclass k, struct oper dst, struct oper src
    static const uchar k2off[] = {
       [KI4] = 0,
       [KI8] = 1, [KPTR] = 1,
-      [KF4] = 6,
-      [KF8] = 9,
+      [KF4] = 7,
+      [KF8] = 10,
    };
    encode(pcode, all + k2off[k], arraylength(all) - k2off[k], k, dst, src);
 }
@@ -457,6 +458,89 @@ DEFINSTR1(Xcall,
    {-1, PGPR, 0, "\xFF", EN_R, .ext=2, .norexw=1}, /* CALL r64 */
    {-1, PMEM, 0, "\xFF", EN_M, .ext=2, .norexw=1}, /* CALL m64 */
 )
+DEFINSTR2(Xcmp,
+   {4|8, PGPR, PGPR, "\x3B", EN_RR},           /* CMP r32/64, r32/64 */
+   {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=7},  /* CMP r32/64, imm8 */
+   {4|8, PRAX, PI32, "\x3D", EN_I32},          /* CMP eax/rax, imm */
+   {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=7}, /* CMP r32/64, imm */
+   {  8, PGPR, PMEM, "\x3B", EN_RM},           /* CMP r64, m64 */
+)
+DEFINSTR2(Xtest,
+   {4|8, PGPR, PGPR, "\x85", EN_RR}, /* TEST r32/64, r32/64 */
+)
+
+enum cc {
+   CCO   = 0x0, /* OF = 1*/
+   CCNO  = 0x1, /* OF = 0*/
+   CCB   = 0x2, CCC   = 0x2, CCNAE = 0x2, /* below; CF = 1; not above or equal */
+   CCAE  = 0x3, CCNB  = 0x3, CCNC  = 0x3, /* above or equal; not below; CF = 0 */
+   CCE   = 0x4, CCZ   = 0x4, /* equal; ZF = 1 */
+   CCNE  = 0x5, CCNZ  = 0x5, /* not equal; ZF = 0 */
+   CCBE  = 0x6, CCNA  = 0x6, /* below or equal; not above; CF=1 or  ZF=1 */
+   CCA   = 0x7, CCNBE = 0x7, /* above; not below or equal; CF=0 and ZF=0 */
+   CCS   = 0x8, /* ZS = 1; negative */
+   CCNS  = 0x9, /* ZS = 0; non-negative */
+   CCP   = 0xA, CCPE  = 0xA, /* PF = 1; parity even */
+   CCNP  = 0xB, CCPO  = 0xB, /* PF = 0; parity odd */
+   CCL   = 0xC, CCNGE = 0xC, /* lower; not greater or equal; SF != OF */
+   CCGE  = 0xD, CCNL  = 0xD, /* greater or equal; not lower; SF == OF */
+   CCLE  = 0xE, CCNG  = 0xE, /* less or equal; not greater;  ZF=1 or SF != OF */
+   CCG   = 0xF, CCNLE = 0xF, /* greater; not less or equal;  ZF=0 and SF = OF*/
+   ALWAYS,
+};
+
+/* maps blk -> address when resolved; or to linked list of jump displacement
+ * relocations */
+static struct blkaddr {
+   bool resolved;
+   union {
+      uint addr;
+      uint relreloc;
+   };
+} *blkaddr;
+static uint nblkaddr;
+
+static void
+Xjcc(uchar **pcode, enum cc cc, struct block *dst)
+{
+   int disp, insaddr = *pcode - objout.textbegin;
+   bool rel8 = 0;
+
+   if (blkaddr[dst->id].resolved) {
+      disp = blkaddr[dst->id].addr - (insaddr + 2);
+      if ((uint)(disp + 128) < 256) /* can use 1-byte displacement? */
+         rel8 = 1;
+      else { /* otherwise 4-byte displacement */
+         disp -= 3;
+         disp -= cc != ALWAYS; /* 'Jcc rel32' has 2 opcode bytes */
+      }
+   } else {
+      disp = blkaddr[dst->id].relreloc;
+      blkaddr[dst->id].relreloc = insaddr + 1 + (cc != ALWAYS);
+   }
+   if (cc == ALWAYS) {
+      B(rel8 ? 0xEB : 0xE9); /* JMP rel8/rel32 */
+   } else {
+      assert(in_range(cc, 0, 0xF));
+      if (rel8) B(0x70 + cc);     /* Jcc rel8 */
+      else B(0x0F), B(0x80 + cc); /* Jcc rel32 */
+   }
+   if (rel8) B(disp); else I32(disp);
+}
+
+static void
+Xsetcc(uchar **pcode, enum cc cc, int reg)
+{
+   int rex = 0;
+   assert(in_range(cc, 0x0, 0xF));
+
+   if (in_range(reg, RSP, RDI)) rex = 0x40;
+   rex |= (reg >> 3); /* REX.B */
+   if (rex) B(rex);
+   B(0x0F), B(0x90+cc); /* SETcc */
+   B(0xC0 + (reg & 7)); /* ModR/M with mod=11, rm=reg */
+
+}
 
 static void
 Xpush(uchar **pcode, enum reg reg)
@@ -474,13 +558,33 @@ Xpop(uchar **pcode, enum reg reg)
    B(0x58 + (reg & 7));
 }
 
+/* are flags live at given instruction? */
+static bool
+flagslivep(struct block *blk, int curi)
+{
+   int cmpi;
+   /* conditional branch that references a previous comparison instruction? */
+   if (blk->jmp.t != Jb || !blk->jmp.arg[0].t)
+      return 0;
+   assert(blk->jmp.arg[0].t == RTMP);
+   cmpi = blk->jmp.arg[1].i;
+   for (int i = blk->ins.n - 1; i > curi; --i) {
+      if (blk->ins.p[i] == cmpi)
+         /* flags defined after given instruction, dead here */
+         return 0;
+   }
+   /* flags defined before given instruction, live here */
+   return 1;
+}
+
 /* Copy dst = val, with some peephole optimizations */
 static void
-gencopy(uchar **pcode, enum irclass cls, struct oper dst, union ref val)
+gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct oper dst, union ref val)
 {
    assert(dst.t == OREG);
-   if (val.t == RMORE) {
-      /* this is a LEA, but maybe it can be lowered to a 2-address instruction */
+   if (val.t == RMORE && !flagslivep(blk, curi)) {
+      /* this is a LEA, but maybe it can be lowered to a 2-address instruction,
+       * which may clobber flags */
       const struct addr *addr = &addrht[val.i];
       if (addr->base.t && dst.reg == mkregoper(addr->base).reg) { /* base = dst */
          if (addr->index.t && !addr->disp && !addr->shift){
@@ -514,9 +618,9 @@ gencopy(uchar **pcode, enum irclass cls, struct oper dst, union ref val)
       /* normal (not 2-address) case */
    Lea:
       Xlea(pcode, cls, dst, ref2oper(val));
-   } else if (val.t == RICON && val.i == 0 && dst.t == OREG) {
-      /* dst = 0 -> xor dst, dst */
-      Xxor(pcode, cls, dst, dst);
+   } else if (val.bits == ZEROREF.bits && dst.t == OREG && !flagslivep(blk, curi)) {
+      /* dst = 0 -> xor dst, dst; but only if it is ok to clobber flags */
+      Xxor(pcode, kisint(cls) ? KI4 : cls, dst, dst);
    } else if (val.t == RXCON && conht[val.i].isdat && !conht[val.i].deref) {
       Xlea(pcode, cls, dst, mkoper(OCONR, .con = val.i));
    } else {
@@ -526,16 +630,33 @@ gencopy(uchar **pcode, enum irclass cls, struct oper dst, union ref val)
    }
 }
 
+/* condition code for CMP */
+static const uchar icmpop2cc[] = {
+   [Oequ]  = CCE, [Oneq]  = CCNE,
+   [Olth]  = CCL, [Ogth]  = CCG, [Olte]  = CCLE, [Ogte]  = CCGE,
+   [Oulth] = CCB, [Ougth] = CCA, [Oulte] = CCBE, [Ougte] = CCGE,
+};
+/* condition code for TEST reg,reg (compare with zero) */
+static const uchar icmpzero2cc[] = {
+   [Oequ] = CCE,  [Oulte] = CCE,
+   [Oneq] = CCNE, [Ougth] = CCNE,
+   [Olth] = CCS,  [Ogte] = CCNS,
+   [Olte] = CCLE, [Ogth] = CCG,
+   [Oulth] = CCB, [Ougte] = CCAE, /* actually constants */
+};
+
 static void
-emitinstr(uchar **pcode, struct function *fn, struct block *blk, int ii, struct instr *ins)
+emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struct instr *ins)
 {
    struct oper dst, src;
+   bool regzeroed;
    enum irclass cls = ins->cls;
    void (*X)(uchar **, enum irclass, struct oper, struct oper) = NULL;
    void (*X1)(uchar **, enum irclass, struct oper) = NULL;
 
    switch (ins->op) {
-   default: assert(!"nyi ins");
+   default:
+      fatal(NULL, "amd64: in %y; unimplemented instr '%s'", fn->name, opnames[ins->op]);
    case Onop: break;
    case Ostore1: cls = KI4, X = Xmovb; goto Store;
    case Ostore2: cls = KI4, X = Xmovw; goto Store;
@@ -577,6 +698,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int ii, struct 
       break;
    case Osub: X = kisint(cls) ? Xsub : Xsubf; goto ALU2;
    case Oshl: X = Xshl; goto ALU2;
+   case Oxor: X = Xxor; goto ALU2;
    ALU2:
       dst = mkregoper(ins->l);
       assert(ins->reg-1 == dst.reg);
@@ -601,19 +723,91 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int ii, struct 
       case KF4: case KF8: assert(!"nyi");
       }
       break;
+   case Oequ: case Oneq:
+   case Olth: case Ogth: case Olte: case Ogte:
+   case Oulth: case Ougth: case Oulte: case Ougte:
+      dst = mkregoper(ins->l);
+      /* TODO handle float cmps */
+      src = mkimmdatregoper(ins->r);
+      regzeroed = 0;
+      if (ins->reg && dst.reg != ins->reg-1 && (src.t != OREG || src.reg != ins->reg-1)) {
+         /* can zero output reg before test instruction (differs from both inputs) */
+         /* XXX this doesn't check if a source operand is an addr containing the register */
+         struct oper dst = reg2oper(ins->reg-1);
+         Xxor(pcode, KI4, dst, dst);
+         regzeroed = 1;
+      }
+      if (ins->r.bits != ZEROREF.bits)
+         Xcmp(pcode, cls, dst, src);
+      else
+         Xtest(pcode, cls, dst, dst);
+      if (ins->reg) {
+         enum cc cc;
+         dst = reg2oper(ins->reg-1);
+         if (ins->r.bits != ZEROREF.bits) { /* CMP */
+            cc = icmpop2cc[ins->op];
+         } else { /* TEST r,r  (CMP r, 0) */
+            cc = icmpzero2cc[ins->op];
+         }
+         Xsetcc(pcode, cc, dst.reg);
+         if (!regzeroed)
+            Xmovzxb(pcode, KI4, dst, dst);
+      }
+      break;
    case Omove:
       dst = ref2oper(ins->l);
-      gencopy(pcode, cls, dst, ins->r);
+      gencopy(pcode, cls, blk, curi, dst, ins->r);
       break;
    case Ocopy:
       dst = reg2oper(ins->reg-1);
-      gencopy(pcode, cls, dst, ins->l);
+      gencopy(pcode, cls, blk, curi, dst, ins->l);
       break;
    case Ocall:
       Xcall(pcode, KPTR, ref2oper(ins->l));
       break;
    }
    if (ins->reg) ioper[ins - instrtab] = reg2oper(ins->reg-1);
+}
+
+static void
+emitbranch(uchar **pcode, struct block *blk)
+{
+   enum cc cc = ALWAYS;
+   assert(blk->s1);
+   if (blk->s2) {
+      /* conditional branch.. */
+      union ref arg = blk->jmp.arg[0];
+
+      if (!arg.t) /* implicit by ZF */
+         cc = CCNZ;
+      else {
+         struct instr *ins;
+         assert(arg.t == RTMP);
+         ins = &instrtab[arg.i];
+         assert(oiscmp(ins->op));
+         /* TODO handle float cmps */
+         if (ins->r.bits != ZEROREF.bits) {
+            /* for CMP instr */
+            cc = icmpop2cc[ins->op];
+         } else {
+            /* for TEST instr, which modifies ZF and SF and sets CF = OF = 0 */
+            cc = icmpzero2cc[ins->op];
+         }
+      }
+      if (blk->s1 == blk->lnext) {
+         /* if s1 is next adjacent block, swap s1,s2 and flip condition to emit a
+          * single jump */
+         struct block *tmp = blk->s1;
+         blk->s1 = blk->s2;
+         blk->s2 = tmp;
+         cc ^= 1;
+      }
+   }
+   /* make sure to fallthru if jumping to next adjacent block */
+   if (blk->s2 || blk->s1 != blk->lnext)
+      Xjcc(pcode, cc, blk->s1);
+   if (blk->s2 && blk->s2 != blk->lnext)
+      Xjcc(pcode, ALWAYS, blk->s2);
 }
 
 static void
@@ -662,6 +856,13 @@ emitbin(struct function *fn)
    uchar **pcode = &objout.code;
    uchar *start;
 
+
+   if (nblkaddr < fn->nblk) {
+      blkaddr = xrealloc(blkaddr, fn->nblk * sizeof *blkaddr);
+      nblkaddr = fn->nblk;
+   }
+   memset(blkaddr, 0, nblkaddr * sizeof *blkaddr);
+
    aligncode(pcode, 16);
    start = *pcode;
 
@@ -682,6 +883,20 @@ emitbin(struct function *fn)
 
    blk = fn->entry;
    do {
+      struct blkaddr *bb = &blkaddr[blk->id];
+      uint bbaddr = *pcode - objout.textbegin;
+      assert(!bb->resolved);
+      while (bb->relreloc) {
+         uint next;
+         int disp = bbaddr - bb->relreloc - 4;
+
+         memcpy(&next, objout.textbegin + bb->relreloc, 4);
+         wr32le(objout.textbegin + bb->relreloc, disp);
+         bb->relreloc = next;
+      }
+      bb->resolved = 1;
+      bb->addr = bbaddr;
+
       for (int i = 0; i < blk->ins.n; ++i) {
          emitinstr(pcode, fn, blk, i, &instrtab[blk->ins.p[i]]);
       }
@@ -690,7 +905,7 @@ emitbin(struct function *fn)
          calleerestore(pcode, fn);
          if (fn->stksiz) B(0xC9); /* leave */
          B(0xC3); /* ret */
-      }
+      } else emitbranch(pcode, blk);
    } while ((blk = blk->lnext) != fn->entry);
    objdeffunc(fn->name, fn->globl, start - objout.textbegin, *pcode - start);
 }

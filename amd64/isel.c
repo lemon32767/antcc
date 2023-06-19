@@ -1,8 +1,58 @@
 #include "all.h"
 #include "../endian.h"
 
+enum flag {
+   ZF = 1 << 0,
+   SF = 1 << 1,
+   CF = 1 << 2,
+   OF = 1 << 3,
+   CLOBF = 1 << 4,
+};
+
+/* flags read by integer cmp ops */
+static const uchar intcmpflags[] = {
+   [Oequ] = ZF, [Oneq] = ZF,
+   [Olth] = SF|OF, [Olte] = ZF|SF|OF,
+   [Ogte] = SF|OF, [Ogth] = ZF|SF|OF,
+   [Oulth] = CF, [Oulte] = ZF|CF,
+   [Ougte] = CF, [Ougth] = ZF|CF,
+};
+
+static const uchar opflags[] = {
+   [Oneg]  = ZF|CLOBF,
+   [Oadd]  = ZF|CLOBF,
+   [Osub]  = ZF|CLOBF,
+   [Omul]  = CLOBF,
+   [Oumul] = CLOBF,
+   [Odiv]  = CLOBF,
+   [Oudiv] = CLOBF,
+   [Orem]  = CLOBF,
+   [Ourem] = CLOBF,
+   [Oand]  = ZF|CLOBF,
+   [Oior]  = ZF|CLOBF,
+   [Oxor]  = ZF|CLOBF,
+   [Oshl]  = ZF|CLOBF,
+   [Osar]  = ZF|CLOBF,
+   [Oslr]  = ZF|CLOBF,
+   [Oequ]  = ZF|CLOBF,
+   [Oneq]  = ZF|CLOBF,
+   [Olth]  = ZF|CLOBF,
+   [Ogth]  = ZF|CLOBF,
+   [Olte]  = ZF|CLOBF,
+   [Ogte]  = ZF|CLOBF,
+   [Oulth] = ZF|CLOBF,
+   [Ougth] = ZF|CLOBF,
+   [Oulte] = ZF|CLOBF,
+   [Ougte] = ZF|CLOBF,
+   [Ocall] = CLOBF,
+   [Oxinc] = ZF|CLOBF,
+   [Oxdec] = ZF|CLOBF,
+};
+
+static int iflagsrc = -1;
+
 static void
-fixarg(struct function *fn, union ref *r, struct instr *ins, struct block *blk, int *curi)
+fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
 {
    int sh;
    enum op op = ins ? ins->op : 0;
@@ -114,7 +164,7 @@ aadd(struct addr *addr, union ref r)
 }
 
 static bool
-fuseaddr(struct function *fn, union ref *r)
+fuseaddr(union ref *r)
 {
    struct addr addr = { 0 };
 
@@ -163,14 +213,19 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          ins->r = mkref(RREG, RCX);
       }
       goto ALU;
+   case Oequ: case Oneq:
    case Olth: case Ogth: case Olte: case Ogte:
    case Oulth: case Ougth: case Oulte: case Ougte:
       if (iscon(ins->l)) {
          /* lth imm, x -> gth x, imm */
-         ins->op = ((op - Olth) ^ 1) + Olth;
+         if (!in_range(ins->op, Oequ, Oneq))
+            ins->op = ((op - Olth) ^ 1) + Olth;
          rswap(ins->l, ins->r);
       }
-      goto ALU;
+      if (ins->l.t != RTMP && ins->l.t != RREG)
+         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
+      fixarg(&ins->r, ins, blk, curi);
+      break;
    case Odiv: case Oudiv: case Orem: case Ourem:
       if (kisflt(ins->cls)) goto ALU;
       /* TODO fuse div/rem pair */
@@ -179,7 +234,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       insertinstr(blk, (*curi)++, mkinstr(Omove, ins->cls, mkref(RREG, RAX), ins->l));
       /* mark RDX as clobbered. sign/zero-extending RAX into RDX is handled in emit() */
       insertinstr(blk, (*curi)++, mkinstr(Omove, ins->cls, mkref(RREG, RDX), mkref(RREG, RDX)));
-      fixarg(fn, &ins->r, ins, blk, curi); /* make sure rhs is memory or reg */
+      fixarg(&ins->r, ins, blk, curi); /* make sure rhs is memory or reg */
       ins->l = mkref(RREG, RAX);
       if (op == Orem) ins->op = Odiv;
       else if (op == Ourem) ins->op = Oudiv;
@@ -207,7 +262,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          temp.op = Ocopy;
          temp.cls = ins->cls;
          temp.l = mkref(RTMP, ins - instrtab);
-         if (fuseaddr(fn, &temp.l)) {
+         if (fuseaddr(&temp.l)) {
             *ins = temp;
             break;
          }
@@ -226,7 +281,6 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       /* fallthru */
    case Omul: case Oumul:
    case Oand: case Oxor: case Oior:
-   case Oequ: case Oneq:
       /* commutative ops */
       if (iscon(ins->l))
          rswap(ins->l, ins->r);
@@ -240,21 +294,44 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
       if (ins->r.t)
    case Omove:
-         fixarg(fn, &ins->r, ins, blk, curi);
+         fixarg(&ins->r, ins, blk, curi);
       break;
    case Oloads1: case Oloadu1: case Oloads2: case Oloadu2:
    case Oloads4: case Oloadu4: case Oloadi8: case Oloadf4: case Oloadf8:
-      if (!fuseaddr(fn, &ins->l) && ins->l.t != RTMP && ins->l.t != RREG)
+      if (!fuseaddr(&ins->l) && ins->l.t != RTMP && ins->l.t != RREG)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->l));
       break;
    case Ostore1: case Ostore2: case Ostore4: case Ostore8:
-      if (!fuseaddr(fn, &ins->l) && ins->l.t != RTMP && ins->l.t != RREG)
+      if (!fuseaddr(&ins->l) && ins->l.t != RTMP && ins->l.t != RREG)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->l));
-      fixarg(fn, &ins->r, ins, blk, curi);
+      fixarg(&ins->r, ins, blk, curi);
       break;
    case Ocopy:
-      fixarg(fn, &ins->l, ins, blk, curi);
+      fixarg(&ins->l, ins, blk, curi);
       break;
+   }
+}
+
+static void
+seljmp(struct function *fn, struct block *blk)
+{
+   if (blk->jmp.t == Jb && blk->jmp.arg[0].t) {
+      union ref c = blk->jmp.arg[0];
+      if (c.t != RTMP) {
+         enum irclass cls = c.t == RICON ? KI4 : c.t == RXCON && conht[c.i].cls ? conht[c.i].cls : KPTR;
+         int curi = blk->ins.n;
+
+         c = insertinstr(blk, blk->ins.n, mkinstr(Ocopy, cls, c));
+         sel(fn, &instrtab[c.i], blk, &curi);
+      }
+      if (iflagsrc == c.i) {
+         if (!oiscmp(instrtab[c.i].op))
+            blk->jmp.arg[0] = NOREF; /* implicit by zero flag */
+      } else {
+         if (!(opflags[instrtab[c.i].op] & ZF) || c.i != blk->ins.p[blk->ins.n - 1]) {
+            blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, instrtab[c.i].cls, c, ZEROREF));
+         }
+      }
    }
 }
 
@@ -266,15 +343,24 @@ amd64_isel(struct function *fn)
    fn->stksiz = 0;
 
    do {
-      for (int i = 0; i < blk->phi.n; ++i) {
+      int i;
+      for (i = 0; i < blk->phi.n; ++i) {
          struct phi *phi = &phitab.p[instrtab[blk->phi.p[i]].l.i];
          for (int i = 0; i < phi->n; ++i) {
-            fixarg(fn, &phi->ref[i], NULL, NULL, NULL);
+            int curi = phi->blk[i]->ins.n;
+            fixarg(&phi->ref[i], NULL, phi->blk[i], &curi);
          }
       }
-      for (int i = 0; i < blk->ins.n; ++i) {
-         sel(fn, &instrtab[blk->ins.p[i]], blk, &i);
+      iflagsrc = -1;
+      for (i = 0; i < blk->ins.n; ++i) {
+         struct instr *ins = &instrtab[blk->ins.p[i]];
+         sel(fn, ins, blk, &i);
+         if (ins->op < arraylength(opflags) && kisint(ins->cls)) {
+            if (opflags[ins->op] & ZF) iflagsrc = ins - instrtab;
+            else if (opflags[ins->op] & CLOBF) iflagsrc = -1;
+         }
       }
+      seljmp(fn, blk);
    } while ((blk = blk->lnext) != fn->entry);
 
    if (ccopt.dbg.i) {

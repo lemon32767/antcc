@@ -1513,7 +1513,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    Cmp:
       ty = cvtarith(sub[0].ty, sub[1].ty);
       if (!ty.t) ty.t = TYPTR;
-      if (isunsigned(ty) && in_range(ins.op, Olth, Olte))
+      if (isunsigned(ty) && in_range(ins.op, Olth, Ogte))
          ins.op += Oulth - Olth;
       ins.l = compileexpr(fn, &sub[0], discard);
       ins.r = compileexpr(fn, &sub[1], discard);
@@ -1928,7 +1928,8 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
          }
       Err:
          if (!put) putdecl(cm, &decl);
-      }
+      } else if (forini)
+         error(&decl.span, "non-variable declaration in 'for' loop initializer");
    } while (st.more);
 }
 
