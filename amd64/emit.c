@@ -35,7 +35,7 @@ ref2oper(union ref r)
    case RXCON:
       if (conht[r.i].cls == KI4)
          return mkoper(OIMM, .imm = conht[r.i].i);
-      else if (conht[r.i].deref || conht[r.i].issym)
+      else if (!conht[r.i].cls)
          return mkoper(OCONR, .con = r.i);
       assert(0);
    case RMORE: return mkmemoper(r);
@@ -123,6 +123,9 @@ mkmemoper(union ref r)
                           .index = addr->index.t ? mkregoper(addr->index).reg : NOINDEX,
                           .disp = addr->disp,
                           .shift = addr->shift);
+   } else if (r.t == RXCON) {
+      assert(!conht[r.i].cls);
+      return mkoper(OCONR, .con = r.i);
    } else {
       return mkoper(OMEM, .base = isregref(r) ? ref2oper(r).reg : NOBASE,
                           .index = NOINDEX,

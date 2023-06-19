@@ -205,6 +205,7 @@ union ref mkfltcon(enum irclass, double);
 #define concls(r) ((r).t == RICON ? KI4 : conht[(r).i].cls)
 #define isintcon(r) (iscon(r) && kisint(concls(r)))
 #define isfltcon(r) ((r).t == RXCON && kisflt(conht[(r).i].cls))
+#define isnumcon(r) ((r).t == RICON || ((r).t == RXCON && conht[(r).i].cls))
 #define intconval(r) ((r).t == RICON ? (r).i : conht[(r).i].i)
 #define fltconval(r) (conht[(r).i].f)
 union ref mksymref(const char *);

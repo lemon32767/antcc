@@ -99,7 +99,7 @@ aadd(struct addr *addr, union ref r)
          if (!aadd(addr, ins->l)) goto Ref;
          ins->skip = 1;
       } else goto Ref;
-   } else if (iscon(r)) {
+   } else if (isnumcon(r)) {
       return acon(addr, r);
    } else if (r.t == RREG) {
       /* temporaries are single assignment, but register aren't, so they can't be *
@@ -119,8 +119,8 @@ fuseaddr(struct function *fn, union ref *r)
    struct addr addr = { 0 };
 
    if (r->t == RMORE) return 1;
+   if (r->t == RXCON && (!conht[r->i].cls && !conht[r->i].deref)) return 1;
    if (r->t != RTMP) return 0;
-
    if (!aadd(&addr, *r)) return 0;
 
    *r = mkaddr(addr);
@@ -244,14 +244,12 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       break;
    case Oloads1: case Oloadu1: case Oloads2: case Oloadu2:
    case Oloads4: case Oloadu4: case Oloadi8: case Oloadf4: case Oloadf8:
-      if (ins->l.t != RTMP && ins->l.t != RREG && ins->l.t != RMORE)
-         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
-      fuseaddr(fn, &ins->l);
+      if (!fuseaddr(fn, &ins->l) && ins->l.t != RTMP && ins->l.t != RREG)
+         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->l));
       break;
    case Ostore1: case Ostore2: case Ostore4: case Ostore8:
-      if (ins->l.t != RTMP && ins->l.t != RREG && ins->l.t != RMORE)
-         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
-      fuseaddr(fn, &ins->l);
+      if (!fuseaddr(fn, &ins->l) && ins->l.t != RTMP && ins->l.t != RREG)
+         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->l));
       fixarg(fn, &ins->r, ins, blk, curi);
       break;
    case Ocopy:
