@@ -257,7 +257,7 @@ regalloc(struct function *fn)
    struct rega ra = {0};
 
    vinit(&stkslotrefs, stkslotrefsbuf, arraylength(stkslotrefsbuf));
-   ra.allocs = xcalloc(ninstr * sizeof(struct alloc));
+   ra.allocs = xcalloc((ninstr*2 < MAXINSTR ? ninstr*2 : MAXINSTR) * sizeof(struct alloc));
    ra.nfreegpr = mctarg->ngpr - popcnt(mctarg->rglob->u);
    ra.nfreefpr = mctarg->nfpr;
    for (int i = 0; i < MAXREGS; ++i)
