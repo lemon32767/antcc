@@ -2,8 +2,9 @@
 #include "lex.h"
 #include "ir.h"
 
+/** C compiler state **/
 struct comp {
-   struct parser pr;
+   struct lexer lx;
    struct env *env;
    struct arena *fnarena, *exarena;
    struct span fnblkspan;
@@ -11,9 +12,9 @@ struct comp {
    struct block *loopbreak, *loopcont;
 };
 
-#define peek(Cm,Tk) lexpeek(&(Cm)->pr,Tk)
-#define lex(Cm,Tk) lex(&(Cm)->pr,Tk)
-
+/** Parsing helper functions **/
+#define peek(Cm,Tk) lexpeek(&(Cm)->lx,Tk)
+#define lex(Cm,Tk) lex(&(Cm)->lx,Tk)
 static bool
 match(struct comp *cm, struct token *tk, enum toktag t)
 {
@@ -23,7 +24,6 @@ match(struct comp *cm, struct token *tk, enum toktag t)
    }
    return 0;
 }
-
 static bool
 expect(struct comp *cm, enum toktag t, const char *s)
 {
@@ -36,7 +36,6 @@ expect(struct comp *cm, enum toktag t, const char *s)
    }
    return 1;
 }
-
 static struct token
 expectdie(struct comp *cm, enum toktag t, const char *s)
 {
@@ -46,13 +45,9 @@ expectdie(struct comp *cm, enum toktag t, const char *s)
    return tk;
 }
 
-enum declkind {
-   DTOPLEVEL,
-   DFUNCPARAM,
-   DFUNCVAR,
-   DFIELD,
-   DCASTEXPR,
-};
+/**************************************/
+/* Data structures for C declarations */
+/**************************************/
 
 enum storageclass {
    SCNONE,
@@ -77,20 +72,41 @@ struct decl {
    };
 };
 
+enum declkind {
+   DTOPLEVEL,
+   DFUNCPARAM,
+   DFUNCVAR,
+   DFIELD,
+   DCASTEXPR,
+};
+
+/* Since a declaration can have multiple declarators, and we need to process
+ * each one individually, the declaration parser is a state machine
+ * (conceptually a generator coroutine); the state is zero-initialized (except
+ * for the .kind field), each call to pdecl yields the next individual decl,
+ * st.more indicates whether there are more decls left to parse (the coroutine
+ * has yielded), or this declaration list is done (the coroutine has finalized)
+ */
 struct declstate {
    enum declkind kind;
    union type base;
    enum storageclass scls;
    enum qualifier qual;
    uint align;
-   bool more, varini, funcdef, tagdecl;
-   const char **pnames;
-   struct span *pspans;
+   bool more, /* caller should keep calling pdecl to get next decl */
+        varini, /* caller should parse an initializer ('=' <ini>) and
+                   call pdecl() to advance state before checking .more */
+        funcdef, /* caller should parse an func definition ('{' <body> '}').
+                    the declaration list is finished. */
+        tagdecl;
+   const char **pnames; /* param names for function definition */
+   struct span *pspans; /* param spans ditto */
 };
-
 static struct decl pdecl(struct declstate *st, struct comp *cm);
+
 static struct decl *finddecl(struct comp *cm, const char *name);
 
+/* next token starts a decl? */
 static bool
 isdecltok(struct comp *cm)
 {
@@ -111,13 +127,13 @@ isdecltok(struct comp *cm)
 }
 
 
-/*******/
-/* ENV */
-/*******/
+/**********************************/
+/* Environment (scope) management */
+/**********************************/
 
 static struct decl envdeclsbuf[1<<10];
 static vec_of(struct decl) envdecls = VINIT(envdeclsbuf, arraylength(envdeclsbuf));
-struct tagged {
+struct tagged { /* a tagged type declaration */
    union type ty;
    struct span span;
 };
@@ -186,6 +202,7 @@ envaddtagged(struct env *env, union type ty, const struct span *span)
    return &envtagged.p[envtagged.n - 1];
 }
 
+/* like enviterdecl */
 static inline bool
 envitertagged(struct tagged **l, struct env *env)
 {
@@ -276,13 +293,9 @@ deftagged(struct comp *cm, struct span *span, enum typetag tt, const char *name,
    return envaddtagged(cm->env, ty.t ? ty : mktagtype(name, &td), span)->ty;
 }
 
-/*******************/
-/*** EXPRESSIONS ***/
-/*******************/
-
-/**********************/
-/* EXPR TYPE CHECKING */
-/**********************/
+/*********************/
+/* Expr Typechecking */
+/*********************/
 
 #define iszero(ex) ((ex).t == ENUMLIT && (ex).u == 0)
 
@@ -567,7 +580,7 @@ bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct e
 }
 
 /****************/
-/* EXPR PARSING */
+/* Expr Parsing */
 /****************/
 
 #define mkexpr(t_,span_,ty_,...) ((struct expr){.t=(t_), .ty=(ty_), .span=(span_), __VA_ARGS__})
@@ -921,7 +934,8 @@ Postfix:
       lex(cm, &tk);
       ek = bintab[tk.t].t;
       if (ek != ECOND) {
-         bool leftassoc = (bintab[tk.t].k & BCSET) == 0; /* only the assignment operators are right-associative */
+         /* only the assignment operators are right-associative */
+         bool leftassoc = (bintab[tk.t].k & BCSET) == 0;
          /* ex OP rhs */
          span.sl = tk.span.sl;
          span.ex = ex.span.ex;
@@ -971,9 +985,9 @@ commaexpr(struct comp *cm)
    return exprparse(cm, 1);
 }
 
-/*********/
-/* -> IR */
-/*********/
+/*****************/
+/* IR Generation */
+/*****************/
 
 static union ref expraddr(struct function *, const struct expr *);
 static union ref compileexpr(struct function *, const struct expr *, bool discard);
@@ -1591,6 +1605,10 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    }
 }
 
+/************************************/
+/* Statements parsing & compilation */
+/************************************/
+
 static void
 stmtterm(struct comp *cm)
 {
@@ -1976,9 +1994,9 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
    }
 }
 
-/********/
-/* DECL */
-/********/
+/*****************/
+/* Decls Parsing */
+/*****************/
 
 static union type
 buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
@@ -2699,7 +2717,7 @@ docomp(struct comp *cm)
 
    while (peek(cm, tk) != TKEOF) {
       struct expr ini;
-      struct declstate st = { DTOPLEVEL, };
+      struct declstate st = { DTOPLEVEL };
       do {
          int nerr = nerror;
          struct decl decl = pdecl(&st, cm);
@@ -2749,7 +2767,7 @@ ccomp(const char *file)
    static union { char m[sizeof(struct arena) + N]; struct arena *_align; } amem[2];
    struct comp cm = {0};
 
-   initparser(&cm.pr, file, &cm.exarena);
+   initlexer(&cm.lx, file, &cm.exarena);
    cm.fnarena = (void *)amem[0].m;
    cm.fnarena->cap = N;
    cm.exarena = (void *)amem[1].m;

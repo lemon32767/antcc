@@ -54,72 +54,72 @@ ident:
 }
 
 static int
-next0(struct parser *pr)
+next0(struct lexer *lx)
 {
    bool trigraph = ccopt.trigraph;
    int n, c;
 
-   while (!memcmp(pr->dat+pr->idx, "\\\n", n = 2)
-     || (trigraph && !memcmp(pr->dat+pr->idx, "\?\?/\n", n = 4))) {
-      pr->idx += n;
-      addfileline(pr->fileid, pr->idx);
+   while (!memcmp(lx->dat+lx->idx, "\\\n", n = 2)
+     || (trigraph && !memcmp(lx->dat+lx->idx, "\?\?/\n", n = 4))) {
+      lx->idx += n;
+      addfileline(lx->fileid, lx->idx);
    }
-   if (pr->idx >= pr->ndat)
+   if (lx->idx >= lx->ndat)
       return TKEOF;
-   if (trigraph && !memcmp(pr->dat+pr->idx, "??", 2)) {
-      switch (pr->dat[pr->idx+2]) {
-      case '=':  pr->idx += 3; return '#';
-      case '(':  pr->idx += 3; return '[';
-      case ')':  pr->idx += 3; return ']';
-      case '!':  pr->idx += 3; return '|';
-      case '<':  pr->idx += 3; return '{';
-      case '>':  pr->idx += 3; return '}';
-      case '-':  pr->idx += 3; return '~';
-      case '/':  pr->idx += 3; return '\\';
-      case '\'': pr->idx += 3; return '^';
+   if (trigraph && !memcmp(lx->dat+lx->idx, "??", 2)) {
+      switch (lx->dat[lx->idx+2]) {
+      case '=':  lx->idx += 3; return '#';
+      case '(':  lx->idx += 3; return '[';
+      case ')':  lx->idx += 3; return ']';
+      case '!':  lx->idx += 3; return '|';
+      case '<':  lx->idx += 3; return '{';
+      case '>':  lx->idx += 3; return '}';
+      case '-':  lx->idx += 3; return '~';
+      case '/':  lx->idx += 3; return '\\';
+      case '\'': lx->idx += 3; return '^';
       }
    }
-   if ((c = pr->dat[pr->idx++]) == '\n') {
-      addfileline(pr->fileid, pr->idx);
+   if ((c = lx->dat[lx->idx++]) == '\n') {
+      addfileline(lx->fileid, lx->idx);
    }
    return c;
 }
 
 static int
-next(struct parser *pr)
+next(struct lexer *lx)
 {
    int c;
 
-   if (pr->npeekchr) {
-      int c = pr->peekchr[0];
-      pr->chridx = pr->peekcidx[0];
-      memmove(pr->peekchr, pr->peekchr + 1, --pr->npeekchr * sizeof *pr->peekchr);
-      memmove(pr->peekcidx, pr->peekcidx + 1, pr->npeekchr * sizeof *pr->peekcidx);
-      pr->eof = c == TKEOF;
+   if (lx->npeekchr) {
+      int c = lx->peekchr[0];
+      lx->chridx = lx->peekcidx[0];
+      memmove(lx->peekchr, lx->peekchr + 1, --lx->npeekchr * sizeof *lx->peekchr);
+      memmove(lx->peekcidx, lx->peekcidx + 1, lx->npeekchr * sizeof *lx->peekcidx);
+      lx->eof = c == TKEOF;
       return c;
    }
-   c = next0(pr);
-   pr->eof = c == TKEOF;
-   pr->chridx = pr->idx;
+   c = next0(lx);
+   lx->eof = c == TKEOF;
+   lx->chridx = lx->idx;
    return c;
 }
 
 static int
-peek(struct parser *pr, int off)
+peek(struct lexer *lx, int off)
 {
-   assert(off < arraylength(pr->peekchr));
-   while (pr->npeekchr < off+1) {
-      pr->peekchr[pr->npeekchr] = next0(pr);
-      pr->peekcidx[pr->npeekchr++] = pr->idx;
+   assert(off < arraylength(lx->peekchr));
+   while (lx->npeekchr < off+1) {
+      lx->peekchr[lx->npeekchr] = next0(lx);
+      lx->peekcidx[lx->npeekchr++] = lx->idx;
    }
-   return pr->peekchr[off];
+   return lx->peekchr[off];
 }
 
 static bool
-match(struct parser *pr, int c)
+match(struct lexer *lx, int c)
 {
-   if (!pr->eof && peek(pr, 0) == c) {
-      next(pr);
+   if (!lx->eof && peek(lx, 0) == c) {
+      next(lx);
       return 1;
    }
    return 0;
@@ -255,24 +255,24 @@ parsenumlit(uvlong *outi, double *outf, const struct token *tk, bool ispp)
 }
 
 static void
-readstrchrlit(struct parser *pr, struct token *tk, char delim)
+readstrchrlit(struct lexer *lx, struct token *tk, char delim)
 {
    int c, i;
    uchar tmp[80];
    vec_of(uchar) b = VINIT(tmp, sizeof tmp);
    struct span span = {0};
    uint n, beginoff, idx;
-   beginoff = idx = pr->chridx;
+   beginoff = idx = lx->chridx;
 
-   while ((c = next(pr)) != delim) {
+   while ((c = next(lx)) != delim) {
       if (c == '\n' || c == TKEOF) {
       Noterm:
-         span.sl = (struct span0) { idx, pr->chridx - idx, pr->fileid };
+         span.sl = (struct span0) { idx, lx->chridx - idx, lx->fileid };
          error(&span, "missing terminating %c character", delim);
          break;
       } else if (c == '\\') {
-         span.sl = (struct span0) { idx, pr->chridx - idx, pr->fileid };
-         switch (c = next(pr)) {
+         span.sl = (struct span0) { idx, lx->chridx - idx, lx->fileid };
+         switch (c = next(lx)) {
          case '\n': case TKEOF:
             goto Noterm;
          case '\'': c = '\''; break;
@@ -288,14 +288,14 @@ readstrchrlit(struct parser *pr, struct token *tk, char delim)
          case 'v':  c = '\v'; break;
          case 'x': case 'X': /* hex */
             n = 0;
-            if (!aisxdigit(peek(pr, 0))) goto Badescseq;
+            if (!aisxdigit(peek(lx, 0))) goto Badescseq;
             do {
-               c = next(pr);
+               c = next(lx);
                if (c-'0' < 10) n = n<<4 | (c-'0');
                else            n = n<<4 | (10 + (c|0x20)-'a');
-            } while (aisxdigit(peek(pr, 0)));
+            } while (aisxdigit(peek(lx, 0)));
             if (n > 0xFF) {
-               span.sl.len = pr->chridx - span.sl.off;
+               span.sl.len = lx->chridx - span.sl.off;
                error(&span, "hex escape sequence out of range");
             }
             c = n & 0xFF;
@@ -304,52 +304,52 @@ readstrchrlit(struct parser *pr, struct token *tk, char delim)
             if (aisodigit(c)) { /* octal */
                n = c-'0';
                for (i = 2; i--;) {
-                  if (!aisodigit(peek(pr, 0))) break;
-                  n = n<<3 | ((c = next(pr))-'0');
+                  if (!aisodigit(peek(lx, 0))) break;
+                  n = n<<3 | ((c = next(lx))-'0');
                }
                if (n > 0377) {
-                  span.sl.len = pr->chridx - span.sl.off;
+                  span.sl.len = lx->chridx - span.sl.off;
                   error(&span, "octal escape sequence out of range");
                }
                c = n;
                break;
             }
          Badescseq:
-            span.sl.len = pr->chridx - span.sl.off;
+            span.sl.len = lx->chridx - span.sl.off;
             error(&span, "invalid escape sequence");
          }
       }
       vpush(&b, c);
-      idx = pr->chridx;;
+      idx = lx->chridx;;
    }
    if (delim == '"') {
       tk->t = TKSTRLIT;
       tk->len = b.n;
-      if (pr->chridx - beginoff == tk->len + 1) {
+      if (lx->chridx - beginoff == tk->len + 1) {
          tk->litlit = 1;
-         tk->s = (char *)&pr->dat[beginoff];
+         tk->s = (char *)&lx->dat[beginoff];
       } else {
          tk->litlit = 0;
          vpush(&b, 0);
-         tk->s = alloc(pr->tmparena, b.n, 1);
+         tk->s = alloc(lx->tmparena, b.n, 1);
          memcpy((char *)tk->s, b.p, b.n);
       }
    } else {
       if (b.n == 0) {
-         span.sl = (struct span0) { idx, pr->chridx - idx, pr->fileid };
+         span.sl = (struct span0) { idx, lx->chridx - idx, lx->fileid };
          error(&span, "empty character literal");
       } else if (b.n > targ_primsizes[TYINT]) {
-         span.sl = (struct span0) { idx, pr->chridx - idx, pr->fileid };
+         span.sl = (struct span0) { idx, lx->chridx - idx, lx->fileid };
          error(&span, "multicharacter literal too long");
       }
       tk->t = TKCHRLIT;
       tk->len = b.n;
-      if (pr->chridx - beginoff == tk->len + 1) {
+      if (lx->chridx - beginoff == tk->len + 1) {
          tk->litlit = 1;
-         tk->s = (char *)&pr->dat[beginoff];
+         tk->s = (char *)&lx->dat[beginoff];
       } else {
          tk->litlit = 0;
-         tk->s = alloc(pr->tmparena, tk->len, 1);
+         tk->s = alloc(lx->tmparena, tk->len, 1);
          memcpy((char *)tk->s, b.p, tk->len);
       }
    }
@@ -367,15 +367,15 @@ isppnum(char prev, char c)
 }
 
 static int
-lex0(struct parser *pr, struct token *tk)
+lex0(struct lexer *lx, struct token *tk)
 {
    int idx, c;
 
 #define RET(t_) do { tk->t = (t_); goto End; } while (0)
 
 Begin:
-   idx = pr->chridx;
-   switch (c = next(pr)) {
+   idx = lx->chridx;
+   switch (c = next(lx)) {
    case ' ': case '\r': case '\t':
       goto Begin;
       break;
@@ -385,77 +385,77 @@ Begin:
    case '@': case '`': case '\\': case TKEOF: case '\n':
       RET(c);
    case '!':
-      if (match(pr, '=')) RET(TKNEQ);
+      if (match(lx, '=')) RET(TKNEQ);
       RET(c);
    case '#':
-      if (match(pr, '#')) RET(TKPPCAT);
+      if (match(lx, '#')) RET(TKPPCAT);
       RET(c);
    case '+':
-      if (match(pr, '+')) RET(TKINC);
-      if (match(pr, '=')) RET(TKSETADD);
+      if (match(lx, '+')) RET(TKINC);
+      if (match(lx, '=')) RET(TKSETADD);
       RET(c);
    case '-':
-      if (match(pr, '-')) RET(TKDEC);
-      if (match(pr, '=')) RET(TKSETSUB);
-      if (match(pr, '>')) RET(TKARROW);
+      if (match(lx, '-')) RET(TKDEC);
+      if (match(lx, '=')) RET(TKSETSUB);
+      if (match(lx, '>')) RET(TKARROW);
       RET(c);
    case '*':
-      if (match(pr, '=')) RET(TKSETMUL);
+      if (match(lx, '=')) RET(TKSETMUL);
       RET(c);
    case '/':
-      if (match(pr, '=')) RET(TKSETDIV);
-      if (match(pr, '/')) {
+      if (match(lx, '=')) RET(TKSETDIV);
+      if (match(lx, '/')) {
          /* // comment */
-         while (!pr->eof && !match(pr, '\n'))
-            next(pr);
+         while (!lx->eof && !match(lx, '\n'))
+            next(lx);
          goto Begin;
       }
-      if (match(pr, '*')) {
+      if (match(lx, '*')) {
          /* comment */
-         while (peek(pr, 0) != '*' || peek(pr, 1) != '/') {
-            if (next(pr) == TKEOF) {
-               struct span span = {{ idx, pr->chridx - idx, pr->fileid }};
+         while (peek(lx, 0) != '*' || peek(lx, 1) != '/') {
+            if (next(lx) == TKEOF) {
+               struct span span = {{ idx, lx->chridx - idx, lx->fileid }};
                fatal(&span, "unterminated multiline comment");
             }
          }
-         next(pr), next(pr);
+         next(lx), next(lx);
          goto Begin;
       }
       RET(c);
    case '%':
-      if (match(pr, '=')) RET(TKSETREM);
+      if (match(lx, '=')) RET(TKSETREM);
       RET(c);
    case '^':
-      if (match(pr, '=')) RET(TKSETXOR);
+      if (match(lx, '=')) RET(TKSETXOR);
       RET(c);
    case '=':
-      if (match(pr, '=')) RET(TKEQU);
+      if (match(lx, '=')) RET(TKEQU);
       RET(c);
    case '<':
-      if (match(pr, '=')) RET(TKLTE);
-      if (match(pr, '<')) RET(match(pr, '=') ? TKSETSHL : TKSHL);
+      if (match(lx, '=')) RET(TKLTE);
+      if (match(lx, '<')) RET(match(lx, '=') ? TKSETSHL : TKSHL);
       RET(c);
    case '>':
-      if (match(pr, '=')) RET(TKGTE);
-      if (match(pr, '>')) RET(match(pr, '=') ? TKSETSHR : TKSHR);
+      if (match(lx, '=')) RET(TKGTE);
+      if (match(lx, '>')) RET(match(lx, '=') ? TKSETSHR : TKSHR);
       RET(c);
    case '&':
-      if (match(pr, '&')) RET(TKLOGAND);
-      if (match(pr, '=')) RET(TKSETAND);
+      if (match(lx, '&')) RET(TKLOGAND);
+      if (match(lx, '=')) RET(TKSETAND);
       RET(c);
    case '|':
-      if (match(pr, '|')) RET(TKLOGIOR);
-      if (match(pr, '=')) RET(TKSETIOR);
+      if (match(lx, '|')) RET(TKLOGIOR);
+      if (match(lx, '=')) RET(TKSETIOR);
       RET(c);
    case '\'':
    case '"':
-      readstrchrlit(pr, tk, c);
+      readstrchrlit(lx, tk, c);
       goto End;
    case '.':
-      if (peek(pr, 0) == '.' && peek(pr, 1) == '.') {
-         next(pr), next(pr);
+      if (peek(lx, 0) == '.' && peek(lx, 1) == '.') {
+         next(lx), next(lx);
          RET(TKDOTS);
-      } else if (aisdigit(peek(pr, 0))) {
+      } else if (aisdigit(peek(lx, 0))) {
          goto Numlit;
       }
       RET(c);
@@ -464,15 +464,15 @@ Begin:
          char tmp[70];
          int n = 0;
          tmp[n++] = c;
-         while (isppnum(tmp[n-1], peek(pr, 0))) {
+         while (isppnum(tmp[n-1], peek(lx, 0))) {
             assert(n < arraylength(tmp)-1 && "too big");
-            tmp[n++] = next(pr);
+            tmp[n++] = next(lx);
          }
          tmp[n] = 0;
          tk->len = n;
-         if (n == pr->chridx - idx) tk->s = (char *)&pr->dat[idx];
+         if (n == lx->chridx - idx) tk->s = (char *)&lx->dat[idx];
          else {
-            tk->s = alloc(pr->tmparena, n, 1);
+            tk->s = alloc(lx->tmparena, n, 1);
             memcpy((char *)tk->s, tmp, n);
          }
          RET(TKNUMLIT);
@@ -480,23 +480,23 @@ Begin:
          char tmp[70];
          int n = 0;
          tmp[n++] = c;
-         while (!aissep(c = peek(pr, 0))) {
+         while (!aissep(c = peek(lx, 0))) {
             assert(n < arraylength(tmp)-1 && "too big");
-            tmp[n++] = next(pr);
+            tmp[n++] = next(lx);
          }
          tmp[n] = 0;
          if (!identkeyword(tk, tmp, n))
-            warn(&(struct span) {{ idx, pr->chridx - idx, pr->fileid }},
+            warn(&(struct span) {{ idx, lx->chridx - idx, lx->fileid }},
                   "%'tk in %M is an extension", tk);
          goto End;
       }
    }
-   fatal(&(struct span) {{ idx, pr->chridx - idx, pr->fileid }},
+   fatal(&(struct span) {{ idx, lx->chridx - idx, lx->fileid }},
          "unexpected character %'c at %d", c, idx);
 End:
-   tk->span.sl.file = pr->fileid;
+   tk->span.sl.file = lx->fileid;
    tk->span.sl.off = idx;
-   tk->span.sl.len = pr->chridx - idx;
+   tk->span.sl.len = lx->chridx - idx;
    tk->span.ex = tk->span.sl;
    return tk->t;
 #undef RET
@@ -607,33 +607,33 @@ putmac(struct macro *mac)
 }
 
 static void
-ppskipline(struct parser *pr)
+ppskipline(struct lexer *lx)
 {
-   while (peek(pr, 0) != '\n' && peek(pr, 0) != TKEOF)
-      next(pr);
+   while (peek(lx, 0) != '\n' && peek(lx, 0) != TKEOF)
+      next(lx);
 }
 
 static void
-ppdefine(struct parser *pr)
+ppdefine(struct lexer *lx)
 {
    struct token tk0, tk;
    struct macro mac = {0};
    vec_of(struct token) rlist = {0};
 
-   lex0(pr, &tk0);
+   lex0(lx, &tk0);
    if (!isppident(tk0)) {
       error(&tk0.span, "macro name missing");
-      ppskipline(pr);
+      ppskipline(lx);
       return;
    }
    mac.name = tk0.s;
    mac.span = tk0.span.sl;
    
-   if (peek(pr, 0) == '(') {
+   if (peek(lx, 0) == '(') {
       mac.fnlike = 1;
    }
 
-   while (lex0(pr, &tk) != '\n' && tk.t != TKEOF) {
+   while (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
       if (!wsseparated(&tk0, &tk))
          warn(&tk.span, "no whitespace after macro name");
       vpush(&rlist, tk);
@@ -645,7 +645,7 @@ ppdefine(struct parser *pr)
 
 static struct token epeektk;
 static int
-elex(struct parser *pr, struct token *tk)
+elex(struct lexer *lx, struct token *tk)
 {
    if (epeektk.t) {
       int tt = epeektk.t;
@@ -653,13 +653,13 @@ elex(struct parser *pr, struct token *tk)
       epeektk.t = 0;
       return tt;
    }
-   return lex0(pr, tk);
+   return lex0(lx, tk);
 }
 
 static int
-epeek(struct parser *pr, struct token *tk)
+epeek(struct lexer *lx, struct token *tk)
 {
-   if (!epeektk.t) elex(pr, &epeektk);
+   if (!epeektk.t) elex(lx, &epeektk);
    if (tk) *tk = epeektk;
    return epeektk.t;
 }
@@ -686,7 +686,7 @@ tkprec(int tt)
 }
 
 static vlong
-expr(struct parser *pr, bool *pu, int prec)
+expr(struct lexer *lx, bool *pu, int prec)
 {
    vlong x, y;
    struct token tk;
@@ -697,18 +697,18 @@ expr(struct parser *pr, bool *pu, int prec)
    bool xu = 0, yu; /* x unsigned?; y unsigned? */
 
 Unary:
-   switch (elex(pr, &tk)) {
+   switch (elex(lx, &tk)) {
    case '-': case '~': case '!':
       unops[nunop++] = tk.t;
       if (nunop >= arraylength(unops)) {
-         x = expr(pr, &xu, 999);
+         x = expr(lx, &xu, 999);
          break;
       }
       /* fallthru */
    case '+': goto Unary;
    case '(':
-      x = expr(pr, &xu, 1);
-      if (elex(pr, &tk) != ')') {
+      x = expr(lx, &xu, 1);
+      if (elex(lx, &tk) != ')') {
          error(&tk.span, "expected ')'");
          goto Err;
       }
@@ -744,11 +744,11 @@ Unary:
       default: assert(0);
       }
 
-   while ((opprec = tkprec(epeek(pr, &tk))) >= prec) {
-      elex(pr, &tk);
+   while ((opprec = tkprec(epeek(lx, &tk))) >= prec) {
+      elex(lx, &tk);
       if (tk.t != '?') {
          bool u;
-         y = expr(pr, &yu, opprec + 1);
+         y = expr(lx, &yu, opprec + 1);
          u = xu | yu;
          switch ((int) tk.t) {
          case   '+': x += (uvlong) y; break;
@@ -782,28 +782,28 @@ Unary:
          xu = u;
       } else {
          struct span span = tk.span;
-         vlong m = expr(pr, &xu, 1);
-         if (elex(pr, &tk) != ':') {
+         vlong m = expr(lx, &xu, 1);
+         if (elex(lx, &tk) != ':') {
             error(&tk.span, "expected ':'");
             note(&span, "to match conditional expression here");
             goto Err;
          }
-         y = expr(pr, &yu, 1);
+         y = expr(lx, &yu, 1);
          efmt("%ld ? %ld : %ld\n", x, m, y);
          x = x ? m : y;
          xu |= yu;
       }
    }
    if (!prec) /* not a sub expr */
-      if (elex(pr, &tk) != '\n' && tk.t != TKEOF) {
+      if (elex(lx, &tk) != '\n' && tk.t != TKEOF) {
          error(&tk.span, "garbage after preprocessor expression");
-         ppskipline(pr);
+         ppskipline(lx);
       }
    if (pu) *pu = xu;
    return x;
 
 Err:
-   ppskipline(pr);
+   ppskipline(lx);
    if (pu) *pu = xu;
    return 0;
 }
@@ -821,9 +821,9 @@ static struct ppcnd {
 static int nppcnd;
 
 static void
-ppif(struct parser *pr, const struct span *span)
+ppif(struct lexer *lx, const struct span *span)
 {
-   vlong v = expr(pr, NULL, 0);
+   vlong v = expr(lx, NULL, 0);
    assert(nppcnd < arraylength(ppcndstk) && "too many nested #if");
    ppcndstk[nppcnd].ifspan = span->sl;
    ppcndstk[nppcnd].cnd = v ? PPCNDTRUE : PPCNDFALSE;
@@ -831,17 +831,17 @@ ppif(struct parser *pr, const struct span *span)
 }
 
 static void
-ppelif(struct parser *pr, const struct span *span)
+ppelif(struct lexer *lx, const struct span *span)
 {
    vlong v;
    struct ppcnd *cnd;
 
    if (!nppcnd) {
       error(span, "#elif without matching #if");
-      ppif(pr, span);
+      ppif(lx, span);
       return;
    }
-   v = expr(pr, NULL, 0);
+   v = expr(lx, NULL, 0);
    cnd = &ppcndstk[nppcnd-1];
    if (cnd->elsep) {
       error(span, "#elif after #else");
@@ -855,12 +855,12 @@ ppelif(struct parser *pr, const struct span *span)
 }
 
 static void
-ppendif(struct parser *pr, const struct span *span)
+ppendif(struct lexer *lx, const struct span *span)
 {
    struct token tk;
-   if (lex0(pr, &tk) != '\n' && tk.t != TKEOF) {
+   if (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
       error(&tk.span, "garbage after #endif");
-      ppskipline(pr);
+      ppskipline(lx);
    }
    if (!nppcnd) {
       error(span, "#endif without matching #if");
@@ -870,13 +870,13 @@ ppendif(struct parser *pr, const struct span *span)
 }
 
 static void
-ppelse(struct parser *pr, const struct span *span)
+ppelse(struct lexer *lx, const struct span *span)
 {
    struct token tk;
    struct ppcnd *cnd;
-   if (lex0(pr, &tk) != '\n' && tk.t != TKEOF) {
+   if (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
       error(&tk.span, "garbage after #else");
-      ppskipline(pr);
+      ppskipline(lx);
    }
    if (!nppcnd) {
       error(span, "#else without matching #if");
@@ -894,7 +894,7 @@ ppelse(struct parser *pr, const struct span *span)
 
 static struct macrostack mstk[64], *mfreelist;
 static bool
-tryexpand(struct parser *pr, const struct token *tk)
+tryexpand(struct lexer *lx, const struct token *tk)
 {
    static bool inimstk;
    struct macro *mac;
@@ -914,7 +914,7 @@ tryexpand(struct parser *pr, const struct token *tk)
 
    macidx = mac - macros.p;
    /* prevent infinite recursion */
-   for (l = pr->macstk; l; l = l->link)
+   for (l = lx->macstk; l; l = l->link)
       if (l->mac == macidx)
          return 0;
 
@@ -924,26 +924,26 @@ tryexpand(struct parser *pr, const struct token *tk)
       if (!(l = mfreelist)) fatal(&tk->span, "macro depth limit reached");
       l = mfreelist;
       mfreelist = l->link;
-      l->link = pr->macstk;
+      l->link = lx->macstk;
       l->mac = macidx;
       l->idx = 0;
       l->exspan = tk->span.ex;
-      pr->macstk = l;
+      lx->macstk = l;
    }
    return 1;
 }
 
 static void
-popmac(struct parser *pr)
+popmac(struct lexer *lx)
 {
    struct macrostack *stk;
    
-   assert(stk = pr->macstk);
+   assert(stk = lx->macstk);
    do {
-      pr->macstk = stk->link;
+      lx->macstk = stk->link;
       stk->link = mfreelist;
       mfreelist = stk;
-   } while ((stk = pr->macstk) && stk->idx >= macros.p[stk->mac].rlist.n);
+   } while ((stk = lx->macstk) && stk->idx >= macros.p[stk->mac].rlist.n);
 }
 
 enum directive {
@@ -1004,47 +1004,47 @@ findppcmd(const struct token *tk)
 }
 
 int
-lex(struct parser *pr, struct token *tk_)
+lex(struct lexer *lx, struct token *tk_)
 {
    struct token tkx[1], *tk;
    int t;
    bool linebegin, skip;
 
-   assert(tk_ != &pr->peektok);
+   assert(tk_ != &lx->peektok);
    tk = tk_ ? tk_ : tkx;
-   if (pr->peektok.t) {
-      *tk = pr->peektok;
-      memset(&pr->peektok, 0, sizeof pr->peektok);
+   if (lx->peektok.t) {
+      *tk = lx->peektok;
+      memset(&lx->peektok, 0, sizeof lx->peektok);
       return tk->t;
    }
 
-   if (pr->macstk) {
-      struct macro *mac = &macros.p[pr->macstk->mac];
+   if (lx->macstk) {
+      struct macro *mac = &macros.p[lx->macstk->mac];
       struct rlist rl = mac->rlist;
-      *tk = rl.tk[pr->macstk->idx++];
+      *tk = rl.tk[lx->macstk->idx++];
       assert(tk->t);
-      tk->span.ex = pr->macstk->exspan;
-      if (tryexpand(pr, tk))
-         return lex(pr, tk_);
-      if (pr->macstk->idx == rl.n)
-         popmac(pr);
+      tk->span.ex = lx->macstk->exspan;
+      if (tryexpand(lx, tk))
+         return lex(lx, tk_);
+      if (lx->macstk->idx == rl.n)
+         popmac(lx);
       return tk->t;
    }
 
    skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
    for (linebegin = 0;;) {
-      while ((t = lex0(pr, tk)) == '\n') linebegin = 1;
+      while ((t = lex0(lx, tk)) == '\n') linebegin = 1;
       if (t == '#' && linebegin) {
-         if (lex0(pr, tk) == '\n') { }
+         if (lex0(lx, tk) == '\n') { }
          else if (isppident(*tk)) {
             if (!skip) {
                switch (findppcmd(tk)) {
                case PPXXX: goto BadPP;
-               case PPDEFINE: ppdefine(pr); break;
-               case PPIF:     ppif(pr, &tk->span); break;
-               case PPELIF:   ppelif(pr, &tk->span); break;
-               case PPENDIF:  ppendif(pr, &tk->span); break;
-               case PPELSE:   ppelse(pr, &tk->span); break;
+               case PPDEFINE: ppdefine(lx); break;
+               case PPIF:     ppif(lx, &tk->span); break;
+               case PPELIF:   ppelif(lx, &tk->span); break;
+               case PPENDIF:  ppendif(lx, &tk->span); break;
+               case PPELSE:   ppelse(lx, &tk->span); break;
                default: assert(0&&"nyi");
                }
             } else {
@@ -1055,10 +1055,10 @@ lex(struct parser *pr, struct token *tk_)
                   ppcndstk[nppcnd].cnd = PPCNDTAKEN;
                   ppcndstk[nppcnd++].elsep = 0;
                   break;
-               case PPELIF:  ppelif(pr, &tk->span); break;
-               case PPENDIF: ppendif(pr, &tk->span); break;
-               case PPELSE:  ppelse(pr, &tk->span); break;
-               default: ppskipline(pr); break;
+               case PPELIF:  ppelif(lx, &tk->span); break;
+               case PPENDIF: ppendif(lx, &tk->span); break;
+               case PPELSE:  ppelse(lx, &tk->span); break;
+               default: ppskipline(lx); break;
                }
             }
             skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
@@ -1067,13 +1067,13 @@ lex(struct parser *pr, struct token *tk_)
             BadPP:
                error(&tk->span, "invalid preprocessor directive");
             }
-            ppskipline(pr);
+            ppskipline(lx);
          }
       } else {
          linebegin = 0;
          if (skip && tk->t != TKEOF) continue;
-         if (tryexpand(pr, tk))
-            return lex(pr, tk_);
+         if (tryexpand(lx, tk))
+            return lex(lx, tk_);
          if (t == TKEOF && nppcnd) {
             struct span span = { ppcndstk[nppcnd-1].ifspan };
             error(&span, "#if is not matched by #endif");
@@ -1085,34 +1085,34 @@ lex(struct parser *pr, struct token *tk_)
 }
 
 int
-lexpeek(struct parser *pr, struct token *tk_)
+lexpeek(struct lexer *lx, struct token *tk_)
 {
    struct token tkx[1], *tk;
    uint t;
 
    tk = tk_ ? tk_ : tkx;
-   if ((t = pr->peektok.t)) {
-      *tk = pr->peektok;
+   if ((t = lx->peektok.t)) {
+      *tk = lx->peektok;
       return t;
    }
-   t = lex(pr, tk);
-   pr->peektok = *tk;
+   t = lex(lx, tk);
+   lx->peektok = *tk;
    return t;
 }
 
 void
-initparser(struct parser *pr, const char *file, struct arena **tmparena)
+initlexer(struct lexer *lx, const char *file, struct arena **tmparena)
 {
    const char *error;
    struct memfile *f;
 
-   memset(pr, 0, sizeof *pr);
-   pr->fileid = openfile(&error, &f, file);
-   if (pr->fileid < 0)
+   memset(lx, 0, sizeof *lx);
+   lx->fileid = openfile(&error, &f, file);
+   if (lx->fileid < 0)
       fatal(NULL, "Cannot open %'s: %s", file, error);
-   pr->dat = f->p;
-   pr->ndat = f->n;
-   pr->tmparena = tmparena;
+   lx->dat = f->p;
+   lx->ndat = f->n;
+   lx->tmparena = tmparena;
 }
 
 

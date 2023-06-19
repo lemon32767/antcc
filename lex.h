@@ -85,8 +85,8 @@ struct macrostack {
 };
 
 extern int nerror;
-struct parser {
-   struct parser *save;
+struct lexer {
+   struct lexer *save;
    short fileid;
    const uchar *dat;
    uint ndat;
@@ -101,9 +101,9 @@ struct parser {
 };
 
 const char *intern(const char *);
-int lex(struct parser *, struct token *);
-int lexpeek(struct parser *, struct token *);
+int lex(struct lexer *, struct token *);
+int lexpeek(struct lexer *, struct token *);
 enum typetag parsenumlit(uvlong *, double *, const struct token *, bool ispp);
-void initparser(struct parser *, const char *file, struct arena **);
+void initlexer(struct lexer *, const char *file, struct arena **);
 
 /* vim:set ts=3 sw=3 expandtab: */
