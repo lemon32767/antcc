@@ -1,5 +1,4 @@
 #include "common.h"
-#include "parse.h"
 #include "obj.h"
 #include <errno.h>
 #include <stdlib.h>
@@ -285,12 +284,12 @@ driver(void)
 static int
 cc1(const char *out, const char *in)
 {
-   struct parser pr;
+   void ccomp(const char *);
+   extern int nerror;
 
    if (task.verbose) efmt("cc1(/*out*/ %'s, /*in*/ %'s)\n", out, in);
    if (!ccopt.dbg.any) objini(out);
-   initparser(&pr, in);
-   parse(&pr);
+   ccomp(in);
    if (!ccopt.dbg.any && !nerror) objfini();
    return !!nerror;
 }

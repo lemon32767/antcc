@@ -1,5 +1,4 @@
-#include "common.h"
-#include "parse.h"
+#include "lex.h"
 #include <string.h>
 
 const char *
@@ -332,7 +331,7 @@ readstrchrlit(struct parser *pr, struct token *tk, char delim)
       } else {
          tk->litlit = 0;
          vpush(&b, 0);
-         tk->s = alloc(&pr->exarena, b.n, 1);
+         tk->s = alloc(pr->tmparena, b.n, 1);
          memcpy((char *)tk->s, b.p, b.n);
       }
    } else {
@@ -350,7 +349,7 @@ readstrchrlit(struct parser *pr, struct token *tk, char delim)
          tk->s = (char *)&pr->dat[beginoff];
       } else {
          tk->litlit = 0;
-         tk->s = alloc(&pr->exarena, tk->len, 1);
+         tk->s = alloc(pr->tmparena, tk->len, 1);
          memcpy((char *)tk->s, b.p, tk->len);
       }
    }
@@ -473,7 +472,7 @@ Begin:
          tk->len = n;
          if (n == pr->chridx - idx) tk->s = (char *)&pr->dat[idx];
          else {
-            tk->s = alloc(&pr->exarena, n, 1);
+            tk->s = alloc(pr->tmparena, n, 1);
             memcpy((char *)tk->s, tmp, n);
          }
          RET(TKNUMLIT);
@@ -1100,5 +1099,21 @@ lexpeek(struct parser *pr, struct token *tk_)
    pr->peektok = *tk;
    return t;
 }
+
+void
+initparser(struct parser *pr, const char *file, struct arena **tmparena)
+{
+   const char *error;
+   struct memfile *f;
+
+   memset(pr, 0, sizeof *pr);
+   pr->fileid = openfile(&error, &f, file);
+   if (pr->fileid < 0)
+      fatal(NULL, "Cannot open %'s: %s", file, error);
+   pr->dat = f->p;
+   pr->ndat = f->n;
+   pr->tmparena = tmparena;
+}
+
 
 /* vim:set ts=3 sw=3 expandtab: */

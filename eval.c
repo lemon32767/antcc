@@ -1,5 +1,4 @@
-#include "common.h"
-#include "parse.h"
+#include "c.h"
 
 static int
 targ2hosttype(enum typetag t)
