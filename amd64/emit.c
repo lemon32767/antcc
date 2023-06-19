@@ -205,7 +205,7 @@ opermatch(enum operpat pat, struct oper oper)
 /* code output helpers */
 #define B(b) (*(*pcode)++ = (b))
 #define D(xs, N) (memcpy(*pcode, (xs), (N)), (*pcode) += (N))
-#define I16(w) (wr16le(*pcode, (w)), *pcode += 4)
+#define I16(w) (wr16le(*pcode, (w)), *pcode += 2)
 #define I32(w) (wr32le(*pcode, (w)), *pcode += 4)
 #define DS(S) D(S, sizeof S - 1)
 
