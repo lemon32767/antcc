@@ -202,7 +202,7 @@ compileobjs(void)
    int wstat;
    pid_t p;
 
-   mktemps();
+   if (!ccopt.dbg.any) mktemps();
    for (int i = 0; i < task.ninf; ++i) {
       flushstd();
       if ((p = fork()) < 0) {
@@ -218,7 +218,7 @@ compileobjs(void)
          exit(WEXITSTATUS(wstat));
       }
    }
-   atexit(cleantemps);
+   if (!ccopt.dbg.any) atexit(cleantemps);
 }
 
 static int
@@ -276,6 +276,7 @@ driver(void)
       return cc1(task.out, *task.inf);
    } else if (task.outft == OFTexe || task.outft == OFTdll) {
       compileobjs();
+      if (ccopt.dbg.any) return 0;
       return dolink();
    }
    assert(0);
@@ -287,10 +288,10 @@ cc1(const char *out, const char *in)
    struct parser pr;
 
    if (task.verbose) efmt("cc1(/*out*/ %'s, /*in*/ %'s)\n", out, in);
-   objini(out);
+   if (!ccopt.dbg.any) objini(out);
    initparser(&pr, in);
    parse(&pr);
-   if (!nerror) objfini();
+   if (!ccopt.dbg.any && !nerror) objfini();
    return !!nerror;
 }
 

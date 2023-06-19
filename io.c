@@ -356,8 +356,11 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
          break;
       case 's': /* nullterminated string */
          s = va_arg(ap, const char *);
-         assert(s && "%s null!");
          if (quote) {
+            if (!s) {
+               n += bwriteS(buf, "(null)");
+               break;
+            }
             n += bputc(buf, '"');
             if (lmod) /* lower */
                for (; *s; ++s) n += putquoted(buf, aisalpha(*s) ? *s|32 : *s, '"', s[1]);
@@ -365,6 +368,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
                for (; *s; ++s) n += putquoted(buf, *s, '"', s[1]);
             n += bputc(buf, '"');
          } else {
+            assert(s && "%s null!");
             if (lmod) /* lower */
                for (; *s; ++s) n += bputc(buf, aisalpha(*s) ? *s|32 : *s);
             else
@@ -374,6 +378,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
       case 'S':  /* string ptr + len */
          s = va_arg(ap, const char *);
          i = va_arg(ap, uint);
+         assert(s && "%S null");
          if (quote) {
             n += bputc(buf, '"');
             for (; i--; ++s) n += putquoted(buf, *s, '"', i ? s[1] : -1);

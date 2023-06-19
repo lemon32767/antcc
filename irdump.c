@@ -90,9 +90,8 @@ dumpref(enum op o, union ref ref)
       break;
    case RXCON:
       con = &conht[ref.i];
-      if (con->deref) efmt("[");
-      if (con->issym) efmt("$%s", con->sym);
-      else if (con->isdat) efmt("$.%d", con->dat);
+      if (con->deref) efmt("*[");
+      if (con->issym || con->isdat) efmt("$%s", xcon2sym(ref.i));
       else switch (con->cls) {
       case KI4: efmt("%d", (int)con->i); break;
       case KI8: efmt("%ld", con->i); break;
