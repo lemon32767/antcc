@@ -137,7 +137,7 @@ aissep(int c) {
    case '^': case '~': case '=': case '\'':
    case '"': case '<': case '>': case ':':
    case '@': case '#': case '%': case '\\':
-   case '`':
+   case '`': case '!':
       return 1;
    return 0;
 }
