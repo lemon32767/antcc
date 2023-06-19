@@ -88,6 +88,13 @@ ilog2(uint x) { /* assumes x is a power of 2 */
 #endif
 }
 
+#define aisprint(c) in_range(c, ' ', '~')
+#define aisdigit(c) in_range(c, '0', '9')
+#define aisodigit(c) in_range(c, '0', '7')
+#define aisalpha(c) in_range((c)|0x20, 'a', 'z')
+static inline bool aisspace(int c) { return c == ' ' || in_range(c, '\t', '\r'); }
+static inline bool aisxdigit(int c) { return aisdigit(c) || in_range(c|0x20, 'a', 'f'); }
+
 /******************/
 /* COMPILER STATE */
 /******************/
