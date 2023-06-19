@@ -2,12 +2,10 @@
 
 static int nextdat;
 
-#define aisprint(c) in_range(c, ' ', '~')
-
 static void
 pridat(const struct irdat *dat)
 {
-   efmt("%s %'s(align %d, size %d):\n\t", dat->mut ? "dat" : "rodat", dat->name, dat->align, dat->siz);
+   efmt("%s %y(align %d, size %d):\n\t", dat->mut ? "dat" : "rodat", dat->name, dat->align, dat->siz);
    assert(!dat->syms);
    if (dat->siz <= 8) {
       efmt("b ");
@@ -91,7 +89,7 @@ dumpref(enum op o, union ref ref)
    case RXCON:
       con = &conht[ref.i];
       if (con->deref) efmt("*[");
-      if (con->issym || con->isdat) efmt("$%s", xcon2sym(ref.i));
+      if (con->issym || con->isdat) efmt("$%y", xcon2sym(ref.i));
       else switch (con->cls) {
       case KI4: efmt("%d", (int)con->i); break;
       case KI8: efmt("%ld", con->i); break;

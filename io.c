@@ -361,6 +361,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
                n += bwriteS(buf, "(null)");
                break;
             }
+         QuotedStr:
             n += bputc(buf, '"');
             if (lmod) /* lower */
                for (; *s; ++s) n += putquoted(buf, aisalpha(*s) ? *s|32 : *s, '"', s[1]);
@@ -387,6 +388,17 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             iowrite(buf, s, i);
             n += i;
          }
+         break;
+      case 'y': /* symbol: print string literally if valid identifier, or quote it */
+         s = va_arg(ap, const char *);
+         assert(s && "%y null");
+         for (i = 0; s[i]; ++i) {
+            if (aisalpha(s[i]) || s[i] == '_' || (i > 0 && aisdigit(s[i])))
+               continue;
+            goto QuotedStr;
+         }
+         /* valid identifier */
+         while (*s) n += bputc(buf, *s++);
          break;
       case 'd': /* decimal */
          base = 10;
