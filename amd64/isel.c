@@ -382,12 +382,17 @@ seljmp(struct function *fn, struct block *blk)
       }
    } else if (blk->jmp.t == Jret) {
       if (blk->jmp.arg[0].t) {
+         int curi;
          union ref r = mkref(RREG, fn->abiret[0].reg);
-         insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[0].ty.cls, r , blk->jmp.arg[0]));
+         struct instr *ins = &instrtab[insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[0].ty.cls, r , blk->jmp.arg[0])).i];
+         curi = blk->ins.n;
+         fixarg(&ins->r, ins, blk, &curi);
          blk->jmp.arg[0] = r;
          if (blk->jmp.arg[1].t) {
             r = mkref(RREG, fn->abiret[1].reg);
-            insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[1].ty.cls, r, blk->jmp.arg[1]));
+            ins = &instrtab[insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[1].ty.cls, r, blk->jmp.arg[1])).i];
+            curi = blk->ins.n;
+            fixarg(&ins->r, ins, blk, &curi);
             blk->jmp.arg[1] = r;
          }
       }
