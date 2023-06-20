@@ -366,7 +366,7 @@ static void Xmov(uchar **pcode, enum irclass k, struct oper dst, struct oper src
       {  8, PGPR, PI32, "\xC7",     EN_RI32}, /* MOV r64, imm */
       {4, PFPR, PFPR, "\xF3\x0F\x10", EN_RR}, /* MOVSS xmm, xmm */
       {4, PFPR, PMEM, "\xF3\x0F\x10", EN_RM}, /* MOVSS xmm, m32 */
-      {4, PMEM, PFPR, "\xF3\x0F\x10", EN_MR}, /* MOVSS m32, xmm */
+      {4, PMEM, PFPR, "\xF3\x0F\x11", EN_MR}, /* MOVSS m32, xmm */
       {8, PFPR, PFPR, "\xF2\x0F\x10", EN_RR}, /* MOVSD xmm, xmm */
       {8, PFPR, PMEM, "\xF2\x0F\x10", EN_RM}, /* MOVSD xmm, m64 */
       {8, PMEM, PFPR, "\xF2\x0F\x11", EN_MR}, /* MOVSS m64, xmm */
