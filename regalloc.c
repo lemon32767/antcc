@@ -238,7 +238,8 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
 
       assert(ins->op != Ocall);
       if (ins->r.t == RREG && ins->inplace) excl |= 1ull<<ins->r.i;
-      if (hint == -1 && ins->op == Ocopy && ins->l.t == RREG) /* for '%x = copy Rx', hint %x to use Rx */
+      if ((hint == -1 || ra->regs[hint].t) && ins->op == Ocopy && ins->l.t == RREG)
+         /* for '%x = copy Rx', hint %x to use Rx */
          hint = ins->l.i;
       if (hint != -1 && !(excl >> hint & 1) && !ra->regs[hint].t) {
          take(ra, hint, *ref);

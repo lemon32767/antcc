@@ -224,6 +224,7 @@ static void
 sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 {
    uint siz, alignlog2;
+   int t;
    struct instr temp = {0};
    enum op op = ins->op;
 
@@ -290,6 +291,10 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       *ins = mkinstr(Ocopy, ins->cls, mkref(RREG, op < Orem ? RAX : RDX)); /* get output */
       temp = mkinstr(Ocopy, ins->cls, mkref(RREG, op < Orem ? RDX : RAX)); /* clobber other reg*/
       insertinstr(blk, ++(*curi), temp);
+      /* swap instrs so that clobber goes first */
+      t = blk->ins.p[*curi - 1];
+      blk->ins.p[*curi - 1] = blk->ins.p[*curi - 0];
+      blk->ins.p[*curi - 0] = t;
       break;
    case Osub:
        if (ins->r.bits == mkref(RICON, 1).bits) {
