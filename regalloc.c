@@ -270,6 +270,8 @@ regalloc(struct function *fn)
    static union ref *stkslotrefsbuf[64];
    struct rega ra = {0};
 
+   fn->isleaf = 1;
+
    vinit(&stkslotrefs, stkslotrefsbuf, arraylength(stkslotrefsbuf));
    ra.allocs = xcalloc((ninstr*2 < MAXINSTR ? ninstr*2 : MAXINSTR) * sizeof(struct alloc));
    ra.nfreegpr = mctarg->ngpr - popcnt(mctarg->rglob->u);
@@ -328,6 +330,8 @@ regalloc(struct function *fn)
          } else {
             struct call *call = &calltab.p[ins->r.i];
             struct bitset rspill[1] = {0};
+
+            fn->isleaf = 0;
 
             for (int r = mctarg->gpr0; r < mctarg->gpr0 + mctarg->ngpr; ++r)
                if (!bstest(mctarg->rglob, r) && !bstest(mctarg->rcallee, r))

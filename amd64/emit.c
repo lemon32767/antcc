@@ -813,12 +813,17 @@ emitbranch(uchar **pcode, struct block *blk)
 }
 
 static void
-calleesave(uchar **pcode, struct function *fn)
+calleesave(int *npush, uchar **pcode, struct function *fn)
 {
-   if (bstest(fn->regusage, RBX)) Xpush(pcode, RBX);
+   if (bstest(fn->regusage, RBX)) {
+      Xpush(pcode, RBX);
+      ++*npush;
+   }
    for (int r = R12; r <= R15; ++r)
-      if (bstest(fn->regusage, r))
-            Xpush(pcode, r);
+      if (bstest(fn->regusage, r)) {
+         Xpush(pcode, r);
+         ++*npush;
+      }
 }
 
 static void
@@ -832,7 +837,7 @@ calleerestore(uchar **pcode, struct function *fn)
 
 /* align code using NOPs */
 static void
-aligncode(uchar **pcode, int align)
+nops(uchar **pcode, int align)
 {
    int rem;
    while ((rem = (*pcode - objout.textbegin) & (align - 1)) != 0) {
@@ -857,6 +862,8 @@ emitbin(struct function *fn)
    struct block *blk;
    uchar **pcode = &objout.code;
    uchar *start;
+   int npush = 0;
+   bool usebp = 0;
 
    if (nblkaddr < fn->nblk) {
       blkaddr = xrealloc(blkaddr, fn->nblk * sizeof *blkaddr);
@@ -864,14 +871,24 @@ emitbin(struct function *fn)
    }
    memset(blkaddr, 0, nblkaddr * sizeof *blkaddr);
 
-   aligncode(pcode, 16);
+   nops(pcode, 16);
    start = *pcode;
 
    /** prologue **/
-   if (fn->stksiz != 0)
+
+   /* only use frame pointer in non-leaf functions and functions that use the stack */
+   if (!fn->isleaf || fn->stksiz) {
+      usebp = 1;
       /* push rbp; mov rbp, rsp */
       DS("\x55\x48\x89\xE5");
-   calleesave(pcode, fn);
+      ++npush;
+   }
+   calleesave(&npush, pcode, fn);
+
+   /* ensure stack is 16-byte aligned for function calls */
+   if (!fn->isleaf && ((fn->stksiz + npush*8) & 0xF) != 0x8)
+      fn->stksiz += 8;
+
    if (fn->stksiz != 0) {
       /* sub rsp, <stack size> */
       if (fn->stksiz < 128)
@@ -904,7 +921,9 @@ emitbin(struct function *fn)
       if (blk->jmp.t == Jret) {
          /* epilogue */
          calleerestore(pcode, fn);
-         if (fn->stksiz) B(0xC9); /* leave */
+         if (usebp) B(0xC9); /* leave */
+         else if (fn->stksiz)
+            Xadd(pcode, KPTR, mkoper(OREG, .reg = RSP), mkoper(OIMM, .imm = fn->stksiz));
          B(0xC3); /* ret */
       } else emitbranch(pcode, blk);
    } while ((blk = blk->lnext) != fn->entry);
@@ -914,7 +933,7 @@ emitbin(struct function *fn)
 void
 amd64_emit(struct function *fn)
 {
-   fn->stksiz = alignup(fn->stksiz, 16);
+   fn->stksiz = alignup(fn->stksiz, 8);
    if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
    emitbin(fn);
 }

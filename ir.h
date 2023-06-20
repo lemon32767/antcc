@@ -144,6 +144,7 @@ struct function {
    int stksiz;
    ushort nabiarg, nabiret;
    bool globl;
+   bool isleaf;
    struct bitset regusage[1];
 };
 
