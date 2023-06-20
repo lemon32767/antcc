@@ -765,6 +765,15 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       gencopy(pcode, cls, blk, curi, dst, ins->l);
       break;
    case Ocall:
+      if (calltab.p[ins->r.i].vararg >= 0) {
+         struct call *call = &calltab.p[ins->r.i];
+         /* variadic functions need the caller to write num of args in sse regs to %al */
+         int n = 0;
+         for (int i = 0; i < call->narg; ++i)
+            n += call->abiarg[i].reg >= XMM0;
+         if (!n) DS("\x31\xC0"); /* XOR EAX, EAX */
+         else B(0xB0), B(n); /* MOV AL, n */
+      }
       Xcall(pcode, KPTR, ref2oper(ins->l));
       break;
    }

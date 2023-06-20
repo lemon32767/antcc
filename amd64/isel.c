@@ -73,7 +73,6 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          /* float immediates & >32b immediates are loaded from memory */
          uchar data[8];
          uint siz = cls2siz[con->cls];
-         if (ins) assert(ins->cls == con->cls);
          if (con->cls == KI4) wr32le(data, con->i);
          else if (con->cls != KF4) wr64le(data, con->i);
          else {
