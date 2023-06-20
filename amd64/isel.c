@@ -119,6 +119,7 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       /* duplicate to reuse same TMP ref */
       insertinstr(blk, (*curi)++, *ins);
       *ins = mkinstr(Ocopy, cls, mkref(RREG, call->abiret[0].reg));
+      if (*curi + 1 < blk->ins.n)
       if (instrtab[blk->ins.p[*curi + 1]].op == Ocall2r) {
          ins = &instrtab[blk->ins.p[++*curi]];
          *ins = mkinstr(Ocopy, ins->cls, mkref(RREG, call->abiret[1].reg));
