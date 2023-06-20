@@ -120,12 +120,12 @@ abiret(short r[2], uchar cls[2], int *ni, union irtype typ)
       return 0;
    }
    assert(ret <= 2);
-   for (int i = 0; i < ret; ++i) {
+   for (int i = 0, ni = 0, nf = 0; i < ret; ++i) {
       assert(cls[i]);
       if (cls[i] == KF8) /* SSE (XMM0, XMM1) */
-         r[i] = XMM0 + i;
+         r[i] = XMM0 + nf++;
       else if (cls[i] == KI8) /* INTEGER (RAX, RDX) */
-         r[i] = i == 0 ? RAX : RDX;
+         r[i] = ni++ == 0 ? RAX : RDX;
       else assert(0);
    }
    return ret;
