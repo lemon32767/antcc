@@ -140,12 +140,12 @@ elfputdat(const struct irdat *dat)
    static const char zero[8];
    enum section s;
    uint off;
-   uint ndat = dat->siz < 8 ? dat->siz : dat->dat.n;
+   uint ndat = dat->siz <= 8 ? dat->siz : dat->dat.n;
    uint nzr = dat->siz - ndat; 
-   const uchar *d = dat->siz < 8 ? dat->sdat : dat->dat.p;
+   const uchar *d = dat->siz <= 8 ? dat->sdat : dat->dat.p;
 
    assert(dat->siz);
-   if (!dat->syms && (dat->siz >= 8 ? !d : !memcmp(d, zero, dat->siz))) {
+   if (!dat->syms && (dat->siz > 8 ? !d : !memcmp(d, zero, dat->siz))) {
       /* all zeroes */
       s = Sbss;
    } else {
