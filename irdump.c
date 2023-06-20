@@ -203,6 +203,11 @@ dumpblk(struct function *fn, struct block *blk)
       dumpinst(&instrtab[blk->ins.p[i]]);
    }
    efmt("    %s ", jnames[blk->jmp.t]);
+   if (blk->jmp.arg[0].t && !fn->nabiret && isagg(fn->retty)) {
+      /* un-lowered struct return */
+      dumpref(0, mktyperef(mkirtype(fn->retty)));
+      efmt(" ");
+   }
    for (i = 0; i < 2; ++i) {
       if (!blk->jmp.arg[i].t) break;
       if (i > 0) efmt(", ");

@@ -65,6 +65,7 @@ _(store8,   2)
 _(param,    2)
 _(arg,      2)
 _(call,     2)
+_(call2r,   1)
 _(intrin,   2)
 _(phi,      1)
 /* machine-specific instructions */

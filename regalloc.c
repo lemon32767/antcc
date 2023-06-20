@@ -320,7 +320,7 @@ regalloc(struct function *fn)
                spill(&ra, r, blk, i);
             }
             for (int j = 0; j < call->narg; ++j) {
-               short reg = call->abiargregs[j];
+               short reg = call->abiarg[j].reg;
                if (reg >= 0) {
                   forcetake(&ra, reg, mkref(RREG, reg), blk, i);
                }

@@ -93,6 +93,39 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
    }
 }
 
+static void
+selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
+{
+   const struct call *call = &calltab.p[ins->r.i];
+   int iarg = *curi - 1;
+   enum irclass cls;
+
+   for (int i = call->narg - 1; i >= 0; --i) {
+      struct instr *arg;
+      for (;;) {
+         assert(i >= 0 && "arg?");
+         if ((arg = &instrtab[blk->ins.p[iarg--]])->op == Oarg)
+            break;
+      }
+
+      if (call->abiarg[i].reg >= 0) {
+         assert(!call->abiarg[i].ty.isagg);
+         *arg = mkinstr(Omove, call->abiarg[i].ty.cls, mkref(RREG, call->abiarg[i].reg), arg->r);
+      }
+   }
+   cls = ins->cls;
+   ins->cls = 0;
+   if (cls) {
+      /* duplicate to reuse same TMP ref */
+      insertinstr(blk, (*curi)++, *ins);
+      *ins = mkinstr(Ocopy, cls, mkref(RREG, call->abiret[0].reg));
+      if (instrtab[blk->ins.p[*curi + 1]].op == Ocall2r) {
+         ins = &instrtab[blk->ins.p[++*curi]];
+         *ins = mkinstr(Ocopy, ins->cls, mkref(RREG, call->abiret[1].reg));
+      }
+   }
+}
+
 #define isimm32(r) (concls(r) == KI4)
 #define rswap(a,b) do { union ref _t = (a); (a) = (b); (b) = _t; } while (0)
 
@@ -202,9 +235,23 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       fn->stksiz += siz;
       fn->stksiz = alignup(fn->stksiz, 1 << alignlog2);
       if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
-      *ins = mkinstr(Oadd, KPTR, mkref(RREG, mctarg->bpr), mkref(RICON, -fn->stksiz));
+      *ins = mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, -fn->stksiz));
       break;
-   case Ocall: case Ointrin:
+   case Oparam:
+      assert(ins->l.t == RICON && ins->l.i < fn->nabiarg);
+      if (fn->abiarg[ins->l.i].reg >= 0)
+         *ins = mkinstr(Ocopy, ins->cls, mkref(RREG, fn->abiarg[ins->l.i].reg));
+      else /* stack */
+         *ins = mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, -fn->abiarg[ins->l.i].stk));
+      break;
+   case Oarg:
+      fixarg(&ins->r, ins, blk, curi);
+      break;
+   case Ocall:
+      selcall(fn, ins, blk, curi);
+      break;
+   case Ocall2r: assert(0);
+   case Ointrin:
       break;
    case Oshl: case Osar: case Oslr:
       if (!iscon(ins->r)) {
@@ -330,6 +377,17 @@ seljmp(struct function *fn, struct block *blk)
       } else {
          if (!(opflags[instrtab[c.i].op] & ZF) || c.i != blk->ins.p[blk->ins.n - 1]) {
             blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, instrtab[c.i].cls, c, ZEROREF));
+         }
+      }
+   } else if (blk->jmp.t == Jret) {
+      if (blk->jmp.arg[0].t) {
+         union ref r = mkref(RREG, fn->abiret[0].reg);
+         insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[0].ty.cls, r , blk->jmp.arg[0]));
+         blk->jmp.arg[0] = r;
+         if (blk->jmp.arg[1].t) {
+            r = mkref(RREG, fn->abiret[1].reg);
+            insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[1].ty.cls, r, blk->jmp.arg[1]));
+            blk->jmp.arg[1] = r;
          }
       }
    }
