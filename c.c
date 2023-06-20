@@ -1520,7 +1520,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       if (discard) return NOREF;
       ins.l = cvt(fn, ty.t, sub[0].ty.t, ins.l);
       ins.r = cvt(fn, ty.t, sub[1].ty.t, ins.r);
-      ins.cls = cls;
+      ins.cls = type2cls[ty.t];
       return addinstr(fn, ins);
    case ESET:
       assert(isscalar(ex->ty));

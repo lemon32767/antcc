@@ -91,7 +91,7 @@ enum op {
 #undef _
 };
 
-#define oiscmp(o) in_range(o, Oequ, Oulte)
+#define oiscmp(o) in_range(o, Oequ, Ougte)
 #define oisalloca(o) in_range(o, Oalloca1, Oalloca16)
 #define oisstore(o) in_range(o, Ostore1, Ostore8)
 #define oisload(o) in_range(o, Oloads1, Oloadf8)
@@ -105,7 +105,8 @@ enum intrin {
 };
 
 struct instr {
-   uchar op, cls;
+   uchar op,
+         cls; /* operation data class; also result class except for cmp ops (always i4) */
    uchar skip : 1; /* ignore during codegen: forms part of one machine instruction */
    uchar inplace : 1; /* set (by isel) for instructions which modify its first arg in place */
    uchar reg; /* 0 -> no reg; else reg + 1 */
@@ -189,6 +190,7 @@ extern struct calltab {vec_of(struct call);} calltab;
 extern struct phitab {vec_of(struct phi);} phitab;
 extern struct dattab {vec_of(struct irdat);} dattab;
 extern struct addr addrht[];
+#define insrescls(ins) (oiscmp((ins).op) ? KI4 : (ins).cls)
 #define NOREF ((union ref) {0})
 #define ZEROREF ((union ref) {{ RICON, 0 }})
 #define mkref(t, x) ((union ref) {{ (t), (x) }})

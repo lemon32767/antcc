@@ -61,8 +61,8 @@ def(struct rega *ra, struct instr *ins, struct block *blk, int curi)
          assert(ra->regs[reg].bits == mkref(RTMP, var).bits);
       } else  if (alloc->t == ASTACK) {
          /* unspill, insert 'store [slot], reg' */
-         int reg = allocreg(ra, ins->cls, mkref(RTMP, var), -1);
-         struct instr store = mkinstr(Ostore1 + ilog2(cls2siz[ins->cls]), 0,
+         int reg = allocreg(ra, insrescls(*ins), mkref(RTMP, var), -1);
+         struct instr store = mkinstr(Ostore1 + ilog2(cls2siz[insrescls(*ins)]), 0,
                                       mkref(RICON, alloc->a*8), mkref(RREG, reg));
          DBG("-- unspill %%%d s%d -> %s\n", var, alloc->a, mctarg->rnames[ins->reg+1]);
          addstkslotref(insertinstr(blk, ++curi, store));
@@ -151,7 +151,7 @@ spill(struct rega *ra, int reg, struct block *blk, int curi) {
    DBG("-- spill %%%d %s -> s%d\n", var, mctarg->rnames[reg], s);
    instrtab[var].reg = 0;
    /* insert 'reg = load [slot]' */
-   load = mkinstr(Oloads1 + 2*ilog2(cls2siz[instrtab[var].cls]), instrtab[var].cls, mkref(RICON, s*8));
+   load = mkinstr(Oloads1 + 2*ilog2(cls2siz[insrescls(instrtab[var])]), insrescls(instrtab[var]), mkref(RICON, s*8));
    load.reg = reg+1;
    addstkslotref(insertinstr(blk, ++curi, load));
    freereg(ra, reg);
@@ -184,7 +184,7 @@ forcetake(struct rega *ra, int reg, union ref ref, struct block *blk, int curi) 
       int rename = allocreg(ra, isgpr(reg) ? KI4 : KF4, ra->regs[reg], excl);
       if (ccopt.dbg.r)DBG("-- rename %%%d %s -> %s\n", var, mctarg->rnames[reg], mctarg->rnames[rename]);
       /* introduce move from rename -> original (since we allocate backwards) */
-      insertinstr(blk, ++curi, mkmove(instrtab[var].cls, reg, rename));
+      insertinstr(blk, ++curi, mkmove(insrescls(instrtab[var]), reg, rename));
       instrtab[var].reg = rename+1;
       ra->regs[rename] = mkref(RTMP, var);
       bsset(globusage, rename);
@@ -230,12 +230,12 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
          take(ra, hint, *ref);
          ins->reg = hint + 1;
       } else {
-         ins->reg = allocreg(ra, ins->cls, *ref, excl) + 1;
+         ins->reg = allocreg(ra, insrescls(*ins), *ref, excl) + 1;
       }
       if (s >= 0) {
          /* unspill, insert 'store [slot], reg' */
          DBG("-- unspill %%%d s%d -> %s\n", ref->i, s, mctarg->rnames[ins->reg-1]);
-         struct instr store = mkinstr(Ostore1 + ilog2(cls2siz[ins->cls]), 0,
+         struct instr store = mkinstr(Ostore1 + ilog2(cls2siz[insrescls(*ins)]), 0,
                                       mkref(RICON, s*8),
                                       mkref(RREG, ins->reg-1));
          addstkslotref(insertinstr(blk, ++curi, store));
@@ -335,7 +335,7 @@ regalloc(struct function *fn)
             if (ins->reg-1 != ins->l.i) {
                /* an in-place operation where the destination does not
                 * match the first operand, so we need to add a move */
-               insertinstr(blk, i, mkmove(ins->cls, ins->reg-1, ins->l.i));
+               insertinstr(blk, i, mkmove(insrescls(*ins), ins->reg-1, ins->l.i));
                ins->l.i = ins->reg-1;
             }
          }
@@ -349,7 +349,7 @@ regalloc(struct function *fn)
             /* introduce necessary moves in each pred,
              * XXX this doesn't work for backwards branches */
             for (int i = 0; i < phi->n; ++i) {
-               struct instr mov = mkinstr(Omove, ins->cls, mkref(RREG, ins->reg-1), phi->ref[i]);
+               struct instr mov = mkinstr(Omove, insrescls(*ins), mkref(RREG, ins->reg-1), phi->ref[i]);
                insertinstr(phi->blk[i], phi->blk[i]->ins.n, mov);
             }
          }

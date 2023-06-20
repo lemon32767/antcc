@@ -529,10 +529,11 @@ Xjcc(uchar **pcode, enum cc cc, struct block *dst)
 }
 
 static void
-Xsetcc(uchar **pcode, enum cc cc, int reg)
+Xsetcc(uchar **pcode, enum cc cc, enum reg reg)
 {
    int rex = 0;
    assert(in_range(cc, 0x0, 0xF));
+   assert(in_range(reg, RAX, R15));
 
    if (in_range(reg, RSP, RDI)) rex = 0x40;
    rex |= (reg >> 3); /* REX.B */

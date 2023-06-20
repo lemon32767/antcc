@@ -166,15 +166,18 @@ dumpinst(const struct instr *ins)
    if (ins->op == Omove) {
       efmt("move %s ", clsname[ins->cls]);
    } else {
+      enum irclass cls = insrescls(*ins);
       if (ins->reg) {
-         if (ins->cls)
-            efmt("%s ", clsname[ins->cls]);
+         if (cls)
+            efmt("%s ", clsname[cls]);
          efmt("%s = ", mctarg->rnames[ins->reg - 1]);
-      } else if (ins->cls) {
-         efmt("%s %%%d", clsname[ins->cls], ins - instrtab);
+      } else if (cls) {
+         efmt("%s %%%d", clsname[cls], ins - instrtab);
          efmt(" = ");
       }
       efmt("%s ", opnames[ins->op]);
+      if (oiscmp(ins->op))
+         efmt("%s ", clsname[ins->cls]);
    }
    for (i = 0; i < opnarg[ins->op]; ++i) {
       if (i) efmt(", ");
