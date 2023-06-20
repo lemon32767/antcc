@@ -621,6 +621,7 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
          .scls = SCEXTERN, .span = callee->span, .name = name
       };
       warn(&callee->span, "call to undeclared function '%s'", name);
+      ((struct expr *)callee)->ty = decl.ty;
       ((struct expr *)callee)->sym = putdecl(cm, &decl);
       td = &typedata[ty.dat];
    }
