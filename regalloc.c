@@ -28,7 +28,7 @@ addstkslotref(union ref inst)
    vpush(&stkslotrefs, &instrtab[inst.i].l);
 }
 
-static int allocreg(struct rega *ra, enum irclass cls, union ref ref, int excl);
+static int allocreg(struct rega *ra, enum irclass cls, union ref ref, uvlong excl);
 
 #if 0
 #define DBG efmt
@@ -75,7 +75,7 @@ def(struct rega *ra, struct instr *ins, struct block *blk, int curi)
             }
          }
          if (reg < 0)
-            reg = allocreg(ra, insrescls(*ins), mkref(RTMP, var), -1);
+            reg = allocreg(ra, insrescls(*ins), mkref(RTMP, var), 0);
          store = mkinstr(Ostore1 + ilog2(cls2siz[insrescls(*ins)]), 0,
                          mkref(RICON, astk.a*8), mkref(RREG, reg));
          DBG("-- unspill %%%d s%d -> %s\n", var, astk.a, mctarg->rnames[ins->reg+1]);
@@ -115,7 +115,7 @@ take(struct rega *ra, int reg, union ref ref) {
 }
 
 static int
-allocreg(struct rega *ra, enum irclass cls, union ref ref, int excl)
+allocreg(struct rega *ra, enum irclass cls, union ref ref, uvlong excl)
 {
    int r0, rend, reg;
 
@@ -129,7 +129,7 @@ allocreg(struct rega *ra, enum irclass cls, union ref ref, int excl)
    } else assert(0);
    for (reg = r0; reg < rend; ++reg) {
       if (bstest(mctarg->rglob, reg)) continue;
-      if (reg != excl && !ra->regs[reg].t) {
+      if (!(excl >> reg & 1) && !ra->regs[reg].t) {
          take(ra, reg, ref);
          return reg;
       }
@@ -194,8 +194,8 @@ forcetake(struct rega *ra, int reg, union ref ref, struct block *blk, int curi) 
        * we need to explictly exclude it from the pool of rename registers
        * e.g.: given 'R0 = copy R1'; if R1 => %x, we need to prevent renaming %x => R0
        */
-      int excl = instrtab[blk->ins.p[curi]].reg-1;
-      int rename = allocreg(ra, isgpr(reg) ? KI4 : KF4, ra->regs[reg], excl);
+      uvlong excl = instrtab[blk->ins.p[curi]].reg;
+      int rename = allocreg(ra, isgpr(reg) ? KI4 : KF4, ra->regs[reg], excl ? 1ull<<(excl-1) : 0);
       if (ccopt.dbg.r)DBG("-- rename %%%d %s -> %s\n", var, mctarg->rnames[reg], mctarg->rnames[rename]);
       /* introduce move from rename -> original (since we allocate backwards) */
       insertinstr(blk, ++curi, mkmove(insrescls(instrtab[var]), reg, rename));
@@ -215,7 +215,7 @@ static void
 use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union ref *ref, union ref other)
 {
    struct instr *ins;
-   int excl = other.t == RREG ? other.i : -1;
+   uvlong excl = other.t == RREG ? 1ull<<other.i : 0;
 
    if (ref->t == RMORE) {
       struct addr addr = addrht[ref->i];
@@ -224,13 +224,12 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
       *ref = mkaddr(addr);
       return;
    } else if (ref->t == RREG) {
-      assert(ref->i != excl);
+      assert(!(excl >> hint & 1));
       forcetake(ra, ref->i, *ref, blk, curi);
    }
    if (ref->t != RTMP) return;
 
    ins = &instrtab[ref->i];
-   if (oisalloca(ins->op)) return;
    if (!ins->cls) return;
    if (!ins->reg) {
       int s = -1;
@@ -238,9 +237,10 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
          s = ra->allocs[ref->i].a;
 
       assert(ins->op != Ocall);
+      if (ins->r.t == RREG && ins->inplace) excl |= 1ull<<ins->r.i;
       if (hint == -1 && ins->op == Ocopy && ins->l.t == RREG) /* for '%x = copy Rx', hint %x to use Rx */
          hint = ins->l.i;
-      if (hint != -1 && hint != excl && !ra->regs[hint].t) {
+      if (hint != -1 && !(excl >> hint & 1) && !ra->regs[hint].t) {
          take(ra, hint, *ref);
          ins->reg = hint + 1;
       } else {
@@ -317,8 +317,13 @@ regalloc(struct function *fn)
                if (ins->r.bits != ins->l.bits)
                   use(&ra, blk, i, ins->op, hint1, &ins->r, NOREF);
             } else {
-               if (ins->l.t) use(&ra, blk, i, ins->op, hint0, &ins->l, ins->r);
-               if (ins->r.t) use(&ra, blk, i, ins->op, hint1, &ins->r, NOREF);
+               if (ins->r.t == RREG) {
+                  use(&ra, blk, i, ins->op, hint0, &ins->r, NOREF);
+                  use(&ra, blk, i, ins->op, hint0, &ins->l, ins->r);
+               } else {
+                  if (ins->l.t) use(&ra, blk, i, ins->op, hint0, &ins->l, ins->r);
+                  if (ins->r.t) use(&ra, blk, i, ins->op, hint1, &ins->r, NOREF);
+               }
             }
          } else {
             struct call *call = &calltab.p[ins->r.i];

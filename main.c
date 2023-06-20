@@ -117,6 +117,7 @@ optparse(char **args)
          case 'a': ccopt.dbg.a = 1; break;
          case 'i': ccopt.dbg.i = 1; break;
          case 'r': ccopt.dbg.r = 1; break;
+         case 'm': ccopt.dbg.m = 1; break;
          default: warn(NULL, "-d: invalid debug flag %'c", *arg);
          }
       } else if (*arg == 'o') {

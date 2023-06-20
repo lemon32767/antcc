@@ -113,6 +113,12 @@ struct instr {
    union ref l, r;
 };
 
+struct use { bool isjmp; union { ushort ins, blk; }; };
+struct uses {
+   int nuse;
+   struct use *use, _use0[2];
+};
+
 enum jumpkind {
    JXXX, Jb, Jret,
 };
@@ -235,9 +241,13 @@ void replref(struct function *, struct block *, int, union ref from, union ref t
 
 void irdump(struct function *);
 
-void lowerintrin(struct function *);
+struct uses *ssauses(struct function *);
+void freeuses(struct uses *, int n);
+
 void abi0(struct function *);
 void abi0_call(struct function *, struct instr *, struct block *blk, int *curi);
+void mem2reg(struct function *);
+void lowerintrin(struct function *);
 void regalloc(struct function *);
 
 /* vim:set ts=3 sw=3 expandtab: */

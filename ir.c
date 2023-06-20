@@ -413,6 +413,7 @@ irfini(struct function *fn)
    extern int nerror;
    if (!nerror) {
       abi0(fn);
+      mem2reg(fn);
       lowerintrin(fn);
       mctarg->isel(fn);
       regalloc(fn);
