@@ -582,10 +582,11 @@ static void
 gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct oper dst, union ref val)
 {
    assert(dst.t == OREG);
-   if (val.t == RMORE && !flagslivep(blk, curi)) {
+   if (val.t == RMORE) {
       /* this is a LEA, but maybe it can be lowered to a 2-address instruction,
        * which may clobber flags */
       const struct addr *addr = &addrht[val.i];
+      if (flagslivep(blk, curi)) goto Lea;
       if (addr->base.t && dst.reg == mkregoper(addr->base).reg) { /* base = dst */
          if (addr->index.t && !addr->disp && !addr->shift){
             /* lea Rx, [Rx + Ry] -> add Rx, Ry */
@@ -855,7 +856,6 @@ emitbin(struct function *fn)
    struct block *blk;
    uchar **pcode = &objout.code;
    uchar *start;
-
 
    if (nblkaddr < fn->nblk) {
       blkaddr = xrealloc(blkaddr, fn->nblk * sizeof *blkaddr);
