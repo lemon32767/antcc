@@ -44,6 +44,8 @@ freereg(struct rega *ra, int r)
    else          ++ra->nfreegpr;
 }
 
+static void take(struct rega *ra, int reg, union ref ref);
+
 static void
 def(struct rega *ra, struct instr *ins, struct block *blk, int curi)
 {
@@ -61,12 +63,24 @@ def(struct rega *ra, struct instr *ins, struct block *blk, int curi)
          assert(ra->regs[reg].bits == mkref(RTMP, var).bits);
       } else  if (alloc->t == ASTACK) {
          /* unspill, insert 'store [slot], reg' */
-         int reg = allocreg(ra, insrescls(*ins), mkref(RTMP, var), -1);
-         struct instr store = mkinstr(Ostore1 + ilog2(cls2siz[insrescls(*ins)]), 0,
-                                      mkref(RICON, alloc->a*8), mkref(RREG, reg));
-         DBG("-- unspill %%%d s%d -> %s\n", var, alloc->a, mctarg->rnames[ins->reg+1]);
+         struct alloc astk = *alloc;
+         struct instr store;
+         int reg = -1;
+
+         if ((ins->op == Ocopy || ins->inplace) && ins->l.t == RREG) {
+            int hint = ins->l.i;
+            if (!ra->regs[hint].t) {
+               take(ra, reg = hint, mkref(RTMP, var));
+               assert(ra->regs[reg].bits == mkref(RTMP, var).bits);
+            }
+         }
+         if (reg < 0)
+            reg = allocreg(ra, insrescls(*ins), mkref(RTMP, var), -1);
+         store = mkinstr(Ostore1 + ilog2(cls2siz[insrescls(*ins)]), 0,
+                         mkref(RICON, astk.a*8), mkref(RREG, reg));
+         DBG("-- unspill %%%d s%d -> %s\n", var, astk.a, mctarg->rnames[ins->reg+1]);
          addstkslotref(insertinstr(blk, ++curi, store));
-         vpush(&ra->freestk, alloc->a);
+         vpush(&ra->freestk, astk.a);
          ins->reg = reg+1;
          def(ra, ins, blk, curi); /* and free the reg again */
          return;
@@ -260,9 +274,12 @@ regalloc(struct function *fn)
    ra.allocs = xcalloc((ninstr*2 < MAXINSTR ? ninstr*2 : MAXINSTR) * sizeof(struct alloc));
    ra.nfreegpr = mctarg->ngpr - popcnt(mctarg->rglob->u);
    ra.nfreefpr = mctarg->nfpr;
-   for (int i = 0; i < MAXREGS; ++i)
+   for (int i = 0; i < MAXREGS; ++i) {
       if (in_range(i, mctarg->fpr0, mctarg->fpr0 + mctarg->nfpr - 1))
-            bsset(floatregs, i);
+         bsset(floatregs, i);
+      if (bstest(mctarg->rglob, i))
+         ra.regs[i] = mkref(RREG, i);
+   }
    bszero(globusage, 1);
    fn->stksiz = alignup(fn->stksiz, 8);
 
