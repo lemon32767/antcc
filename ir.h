@@ -107,15 +107,7 @@ struct instr {
    union ref l, r;
 };
 
-struct use { bool isjmp; union { ushort ins, blk; }; };
-struct uses {
-   int nuse;
-   struct use *use, _use0[2];
-};
-
-enum jumpkind {
-   JXXX, Jb, Jret,
-};
+enum jumpkind { JXXX, Jb, Jret, };
 
 struct block {
    int id;
@@ -131,12 +123,17 @@ struct block {
    struct { uchar t; union ref arg[2]; } jmp;
 };
 
+enum { USERJUMP = 0xFFFF };
+struct use { struct block *blk; ushort u; };
+
 enum { MAXREGS = 64 };
 
 struct function {
    struct arena *arena;
    const char *name;
    struct block *entry, *curblk;
+   struct use *use;
+   short *nuse;
    union type fnty, retty;
    struct abiarg *abiarg, abiret[2];
    uint nblk;
@@ -191,6 +188,8 @@ extern uchar type2cls[];
 extern uchar cls2siz[];
 extern const uchar siz2intcls[];
 extern struct instr instrtab[];
+extern struct use *instruse[];
+extern short instrnuse[];
 extern struct xcon conht[];
 extern struct calltab {vec_of(struct call);} calltab;
 extern struct phitab {vec_of(union ref *);} phitab;
@@ -198,6 +197,7 @@ extern struct dattab {vec_of(struct irdat);} dattab;
 extern struct addr addrht[];
 #define insrescls(ins) (oiscmp((ins).op) ? KI4 : (ins).cls)
 #define NOREF ((union ref) {0})
+#define UNDREF ((union ref) {{ 0, -1 }})
 #define ZEROREF ((union ref) {{ RICON, 0 }})
 #define mkref(t, x) ((union ref) {{ (t), (x) }})
 #define mktyperef(t) ((union ref) {{ RTYPE, (t).bits }})
@@ -225,7 +225,11 @@ void conputdat(struct irdat *, uint off, enum typetag t, const void *dat);
 union ref mkcallarg(union irtype ret, uint narg, int vararg);
 #define mkintrin(B, C, N) mkinstr(Ointrin, C, {.t=RICON,B}, mkcallarg((union irtype){{0}},N,-1))
 union ref mkaddr(struct addr);
+void adduse(struct block *ublk, int ui, union ref r);
 union ref insertinstr(struct block *, int idx, struct instr);
+union ref insertphi(struct block *, enum irclass cls);
+void replcins(union ref from, union ref to);
+void deluses(int ins);
 void delinstr(struct block *, int idx);
 #define blkpred(blk, i) 0[(blk)->npred < 2 ? &(blk)->_pred0 : &(blk)->_pred[i]]
 
@@ -238,13 +242,10 @@ void putbranch(struct function *, struct block *);
 void putcondbranch(struct function *, union ref arg, struct block *t, struct block *f);
 void putreturn(struct function *, union ref r0, union ref r1);
 
-void blkreplref(struct block *, int, union ref from, union ref to);
-void replref(struct function *, struct block *, int, union ref from, union ref to);
-
 void irdump(struct function *);
 
-struct uses *ssauses(struct function *);
-void freeuses(struct uses *, int n);
+void filluses(struct function *);
+void freeuses(struct use *, int n);
 
 void abi0(struct function *);
 void abi0_call(struct function *, struct instr *, struct block *blk, int *curi);

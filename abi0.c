@@ -198,11 +198,19 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       union irtype retty = call->ret;
       struct instr alloca = { .cls = KPTR };
       struct typedata *td = &typedata[retty.dat];
+      int ialloca ;
 
       sretarghidden = ni == 0;
       alloca.op = Oalloca8 + (td->align == 16);
       alloca.l = mkref(RICON, td->align == 16 ? 1 : td->siz / 8);
-      retmem = insertinstr(blk, (*curi)++ - call->narg, alloca);
+      /* swap alloca and call temps so users of original call point to alloca */
+      retmem = insertinstr(blk, ialloca = (*curi)++ - call->narg, *ins);
+      *ins = alloca;
+      blk->ins.p[ialloca] = ins - instrtab;
+      blk->ins.p[*curi] = retmem.i;
+      ins = &instrtab[retmem.i];
+      retmem.i = blk->ins.p[ialloca];
+
       if (!nret) /* hidden pointer argument */
          insertinstr(blk, (*curi)++ - call->narg,
                      mkinstr(Oarg, 0, mktyperef((union irtype){.cls=KPTR}), retmem));
@@ -219,7 +227,6 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    }
    /* adjust return */
    if (call->ret.isagg) {
-      replref(fn, blk, (*curi), mkref(RTMP, ins - instrtab), retmem);
       ins->cls = 0;
       if (!nret) { /* hidden pointer argument */
          ins->cls = 0;

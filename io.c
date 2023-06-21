@@ -637,8 +637,8 @@ mapopen(const char **err, const char *path)
       int ret;
 
       do {
-         enum { CHUNKSIZ = 1<<16 };
-         if ((cap += CHUNKSIZ) < CHUNKSIZ) {
+         enum { CHUNKSIZ = 1<<10 };
+         if (f.n + CHUNKSIZ >= cap && (cap += CHUNKSIZ) < CHUNKSIZ) {
             /* overflow */
             free(p);
             goto Big;

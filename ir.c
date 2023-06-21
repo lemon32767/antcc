@@ -13,6 +13,9 @@ const char *opnames[] = {
 };
 
 struct instr instrtab[MAXINSTR];
+struct use *instruse[MAXINSTR];
+short instrnuse[MAXINSTR];
+static struct use instrusebuf[MAXINSTR][2];
 int ninstr;
 static int instrfreelist;
 struct calltab calltab;
@@ -236,23 +239,46 @@ addpred(struct block *blk, struct block *p)
    xbpush(&blk->_pred, &blk->npred, p);
 }
 
-static inline int
+static int
 newinstr(void)
 {
+   int t;
    if (instrfreelist != -1) {
-      int t = instrfreelist;
+      t = instrfreelist;
       memcpy(&instrfreelist, &instrtab[t], sizeof(int));
-      return t;
+   } else {
+      assert(ninstr < arraylength(instrtab));
+      t = ninstr++;
    }
-   assert(ninstr < arraylength(instrtab));
-   return ninstr++;
+   if (instrnuse[t] > 2)
+      xbfree(instruse[t]);
+   instruse[t] = instrusebuf[t];
+   instrnuse[t] = 0;
+   return t;
 }
 
+void
+adduse(struct block *ublk, int ui, union ref r) {
+   struct use user = { ublk, ui };
+   if (r.t != RTMP) return;
+   if (instrnuse[r.i] < 2) {
+      instruse[r.i][instrnuse[r.i]++] = user;
+   } else if (instrnuse[r.i] == arraylength(*instrusebuf)) {
+      struct use *use = NULL;
+      xbgrow(&use, arraylength(*instrusebuf) + 2);
+      memcpy(use, instruse[r.i], arraylength(*instrusebuf) * sizeof *use);
+      use[instrnuse[r.i]++] = user;
+      instruse[r.i] = use;
+   } else {
+      xbpush(&instruse[r.i], &instrnuse[r.i], user);
+   }
+}
 
 union ref
 insertinstr(struct block *blk, int idx, struct instr ins)
 {
    int new = newinstr();
+
    instrtab[new] = ins;
    if (idx == blk->ins.n) vpush(&blk->ins, new);
    else {
@@ -263,15 +289,73 @@ insertinstr(struct block *blk, int idx, struct instr ins)
          blk->ins.p[i] = blk->ins.p[i - 1];
       blk->ins.p[idx] = new;
    }
+   adduse(blk, new, ins.l);
+   adduse(blk, new, ins.r);
    return mkref(RTMP, new);
+}
+
+union ref
+insertphi(struct block *blk, enum irclass cls)
+{
+   int new = newinstr();
+   union ref *refs = NULL;
+   assert(blk->npred > 0);
+   xbgrow(&refs, blk->npred);
+   memset(refs, 0, blk->npred * sizeof *refs);
+   vpush(&phitab, refs);
+   instrtab[new] = mkinstr(Ophi, cls, mkref(RMORE, phitab.n - 1));
+   vpush(&blk->phi, new);
+   return mkref(RTMP, new);
+}
+
+/* require use */
+void
+replcins(union ref from, union ref to)
+{
+   struct use *use, *uend;
+
+   assert(from.t == RTMP);
+   uend = (use = instruse[from.i]) + instrnuse[from.i];
+   for (; use < uend; ++use) {
+      union ref *u;
+      int n, i;
+      if (use->u == from.i) continue;
+      if (use->u == USERJUMP) {
+         u = &use->blk->jmp.arg[0];
+         n = 2;
+      } else if (instrtab[use->u].op == Ophi) {
+         u = phitab.p[instrtab[use->u].l.i];
+         n = use->blk->npred;
+      } else {
+         u = &instrtab[use->u].l;
+         n = 2;
+      }
+      
+      for (i = 0; i < n; ++i) {
+         if (u[i].bits == from.bits) {
+            u[i].bits = to.bits;
+            break;
+         }
+      }
+   }
+}
+
+void
+deluses(int ins)
+{
+   if (instrnuse[ins] > 2)
+      xbfree(instruse[ins]);
+   instrnuse[ins] = 0;
 }
 
 void
 delinstr(struct block *blk, int idx)
 {
+   int t = blk->ins.p[idx];
    assert(idx >= 0 && idx < blk->ins.n);
-   memcpy(&instrtab[blk->ins.p[idx]], &instrfreelist, sizeof(int));
-   instrfreelist = blk->ins.p[idx];
+   memcpy(&instrtab[t], &instrfreelist, sizeof(int));
+   instrfreelist = t;
+   deluses(t);
    for (int i = idx; i < blk->ins.n; ++i)
       blk->ins.p[i] = blk->ins.p[i + 1];
    --blk->ins.n;
@@ -310,6 +394,8 @@ addinstr(struct function *fn, struct instr ins)
    int new = newinstr();
    assert(fn->curblk != NULL);
    instrtab[new] = ins;
+   adduse(fn->curblk, new, ins.l);
+   adduse(fn->curblk, new, ins.r);
    vpush(&fn->curblk->ins, new);
    return mkref(RTMP, new);
 }
@@ -319,17 +405,20 @@ addphi(struct function *fn, enum irclass cls, union ref *r)
 {
    int new;
    struct instr ins = { Ophi, cls };
-   union ref **prefs;
+   union ref *refs = NULL;
 
-   vpush(&phitab, NULL);
-   prefs = &phitab.p[phitab.n - 1];
-   xbgrow(prefs, fn->curblk->npred);
-   memcpy(*prefs, r, fn->curblk->npred * sizeof *r);
+   xbgrow(&refs, fn->curblk->npred);
+   memcpy(refs, r, fn->curblk->npred * sizeof *r);
+   vpush(&phitab, refs);
    ins.l = mkref(RMORE, phitab.n-1);
+
    assert(fn->curblk != NULL);
    assert(fn->curblk->ins.n == 0);
    new = newinstr();
    instrtab[new] = ins;
+   for (int i = 0; i < fn->curblk->npred; ++i) {
+      adduse(fn->curblk, new, r[i]);
+   }
    vpush(&fn->curblk->phi, new);
    return mkref(RTMP, new);
 }
@@ -354,6 +443,7 @@ void
 putcondbranch(struct function *fn, union ref arg, struct block *t, struct block *f)
 {
    assert(fn->curblk && t && f);
+   adduse(fn->curblk, USERJUMP, arg);
    addpred(t, fn->curblk);
    addpred(f, fn->curblk);
    putjump(fn, Jb, arg, NOREF, t, f);
@@ -362,6 +452,8 @@ putcondbranch(struct function *fn, union ref arg, struct block *t, struct block 
 void
 putreturn(struct function *fn, union ref r0, union ref r1)
 {
+   adduse(fn->curblk, USERJUMP, r0);
+   adduse(fn->curblk, USERJUMP, r1);
    putjump(fn, Jret, r0, r1, NULL, NULL);
 }
 
@@ -369,42 +461,15 @@ putreturn(struct function *fn, union ref r0, union ref r1)
 
 /** Misc **/
 
-void
-blkreplref(struct block *blk, int i0, union ref from, union ref to)
-{
-   if (i0 == 0) for (int i = 0; i < blk->phi.n; ++i) {
-      union ref *phi = phitab.p[instrtab[blk->phi.p[i]].l.i];
-      for (int i = 0; i < blk->npred; ++i)
-         if (phi[i].bits == to.bits) phi[i] = from;
-   }
-
-   for (int i = i0; i < blk->ins.n; ++i) {
-      struct instr *ins = &instrtab[blk->ins.p[i]];
-      for (int i = 0; i < 2; ++i) {
-         union ref *r = &(&ins->l)[i];
-         if (r->bits == from.bits) *r = to;
-      }
-   }
-}
-
-void
-replref(struct function *fn, struct block *blk, int i0, union ref from, union ref to)
-{
-   do {
-      blkreplref(blk, i0, from, to);
-      i0 = 0;
-   } while ((blk = blk->lnext) != fn->entry);
-}
-
 static void
 freefn(struct function *fn)
 {
    struct block *blk = fn->entry;
    do {
+      if (blk->npred > 1) xbfree(blk->_pred);
       vfree(&blk->phi);
       vfree(&blk->ins);
-      blk = blk->lnext;
-   } while (blk != fn->entry);
+   } while ((blk = blk->lnext) != fn->entry);
 }
 
 void

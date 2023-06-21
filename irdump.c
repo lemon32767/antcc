@@ -73,6 +73,12 @@ dumpref(enum op o, union ref ref)
 {
    struct xcon *con;
    switch (ref.t) {
+   case RNONE:
+      if (ref.bits == UNDREF.bits)
+         efmt("undef");
+      else
+         efmt("??");
+      break;
    case RTMP:
       if (instrtab[ref.i].reg)
          efmt("%s", mctarg->rnames[instrtab[ref.i].reg - 1]);
@@ -191,6 +197,7 @@ dumpblk(struct function *fn, struct block *blk)
    for (i = 0; i < blk->phi.n; ++i) {
       struct instr *phi = &instrtab[blk->phi.p[i]];
       union ref *refs = phitab.p[phi->l.i];
+      assert(phi->op == Ophi);
       efmt("    %s %%%d = phi ", clsname[phi->cls], blk->phi.p[i]);
       for (int i = 0; i < blk->npred; ++i) {
          if (i) efmt(", ");

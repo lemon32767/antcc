@@ -393,7 +393,7 @@ int imap_set_(struct imapbase *, void **v, uint vsiz, short k);
                        (m)->mb.n = 0)
 #define imap_get(m, k) (((m)->tmp = imap_get_(&(m)->mb, k)) < 0 ? NULL : &(m)->v[(m)->tmp])
 #define imap_set(m, k, x) ((m)->tmp = imap_set_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, k), \
-                           (m)->v[(m)->tmp] = (x))
+                           (m)->v[(m)->tmp] = (x), &(m)->v[(m)->tmp])
 
 struct pmapbase { void **k; uint n, N; };
 /* map of non-null ptr -> T */
