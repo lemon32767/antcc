@@ -27,12 +27,13 @@ void
 irinit(struct function *fn)
 {
    static struct call callsbuf[64];
-   static struct phi phisbuf[64];
+   static union ref *phisbuf[64];
    static struct irdat datsbuf[64];
 
    ninstr = 0;
    instrfreelist = -1;
    vinit(&calltab, callsbuf, arraylength(callsbuf));
+   for (int i = 0; i < phitab.n; ++i) xbfree(phitab.p[i]);
    vinit(&phitab, phisbuf, arraylength(phisbuf));
    vinit(&dattab, datsbuf, arraylength(datsbuf));
    if (naddrht >= arraylength(addrht)/2)
@@ -218,6 +219,23 @@ mkaddr(struct addr addr)
    return mkref(RMORE, addaddr(&addr));
 }
 
+static inline void
+addpred(struct block *blk, struct block *p)
+{
+   if (blk->npred == 0) {
+      blk->_pred0 = p;
+      ++blk->npred;
+      return;
+   }
+   if (blk->npred == 1) {
+      struct block *p0 = blk->_pred0;
+      blk->_pred = 0;
+      xbgrow(&blk->_pred, 4);
+      *blk->_pred = p0;
+   }
+   xbpush(&blk->_pred, &blk->npred, p);
+}
+
 static inline int
 newinstr(void)
 {
@@ -230,15 +248,6 @@ newinstr(void)
    return ninstr++;
 }
 
-union ref
-addinstr(struct function *fn, struct instr ins)
-{
-   int new = newinstr();
-   assert(fn->curblk != NULL);
-   instrtab[new] = ins;
-   vpush(&fn->curblk->ins, new);
-   return mkref(RTMP, new);
-}
 
 union ref
 insertinstr(struct block *blk, int idx, struct instr ins)
@@ -268,51 +277,7 @@ delinstr(struct block *blk, int idx)
    --blk->ins.n;
 }
 
-union ref
-addphi2(struct function *fn, enum irclass cls,
-        struct block *b1, union ref r1, struct block *b2, union ref r2)
-{
-   int new;
-   struct phi phi = { .n = 2, .cap = -1 };
-   struct instr ins = { Ophi, cls };
-
-   phi.blk = alloc(&fn->arena, 2*sizeof(struct block *) + 2*sizeof r1, 0);
-   phi.ref = (union ref *)((char *)phi.blk + 2*sizeof(struct block *));
-   phi.blk[0] = b1;
-   phi.ref[0] = r1;
-   phi.blk[1] = b2;
-   phi.ref[1] = r2;
-   vpush(&phitab, phi);
-   ins.l = mkref(RMORE, phitab.n-1);
-   assert(fn->curblk != NULL);
-   assert(fn->curblk->ins.n == 0);
-   new = newinstr();
-   instrtab[new] = ins;
-   vpush(&fn->curblk->phi, new);
-   return mkref(RTMP, new);
-}
-
-union ref
-addphi(struct function *fn, enum irclass cls, struct block **blk, union ref *ref, uint n)
-{
-   int new;
-   struct phi phi = { .n = n, .cap = -1 };
-   struct instr ins = { Ophi, cls };
-
-   assert(n > 0);
-   phi.blk = alloc(&fn->arena, n*sizeof(struct block *) + n*sizeof(union ref), 0);
-   phi.ref = (union ref *)((char *)phi.blk + n*sizeof(struct block *));
-   memcpy(phi.blk, blk, n * sizeof(struct block *));
-   memcpy(phi.ref, ref, n * sizeof(union ref));
-   vpush(&phitab, phi);
-   ins.l = mkref(RMORE, phitab.n-1);
-   assert(fn->curblk != NULL);
-   assert(fn->curblk->ins.n == 0);
-   new = newinstr();
-   instrtab[new] = ins;
-   vpush(&fn->curblk->phi, new);
-   return mkref(RTMP, new);
-}
+/** IR builders **/
 
 struct block *
 newblk(struct function *fn)
@@ -339,6 +304,36 @@ useblk(struct function *fn, struct block *blk)
    fn->curblk = blk;
 }
 
+union ref
+addinstr(struct function *fn, struct instr ins)
+{
+   int new = newinstr();
+   assert(fn->curblk != NULL);
+   instrtab[new] = ins;
+   vpush(&fn->curblk->ins, new);
+   return mkref(RTMP, new);
+}
+
+union ref
+addphi(struct function *fn, enum irclass cls, union ref *r)
+{
+   int new;
+   struct instr ins = { Ophi, cls };
+   union ref **prefs;
+
+   vpush(&phitab, NULL);
+   prefs = &phitab.p[phitab.n - 1];
+   xbgrow(prefs, fn->curblk->npred);
+   memcpy(*prefs, r, fn->curblk->npred * sizeof *r);
+   ins.l = mkref(RMORE, phitab.n-1);
+   assert(fn->curblk != NULL);
+   assert(fn->curblk->ins.n == 0);
+   new = newinstr();
+   instrtab[new] = ins;
+   vpush(&fn->curblk->phi, new);
+   return mkref(RTMP, new);
+}
+
 #define putjump(fn, j, arg0, arg1, T, F) \
    fn->curblk->jmp.t = j;                \
    fn->curblk->jmp.arg[0] = arg0;        \
@@ -350,14 +345,17 @@ useblk(struct function *fn, struct block *blk)
 void
 putbranch(struct function *fn, struct block *blk)
 {
-   assert(blk);
+   assert(fn->curblk && blk);
+   addpred(blk, fn->curblk);
    putjump(fn, Jb, NOREF, NOREF, blk, NULL);
 }
 
 void
 putcondbranch(struct function *fn, union ref arg, struct block *t, struct block *f)
 {
-   assert(t && f);
+   assert(fn->curblk && t && f);
+   addpred(t, fn->curblk);
+   addpred(f, fn->curblk);
    putjump(fn, Jb, arg, NOREF, t, f);
 }
 
@@ -369,13 +367,15 @@ putreturn(struct function *fn, union ref r0, union ref r1)
 
 #undef putjump
 
+/** Misc **/
+
 void
 blkreplref(struct block *blk, int i0, union ref from, union ref to)
 {
    if (i0 == 0) for (int i = 0; i < blk->phi.n; ++i) {
-      struct phi *phi = &phitab.p[instrtab[blk->phi.p[i]].l.i];
-      for (int i = 0; i < phi->n; ++i)
-         if (phi->ref[i].bits == to.bits) phi->ref[i] = from;
+      union ref *phi = phitab.p[instrtab[blk->phi.p[i]].l.i];
+      for (int i = 0; i < blk->npred; ++i)
+         if (phi[i].bits == to.bits) phi[i] = from;
    }
 
    for (int i = i0; i < blk->ins.n; ++i) {

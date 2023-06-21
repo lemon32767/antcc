@@ -368,16 +368,16 @@ regalloc(struct function *fn)
          }
       }
       for (int i = blk->phi.n - 1; i >= 0; --i) {
-         struct phi *phi;
+         union ref *phi;
          ins = &instrtab[blk->phi.p[i]];
          assert(ins->op == Ophi);
-         phi = &phitab.p[ins->l.i];
+         phi = phitab.p[ins->l.i];
          if (ins->reg) {
             /* introduce necessary moves in each pred,
              * XXX this doesn't work for backwards branches */
-            for (int i = 0; i < phi->n; ++i) {
-               struct instr mov = mkinstr(Omove, insrescls(*ins), mkref(RREG, ins->reg-1), phi->ref[i]);
-               insertinstr(phi->blk[i], phi->blk[i]->ins.n, mov);
+            for (int i = 0; i < blk->npred; ++i) {
+               struct instr mov = mkinstr(Omove, insrescls(*ins), mkref(RREG, ins->reg-1), phi[i]);
+               insertinstr(blkpred(blk, i), blkpred(blk, i)->ins.n, mov);
             }
          }
          def(&ra, ins, NULL, 0);

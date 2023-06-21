@@ -58,12 +58,6 @@ struct call {
    struct abiarg abiret[2];
 };
 
-struct phi {
-   struct block **blk;
-   union ref *ref;
-   int n, cap;
-};
-
 enum refkind {
    RNONE,
    RTMP,   /* reference to another instruction's result */
@@ -125,11 +119,16 @@ enum jumpkind {
 
 struct block {
    int id;
+   int npred;
+   union {
+      struct block *_pred0;
+      struct block **_pred;
+   };
+   struct block *lprev, *lnext;
    struct block *s1, *s2;
    vec_of(ushort) phi;
    vec_of(ushort) ins;
    struct { uchar t; union ref arg[2]; } jmp;
-   struct block *lprev, *lnext;
 };
 
 enum { MAXREGS = 64 };
@@ -194,7 +193,7 @@ extern const uchar siz2intcls[];
 extern struct instr instrtab[];
 extern struct xcon conht[];
 extern struct calltab {vec_of(struct call);} calltab;
-extern struct phitab {vec_of(struct phi);} phitab;
+extern struct phitab {vec_of(union ref *);} phitab;
 extern struct dattab {vec_of(struct irdat);} dattab;
 extern struct addr addrht[];
 #define insrescls(ins) (oiscmp((ins).op) ? KI4 : (ins).cls)
@@ -226,17 +225,19 @@ void conputdat(struct irdat *, uint off, enum typetag t, const void *dat);
 union ref mkcallarg(union irtype ret, uint narg, int vararg);
 #define mkintrin(B, C, N) mkinstr(Ointrin, C, {.t=RICON,B}, mkcallarg((union irtype){{0}},N,-1))
 union ref mkaddr(struct addr);
-union ref addinstr(struct function *, struct instr);
 union ref insertinstr(struct block *, int idx, struct instr);
 void delinstr(struct block *, int idx);
-union ref addphi2(struct function *, enum irclass cls,
-                  struct block *b1, union ref r1, struct block *b2, union ref r2);
-union ref addphi(struct function *, enum irclass cls, struct block **blk, union ref *ref, uint n);
+#define blkpred(blk, i) 0[(blk)->npred < 2 ? &(blk)->_pred0 : &(blk)->_pred[i]]
+
+/* IR builder functions */
+union ref addinstr(struct function *, struct instr);
+union ref addphi(struct function *, enum irclass, union ref []);
 struct block *newblk(struct function *);
 void useblk(struct function *, struct block *);
 void putbranch(struct function *, struct block *);
 void putcondbranch(struct function *, union ref arg, struct block *t, struct block *f);
 void putreturn(struct function *, union ref r0, union ref r1);
+
 void blkreplref(struct block *, int, union ref from, union ref to);
 void replref(struct function *, struct block *, int, union ref from, union ref to);
 

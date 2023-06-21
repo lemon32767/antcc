@@ -1255,7 +1255,6 @@ Loop:
 }
 
 struct condphis {
-   vec_of(struct block *) blk;
    vec_of(union ref) ref;
 };
 
@@ -1289,7 +1288,6 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
       condexprrec(fn, &ex->sub[2], phis, -1, end, zero);
    } else {
       r = exprvalue(fn, ex);
-      vpush(&phis->blk, fn->curblk);
       if (boolcon == -2)
          r = cvt(fn, TYBOOL, ex->ty.t, r);
       if (boolcon >= 0)
@@ -1303,6 +1301,23 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
          putbranch(fn, end);
       }
    }
+}
+
+/* the naive way to generate something like a ? b : c ? d : e, uses multiple phis,
+ * this code reduces such nested conditional expressions into one phi */
+static union ref
+condexprvalue(struct function *fn, const struct expr *ex)
+{
+   union ref refbuf[8];
+   struct condphis phis = { VINIT(refbuf, arraylength(refbuf)) };
+   struct block *dst = newblk(fn);
+   union ref r;
+   condexprrec(fn, ex, &phis, -1, dst, NULL);
+   useblk(fn, dst);
+   assert(fn->curblk->npred == phis.ref.n);
+   r = addphi(fn, type2cls[ex->ty.t], phis.ref.p);
+   vfree(&phis.ref);
+   return r;
 }
 
 static union ref
@@ -1333,25 +1348,6 @@ compilecall(struct function *fn, const struct expr *ex)
    vfree(&insns);
    ins.r = mkcallarg(mkirtype(ex->ty), ex->narg, td->variadic ? td->nmemb : td->kandr ? 0 : -1);
    return addinstr(fn, ins);
-}
-
-/* the naive way to generate something like a ? b : c ? d : e, uses multiple phis,
- * this code reduces such nested conditional expressions into one phi */
-static union ref
-condexprvalue(struct function *fn, const struct expr *ex)
-{
-   struct block *blkbuf[8];
-   union ref refbuf[8];
-   struct condphis phis = { VINIT(blkbuf, arraylength(blkbuf)),
-                            VINIT(refbuf, arraylength(refbuf))};
-   struct block *dst = newblk(fn);
-   union ref r;
-   condexprrec(fn, ex, &phis, -1, dst, NULL);
-   useblk(fn, dst);
-   r = addphi(fn, type2cls[ex->ty.t], phis.blk.p, phis.ref.p, phis.blk.n);
-   vfree(&phis.blk);
-   vfree(&phis.ref);
-   return r;
 }
 
 static union ref

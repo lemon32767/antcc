@@ -329,10 +329,32 @@ struct arena {
 
 #define vec_of(T) struct { T *p; int _cap; uint n; }
 
+/* libc *alloc wrappers */
 extern void *xcalloc(size_t n, const char *);
 extern void *xrealloc(void *, size_t n, const char *);
 #define xcalloc(n) xcalloc(n, __func__)
 #define xrealloc(p,n) xrealloc(p, n, __func__)
+
+/* growable buffer that stores its capacity in the allocated memory */
+#define xbnew_(n) (void *)(1 + (size_t *)xcalloc(sizeof(size_t) + (n)))
+#define xbcap_(p) ((size_t *)(p))[-1]
+static inline void
+xbgrow_(void **p, size_t n)
+{
+   if (!n) return;
+   if (!*p) { *p = xbnew_(n); xbcap_(*p) = n; assert(n>0); }
+   else if (xbcap_(*p) < n) {
+      size_t k = xbcap_(*p);
+      assert(k > 0);
+      do k *= 2; while (k < n);
+      *p = 1 + (size_t *)xrealloc(&xbcap_(*(p)), sizeof(size_t) + k);
+      xbcap_(*p) = k;
+   };
+}
+#define xbgrow(p, n) xbgrow_((void **)(p), (n) * sizeof**(p))
+#define xbpush(p, n, x) (xbgrow(p, (*(n) + 1)), (*(p))[(*(n))++] = (x))
+#define xbfree(p) ((p) ? free(&xbcap_(p)) : (void)0)
+
 struct arena *newarena(uint chunksiz);
 void *alloc(struct arena **, uint siz, uint align);
 static inline void *
@@ -341,6 +363,7 @@ alloccopy(struct arena **arena, const void *src, uint siz, uint align)
    return memcpy(alloc(arena, siz, align), src, siz);
 }
 void freearena(struct arena *);
+
 void vinit_(void **p, int *pcap, void *inlbuf, int cap, uint siz);
 void vpush_(void **p, int *pcap, uint *pn, uint siz);
 void *vpushn_(void **p, int *pcap, uint *pn, uint siz, const void *dat, uint ndat);

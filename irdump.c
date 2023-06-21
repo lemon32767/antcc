@@ -104,15 +104,7 @@ dumpref(enum op o, union ref ref)
       prityp(ref2type(ref));
       break;
    case RMORE:
-      if (o == Ophi) {
-         struct phi *phi = &phitab.p[ref.i];
-         assert(phitab.n > ref.i);
-         for (int i = 0; i < phi->n; ++i) {
-            if (i) efmt(", ");
-            efmt("@%d ", phi->blk[i]->id);
-            dumpref(0, phi->ref[i]);
-         }
-      } else {
+      {
          const struct addr *addr = &addrht[ref.i];
          bool k = 0;
          efmt("addr [");
@@ -197,7 +189,15 @@ dumpblk(struct function *fn, struct block *blk)
    int i;
    efmt("  @%d:\n", blk->id);
    for (i = 0; i < blk->phi.n; ++i) {
-      dumpinst(&instrtab[blk->phi.p[i]]);
+      struct instr *phi = &instrtab[blk->phi.p[i]];
+      union ref *refs = phitab.p[phi->l.i];
+      efmt("    %s %%%d = phi ", clsname[phi->cls], blk->phi.p[i]);
+      for (int i = 0; i < blk->npred; ++i) {
+         if (i) efmt(", ");
+         efmt("@%d ", blkpred(blk, i)->id);
+         dumpref(0, refs[i]);
+      }
+      efmt("\n");
    }
    for (i = 0; i < blk->ins.n; ++i) {
       dumpinst(&instrtab[blk->ins.p[i]]);

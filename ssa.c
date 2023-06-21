@@ -30,9 +30,9 @@ ssauses(struct function *fn)
    do {
       for (int i = 0; i < blk->phi.n; ++i) {
          int ins = blk->phi.p[i];
-         struct phi *phi = &phitab.p[instrtab[ins].l.i];
-         for (int i = 0; i < phi->n; ++i) {
-            USE(phi->ref[i], 0, ins);
+         union ref *phi = phitab.p[instrtab[ins].l.i];
+         for (int i = 0; i < blk->npred; ++i) {
+            USE(phi[i], 0, ins);
          }
       }
       for (int i = 0; i < blk->ins.n; ++i) {

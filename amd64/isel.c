@@ -413,10 +413,10 @@ amd64_isel(struct function *fn)
    do {
       int i;
       for (i = 0; i < blk->phi.n; ++i) {
-         struct phi *phi = &phitab.p[instrtab[blk->phi.p[i]].l.i];
-         for (int i = 0; i < phi->n; ++i) {
-            int curi = phi->blk[i]->ins.n;
-            fixarg(&phi->ref[i], NULL, phi->blk[i], &curi);
+         union ref *phi = phitab.p[instrtab[blk->phi.p[i]].l.i];
+         for (int i = 0; i < blk->npred; ++i) {
+            int curi = blkpred(blk, i)->ins.n;
+            fixarg(&phi[i], NULL, blkpred(blk, i), &curi);
          }
       }
       iflagsrc = -1;
