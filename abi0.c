@@ -316,7 +316,7 @@ abi0(struct function *fn)
       do {
          union ref arg = blk->jmp.arg[0];
          if (blk->jmp.t != Jret) continue;
-         if (!arg.t) continue;
+         if (!arg.bits) continue;
          if (arg.t != RTMP || !oisalloca(instrtab[arg.i].op)) {
             rvovar = -1;
             break;
@@ -342,8 +342,8 @@ abi0(struct function *fn)
       }
 
       /* adjust returns */
-      if (isagg(fn->retty) && blk->jmp.t == Jret && blk->jmp.arg[0].t) {
-         assert(!blk->jmp.arg[1].t);
+      if (isagg(fn->retty) && blk->jmp.t == Jret && blk->jmp.arg[0].bits) {
+         assert(!blk->jmp.arg[1].bits);
          if (fn->nabiret) { /* aggregate return in register(s) */
             union ref src = blk->jmp.arg[0];
             for (int i = 0; i < fn->nabiret; ++i) {

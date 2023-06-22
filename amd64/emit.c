@@ -38,7 +38,7 @@ ref2oper(union ref r)
       else if (!conht[r.i].cls)
          return mkoper(OCONR, .con = r.i);
       assert(0);
-   case RMORE: return mkmemoper(r);
+   case RADDR: return mkmemoper(r);
    default: assert(0);
    }
 }
@@ -108,19 +108,19 @@ mkmemoper(union ref r)
       if (wop.t == OMEM) return wop;
       assert(wop.t == OREG);
       return mkoper(OMEM, .base = wop.reg, .index = NOINDEX);
-   } else if (r.t == RMORE) {
+   } else if (r.t == RADDR) {
       const struct addr *addr = &addrht[r.i];
       struct oper mem;
       if (addr->base.t == RTMP && ioper[addr->base.i].t == OMEM) {
          mem = ioper[addr->base.i];
-         if (addr->index.t) addmemoper(&mem, mkregoper(addr->index));
+         if (addr->index.bits) addmemoper(&mem, mkregoper(addr->index));
          assert(!mem.shift);
          mem.shift = addr->shift;
          addmemoper(&mem, mkoper(OIMM, .imm = addr->disp));
          return mem;
       }
-      return mkoper(OMEM, .base = addr->base.t ? mkregoper(addr->base).reg : NOBASE,
-                          .index = addr->index.t ? mkregoper(addr->index).reg : NOINDEX,
+      return mkoper(OMEM, .base = addr->base.bits ? mkregoper(addr->base).reg : NOBASE,
+                          .index = addr->index.bits ? mkregoper(addr->index).reg : NOINDEX,
                           .disp = addr->disp,
                           .shift = addr->shift);
    } else if (r.t == RXCON) {
@@ -565,7 +565,7 @@ flagslivep(struct block *blk, int curi)
 {
    int cmpi;
    /* conditional branch that references a previous comparison instruction? */
-   if (blk->jmp.t != Jb || !blk->jmp.arg[0].t)
+   if (blk->jmp.t != Jb || !blk->jmp.arg[0].bits)
       return 0;
    assert(blk->jmp.arg[0].t == RTMP);
    cmpi = blk->jmp.arg[1].i;
@@ -583,29 +583,29 @@ static void
 gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct oper dst, union ref val)
 {
    assert(dst.t == OREG);
-   if (val.t == RMORE) {
+   if (val.t == RADDR) {
       /* this is a LEA, but maybe it can be lowered to a 2-address instruction,
        * which may clobber flags */
       const struct addr *addr = &addrht[val.i];
       if (flagslivep(blk, curi)) goto Lea;
-      if (addr->base.t && dst.reg == mkregoper(addr->base).reg) { /* base = dst */
-         if (addr->index.t && !addr->disp && !addr->shift){
+      if (addr->base.bits && dst.reg == mkregoper(addr->base).reg) { /* base = dst */
+         if (addr->index.bits && !addr->disp && !addr->shift){
             /* lea Rx, [Rx + Ry] -> add Rx, Ry */
             Xadd(pcode, cls, dst, mkregoper(addr->index));
             return;
-         } else if (!addr->index.t) {
+         } else if (!addr->index.bits) {
             if (!addr->disp) /* lea Rx, [Rx] -> mov Rx, Rx */
                Xmov(pcode, cls, dst, dst);
             else /* lea Rx, [Rx + Imm] -> add Rx, Imm */
                Xadd(pcode, cls, dst, mkoper(OIMM, .imm = addr->disp));
             return;
          }
-      } else if (addr->index.t && dst.reg == mkregoper(addr->index).reg) { /* index = dst */
-         if (addr->base.t && !addr->disp && !addr->shift) {
+      } else if (addr->index.bits && dst.reg == mkregoper(addr->index).reg) { /* index = dst */
+         if (addr->base.bits && !addr->disp && !addr->shift) {
             /* lea Rx, [Ry + Rx] -> add Rx, Ry */
             Xadd(pcode, cls, dst, mkregoper(addr->base));
             return;
-         } else if (!addr->base.t) {
+         } else if (!addr->base.bits) {
             if (!addr->disp && !addr->shift) /* lea Rx, [Rx] -> mov Rx, Rx */
                Xmov(pcode, cls, dst, dst);
             else if (!addr->shift) /* lea Rx, [Rx + Imm] -> add Rx, Imm */
@@ -789,7 +789,7 @@ emitbranch(uchar **pcode, struct block *blk)
       /* conditional branch.. */
       union ref arg = blk->jmp.arg[0];
 
-      if (!arg.t) /* implicit by ZF */
+      if (!arg.bits) /* implicit by ZF */
          cc = CCNZ;
       else {
          struct instr *ins;

@@ -146,7 +146,7 @@ static bool
 ascale(struct addr *addr, union ref a, union ref b)
 {
    if (b.t != RICON) return 0;
-   if (addr->index.t) return 0;
+   if (addr->index.bits) return 0;
    if (a.t != RTMP && a.t != RREG) return 0;
    if ((unsigned)b.i > 3) return 0;
    addr->shift = b.i;
@@ -167,11 +167,11 @@ aadd(struct addr *addr, union ref r)
       } else if (ins->op == Oshl) {
          if (!ascale(addr, ins->l, ins->r)) goto Ref;
          ins->skip = 1;
-      } else if (ins->op == Ocopy && ins->l.t == RMORE) {
+      } else if (ins->op == Ocopy && ins->l.t == RADDR) {
          struct addr save = *addr, *addr2 = &addrht[ins->l.i];
-         if ((!addr2->base.t || aadd(addr, addr2->base))
+         if ((!addr2->base.bits || aadd(addr, addr2->base))
           && acon(addr, mkintcon(KI4, addr2->disp))
-          && (!addr2->index.t || ascale(addr, addr2->index, mkref(RICON, addr2->shift))))
+          && (!addr2->index.bits || ascale(addr, addr2->index, mkref(RICON, addr2->shift))))
          {
             ins->skip = 1;
          } else {
@@ -189,8 +189,8 @@ aadd(struct addr *addr, union ref r)
        * safely hoisted into an address value, unless they have global lifetime */
       if (!bstest(mctarg->rglob, r.i)) return 0;
    Ref:
-      if (!addr->base.t) addr->base = r;
-      else if (!addr->index.t) addr->index = r;
+      if (!addr->base.bits) addr->base = r;
+      else if (!addr->index.bits) addr->index = r;
       else return 0;
    } else return 0;
    return 1;
@@ -201,7 +201,7 @@ fuseaddr(union ref *r)
 {
    struct addr addr = { 0 };
 
-   if (r->t == RMORE) return 1;
+   if (r->t == RADDR) return 1;
    if (r->t == RXCON && (!conht[r->i].cls && !conht[r->i].deref)) return 1;
    if (r->t != RTMP) return 0;
    if (!aadd(&addr, *r)) return 0;
@@ -216,7 +216,7 @@ addarg4addrp(union ref r)
 {
    struct instr *ins = &instrtab[r.i];
    if (r.t != RTMP) return 0;
-   return ins->op == Oshl || (ins->op == Ocopy && ins->l.t == RMORE) || ins->op == Oadd;
+   return ins->op == Oshl || (ins->op == Ocopy && ins->l.t == RADDR) || ins->op == Oadd;
 }
 
 static void
@@ -344,7 +344,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          ins->inplace = 1;
       if (ins->l.t != RTMP && ins->l.t != RREG)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
-      if (ins->r.t)
+      if (ins->r.bits)
    case Omove:
          fixarg(&ins->r, ins, blk, curi);
       break;
@@ -367,7 +367,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 static void
 seljmp(struct function *fn, struct block *blk)
 {
-   if (blk->jmp.t == Jb && blk->jmp.arg[0].t) {
+   if (blk->jmp.t == Jb && blk->jmp.arg[0].bits) {
       union ref c = blk->jmp.arg[0];
       if (c.t != RTMP) {
          enum irclass cls = c.t == RICON ? KI4 : c.t == RXCON && conht[c.i].cls ? conht[c.i].cls : KPTR;
@@ -385,14 +385,14 @@ seljmp(struct function *fn, struct block *blk)
          }
       }
    } else if (blk->jmp.t == Jret) {
-      if (blk->jmp.arg[0].t) {
+      if (blk->jmp.arg[0].bits) {
          int curi;
          union ref r = mkref(RREG, fn->abiret[0].reg);
          struct instr *ins = &instrtab[insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[0].ty.cls, r , blk->jmp.arg[0])).i];
          curi = blk->ins.n;
          fixarg(&ins->r, ins, blk, &curi);
          blk->jmp.arg[0] = r;
-         if (blk->jmp.arg[1].t) {
+         if (blk->jmp.arg[1].bits) {
             r = mkref(RREG, fn->abiret[1].reg);
             ins = &instrtab[insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[1].ty.cls, r, blk->jmp.arg[1])).i];
             curi = blk->ins.n;

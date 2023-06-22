@@ -73,7 +73,7 @@ dumpref(enum op o, union ref ref)
 {
    struct xcon *con;
    switch (ref.t) {
-   case RNONE:
+   case RXXX:
       if (ref.bits == UNDREF.bits)
          efmt("undef");
       else
@@ -109,13 +109,13 @@ dumpref(enum op o, union ref ref)
    case RTYPE:
       prityp(ref2type(ref));
       break;
-   case RMORE:
+   case RADDR:
       {
          const struct addr *addr = &addrht[ref.i];
          bool k = 0;
          efmt("addr [");
-         if ((k = addr->base.t)) dumpref(0, addr->base);
-         if (addr->index.t) {
+         if ((k = addr->base.bits)) dumpref(0, addr->base);
+         if (addr->index.bits) {
             if (k) efmt(" + ");
             dumpref(0, addr->index);
             if (addr->shift)
@@ -210,13 +210,13 @@ dumpblk(struct function *fn, struct block *blk)
       dumpinst(&instrtab[blk->ins.p[i]]);
    }
    efmt("    %s ", jnames[blk->jmp.t]);
-   if (blk->jmp.arg[0].t && !fn->nabiret && isagg(fn->retty)) {
+   if (blk->jmp.arg[0].bits && !fn->nabiret && isagg(fn->retty)) {
       /* un-lowered struct return */
       dumpref(0, mktyperef(mkirtype(fn->retty)));
       efmt(" ");
    }
    for (i = 0; i < 2; ++i) {
-      if (!blk->jmp.arg[i].t) break;
+      if (!blk->jmp.arg[i].bits) break;
       if (i > 0) efmt(", ");
       dumpref(0, blk->jmp.arg[i]);
    }

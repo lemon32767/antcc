@@ -59,13 +59,13 @@ struct call {
 };
 
 enum refkind {
-   RNONE,
-   RTMP,   /* reference to another instruction's result */
-   RREG,   /* machine register */
-   RICON,  /* small integer constants */
-   RXCON,  /* other constants (incl. external symbols) */
-   RMORE,  /* Ocall -> calltab idx, Ophi -> phitab idx, else -> addrtab idx */
-   RTYPE,  /* irtype */
+   RXXX,  /* used for empty ref (zeros), undef, and the special args of call,phi,etc */
+   RTMP,  /* reference to another instruction's result */
+   RREG,  /* machine register */
+   RICON, /* small integer constants */
+   RXCON, /* other constants (incl. external symbols) */
+   RADDR, /* target-specific addressing mode */
+   RTYPE, /* irtype */
 };
 
 union ref {
@@ -77,6 +77,14 @@ struct addr {
    union ref base, index;
    int shift, disp;
 };
+
+#define insrescls(ins) (oiscmp((ins).op) ? KI4 : (ins).cls)
+#define NOREF ((union ref) {0})
+#define UNDREF ((union ref) {{ 0, -1 }})
+#define ZEROREF ((union ref) {{ RICON, 0 }})
+#define mkref(t, x) ((union ref) {{ (t), (x) }})
+#define mktyperef(t) ((union ref) {{ RTYPE, (t).bits }})
+#define ref2type(r) ((union irtype) {.bits = (r).i})
 
 enum op {
    Oxxx,
@@ -195,13 +203,6 @@ extern struct calltab {vec_of(struct call);} calltab;
 extern struct phitab {vec_of(union ref *);} phitab;
 extern struct dattab {vec_of(struct irdat);} dattab;
 extern struct addr addrht[];
-#define insrescls(ins) (oiscmp((ins).op) ? KI4 : (ins).cls)
-#define NOREF ((union ref) {0})
-#define UNDREF ((union ref) {{ 0, -1 }})
-#define ZEROREF ((union ref) {{ RICON, 0 }})
-#define mkref(t, x) ((union ref) {{ (t), (x) }})
-#define mktyperef(t) ((union ref) {{ RTYPE, (t).bits }})
-#define ref2type(r) ((union irtype) {.bits = (r).i})
 #define mkinstr(O, C, ...) ((struct instr) { .op = (O), .cls = (C), .reg=0, __VA_ARGS__ })
 #define mkarginstr(ty, x) mkinstr(Oarg, 0, mktyperef(ty), (x))
 void irinit(struct function *);

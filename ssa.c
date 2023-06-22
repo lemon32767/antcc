@@ -19,8 +19,6 @@ filluses(struct function *fn)
       }
       for (int i = 0; i < blk->ins.n; ++i) {
          int ins = blk->ins.p[i];
-         assert(instrtab[ins].l.t != RMORE);
-         if (instrtab[ins].op != Ocall) assert(instrtab[ins].l.t != RMORE);
          adduse(blk, ins, instrtab[ins].l);
          adduse(blk, ins, instrtab[ins].r);
       }

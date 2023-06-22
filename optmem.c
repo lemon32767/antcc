@@ -114,10 +114,10 @@ static union ref
 readvar(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
 {
    union ref **pcurdefs;
-   if ((pcurdefs = imap_get(&sb->curdefs, var)) && (*pcurdefs)[blk->id].t)
+   if ((pcurdefs = imap_get(&sb->curdefs, var)) && (*pcurdefs)[blk->id].bits)
       return (*pcurdefs)[blk->id];
    if (blk->npred == 0) /* entry block, var is read before being written to */
-      return NOREF;
+      return UNDREF;
    return readvarrec(sb, var, cls, blk);
 }
 
@@ -172,7 +172,7 @@ mem2reg(struct function *fn)
                *m = mkinstr(Onop,0,);
             } else if (oisload(m->op)) {
                union ref val = readvar(&sb, var, k, use->blk);
-               if (!val.t) { /* var is used uninitialized */
+               if (!val.bits) { /* var is used uninitialized */
                   /* TODO emit diagnostic */
                   /* load some garbage */
                   *m = mkinstr(kisflt(k) ? Oloadf4 + (k==KF8) : Oloads1+ilog2(sz)*2,

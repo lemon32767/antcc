@@ -69,7 +69,7 @@ def(struct rega *ra, struct instr *ins, struct block *blk, int curi)
 
          if ((ins->op == Ocopy || ins->inplace) && ins->l.t == RREG) {
             int hint = ins->l.i;
-            if (!ra->regs[hint].t) {
+            if (!ra->regs[hint].bits) {
                take(ra, reg = hint, mkref(RTMP, var));
                assert(ra->regs[reg].bits == mkref(RTMP, var).bits);
             }
@@ -104,7 +104,7 @@ def(struct rega *ra, struct instr *ins, struct block *blk, int curi)
 static void
 take(struct rega *ra, int reg, union ref ref) {
    DBG("-- take %s for %c%d\n", mctarg->rnames[reg], "R%"[ref.t==RTMP], ref.i);
-   assert(!ra->regs[reg].t && "taken");
+   assert(!ra->regs[reg].bits && "taken");
    if (ref.t == RTMP)
       ra->allocs[ref.i] = areg(reg);
    ra->regs[reg] = ref;
@@ -129,7 +129,7 @@ allocreg(struct rega *ra, enum irclass cls, union ref ref, uvlong excl)
    } else assert(0);
    for (reg = r0; reg < rend; ++reg) {
       if (bstest(mctarg->rglob, reg)) continue;
-      if (!(excl >> reg & 1) && !ra->regs[reg].t) {
+      if (!(excl >> reg & 1) && !ra->regs[reg].bits) {
          take(ra, reg, ref);
          return reg;
       }
@@ -158,9 +158,9 @@ spill(struct rega *ra, int reg, struct block *blk, int curi) {
    int var, s;
    struct instr load;
 
-   if (!ra->regs[reg].t) return;
+   if (!ra->regs[reg].bits) return;
    var = ra->regs[reg].i;
-   assert(ra->regs[reg].t == RTMP && *(ushort *)&ra->allocs[var] == *(ushort *)&areg(reg));
+   assert(ra->regs[reg].bits == RTMP && *(ushort *)&ra->allocs[var] == *(ushort *)&areg(reg));
    s = allocstk(ra, var);
    DBG("-- spill %%%d %s -> s%d\n", var, mctarg->rnames[reg], s);
    instrtab[var].reg = 0;
@@ -179,11 +179,11 @@ forcetake(struct rega *ra, int reg, union ref ref, struct block *blk, int curi) 
    struct alloc *alloc;
 
    if (ra->regs[reg].bits == ref.bits) return;
-   if (!ra->regs[reg].t) {
+   if (!ra->regs[reg].bits) {
       take(ra, reg, ref);
       return;
    }
-   assert(ra->regs[reg].t == RTMP);
+   assert(ra->regs[reg].bits == RTMP);
    var = ra->regs[reg].i;
    alloc = &ra->allocs[var];
    assert(alloc->a == reg);
@@ -217,10 +217,10 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
    struct instr *ins;
    uvlong excl = other.t == RREG ? 1ull<<other.i : 0;
 
-   if (ref->t == RMORE) {
+   if (ref->t == RADDR) {
       struct addr addr = addrht[ref->i];
-      if (addr.base.t) use(ra, blk, curi, 0, hint, &addr.base, addr.index);
-      if (addr.index.t) use(ra, blk, curi, 0, hint, &addr.index, NOREF);
+      if (addr.base.bits) use(ra, blk, curi, 0, hint, &addr.base, addr.index);
+      if (addr.index.bits) use(ra, blk, curi, 0, hint, &addr.index, NOREF);
       *ref = mkaddr(addr);
       return;
    } else if (ref->t == RREG) {
@@ -238,10 +238,10 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
 
       assert(ins->op != Ocall);
       if (ins->r.t == RREG && ins->inplace) excl |= 1ull<<ins->r.i;
-      if ((hint == -1 || ra->regs[hint].t) && ins->op == Ocopy && ins->l.t == RREG)
+      if ((hint == -1 || ra->regs[hint].bits) && ins->op == Ocopy && ins->l.t == RREG)
          /* for '%x = copy Rx', hint %x to use Rx */
          hint = ins->l.i;
-      if (hint != -1 && !(excl >> hint & 1) && !ra->regs[hint].t) {
+      if (hint != -1 && !(excl >> hint & 1) && !ra->regs[hint].bits) {
          take(ra, hint, *ref);
          ins->reg = hint + 1;
       } else {
@@ -294,7 +294,7 @@ regalloc(struct function *fn)
    blk = last;
    do {
       for (int i = 0; i < 2; ++i) {
-         if (!blk->jmp.arg[i].t) break;
+         if (!blk->jmp.arg[i].bits) break;
          /* do not allocate a reg for a cmp op used a branch argument, since it's a pseudo op */
          if (blk->jmp.t == Jb && blk->jmp.arg[i].t == RTMP && oiscmp(instrtab[blk->jmp.arg[i].i].op))
             break;
@@ -324,8 +324,8 @@ regalloc(struct function *fn)
                   use(&ra, blk, i, ins->op, hint0, &ins->r, NOREF);
                   use(&ra, blk, i, ins->op, hint0, &ins->l, ins->r);
                } else {
-                  if (ins->l.t) use(&ra, blk, i, ins->op, hint0, &ins->l, ins->r);
-                  if (ins->r.t) use(&ra, blk, i, ins->op, hint1, &ins->r, NOREF);
+                  if (ins->l.bits) use(&ra, blk, i, ins->op, hint0, &ins->l, ins->r);
+                  if (ins->r.bits) use(&ra, blk, i, ins->op, hint1, &ins->r, NOREF);
                }
             }
          } else {

@@ -69,7 +69,7 @@ addaddr(const struct addr *addr)
    uint i = h, n = arraylength(addrht);
    for (;; ++i) {
       i &= arraylength(addrht) - 1;
-      if (!addrht[i].base.t && !addrht[i].index.t) {
+      if (!addrht[i].base.bits && !addrht[i].index.bits) {
          addrht[i] = *addr;
          ++naddrht;
          return i;
@@ -213,13 +213,13 @@ mkcallarg(union irtype ret, uint narg, int vararg)
    struct call call = { .ret=ret, .narg=narg, .vararg=vararg };
    assert((long) vararg <= narg);
    vpush(&calltab, call);
-   return mkref(RMORE, calltab.n-1);
+   return mkref(RXXX, calltab.n-1);
 }
 
 union ref
 mkaddr(struct addr addr)
 {
-   return mkref(RMORE, addaddr(&addr));
+   return mkref(RADDR, addaddr(&addr));
 }
 
 static inline void
@@ -327,7 +327,7 @@ insertphi(struct block *blk, enum irclass cls)
    xbgrow(&refs, blk->npred);
    memset(refs, 0, blk->npred * sizeof *refs);
    vpush(&phitab, refs);
-   instrtab[new] = mkinstr(Ophi, cls, mkref(RMORE, phitab.n - 1));
+   instrtab[new] = mkinstr(Ophi, cls, mkref(RXXX, phitab.n - 1));
    vpush(&blk->phi, new);
    return mkref(RTMP, new);
 }
@@ -449,7 +449,7 @@ addphi(struct function *fn, enum irclass cls, union ref *r)
    xbgrow(&refs, fn->curblk->npred);
    memcpy(refs, r, fn->curblk->npred * sizeof *r);
    vpush(&phitab, refs);
-   ins.l = mkref(RMORE, phitab.n-1);
+   ins.l = mkref(RXXX, phitab.n-1);
 
    assert(fn->curblk != NULL);
    assert(fn->curblk->ins.n == 0);
