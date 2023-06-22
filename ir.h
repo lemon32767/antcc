@@ -228,9 +228,10 @@ union ref mkaddr(struct addr);
 void adduse(struct block *ublk, int ui, union ref r);
 union ref insertinstr(struct block *, int idx, struct instr);
 union ref insertphi(struct block *, enum irclass cls);
-void replcins(union ref from, union ref to);
+void replcuses(union ref from, union ref to);
 void deluses(int ins);
 void delinstr(struct block *, int idx);
+void delphi(struct block *, int idx);
 #define blkpred(blk, i) 0[(blk)->npred < 2 ? &(blk)->_pred0 : &(blk)->_pred[i]]
 
 /* IR builder functions */

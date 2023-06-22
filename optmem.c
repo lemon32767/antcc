@@ -49,25 +49,22 @@ deltrivialphis(struct block *blk, union ref phiref)
       same = UNDREF; /* the phi is unreachable or in the start block */
 
    /* replace uses */
-   replcins(phiref, same);
+   replcuses(phiref, same);
 
-   /* remove phi */
-   for (int i = 0; i < blk->phi.n; ++i) {
-      if (blk->phi.p[i] == phiref.i) {
-         for (int k = i; k < blk->phi.n - 1; ++k)
-            blk->phi.p[k] = blk->phi.p[k + 1];
-         --blk->phi.n;
-         break;
-      }
-   }
    instrtab[phiref.i].op = Onop;
 
    /* recursively try to remove all phi users as they might have become trivial */
    for (use = instruse[phiref.i], uend = use + instrnuse[phiref.i]; use < uend; ++use)
-      if (use->u != USERJUMP && instrtab[use->u].op == Ophi && use->u != phiref.i)
+      if (use->u != USERJUMP && instrtab[use->u].op == Ophi)
          deltrivialphis(use->blk, mkref(RTMP, use->u));
 
-   deluses(phiref.i);
+   /* remove phi */
+   for (int i = 0; i < blk->phi.n; ++i) {
+      if (blk->phi.p[i] == phiref.i) {
+         delphi(blk, i);
+         break;
+      }
+   }
    return same;
 }
 
@@ -187,7 +184,7 @@ mem2reg(struct function *fn)
             }
          }
          /* remove alloca */
-         delinstr(blk, i);
+         delinstr(blk, i--);
          
       Next:;
       }

@@ -250,7 +250,7 @@ newinstr(void)
       assert(ninstr < arraylength(instrtab));
       t = ninstr++;
    }
-   if (instrnuse[t] > 2)
+   if (instrnuse[t] > arraylength(*instrusebuf))
       xbfree(instruse[t]);
    instruse[t] = instrusebuf[t];
    instrnuse[t] = 0;
@@ -261,17 +261,41 @@ void
 adduse(struct block *ublk, int ui, union ref r) {
    struct use user = { ublk, ui };
    if (r.t != RTMP) return;
-   if (instrnuse[r.i] < 2) {
+   if (instrnuse[r.i] < arraylength(*instrusebuf)) {
       instruse[r.i][instrnuse[r.i]++] = user;
    } else if (instrnuse[r.i] == arraylength(*instrusebuf)) {
       struct use *use = NULL;
       xbgrow(&use, arraylength(*instrusebuf) + 2);
-      memcpy(use, instruse[r.i], arraylength(*instrusebuf) * sizeof *use);
+      memcpy(use, instruse[r.i], sizeof(*instrusebuf));
       use[instrnuse[r.i]++] = user;
       instruse[r.i] = use;
    } else {
       xbpush(&instruse[r.i], &instrnuse[r.i], user);
    }
+}
+
+bool
+deluse(struct block *ublk, int ui, union ref r) {
+   if (r.t != RTMP) return 0;
+
+   for (int i = 0; i < instrnuse[r.i]; ++i) {
+      if (instruse[r.i][i].blk == ublk && instruse[r.i][i].u == ui) {
+         for (int k = i; k < instrnuse[r.i] - 1; ++k) {
+            instruse[r.i][k] = instruse[r.i][k+1];
+         }
+         goto Shrink;
+      }
+   }
+   return 0;
+
+Shrink:
+   if (instrnuse[r.i] == arraylength(*instrusebuf) + 1) {
+      struct use *use = instruse[r.i];
+      instruse[r.i] = instrusebuf[r.i];
+      memcpy(instruse[r.i], use, sizeof *instrusebuf);
+   }
+   --instrnuse[r.i];
+   return 1;
 }
 
 union ref
@@ -310,7 +334,7 @@ insertphi(struct block *blk, enum irclass cls)
 
 /* require use */
 void
-replcins(union ref from, union ref to)
+replcuses(union ref from, union ref to)
 {
    struct use *use, *uend;
 
@@ -333,7 +357,9 @@ replcins(union ref from, union ref to)
       
       for (i = 0; i < n; ++i) {
          if (u[i].bits == from.bits) {
+            deluse(use->blk, use->u, u[i]);
             u[i].bits = to.bits;
+            adduse(use->blk, use->u, u[i]);
             break;
          }
       }
@@ -359,6 +385,19 @@ delinstr(struct block *blk, int idx)
    for (int i = idx; i < blk->ins.n; ++i)
       blk->ins.p[i] = blk->ins.p[i + 1];
    --blk->ins.n;
+}
+
+void
+delphi(struct block *blk, int idx)
+{
+   int t = blk->phi.p[idx];
+   assert(idx >= 0 && idx < blk->phi.n);
+   memcpy(&instrtab[t], &instrfreelist, sizeof(int));
+   instrfreelist = t;
+   deluses(t);
+   for (int i = idx; i < blk->phi.n; ++i)
+      blk->phi.p[i] = blk->phi.p[i + 1];
+   --blk->phi.n;
 }
 
 /** IR builders **/
