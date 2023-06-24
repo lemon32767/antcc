@@ -376,30 +376,29 @@ insertphi(struct block *blk, enum irclass cls)
 void
 replcuses(union ref from, union ref to)
 {
-   struct use *use, *uend;
-
    assert(from.t == RTMP);
-   uend = (use = instruse[from.i]) + instrnuse[from.i];
-   for (; use < uend; ++use) {
+   for (int i = 0; i < instrnuse[from.i]; ++i) {
+      struct use use = instruse[from.i][i];
       union ref *u;
-      int n, i;
-      if (use->u == from.i) continue;
-      if (use->u == USERJUMP) {
-         u = &use->blk->jmp.arg[0];
+      int n, j;
+      if (use.u == from.i) continue;
+      if (use.u == USERJUMP) {
+         u = &use.blk->jmp.arg[0];
          n = 2;
-      } else if (instrtab[use->u].op == Ophi) {
-         u = phitab.p[instrtab[use->u].l.i];
-         n = use->blk->npred;
+      } else if (instrtab[use.u].op == Ophi) {
+         u = phitab.p[instrtab[use.u].l.i];
+         n = use.blk->npred;
       } else {
-         u = &instrtab[use->u].l;
+         u = &instrtab[use.u].l;
          n = 2;
       }
       
-      for (i = 0; i < n; ++i) {
-         if (u[i].bits == from.bits) {
-            deluse(use->blk, use->u, u[i]);
-            u[i].bits = to.bits;
-            adduse(use->blk, use->u, u[i]);
+      for (j = 0; j < n; ++j) {
+         if (u[j].bits == from.bits) {
+            u[j].bits = to.bits;
+            adduse(use.blk, use.u, to);
+            deluse(use.blk, use.u, from);
+            --i;
             break;
          }
       }

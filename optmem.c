@@ -132,6 +132,7 @@ readvar(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
    return readvarrec(sb, var, cls, blk);
 }
 
+/* require use, blkid */
 void
 mem2reg(struct function *fn)
 {
