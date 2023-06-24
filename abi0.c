@@ -18,6 +18,7 @@ abiret(struct abiarg abiret[2], struct abiargsvec *abiargs, int *ni, union irtyp
    if (retty.isagg) {
       retreg = mctarg->abiret(r, cls, ni, retty);
       if (!retreg) {
+         ++*ni;
          vpush(abiargs, ((struct abiarg) { cls2type(KPTR), .stk = r[1] }));
          if (r[0] == -1) {
             memset(abiret, 0, 2*sizeof *abiret);
