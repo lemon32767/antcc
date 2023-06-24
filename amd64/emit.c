@@ -382,8 +382,8 @@ static void Xmov(uchar **pcode, enum irclass k, struct oper dst, struct oper src
       {8, PFPR, PFPR, "\xF2\x0F\x10", EN_RR}, /* MOVSD xmm, xmm */
       {8, PFPR, PMEM, "\xF2\x0F\x10", EN_RM}, /* MOVSD xmm, m64 */
       {8, PMEM, PFPR, "\xF2\x0F\x11", EN_MR}, /* MOVSS m64, xmm */
-      {4|8, PGPR, PFPR, "\x66\x0F\x6E", EN_RRX}, /* MOVD/Q r64/32, xmm */
-      {4|8, PFPR, PGPR, "\x66\x0F\x6E", EN_RR}, /* MOVD/Q xmm, r64/32 */
+      {4|8, PFPR, PGPR, "\x66\x0F\x6E", EN_RR},  /* MOVD/Q xmm, r64/32 */
+      {4|8, PGPR, PFPR, "\x66\x0F\x7E", EN_RRX}, /* MOVD/Q r64/32, xmm */
    };
    static const uchar k2off[] = {
       [KI4] = 0,
@@ -646,7 +646,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
    } else {
       struct oper src = mkimmdatregoper(val);
       if (memcmp(&dst, &src, sizeof dst) != 0)
-         Xmov(pcode, cls, dst, src);
+         Xmov(pcode, cls == KF8 && src.reg < XMM0 ? KI8 : cls, dst, src);
    }
 }
 

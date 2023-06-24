@@ -7,7 +7,7 @@ static regset gpregset, fpregset;
 static regset globusage;
 
 #define isfpr(reg) in_range((reg), mctarg->fpr0, mctarg->fpr0 + mctarg->nfpr - 1)
-#define isgpr(reg) (!isfpr(reg))
+#define isgpr(reg) in_range((reg), mctarg->gpr0, mctarg->gpr0 + mctarg->nfpr - 1)
 
 enum { ADEAD, AREG, ASTACK } ;
 struct alloc { ushort t : 2, a : 14; };
@@ -125,7 +125,7 @@ def(struct rega *ra, struct instr *ins, struct block *blk, int curi)
 
          if ((ins->op == Ocopy || ins->inplace) && ins->l.t == RREG) {
             int hint = ins->l.i;
-            if (rstest(ra->m.free, hint)) {
+            if (rstest(ra->m.free, hint) && kisflt(insrescls(*ins)) == isfpr(hint)) {
                take(ra, reg = hint, mkref(RTMP, var));
                assert(ra->m.regs[reg] == var && !rstest(ra->m.free, hint));
             }
@@ -301,7 +301,8 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
          /* for '%x = copy Rx', hint %x to use Rx */
          hint = ins->l.i;
 
-      if (hint != -1 && !rstest(excl, hint) && rstest(ra->m.free, hint)) {
+      if (hint != -1 && !rstest(excl, hint) && rstest(ra->m.free, hint)
+       && kisflt(insrescls(*ins)) == isfpr(hint)) {
          take(ra, hint, *ref);
          reg = hint;
       } else {
@@ -568,9 +569,9 @@ regalloc(struct function *fn)
    /* setup */
    if (!fpregset || !gpregset) {
       for (int i = 0; i < MAXREGS; ++i) {
-         if (in_range(i, mctarg->fpr0, mctarg->fpr0 + mctarg->nfpr - 1))
+         if (isfpr(i))
             fpregset = rsset(fpregset, i);
-         else if (in_range(i, mctarg->gpr0, mctarg->gpr0 + mctarg->ngpr - 1))
+         else if (isgpr(i))
             gpregset = rsset(gpregset, i);
       }
    }

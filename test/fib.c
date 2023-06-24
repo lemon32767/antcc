@@ -13,6 +13,16 @@ unsigned fibr(unsigned x) {
    return fibr(x-1) + fibr(x-2);
 }
 
+double fibf(unsigned x) {
+   double r = 0., q = 1.;
+   while (x-- > 1) {
+      double s = r + q;
+      r = q;
+      q = s;
+   }
+   return q;
+}
+
 int atoi(const char *);
 int printf(const char *, ...);
 
@@ -20,6 +30,7 @@ int main(int argc, char **argv) {
    unsigned n = argv[1] ? atoi(argv[1]) : 10;
    printf("fib(%u)  = %u\n", n, fib(n));
    printf("fibr(%u) = %u\n", n, fibr(n));
+   printf("fibf(%u) = %g\n", n, fibf(n));
 }
 
 /* vim:set ts=3 sw=3 expandtab: */
