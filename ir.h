@@ -109,7 +109,8 @@ enum intrin {
 struct instr {
    uchar op,
          cls; /* operation data class; also result class except for cmp ops (always i4) */
-   uchar skip : 1; /* ignore during codegen: forms part of one machine instruction */
+   uchar skip : 1, /* ignore during codegen: forms part of one machine instruction */
+         keep : 1; /* for codegen, keep instr even if result seems unused */
    uchar inplace : 1; /* set (by isel) for instructions which modify its first arg in place */
    uchar reg; /* 0 -> no reg; else reg + 1 */
    union ref l, r;

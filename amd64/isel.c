@@ -284,6 +284,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       insertinstr(blk, (*curi)++, mkinstr(Omove, ins->cls, mkref(RREG, RDX), mkref(RREG, RDX)));
       fixarg(&ins->r, ins, blk, curi); /* make sure rhs is memory or reg */
       ins->l = mkref(RREG, RAX);
+      ins->keep = 1;
       if (op == Orem) ins->op = Odiv;
       else if (op == Ourem) ins->op = Oudiv;
       insertinstr(blk, (*curi)++, *ins); /* duplicate ins to reuse tmp ref */
@@ -379,12 +380,15 @@ seljmp(struct function *fn, struct block *blk)
          sel(fn, &instrtab[c.i], blk, &curi);
       }
       if (iflagsrc == c.i) {
-         if (!oiscmp(instrtab[c.i].op))
+         if (!oiscmp(instrtab[c.i].op)) {
             blk->jmp.arg[0] = NOREF; /* implicit by zero flag */
+         }
+         instrtab[c.i].keep = 1;
       } else {
          if (!(opflags[instrtab[c.i].op] & ZF) || c.i != blk->ins.p[blk->ins.n - 1]) {
             blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, instrtab[c.i].cls, c, ZEROREF));
          }
+         instrtab[blk->jmp.arg[0].i].keep = 1;
       }
    } else if (blk->jmp.t == Jret) {
       if (blk->jmp.arg[0].bits) {

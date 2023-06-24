@@ -688,7 +688,7 @@ regalloc(struct function *fn)
       blk->id = id++;
       for (int i = 0; i < blk->ins.n; ++i) {
          struct instr *ins = &instrtab[blk->ins.p[i]];
-         if (!ins->reg && insrescls(*ins) && ins->op != Omove && !oiscmp(ins->op)) {
+         if (!ins->reg && insrescls(*ins) && ins->op != Omove && !ins->keep) {
          /* dead */
          Nop:
            *ins = mkinstr(Onop,0,);
