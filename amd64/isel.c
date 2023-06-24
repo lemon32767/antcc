@@ -187,7 +187,7 @@ aadd(struct addr *addr, union ref r)
    } else if (r.t == RREG) {
       /* temporaries are single assignment, but register aren't, so they can't be *
        * safely hoisted into an address value, unless they have global lifetime */
-      if (!bstest(mctarg->rglob, r.i)) return 0;
+      if (!rstest(mctarg->rglob, r.i)) return 0;
    Ref:
       if (!addr->base.bits) addr->base = r;
       else if (!addr->index.bits) addr->index = r;

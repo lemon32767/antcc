@@ -80,10 +80,9 @@ dumpref(enum op o, union ref ref)
          efmt("??");
       break;
    case RTMP:
+      efmt("%%%d", ref.i);
       if (instrtab[ref.i].reg)
-         efmt("%s", mctarg->rnames[instrtab[ref.i].reg - 1]);
-      else
-         efmt("%%%d", ref.i);
+         efmt("(%s)", mctarg->rnames[instrtab[ref.i].reg-1]);
       break;
    case RREG:
       efmt("%s", mctarg->rnames[ref.i]);
@@ -168,7 +167,7 @@ dumpinst(const struct instr *ins)
       if (ins->reg) {
          if (cls)
             efmt("%s ", clsname[cls]);
-         efmt("%s = ", mctarg->rnames[ins->reg - 1]);
+         efmt("(%%%d)%s = ", ins - instrtab, mctarg->rnames[ins->reg - 1]);
       } else if (cls) {
          efmt("%s %%%d", clsname[cls], ins - instrtab);
          efmt(" = ");
@@ -198,7 +197,9 @@ dumpblk(struct function *fn, struct block *blk)
       struct instr *phi = &instrtab[blk->phi.p[i]];
       union ref *refs = phitab.p[phi->l.i];
       assert(phi->op == Ophi);
-      efmt("    %s %%%d = phi ", clsname[phi->cls], blk->phi.p[i]);
+      efmt("    %s ", clsname[phi->cls]);
+      if (!phi->reg) efmt("%%%d = phi ", blk->phi.p[i]);
+      else efmt("(%%%d)%s = phi ", phi - instrtab, mctarg->rnames[phi->reg-1]);
       for (int i = 0; i < blk->npred; ++i) {
          if (i) efmt(", ");
          efmt("@%d ", blkpred(blk, i)->id);

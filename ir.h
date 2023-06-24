@@ -131,6 +131,8 @@ struct block {
    struct { uchar t; union ref arg[2]; } jmp;
 };
 
+#define blkpred(blk, i) 0[(blk)->npred < 2 ? &(blk)->_pred0 : &(blk)->_pred[i]]
+
 enum { USERJUMP = 0xFFFF };
 struct use { struct block *blk; ushort u; };
 
@@ -149,7 +151,7 @@ struct function {
    ushort nabiarg, nabiret;
    bool globl;
    bool isleaf;
-   struct bitset regusage[1];
+   regset regusage;
 };
 
 enum objkind { OBJELF };
@@ -161,8 +163,8 @@ struct mctarg {
          bpr,  /* frame/base pointer reg */
          fpr0, /* first fpr */
          nfpr; /* fpr count */
-   struct bitset rcallee[1], /* callee-saved */
-                 rglob[1];   /* globally live (never used for regalloc) */
+   regset rcallee, /* callee-saved */
+          rglob;   /* globally live (never used for regalloc) */
    const char (*rnames)[6];
    enum objkind objkind;
    enum mcisa isa;
@@ -226,6 +228,9 @@ void conputdat(struct irdat *, uint off, enum typetag t, const void *dat);
 union ref mkcallarg(union irtype ret, uint narg, int vararg);
 #define mkintrin(B, C, N) mkinstr(Ointrin, C, {.t=RICON,B}, mkcallarg((union irtype){{0}},N,-1))
 union ref mkaddr(struct addr);
+void addpred(struct block *blk, struct block *p);
+
+struct block *insertblk(struct function *, struct block *pred, struct block *subst);
 void adduse(struct block *ublk, int ui, union ref r);
 union ref insertinstr(struct block *, int idx, struct instr);
 union ref insertphi(struct block *, enum irclass cls);
@@ -233,7 +238,7 @@ void replcuses(union ref from, union ref to);
 void deluses(int ins);
 void delinstr(struct block *, int idx);
 void delphi(struct block *, int idx);
-#define blkpred(blk, i) 0[(blk)->npred < 2 ? &(blk)->_pred0 : &(blk)->_pred[i]]
+void fillblkids(struct function *);
 
 /* IR builder functions */
 union ref addinstr(struct function *, struct instr);
@@ -247,7 +252,7 @@ void putreturn(struct function *, union ref r0, union ref r1);
 void irdump(struct function *);
 
 void filluses(struct function *);
-void freeuses(struct use *, int n);
+void copyopt(struct function *);
 
 void abi0(struct function *);
 void abi0_call(struct function *, struct instr *, struct block *blk, int *curi);

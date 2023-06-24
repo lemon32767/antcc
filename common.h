@@ -87,6 +87,18 @@ ilog2(uint x) { /* assumes x is a power of 2 */
    return n;
 #endif
 }
+static inline uint
+lowestsetbit(uvlong x)
+{
+#if HAS_BUILTIN(ctz)
+   return __builtin_ctzll(x);
+#else
+   int i = 0;
+   for (uvlong mask = 1;; ++i, mask <<= 1)
+      if (x & mask)
+         return i;
+#endif
+}
 
 #define aisprint(c) in_range(c, ' ', '~')
 #define aisdigit(c) in_range(c, '0', '9')
@@ -388,12 +400,24 @@ void imap_init_(struct imapbase *, void **v, uint vsiz, uint N);
 int imap_get_(struct imapbase *, short k);
 int imap_set_(struct imapbase *, void **v, uint vsiz, short k);
 #define imap_free(m) (free((m)->mb.k), memset((m), 0, sizeof *(m)))
-#define imap_init(m, N) (imap_free(m), imap_init_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, (N))
+#define imap_init(m, N) (imap_free(m), imap_init_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, (N)))
 #define imap_clear(m) ((m)->mb.bs ? bszero((m)->mb.bs, BSSIZE((m)->mb.N)) : (void)0, \
                        (m)->mb.n = 0)
 #define imap_get(m, k) (((m)->tmp = imap_get_(&(m)->mb, k)) < 0 ? NULL : &(m)->v[(m)->tmp])
 #define imap_set(m, k, x) ((m)->tmp = imap_set_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, k), \
                            (m)->v[(m)->tmp] = (x), &(m)->v[(m)->tmp])
+#define imap_each(m,kx,pvx) \
+   for (int _i = 0; _i < (m)->mb.N && ((kx) = (m)->mb.k[_i], (pvx) = &(m)->v[_i], 1); ++_i) \
+      if (bstest((m)->mb.bs, _i))
+#define imap_copy(dst,src) do {                                                       \
+   size_t N = (src)->mb.N;                                                            \
+   if (!N) break;                                                                     \
+   (dst)->mb.n = (src)->mb.n;                                                         \
+   imap_init((dst), N);                                                               \
+   memcpy((dst)->mb.k, (src)->mb.k,                                                   \
+         N*(sizeof*(src)->mb.k + sizeof*(src)->v) + BSSIZE(N)*sizeof(struct bitset)); \
+} while (0)
+
 
 struct pmapbase { void **k; uint n, N; };
 /* map of non-null ptr -> T */
@@ -443,6 +467,22 @@ bsiter(uint *i, struct bitset bs[/*siz*/], uint siz)
    for (; *i < siz*BSNBIT; ++*i)
       if (bstest(bs, *i)) return 1;
    return 0;
+}
+
+typedef uvlong regset;
+#define rsset(S, r) ((S) | 1ull << (r))
+#define rsclr(S, r) ((S) & ~(1ull << (r)))
+#define rstest(S, r) ((S) >> (r) & 1)
+#define rsminus(A, B) ((A) & ~(B))
+#define rsand(A, B) ((A) & (B))
+#define rsunion(A, B) ((A) | (B))
+static inline bool
+rsiter(int *i, uvlong rs)
+{
+   uvlong mask = -(1ull << *i);
+   if ((rs & mask) == 0) return 0;
+   *i = lowestsetbit(rs & mask);
+   return 1;
 }
 
 /********/

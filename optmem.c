@@ -25,7 +25,7 @@ struct pendingphi { ushort var, phi; };
 struct ssabuilder {
    vec_of(struct pendingphi) *pendingphis; /* map of block to list of incomplete phis in block */
    imap_of(union ref *) curdefs; /* map of var to (map of block to def of var) */
-   int nsealed; /* num of sealed blocks */
+   int lastvisit;
    int nblk;
 };
 
@@ -90,13 +90,24 @@ writevar(struct ssabuilder *sb, int var, struct block *blk, union ref val)
    (*pcurdefs)[blk->id] = val;
 }
 
+static bool
+issealed(struct ssabuilder *sb, struct block *blk)
+{
+   /* consider block sealed if it has been visited or if no backbranches flow to it */
+   if (blk->id < sb->lastvisit) return 1;
+   for (int i = 0; i < blk->npred; ++i)
+      if (blkpred(blk, i)->id > blk->id)
+         return 0;
+   return 1;
+}
+
+
 static union ref
 readvarrec(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
 {
    union ref val;
    assert(blk->npred > 0);
-   if (blk->id >= sb->nsealed) {
-      /* unsealed block */
+   if (!issealed(sb, blk)) {
       val = insertphi(blk, cls);
       vpush(&sb->pendingphis[blk->id], ((struct pendingphi) { var, val.i }));
    } else if (blk->npred == 1) {
@@ -171,7 +182,7 @@ mem2reg(struct function *fn)
                writevar(&sb, var, use->blk, m->r);
                *m = mkinstr(Onop,0,);
             } else if (oisload(m->op)) {
-               union ref val = readvar(&sb, var, k, use->blk);
+               union ref val = readvar(&sb, var, k = m->cls, use->blk);
                if (!val.bits) { /* var is used uninitialized */
                   /* TODO emit diagnostic */
                   /* load some garbage */
@@ -190,8 +201,8 @@ mem2reg(struct function *fn)
       }
 
       /* seal block */
-      assert(sb.nsealed == blk->id);
-      ++sb.nsealed;
+      assert(sb.lastvisit == blk->id);
+      ++sb.lastvisit;
       pending = (void *) &sb.pendingphis[blk->id];
       for (int i = 0; i < pending->n; ++i) {
          addphiargs(&sb, pending->p[i].var, instrtab[pending->p[i].phi].cls, blk,

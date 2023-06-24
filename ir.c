@@ -222,7 +222,7 @@ mkaddr(struct addr addr)
    return mkref(RADDR, addaddr(&addr));
 }
 
-static inline void
+void
 addpred(struct block *blk, struct block *p)
 {
    if (blk->npred == 0) {
@@ -238,6 +238,46 @@ addpred(struct block *blk, struct block *p)
    }
    xbpush(&blk->_pred, &blk->npred, p);
 }
+
+static void
+delpred(struct block *blk, struct block *p)
+{
+   for (int i = 0; i < blk->npred; ++i) {
+      if (blkpred(blk, i) == p) {
+         for (int k = i; k < blk->npred - 1; ++k) {
+            blkpred(blk, k) = blkpred(blk, k + 1);
+         }
+         --blk->npred;
+         return;
+      }
+   }
+   assert(0&&"blk not in p");
+}
+
+struct block *
+insertblk(struct function *fn, struct block *pred, struct block *subst)
+{
+   struct block *new = newblk(fn);
+   struct block **s = pred->s1 == subst ? &pred->s1 : &pred->s2;
+   assert(*s == subst);
+   new->lnext = pred->lnext;
+   new->lprev = pred;
+   pred->lnext->lprev = new;
+   pred->lnext = new;
+   *s = new;
+   new->jmp.t = Jb;
+   new->s1 = subst;
+   addpred(new, pred);
+   for (int i = 0; i < subst->npred; ++i) {
+      if (blkpred(subst, i) == pred) {
+         blkpred(subst, i) = new;
+         ++fn->nblk;
+         return new;
+      }
+   }
+   assert(0);
+}
+
 
 static int
 newinstr(void)
@@ -400,6 +440,14 @@ delphi(struct block *blk, int idx)
    --blk->phi.n;
 }
 
+void
+fillblkids(struct function *fn)
+{
+   int i = 0;
+   struct block *blk = fn->entry;
+   do blk->id = i++; while ((blk = blk->lnext) != fn->entry);
+}
+
 /** IR builders **/
 
 struct block *
@@ -515,15 +563,19 @@ void
 irfini(struct function *fn)
 {
    extern int nerror;
-   if (!nerror) {
-      abi0(fn);
-      mem2reg(fn);
-      lowerintrin(fn);
-      mctarg->isel(fn);
-      regalloc(fn);
-      if (!ccopt.dbg.any)
-         mctarg->emit(fn);
+   if (nerror) {
+      freefn(fn);
+      return;
    }
+
+   abi0(fn);
+   lowerintrin(fn);
+   mem2reg(fn);
+   copyopt(fn);
+   mctarg->isel(fn);
+   regalloc(fn);
+   if (!ccopt.dbg.any)
+      mctarg->emit(fn);
 
    freefn(fn);
 }

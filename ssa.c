@@ -1,6 +1,29 @@
 #include "common.h"
 #include "ir.h"
 
+/* require use, keeps use */
+void
+copyopt(struct function *fn)
+{
+   struct block *blk = fn->entry;
+
+   do {
+      for (int i = 0; i < blk->ins.n; ++i) {
+         struct use *use, *uend;
+         union ref var = mkref(RTMP, blk->ins.p[i]);
+         struct instr *ins = &instrtab[var.i];
+
+         if (ins->op == Ocopy) {
+            assert(ins->l.t != RREG);
+
+            replcuses(var, ins->l);
+            *ins = mkinstr(Onop,0,);
+            deluses(var.i);
+         }
+      }
+   } while ((blk = blk->lnext) != fn->entry);
+}
+
 void
 filluses(struct function *fn)
 {
