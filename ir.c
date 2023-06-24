@@ -38,7 +38,7 @@ irinit(struct function *fn)
    vinit(&calltab, callsbuf, arraylength(callsbuf));
    for (int i = 0; i < phitab.n; ++i) xbfree(phitab.p[i]);
    vinit(&phitab, phisbuf, arraylength(phisbuf));
-   vinit(&dattab, datsbuf, arraylength(datsbuf));
+   if (!dattab.p) vinit(&dattab, datsbuf, arraylength(datsbuf));
    if (naddrht >= arraylength(addrht)/2)
       memset(addrht, naddrht = 0, sizeof addrht);
    if (nconht >= arraylength(conht)/2)
