@@ -66,7 +66,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          /* add X, INT32MAX+1 -> sub X, INT32MIN */
          ins->op = Oadd + (op == Oadd);
          *r = mkintcon(KI4, -2147483648);
-      } else if (in_range(op, Ocopy, Omove) && kisflt(con->cls) && con->f == 0) {
+      } else if ((in_range(op, Ocopy, Omove) || op == Ophi) && kisflt(con->cls) && con->f == 0) {
          /* copy of float zero -> regular zero, that emit() will turn into xor x,x */
          *r = mkref(RICON, 0);
       } else if (kisflt(con->cls) || con->cls == KI8) {
@@ -310,25 +310,27 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       }
       goto ALU;
    case Oadd:
-      if (kisint(ins->cls) && (addarg4addrp(ins->l) || addarg4addrp(ins->r))) {
-         temp.op = Ocopy;
-         temp.cls = ins->cls;
-         temp.l = mkref(RTMP, ins - instrtab);
-         if (fuseaddr(&temp.l)) {
-            *ins = temp;
-            break;
+      if (kisint(ins->cls)) {
+         if ((addarg4addrp(ins->l) || addarg4addrp(ins->r))) {
+            temp.op = Ocopy;
+            temp.cls = ins->cls;
+            temp.l = mkref(RTMP, ins - instrtab);
+            if (fuseaddr(&temp.l)) {
+               *ins = temp;
+               break;
+            }
+         } else if (ins->l.bits == mkref(RICON, 1).bits) {
+            /* add 1,x -> inc x */
+            ins->op = op = Oxinc;
+            ins->l = ins->r;
+            ins->r = NOREF;
+            goto ALU;
+         } else if (ins->r.bits == mkref(RICON, 1).bits) {
+            /* add x,1 -> inc x */
+            ins->op = op = Oxinc;
+            ins->r = NOREF;
+            goto ALU;
          }
-      } else if (ins->l.bits == mkref(RICON, 1).bits) {
-         /* add 1,x -> inc x */
-         ins->op = op = Oxinc;
-         ins->l = ins->r;
-         ins->r = NOREF;
-         goto ALU;
-      } else if (ins->r.bits == mkref(RICON, 1).bits) {
-         /* add x,1 -> inc x */
-         ins->op = op = Oxinc;
-         ins->r = NOREF;
-         goto ALU;
       }
       /* fallthru */
    case Omul: case Oumul:
@@ -413,10 +415,11 @@ amd64_isel(struct function *fn)
    do {
       int i;
       for (i = 0; i < blk->phi.n; ++i) {
-         union ref *phi = phitab.p[instrtab[blk->phi.p[i]].l.i];
+         struct instr *ins = &instrtab[blk->phi.p[i]];
+         union ref *phi = phitab.p[ins->l.i];
          for (int i = 0; i < blk->npred; ++i) {
             int curi = blkpred(blk, i)->ins.n;
-            fixarg(&phi[i], NULL, blkpred(blk, i), &curi);
+            fixarg(&phi[i], ins, blkpred(blk, i), &curi);
          }
       }
       iflagsrc = -1;
