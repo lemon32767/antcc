@@ -10,6 +10,17 @@ struct comp {
    struct span fnblkspan;
    uint loopdepth, switchdepth;
    struct block *loopbreak, *loopcont;
+   pmap_of(struct label) labels;
+};
+
+struct label {
+   struct span usespan;
+   struct block *blk;
+   /* if usespan.ex.len == 0, this label is resolved and blk is the block that
+    * the label starts, otherwise the label is unresolved and blk is the head
+    * of a linked list of relocations, the next list entry is in blk->s1, etc,
+    * terminated by NULL */
+
 };
 
 /** Parsing helper functions **/
@@ -674,8 +685,11 @@ tkprec(int tt)
    return ((uint)tt < arraylength(bintab)) ?  bintab[tt].prec : 0;
 }
 
+/* parse an expression with the given operator precedence */
+/* param ident is a kludge to support block labels without backtracking or extra lookahead
+ * see stmt() */
 static struct expr
-exprparse(struct comp *cm, int prec)
+exprparse(struct comp *cm, int prec, const struct token *ident)
 {
    struct token tk, tk2;
    struct span span;
@@ -696,6 +710,13 @@ exprparse(struct comp *cm, int prec)
    } unops[4];
    int nunop = 0;
 
+   if (ident) {
+      assert(ident->t == TKIDENT);
+      tk = *ident;
+      ident = NULL;
+      goto Ident;
+   }
+
 Unary:
    switch (lex(cm, &tk)) {
    /* unary operators (gather) */
@@ -706,7 +727,7 @@ Unary:
       unops[nunop].t0 = 0;
       unops[nunop].tt = tk.t;
       if (++nunop >= arraylength(unops)) {
-         ex = exprparse(cm, 999);
+         ex = exprparse(cm, 999, NULL);
          break;
       }
       goto Unary;
@@ -724,6 +745,7 @@ Unary:
                   mkarrtype(mktype(TYCHAR), 0, tk.len+1), .s = { (uchar *)tk.s, tk.len });
       break;
    case TKIDENT:
+   Ident:
       decl = finddecl(cm, tk.s);
       if (!decl) {
          if (peek(cm, NULL) == '(') { /* implicit function decl? */
@@ -756,7 +778,7 @@ Unary:
          unops[nunop].span = tk.span;
          unops[nunop].ty = decl.ty;
          if (++nunop >= arraylength(unops)) {
-            ex = exprparse(cm, 999);
+            ex = exprparse(cm, 999, NULL);
             break;
          }
          goto Unary;
@@ -940,7 +962,7 @@ Postfix:
          /* ex OP rhs */
          span.sl = tk.span.sl;
          span.ex = ex.span.ex;
-         rhs = exprparse(cm, opprec + leftassoc);
+         rhs = exprparse(cm, opprec + leftassoc, NULL);
          if (!joinspan(&span.ex, tk.span.ex) || !joinspan(&span.ex, rhs.span.ex))
             span.ex = tk.span.ex;
          ty = bintypecheck(&span, tk.t, &ex, &rhs);
@@ -977,13 +999,13 @@ Postfix:
 static struct expr
 expr(struct comp *cm)
 {
-   return exprparse(cm, 2); /* non-comma expr */
+   return exprparse(cm, 2, NULL); /* non-comma expr */
 }
 
 static struct expr
 commaexpr(struct comp *cm)
 {
-   return exprparse(cm, 1);
+   return exprparse(cm, 1, NULL);
 }
 
 /*****************/
@@ -1616,6 +1638,39 @@ static void block(struct comp *cm, struct function *fn);
 static bool stmt(struct comp *cm, struct function *fn);
 static void localdecl(struct comp *cm, struct function *fn, bool forinit);
 
+static void
+deflabel(struct comp *cm, struct function *fn, const struct span *span, const char *name)
+{
+   struct label *label = pmap_get(&cm->labels, name);
+   if (label && label->usespan.ex.len == 0) {
+      error(span, "redefinition of label '%s'", name);
+   } else if (label) {
+      struct block *new;
+      if (!nerror) {
+         new = newblk(fn);
+         if (fn->curblk) putbranch(fn, new);
+      }
+      /* fix up relocations */
+      for (struct block *list = label->blk, *next; list; list = next) {
+         next = list->s1;
+         if (!nerror) {
+            useblk(fn, list);
+            putbranch(fn, new);
+         }
+      }
+      label->usespan = (struct span){0};
+      label->blk = fn->curblk;
+      if (!nerror) useblk(fn, new);
+   } else {
+      if (!nerror) {
+         struct block *new = newblk(fn);
+         if (fn->curblk) putbranch(fn, new);
+         useblk(fn, new);
+      }
+      pmap_set(&cm->labels, name, ((struct label) { .blk = fn->curblk }));
+   }
+}
+
 static bool
 loopbody(struct comp *cm, struct function *fn, struct block *brk, struct block *cont)
 {
@@ -1643,9 +1698,22 @@ stmt(struct comp *cm, struct function *fn)
    union ref r;
    struct token tk;
    bool terminates = 0;
-   const bool doemit = fn->curblk;
+   bool doemit = fn->curblk;
 
 #define EMITS if (doemit && !nerror)
+
+   while (match(cm, &tk, TKIDENT)) {
+      if (match(cm, NULL, ':')){
+         /* <label> ':' */
+         deflabel(cm, fn, &tk.span, tk.s);
+         doemit = 1;
+      } else {
+         /* kludge for no backtracking and no lookahead */
+         ex = exprparse(cm, 1, &tk);
+         EMITS expreffects(fn, &ex);
+         return fn->curblk != NULL;
+      }
+   }
 
    switch (peek(cm, NULL)) {
    case '{':
@@ -1713,7 +1781,7 @@ stmt(struct comp *cm, struct function *fn)
       }
       terminates = loopbody(cm, fn, end, begin);
       EMITS {
-         if (!terminates) putbranch(fn, begin);
+         if (fn->curblk) putbranch(fn, begin);
          useblk(fn, end);
       }
       break;
@@ -1831,6 +1899,27 @@ stmt(struct comp *cm, struct function *fn)
       EMITS putbranch(fn, cm->loopcont);
       stmtterm(cm);
       break;
+   case TKWgoto:
+      lex(cm, &tk);
+      peek(cm, &tk);
+      if (expect(cm, TKIDENT, NULL)) {
+         struct label *label = pmap_get(&cm->labels, tk.s);
+         if (!label) {
+            /* create reloc list */
+            pmap_set(&cm->labels, tk.s, ((struct label) { .usespan = tk.span, .blk = fn->curblk }));
+            fn->curblk = NULL;
+         } else if (label && label->usespan.ex.len != 0) {
+            /* append to relocs list */
+            struct block *next = label->blk;
+            fn->curblk->s1 = next;
+            label->blk = fn->curblk;
+            fn->curblk = NULL;
+         } else {
+            EMITS putbranch(fn, label->blk);
+         }
+      }
+      stmtterm(cm);
+      break;
    case TKWreturn:
       lex(cm, NULL);
       if (fn->retty.t != TYVOID) {
@@ -1862,12 +1951,24 @@ stmt(struct comp *cm, struct function *fn)
    return fn->curblk == NULL;
 }
 
+/* parse and compile a function-local declaration */
 static void
 localdecl(struct comp *cm, struct function *fn, bool forini)
 {
    struct expr ini;
+   struct token tk;
    const bool doemit = fn->curblk;
    struct declstate st = { DFUNCVAR };
+
+   if (!forini && match(cm, &tk, TKIDENT)) {
+      if (match(cm, NULL, ':')) {
+         /* <label> ':' */
+         deflabel(cm, fn, &tk.span, tk.s);
+         stmt(cm, fn);
+         return;
+      }
+      st.base = finddecl(cm, tk.s)->ty;
+   }
    do {
       struct decl decl = pdecl(&st, cm);
       if (decl.name) {
@@ -1987,6 +2088,16 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
    }
    block(cm, fn);
    envup(cm);
+   if (cm->labels.mb.n) {
+      const char *name;
+      struct label *label;
+      pmap_each(&cm->labels, name, label) {
+         if (label->usespan.ex.len) {
+            error(&label->usespan, "label '%s' used but never defined", name);
+         }
+      }
+      pmap_free(&cm->labels);
+   }
    if (fn->curblk) {
       if (!strcmp(fn->name, "main") && fn->retty.t == TYINT) {
          /* implicit return 0 for main function */
