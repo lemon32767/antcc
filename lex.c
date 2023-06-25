@@ -53,36 +53,52 @@ ident:
    return 1;
 }
 
-static int
-next0(struct lexer *lx)
+
+/* fill internal circular character buffer with input after translation phase 1 & 2
+ * (trigraph substitution and backslash-newline deletion */
+static void
+fillchrbuf(struct lexer *lx)
 {
    bool trigraph = ccopt.trigraph;
-   int n, c;
+   const uchar *p = lx->dat + lx->idx;
+   int i = lx->chrbuf0, idx = lx->idx, c;
 
-   while (!memcmp(lx->dat+lx->idx, "\\\n", n = 2)
-     || (trigraph && !memcmp(lx->dat+lx->idx, "\?\?/\n", n = 4))) {
-      lx->idx += n;
-      addfileline(lx->fileid, lx->idx);
-   }
-   if (lx->idx >= lx->ndat)
-      return TKEOF;
-   if (trigraph && !memcmp(lx->dat+lx->idx, "??", 2)) {
-      switch (lx->dat[lx->idx+2]) {
-      case '=':  lx->idx += 3; return '#';
-      case '(':  lx->idx += 3; return '[';
-      case ')':  lx->idx += 3; return ']';
-      case '!':  lx->idx += 3; return '|';
-      case '<':  lx->idx += 3; return '{';
-      case '>':  lx->idx += 3; return '}';
-      case '-':  lx->idx += 3; return '~';
-      case '/':  lx->idx += 3; return '\\';
-      case '\'': lx->idx += 3; return '^';
+   while (lx->nchrbuf < arraylength(lx->chrbuf)) {
+      int n;
+      while (!memcmp(p, "\\\n", n = 2) || (trigraph && !memcmp(p, "\?\?/\n", n = 4))) {
+         idx += n;
+         p += n;
+         addfileline(lx->fileid, idx);
       }
+      if (idx >= lx->ndat)
+         c = TKEOF;
+      else if (trigraph && ((p[0] == '?') & (p[1] == '?'))) {
+         switch (p[2]) {
+         case '=':  c = '#'; break;
+         case '(':  c = '['; break;
+         case ')':  c = ']'; break;
+         case '!':  c = '|'; break;
+         case '<':  c = '{'; break;
+         case '>':  c = '}'; break;
+         case '-':  c = '~'; break;
+         case '/':  c = '\\'; break;
+         case '\'': c = '^'; break;
+         default: goto NoTrigraph;
+         }
+         p += 3;
+         idx += 3;
+      } else {
+      NoTrigraph:
+         ++idx;
+         if ((c = *p++) == '\n')
+            addfileline(lx->fileid, idx);
+      }
+      lx->chrbuf[i % arraylength(lx->chrbuf)] = c;
+      lx->chridxbuf[i % arraylength(lx->chrbuf)] = idx;
+      ++lx->nchrbuf;
+      ++i;
    }
-   if ((c = lx->dat[lx->idx++]) == '\n') {
-      addfileline(lx->fileid, lx->idx);
-   }
-   return c;
+   lx->idx = idx;
 }
 
 static int
@@ -90,29 +106,23 @@ next(struct lexer *lx)
 {
    int c;
 
-   if (lx->npeekchr) {
-      int c = lx->peekchr[0];
-      lx->chridx = lx->peekcidx[0];
-      memmove(lx->peekchr, lx->peekchr + 1, --lx->npeekchr * sizeof *lx->peekchr);
-      memmove(lx->peekcidx, lx->peekcidx + 1, lx->npeekchr * sizeof *lx->peekcidx);
-      lx->eof = c == TKEOF;
-      return c;
-   }
-   c = next0(lx);
+   if (lx->nchrbuf == 0)
+      fillchrbuf(lx);
+   lx->chridx = lx->chridxbuf[lx->chrbuf0];
+   c = lx->chrbuf[lx->chrbuf0];
    lx->eof = c == TKEOF;
-   lx->chridx = lx->idx;
+   lx->chrbuf0 = (lx->chrbuf0 + 1) % arraylength(lx->chrbuf);
+   --lx->nchrbuf;
    return c;
 }
 
 static int
 peek(struct lexer *lx, int off)
 {
-   assert(off < arraylength(lx->peekchr));
-   while (lx->npeekchr < off+1) {
-      lx->peekchr[lx->npeekchr] = next0(lx);
-      lx->peekcidx[lx->npeekchr++] = lx->idx;
-   }
-   return lx->peekchr[off];
+   assert(off < arraylength(lx->chrbuf));
+   if (lx->nchrbuf < off+1)
+      fillchrbuf(lx);
+   return lx->chrbuf[(lx->chrbuf0 + off) % arraylength(lx->chrbuf)];
 }
 
 static bool
@@ -127,19 +137,19 @@ match(struct lexer *lx, int c)
 
 static bool
 aissep(int c) {
+   static const bool tab[] = {
+      ['('] = 1, [')'] = 1, ['['] = 1, [']'] = 1,
+      ['{'] = 1, ['}'] = 1, ['.'] = 1, [','] = 1,
+      [';'] = 1, ['?'] = 1, ['+'] = 1, ['-'] = 1,
+      ['*'] = 1, ['/'] = 1, ['&'] = 1, ['|'] = 1,
+      ['^'] = 1, ['~'] = 1, ['='] = 1, ['\''] = 1,
+      ['"'] = 1, ['<'] = 1, ['>'] = 1, [':'] = 1,
+      ['@'] = 1, ['#'] = 1, ['%'] = 1, ['\\'] = 1,
+      ['`'] = 1, ['!'] = 1,
+   };
    if (!aisprint(c) || aisspace(c))
       return 1;
-   switch (c)
-   case '(': case ')': case '[': case ']':
-   case '{': case '}': case '.': case ',':
-   case ';': case '?': case '+': case '-':
-   case '*': case '/': case '&': case '|':
-   case '^': case '~': case '=': case '\'':
-   case '"': case '<': case '>': case ':':
-   case '@': case '#': case '%': case '\\':
-   case '`': case '!':
-      return 1;
-   return 0;
+   return (uint)c < sizeof(tab) ? tab[c] : 0;
 }
 
 
@@ -356,6 +366,7 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim)
    vfree(&b);
 }
 
+/* matches "<digit> | <identifier-nondigit> | '.' | ([eEpP][+-])" */
 static bool
 isppnum(char prev, char c)
 {
