@@ -403,7 +403,7 @@ int imap_set_(struct imapbase *, void **v, uint vsiz, short k);
 #define imap_init(m, N) (imap_free(m), imap_init_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, (N)))
 #define imap_clear(m) ((m)->mb.bs ? bszero((m)->mb.bs, BSSIZE((m)->mb.N)) : (void)0, \
                        (m)->mb.n = 0)
-#define imap_get(m, k) (((m)->tmp = imap_get_(&(m)->mb, k)) < 0 ? NULL : &(m)->v[(m)->tmp])
+#define imap_get(m, k) ((m)->tmp = imap_get_(&(m)->mb, k), (m)->tmp < 0 ? NULL : &(m)->v[(m)->tmp])
 #define imap_set(m, k, x) ((m)->tmp = imap_set_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, k), \
                            (m)->v[(m)->tmp] = (x), &(m)->v[(m)->tmp])
 #define imap_each(m,kx,pvx) \

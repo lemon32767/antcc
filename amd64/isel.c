@@ -9,15 +9,7 @@ enum flag {
    CLOBF = 1 << 4,
 };
 
-/* flags read by integer cmp ops */
-static const uchar intcmpflags[] = {
-   [Oequ] = ZF, [Oneq] = ZF,
-   [Olth] = SF|OF, [Olte] = ZF|SF|OF,
-   [Ogte] = SF|OF, [Ogth] = ZF|SF|OF,
-   [Oulth] = CF, [Oulte] = ZF|CF,
-   [Ougte] = CF, [Ougth] = ZF|CF,
-};
-
+/* flags modified by each integer op */
 static const uchar opflags[] = {
    [Oneg]  = ZF|CLOBF,
    [Oadd]  = ZF|CLOBF,

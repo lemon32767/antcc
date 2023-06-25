@@ -9,7 +9,6 @@ copyopt(struct function *fn)
 
    do {
       for (int i = 0; i < blk->ins.n; ++i) {
-         struct use *use, *uend;
          union ref var = mkref(RTMP, blk->ins.p[i]);
          struct instr *ins = &instrtab[var.i];
          enum irclass k;
