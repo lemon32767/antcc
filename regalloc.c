@@ -370,6 +370,8 @@ doins(struct rega *ra, struct block *blk, struct instr *ins, int curi)
    }
 }
 
+/* Parallel moves algorithm from QBE: https://c9x.me/git/qbe.git/tree/rega.c?id=e493a7f23352f51acc0a1e12284ab19d7894488a#n201 */
+
 enum pmstat { PMTOMOVE, PMMOVING, PMDONE };
 static struct pmove {
    uchar k;
@@ -583,7 +585,7 @@ regalloc(struct function *fn)
    fn->isleaf = 1;
    vinit(&stkslotrefs, stkslotrefsbuf, arraylength(stkslotrefsbuf));
 
-   /* generate copies for phi operands */
+   /* generate copies for phi operands to transform into CSSA */
    blk = fn->entry;
    do {
       if (!blk->phi.n) continue;
