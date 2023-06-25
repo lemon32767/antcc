@@ -278,8 +278,19 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
       *ref = mkaddr(addr);
       return;
    } else if (ref->t == RREG) {
+      int reg = ref->i;
       assert(hint<0 || !rstest(excl, hint));
-      forcetake(ra, ref->i, *ref, blk, curi);
+      if (op == -Jret) {
+         /* since return marks an exit block, if any temporary is occuping a
+          * return register we mark it as dead since it cannot be live after
+          * the return, so can't rename it like forcetake would try to do */
+         if (!rstest(ra->m.free, reg)) {
+            (void)imap_set(&ra->m.allocs, ra->m.regs[reg], afree());
+            ra->m.free = rsset(ra->m.free, reg);
+         }
+      }
+      forcetake(ra, reg, *ref, blk, curi);
+      return;
    }
    if (ref->t != RTMP) return;
 
@@ -639,7 +650,7 @@ regalloc(struct function *fn)
          /* do not allocate a reg for a cmp op used a branch argument, since it's a pseudo op */
          if (blk->jmp.t == Jb && blk->jmp.arg[i].t == RTMP && oiscmp(instrtab[blk->jmp.arg[i].i].op))
             break;
-         use(&ra, blk, curi, (blk->jmp.t != Jb) - 1,
+         use(&ra, blk, curi, -blk->jmp.t,
                   blk->jmp.t == Jret ? fn->abiret[i].reg : -1,
                   &blk->jmp.arg[i], blk->jmp.arg[!i]);
       }
