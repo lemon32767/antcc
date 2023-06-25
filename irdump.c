@@ -196,10 +196,9 @@ dumpblk(struct function *fn, struct block *blk)
    for (i = 0; i < blk->phi.n; ++i) {
       struct instr *phi = &instrtab[blk->phi.p[i]];
       union ref *refs = phitab.p[phi->l.i];
-      assert(phi->op == Ophi);
       efmt("    %s ", clsname[phi->cls]);
-      if (!phi->reg) efmt("%%%d = phi ", blk->phi.p[i]);
-      else efmt("(%%%d)%s = phi ", phi - instrtab, mctarg->rnames[phi->reg-1]);
+      if (!phi->reg) efmt("%%%d = %s ", blk->phi.p[i], opnames[phi->op]);
+      else efmt("(%%%d)%s = %s ", phi - instrtab, mctarg->rnames[phi->reg-1], opnames[phi->op]);
       for (int i = 0; i < blk->npred; ++i) {
          if (i) efmt(", ");
          efmt("@%d ", blkpred(blk, i)->id);

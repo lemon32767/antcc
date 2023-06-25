@@ -32,11 +32,16 @@ struct ssabuilder {
 static union ref readvar(struct ssabuilder *, int var, enum irclass, struct block *);
 
 static union ref
-deltrivialphis(struct block *blk, union ref phiref)
+deltrivialphis(struct ssabuilder *sb, struct block *blk, union ref phiref)
 {
+   union ref **pcurdefs;
+   int var;
    struct use *use, *uend;
    union ref *args = phitab.p[instrtab[phiref.i].l.i];
    union ref same = {0};
+
+   assert(instrtab[phiref.i].op == Ophi);
+
    for (int i = 0; i < blk->npred; ++i) {
       if (args[i].bits == same.bits || args[i].bits == phiref.bits)
          continue; /* unique value or self-reference */
@@ -50,21 +55,28 @@ deltrivialphis(struct block *blk, union ref phiref)
 
    /* replace uses */
    replcuses(phiref, same);
+   imap_each(&sb->curdefs, var, pcurdefs) {
+      (void)var;
+      if ((*pcurdefs)[blk->id].bits == phiref.bits)
+         (*pcurdefs)[blk->id] = same;
+   }
 
+   /* stops infinite recursion and marks phi for removal */
    instrtab[phiref.i].op = Onop;
 
    /* recursively try to remove all phi users as they might have become trivial */
-   for (use = instruse[phiref.i], uend = use + instrnuse[phiref.i]; use < uend; ++use)
-      if (use->u != USERJUMP && instrtab[use->u].op == Ophi)
-         deltrivialphis(use->blk, mkref(RTMP, use->u));
-
-   /* remove phi */
-   for (int i = 0; i < blk->phi.n; ++i) {
-      if (blk->phi.p[i] == phiref.i) {
-         delphi(blk, i);
-         break;
+Redo:
+   for (use = instruse[phiref.i], uend = use + instrnuse[phiref.i]; use < uend; ++use) {
+      if (use->u != USERJUMP && instrtab[use->u].op == Ophi && use->u != phiref.i) {
+         union ref it = mkref(RTMP, use->u);
+         union ref vphi2 = deltrivialphis(sb, use->blk, it);
+         if (vphi2.bits != it.bits) {
+            /* deletion happened so phiref use may have changed */
+            goto Redo;
+         }
       }
    }
+
    return same;
 }
 
@@ -77,7 +89,7 @@ addphiargs(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk, 
       args[i] = readvar(sb, var, cls, pred);
       adduse(blk, phiref.i, args[i]);
    }
-   return deltrivialphis(blk, phiref);
+   return deltrivialphis(sb, blk, phiref);
 }
 
 static void
@@ -90,24 +102,12 @@ writevar(struct ssabuilder *sb, int var, struct block *blk, union ref val)
    (*pcurdefs)[blk->id] = val;
 }
 
-static bool
-issealed(struct ssabuilder *sb, struct block *blk)
-{
-   /* consider block sealed if it has been visited or if no backbranches flow to it */
-   if (blk->id < sb->lastvisit) return 1;
-   for (int i = 0; i < blk->npred; ++i)
-      if (blkpred(blk, i)->id > blk->id)
-         return 0;
-   return 1;
-}
-
-
 static union ref
 readvarrec(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
 {
    union ref val;
    assert(blk->npred > 0);
-   if (!issealed(sb, blk)) {
+   if (blk->id > sb->lastvisit) { /* unsealed block */
       val = insertphi(blk, cls);
       vpush(&sb->pendingphis[blk->id], ((struct pendingphi) { var, val.i }));
    } else if (blk->npred == 1) {
@@ -132,7 +132,7 @@ readvar(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
    return readvarrec(sb, var, cls, blk);
 }
 
-/* require use, blkid */
+/* require use, blkid; keeps use */
 void
 mem2reg(struct function *fn)
 {
@@ -201,15 +201,21 @@ mem2reg(struct function *fn)
       Next:;
       }
 
-      /* seal block */
       assert(sb.lastvisit == blk->id);
-      ++sb.lastvisit;
       pending = (void *) &sb.pendingphis[blk->id];
       for (int i = 0; i < pending->n; ++i) {
          addphiargs(&sb, pending->p[i].var, instrtab[pending->p[i].phi].cls, blk,
                     mkref(RTMP, pending->p[i].phi));
       }
+      ++sb.lastvisit;
       vfree(pending);
+   } while ((blk = blk->lnext) != fn->entry);
+
+   do {
+      /* remove phis marked for deletion */
+      for (int i = 0; i < blk->phi.n; ++i)
+         if (instrtab[blk->phi.p[i]].op == Onop)
+            delphi(blk, i--);
    } while ((blk = blk->lnext) != fn->entry);
 
    free(sb.pendingphis);

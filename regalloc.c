@@ -1,4 +1,3 @@
-#include "common.h"
 #include "ir.h"
 
 /* Implements reverse linear register allocation, quite ad-hoc right now */
@@ -43,7 +42,7 @@ addstkslotref(union ref inst)
 static int allocreg(struct rega *ra, enum irclass cls, union ref ref, uvlong excl);
 
 #if 0
-#define DBG efmt
+#define DBG(...) if(ccopt.dbg.r) efmt(__VA_ARGS__)
 static void
 dumpallocs(const char *s, struct rmap *m)
 {
@@ -77,7 +76,7 @@ allocstk(struct rega *ra, int var)
    int s = -1;
 
    for (int i = 0; i < BSSIZE(MAXSPILL); ++i) {
-      if (~ra->m.freestk[i].u == 0) continue;
+      if (ra->m.freestk[i].u == 0) continue;
       s = i*64 + lowestsetbit(ra->m.freestk[i].u);
    }
    if (s != -1) {
@@ -94,6 +93,7 @@ allocstk(struct rega *ra, int var)
 static void
 freestk(struct rega *ra, int slot)
 {
+   DBG("FREE stk %d\n",slot);
    if (slot < MAXSPILL)
       bsset(ra->m.freestk, slot);
    else if (slot == ra->stktop - 1)
@@ -117,7 +117,7 @@ def(struct rega *ra, struct instr *ins, struct block *blk, int curi)
          assert(!rstest(ra->m.free, reg));
          assert(ra->m.regs[reg] == var);
          ins->reg = reg+1;
-      } else if (alloc->t == ASTACK) {
+      } else if (alloc->t == ASTACK && ins->op != Ophi) {
          /* unspill, insert 'store [slot], reg' */
          struct alloc astk = *alloc;
          struct instr store;
@@ -141,7 +141,7 @@ def(struct rega *ra, struct instr *ins, struct block *blk, int curi)
          def(ra, ins, blk, curi); /* and free the reg again */
          return;
       }
-      if (alloc) *alloc = afree();
+      if (alloc && (alloc->t != ASTACK || ins->op != Ophi)) *alloc = afree();
    } else if (ins->op == Omove) {
       assert(ins->l.t == RREG); /* move to a register */
       assert(rstest(ra->m.blocked, ins->l.i));
@@ -253,7 +253,7 @@ forcetake(struct rega *ra, int reg, union ref ref, struct block *blk, int curi) 
       insertinstr(blk, ++curi, mkmove(insrescls(instrtab[var]), reg, rename));
       ra->m.regs[rename] = var;
       globusage = rsset(globusage, rename);
-      *alloc = areg(rename);
+      (void)imap_set(&ra->m.allocs, var, areg(rename));
       ra->m.free = rsset(ra->m.free, reg);
    } else {
       spill(ra, reg, blk, curi);
@@ -405,7 +405,7 @@ emitmove(enum irclass k, struct alloc dst, struct alloc src, struct block *blk, 
    if (dst.t == AREG && src.t == AREG) {
       insertinstr(blk, curi, mkmove(k, dst.a, src.a));
    } else if (dst.t == ASTACK && src.t == AREG) {
-      mv = mkinstr(Ostore1+ilog2(cls2siz[k]), 0, mkref(RICON, dst.a), mkref(RREG, src.a));
+      mv = mkinstr(Ostore1+ilog2(cls2siz[k]), 0, mkref(RICON, dst.a*8), mkref(RREG, src.a));
       addstkslotref(insertinstr(blk, curi, mv));
    } else if (dst.t == AREG && src.t == ASTACK) {
       switch (mv.cls = k) {
@@ -416,7 +416,7 @@ emitmove(enum irclass k, struct alloc dst, struct alloc src, struct block *blk, 
       case KF4: mv.op = Oloadf4; break;
       case KF8: mv.op = Oloadf8; break;
       }
-      mv.l = mkref(RICON, dst.a);
+      mv.l = mkref(RICON, dst.a*8);
       mv.reg = src.a;
       addstkslotref(insertinstr(blk, curi, mv));
    }
@@ -490,6 +490,7 @@ lowerphis(struct function *fn, struct bbrm *bbrm, struct block *blk, struct bloc
    int predno;
    struct alloc *alloc;
    struct rmap *out = &bbrm[blk->id].out;
+   struct rmap *in = &bbrm[suc->id].in;
    struct block *n = NULL;
 
    if (!blk->s2) n = blk;
@@ -500,36 +501,40 @@ lowerphis(struct function *fn, struct bbrm *bbrm, struct block *blk, struct bloc
    assert(predno < suc->npred);
 
    npmove = 0;
-   /* ensure phi args go to the same reg as phi with parallel copies */
+   /* ensure phi args go to the same slot as phi with parallel copies */
    for (int i = 0; i < suc->phi.n; ++i) {
       struct instr *phi = &instrtab[suc->phi.p[i]];
       union ref *arg = &phitab.p[phi->l.i][predno];
-      int regto, regfrom;
+      struct alloc from, to;
 
       if (arg->t == RREG) continue;
       assert(arg->t == RTMP);
       DBG("resolve phi @%d, @%d, %%%d <- %%%d\n", blk->id, suc->id, phi - instrtab, arg->i);
       if (instrtab[arg->i].reg) {
-         regfrom = instrtab[arg->i].reg - 1;
-         DBG("  it had R%d\n", regfrom);
+         from = areg(instrtab[arg->i].reg - 1);
+         DBG("  it had R%d\n", from.a);
       } else {
          alloc = imap_get(&out->allocs, arg->i);
-         assert(alloc && alloc->t == AREG);
-         regfrom = alloc->a;
-         DBG("  found R%d\n", regfrom);
-         instrtab[arg->i].reg = regfrom+1;
+         assert(alloc && alloc->t != ADEAD);
+         from = *alloc;
+         DBG("  found %c%d\n", " RS"[from.t], from.a);
+         if (from.t == AREG)
+            instrtab[arg->i].reg = from.a+1;
       }
       if (phi->reg) {
-         regto = phi->reg - 1;
+         to = areg(phi->reg - 1);
+         DBG("  phi had R%d\n", to.a);
       } else {
-         alloc = imap_get(&out->allocs, phi - instrtab);
-         assert(alloc && alloc->t == AREG);
-         regto = alloc->a;
-         phi->reg = regto+1;
+         alloc = imap_get(&in->allocs, phi - instrtab);
+         assert(alloc && alloc->t != ADEAD);
+         DBG("  found phi %c%d\n", " RS"[from.t], from.a);
+         to = *alloc;
+         if (to.t == AREG)
+            phi->reg = to.a+1;
       }
-      DBG(" > phi move %c%d -> %c%d\n", " RS"[AREG], regfrom, " RS"[AREG], regto);
+      DBG(" > phi move %c%d -> %c%d\n", " RS"[from.t], from.a, " RS"[to.t], to.a);
       if (!n) n = insertblk(fn, blk, suc);
-      pmadd(phi->cls, areg(regto), areg(regfrom));
+      pmadd(phi->cls, to, from);
    }
    if (n) emitpm(n);
 }
@@ -540,7 +545,6 @@ resolve(struct function *fn, struct bbrm *bbrm, struct block *blk, struct block 
    ushort var;
    struct alloc *alloc, *alloc2;
    struct rmap *out = &bbrm[blk->id].out, *in = &bbrm[suc->id].in;
-   struct rmap *in2 = &bbrm[blk->id].in;
    struct block *n = NULL;
 
    DBG("resolve(@%d, @%d)\n",blk->id, suc->id);
@@ -559,8 +563,7 @@ resolve(struct function *fn, struct bbrm *bbrm, struct block *blk, struct block 
          }
          pmadd(insrescls(instrtab[var]), *alloc, *alloc2);
       }
-      (void)imap_set(&in2->allocs, var, *alloc);
-      if (!instrtab[var].reg)
+      if (!instrtab[var].reg && alloc->t == AREG)
          instrtab[var].reg = alloc->a + 1;
    }
    if (n) emitpm(n);
@@ -568,6 +571,8 @@ resolve(struct function *fn, struct bbrm *bbrm, struct block *blk, struct block 
    dumpallocs("in", in);
    dumpallocs("out", out);
 }
+
+static void fixlive(struct function *fn);
 
 void
 regalloc(struct function *fn)
@@ -596,6 +601,9 @@ regalloc(struct function *fn)
    fn->isleaf = 1;
    vinit(&stkslotrefs, stkslotrefsbuf, arraylength(stkslotrefsbuf));
 
+   /* fix liveness ranges */
+   fixlive(fn);
+
    /* generate copies for phi operands to transform into CSSA */
    blk = fn->entry;
    do {
@@ -618,7 +626,7 @@ regalloc(struct function *fn)
    } while ((blk = blk->lnext) != fn->entry);
    fillblkids(fn);
    bbrm = xcalloc(sizeof *bbrm * (nbbrm = fn->nblk));
-   
+
    /* visit blocks in reverse, allocating registers in a greedy manner */
    blk = last;
    do {
@@ -688,9 +696,9 @@ regalloc(struct function *fn)
    do {
       if (blk->id < 0) continue;
       for (int i = 0; i < blk->npred; ++i) {
-         if (blkpred(blk, i)->id < 0) continue;
          lowerphis(fn, bbrm, blkpred(blk, i), blk);
       }
+      vfree(&blk->phi);
    } while ((blk = blk->lprev) != last);
 
    /* final cleanup */
@@ -759,9 +767,6 @@ regalloc(struct function *fn)
    } while ((blk = blk->lnext) != fn->entry);
    fn->nblk = id;
 
-   blk = fn->entry;
-   do vfree(&blk->phi); while ((blk = blk->lnext) != fn->entry);
-
    fn->stksiz += ra.maxstk*8;
    if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
    while (stkslotrefs.n) {
@@ -779,6 +784,125 @@ regalloc(struct function *fn)
    imap_free(&ra.m.allocs);
    free(bbrm);
    fn->regusage = globusage;
+}
+
+
+static int livelastblk;
+struct pendingphi { ushort var, phi; };
+static vec_of(struct pendingphi) *pendingphis;
+static int npendingphi;
+static ushort **curdefs;
+static union ref readvar(struct bitset *defined, enum irclass cls, int var, struct block *blk);
+
+/* The algorithm used here to introduce phis for temporaries whose definitions
+ * appear later than some of its uses is very similar to that in mem2reg() */
+
+static void
+fillphi(struct bitset *defined, union ref phi, enum irclass cls, int var, struct block *blk)
+{
+   union ref *args = phitab.p[instrtab[phi.i].l.i];
+   assert(blk->npred > 0);
+   for (int i = 0; i < blk->npred; ++i)
+      args[i] = readvar(defined, cls, var, blk);
+}
+
+static union ref
+readvar(struct bitset *defined, enum irclass cls, int var, struct block *blk)
+{
+   union ref val;
+
+   if (bstest(defined, var)) return mkref(RTMP, var);
+
+   /* memoed definition */
+   if (xbcap(curdefs) > blk->id && xbcap(curdefs[blk->id]) > var && curdefs[blk->id][var])
+      return mkref(RTMP, curdefs[blk->id][var]);
+
+   xbgrowz(&curdefs, blk->id + 1);
+   if (blk->id > livelastblk) {
+      ++npendingphi;
+      val = insertphi(blk, cls);
+      xbgrowz(&pendingphis, blk->id + 1);
+      vpush(&pendingphis[blk->id], ((struct pendingphi) { var, val.i }));
+   } else if (blk->npred == 1) {
+      val = readvar(defined, cls, var, blkpred(blk, 0));
+   } else {
+      val = insertphi(blk, cls);
+      fillphi(defined, val, cls, var, blk);
+   }
+   xbgrowz(&curdefs[blk->id], var + 1);
+   assert(val.i > 0);
+   curdefs[blk->id][var] = val.i;
+   return val;
+}
+
+static void
+liveuse(struct bitset *defined, struct instr *ins, union ref *r, struct block *blk)
+{
+   int var;
+   if (r->t == RADDR) {
+      liveuse(defined, ins, &addrht[r->i].base, blk);
+      liveuse(defined, ins, &addrht[r->i].index, blk);
+      return;
+   } else if (r->t != RTMP) return;
+   var = r->i;
+   if (bstest(defined, var)) return;
+
+   *r = readvar(defined, insrescls(instrtab[r->i]), var, blk);
+}
+
+/* regalloc() assumes every use of a temporary is visited before its definition
+ * so this function fixes cases where that would not apply by introducing phi functions */
+static void
+fixlive(struct function *fn)
+{
+   extern int ninstr;
+   struct block *blk = fn->entry;
+   struct bitset definedbuf[4] = {0};
+   struct bitset sealedbuf[2] = {0};
+   struct bitset *defined = definedbuf;
+   struct bitset *sealed = sealedbuf;
+
+   if (ninstr >= sizeof(definedbuf)*8)
+      defined = xcalloc(sizeof *defined * BSSIZE(ninstr));
+   if (fn->nblk >= sizeof(sealedbuf)*8)
+      sealed = xcalloc(sizeof *sealed * BSSIZE(fn->nblk));
+   npendingphi = 0;
+
+   do {
+      for (int i = 0; i < blk->phi.n; ++i) {
+         int var = blk->phi.p[i];
+         bsset(defined, var);
+      }
+
+      for (int i = 0; i < blk->ins.n; ++i) {
+         int var = blk->ins.p[i];
+         struct instr *ins = &instrtab[var];
+         if (ins->l.t) liveuse(defined, ins, &ins->l, blk);
+         if (ins->r.t) liveuse(defined, ins, &ins->r, blk);
+         bsset(defined, var);
+      }
+   } while ((blk = blk->lnext) != fn->entry);
+
+   do {
+      vec_of(struct pendingphi) *pphi;
+
+      if (!npendingphi) break;
+      if (xbcap(pendingphis) <= blk->id) break;
+
+      pphi = (void *)&pendingphis[blk->id];
+      if (pphi->n) --npendingphi;
+      for (int i = 0; i < pphi->n; ++i) {
+         fillphi(defined, mkref(RTMP, pphi->p[i].phi), instrtab[pphi->p[i].phi].cls, pphi->p[i].var, blk);
+      }
+      vfree(pphi);
+   } while ((blk = blk->lnext) != fn->entry);
+
+   if (ccopt.dbg.l) {
+      efmt("<< After liveness fixup >>\n");
+      irdump(fn);
+   }
+   if (defined != definedbuf) free(defined);
+   if (sealed != sealedbuf) free(sealed);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

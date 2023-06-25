@@ -367,6 +367,12 @@ xbgrow_(void **p, size_t n)
 #define xbgrow(p, n) xbgrow_((void **)(p), (n) * sizeof**(p))
 #define xbpush(p, n, x) (xbgrow(p, (*(n) + 1)), (*(p))[(*(n))++] = (x))
 #define xbfree(p) ((p) ? free(&xbcap_(p)) : (void)0)
+#define xbcap(p) ((p) ? xbcap_(p) / sizeof*(p) : 0)
+#define xbgrowz(p, n) do {                       \
+   size_t tmp = *(p) ? xbcap_(*(p)) : 0;         \
+   xbgrow(p, n);                                 \
+   memset((char*)*(p)+tmp, 0, xbcap_(*(p))-tmp); \
+} while (0)
 
 struct arena *newarena(uint chunksiz);
 void *alloc(struct arena **, uint siz, uint align);
@@ -431,6 +437,9 @@ int pmap_set_(struct pmapbase *, void **v, uint vsiz, const void *k);
 #define pmap_get(m, k) (((m)->tmp = pmap_get_(&(m)->mb, k)) < 0 ? NULL : &(m)->v[(m)->tmp])
 #define pmap_set(m, k, x) ((m)->tmp = pmap_set_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, k), \
                            (m)->v[(m)->tmp] = (x))
+#define pmap_each(m,kx,pvx) \
+   for (int _i = 0; _i < (m)->mb.N && ((kx) = (m)->mb.k[_i], (pvx) = &(m)->v[_i], 1); ++_i) \
+      if (kx)
 
 static inline bool
 bstest(const struct bitset *bs, uint i)

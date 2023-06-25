@@ -121,6 +121,7 @@ enum jumpkind { JXXX, Jb, Jret, };
 struct block {
    int id;
    int npred;
+   int visit;
    union {
       struct block *_pred0;
       struct block **_pred;
@@ -206,6 +207,7 @@ extern struct calltab {vec_of(struct call);} calltab;
 extern struct phitab {vec_of(union ref *);} phitab;
 extern struct dattab {vec_of(struct irdat);} dattab;
 extern struct addr addrht[];
+extern int visitmark;
 #define mkinstr(O, C, ...) ((struct instr) { .op = (O), .cls = (C), .reg=0, __VA_ARGS__ })
 #define mkarginstr(ty, x) mkinstr(Oarg, 0, mktyperef(ty), (x))
 void irinit(struct function *);
@@ -240,6 +242,9 @@ void deluses(int ins);
 void delinstr(struct block *, int idx);
 void delphi(struct block *, int idx);
 void fillblkids(struct function *);
+#define startbbvisit() (void)(++visitmark)
+#define wasvisited(blk) ((blk)->visit == visitmark)
+#define markvisited(blk) ((blk)->visit = visitmark)
 
 /* IR builder functions */
 union ref addinstr(struct function *, struct instr);

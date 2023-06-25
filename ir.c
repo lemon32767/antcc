@@ -25,6 +25,7 @@ struct addr addrht[1 << 12];
 static int naddrht;
 struct xcon conht[1 << 12];
 static int nconht;
+int visitmark;
 
 void
 irinit(struct function *fn)
