@@ -1009,6 +1009,754 @@ commaexpr(struct comp *cm)
 }
 
 /*****************/
+/* Decls Parsing */
+/*****************/
+
+static union type
+buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
+{
+   struct token tk;
+   union type t;
+   struct span flexspan;
+   struct namedfield fbuf[32];
+   vec_of(struct namedfield) fld = VINIT(fbuf, arraylength(fbuf));
+   struct typedata td = {tt};
+   bool isunion = tt == TYUNION;
+   const char *tag = isunion ? "union" : "struct";
+
+   while (!match(cm, &tk, '}')) {
+      struct declstate st = { DFIELD };
+      do {
+         struct decl decl = pdecl(&st, cm);
+         if (fld.n && td.flexi) {
+            td.flexi = 0;
+            error(&flexspan, "flexible array member is not at end of struct");
+         }
+         if (!isunion && decl.ty.t == TYARRAY && !typearrlen(decl.ty)) {
+            td.flexi = 1;
+            flexspan = decl.span;
+         } else if (isincomplete(decl.ty)) {
+            error(&decl.span, "field has incomplete type (%ty)", decl.ty);
+         } else if (decl.ty.t == TYFUNC)  {
+            error(&decl.span, "field has function type (%ty)", decl.ty);
+         }
+         if (decl.ty.t) {
+            uint align = typealign(decl.ty);
+            uint siz = typesize(decl.ty);
+            uint off = isunion ? 0 : alignup(td.siz, align);
+            struct namedfield f = { decl.name, { decl.ty, off, .qual = decl.qual }};
+            if (!decl.name) {
+               if (!isagg(decl.ty) || ttypenames[typedata[decl.ty.dat].id]) {
+                  warn(&decl.span, "declaration does not declare anything");
+                  continue;
+               } else if (ccopt.cstd < STDC11 && ccopt.pedant) {
+                  warn(&decl.span, "anonymous %s in %M is an extension",
+                       decl.ty.t == TYUNION ? "union" : "struct");
+               }
+            }
+            vpush(&fld, f);
+            td.anyconst |= decl.qual & QCONST;
+            if (isagg(decl.ty)) {
+               td.anyconst |= typedata[decl.ty.dat].anyconst;
+               if (typedata[decl.ty.dat].flexi)
+                  error(&decl.span, "nested aggregate has flexible array member");
+            }
+            if (isunion)
+               td.siz = td.siz < siz ? siz : td.siz;
+            else
+               td.siz = off + siz;
+            td.align = td.align < align ? align : td.align;
+         }
+      } while (st.more);
+   }
+   if (td.flexi && ccopt.cstd < STDC99 && ccopt.pedant)
+      warn(&flexspan, "flexible array member in %M is an extension");
+   if (fld.n == 0) {
+      struct namedfield dummy = { "", { mktype(TYCHAR), 0 }};
+      error(&tk.span, "%s cannot have zero members", tag);
+      vpush(&fld, dummy);
+      td.siz = td.align = 1;
+   }
+   td.siz = alignup(td.siz, td.align);
+   td.fld = fld.p;
+   td.nmemb = fld.n;
+   if (id != -1)
+      t = completetype(name, id, &td);
+   else
+      t = mktagtype(name, &td);
+   vfree(&fld);
+   return t;
+}
+
+static inline void
+inttyminmax(vlong *min, uvlong *max, enum typetag tt)
+{
+   uint bits = 8*targ_primsizes[tt];
+   *min = isunsignedt(tt) ? 0 : -(1ll << (bits - 1));
+   *max = isunsignedt(tt) ? ~0ull >> (64 - bits) : (1ll << (bits - 1)) - 1;
+}
+
+/* the backing type of enum (without a C23 fixed backing type) is int or the
+ * smallest-rank type that all the enumerators fit in, or if it doesn't exist,
+ * then the biggest signed type. the type of enumeration constants is the type of
+ * its defining expression when present or the type of the previous enumerator
+ * or in case of overflow the smallest type that fits (previous value + 1)
+ * this isn't strictly conforming since pre C23 enums are pretty loosely defined,
+ * and this is similar to existing compiler's de-facto behaviour (though gcc
+ * prefers to use unsigned types when possible). should add support for -fshort-enums
+ */
+static union type
+buildenum(struct comp *cm, const char *name, const struct span *span)
+{
+   struct token tk;
+   vlong tymin, minv = 0;
+   uvlong tymax, maxv = 0;
+   struct typedata td = {TYENUM, .backing = TYINT};
+   union type ty = mktype(td.backing);
+   struct span maxvspan;
+   vlong iota = 0;
+   bool somelonglong = 0;
+
+   inttyminmax(&tymin, &tymax, td.backing);
+   while (!match(cm, &tk, '}')) {
+      struct decl decl = {0};
+      peek(cm, &tk);
+      expect(cm, TKIDENT, NULL);
+      if (match(cm, NULL, '=') || (peek(cm, NULL) == TKNUMLIT && !expect(cm, '=', NULL))) {
+         struct expr ex = expr(cm);
+         if (eval(&ex, EVINTCONST)) {
+            iota = ex.i;
+            if (ex.ty.t != ty.t)
+               inttyminmax(&tymin, &tymax, ex.ty.t);
+            ty = ex.ty;
+         } else {
+            error(&ex.span, "enum value is not an integer constant");
+         }
+      } else if (tk.t != TKIDENT) {
+         lex(cm, NULL);
+         continue;
+      }
+      while (issigned(ty) ? (iota > (vlong)tymax || iota < tymin) : iota > tymax)
+         inttyminmax(&tymin, &tymax, ++ty.t);
+      somelonglong |= ty.t >= TYVLONG;
+      if ((isunsigned(ty) || iota > 0) && iota > maxv)
+         maxv = iota, maxvspan = tk.span;
+      else if (issigned(ty) && iota < minv)
+         minv = iota;
+
+      decl.name = tk.s;
+      decl.ty = ty;
+      decl.isenum = 1;
+      decl.value = iota++;
+      putdecl(cm, &decl);
+      if (!match(cm, &tk, ',')) {
+         if (expect(cm, '}', "or `,'"))
+            break;
+         else lex(cm, NULL);
+      }
+   }
+
+   td.backing = 0;
+   for (int t = TYINT; t <= TYUVLONG; ++t) {
+      inttyminmax(&tymin, &tymax, t);
+      if (minv >= tymin && maxv <= tymax) {
+         td.backing = t;
+         break;
+      }
+   }
+   if (!td.backing) {
+      td.backing = !somelonglong && ccopt.cstd == STDC89 && ccopt.pedant ? TYLONG : TYVLONG;
+      warn(&maxvspan, "enumerators exceed range of enum's backing type (%ty)", mktype(td.backing));
+   }
+   if (td.backing >= TYVLONG && !somelonglong && ccopt.cstd == STDC89 && ccopt.pedant)
+      warn(span, "enum backing type is '%ty' in %M", mktype(td.backing));
+
+   ty = mktagtype(name, &td);
+   ty.backing = td.backing;
+   return ty;
+}
+
+static union type
+tagtype(struct comp *cm, enum toktag kind)
+{
+   struct token tk;
+   union type t;
+   struct span span;
+   enum typetag tt = kind == TKWenum ? TYENUM : kind == TKWstruct ? TYSTRUCT : TYUNION;
+   const char *tag = NULL;
+
+   peek(cm, &tk);
+   if (match(cm, &tk, TKIDENT))
+      tag = tk.s;
+   span = tk.span;
+   if (!match(cm, NULL, '{')) {
+      if (!tag) {
+         error(&tk.span, "expected %tt name or '{'", kind);
+         return mktype(0);
+      }
+      t = gettagged(cm, &span, tt, tag, /* def? */ peek(cm, NULL) == ';');
+      if (tt == TYENUM && !t.t) {
+         error(&tk.span, "cannot forward-declare enum");
+         return mktype(TYINT);
+      }
+   } else {
+      if (tt != TYENUM) {
+         if (tag) {
+            t = deftagged(cm, &span, tt, tag, mktype(0));
+            if (t.t != tt || !isincomplete(t)) {
+               if (t.t != tt)
+                  error(&tk.span,
+                        "defining tagged type %'tk as %tt clashes with previous definition",
+                        &tk, kind);
+               else
+                  error(&tk.span, "redefinition of '%tt %s'", kind, tag, mktype(0));
+               note(&span, "previous definition:");
+            }
+         }
+         t = buildagg(cm, tt, tag, tag ? typedata[t.dat].id : -1);
+      } else {
+         t = buildenum(cm, tag, &span);
+         if (tag) deftagged(cm, &span, TYENUM, tag, t);
+      }
+   }
+
+   if (t.t != tt) {
+      error(&tk.span, "declaring tagged type %'tk as %tt clashes with previous definition",
+            &tk, kind);
+      note(&span, "previous definition:");
+   }
+   return t;
+}
+
+static void
+declspec(struct declstate *st, struct comp *cm)
+{
+   struct token tk;
+   struct decl *decl;
+   enum arith {
+      KSIGNED   = 1<<0,
+      KUNSIGNED = 1<<1,
+      KBOOL     = 1<<2,
+      KCHAR     = 1<<3,
+      KSHORT    = 1<<4,
+      KLONG     = 1<<5,
+      KLONGLONG = 1<<6,
+      KINT      = 1<<7,
+      KFLOAT    = 1<<8,
+      KDOUBLE   = 1<<9,
+   } arith = 0;
+   struct span span = {0};
+
+   for (;;) {
+      peek(cm, &tk);
+      switch (tk.t) {
+      case TKWconst:
+         st->qual |= QCONST;
+         break;
+      case TKWvolatile:
+         st->qual |= QVOLATILE;
+         break;
+      case TKW_Noreturn:
+         st->qual |= QNORETURN;
+         break;
+      case TKWinline:
+         st->qual |= QINLINE;
+         break;
+      case TKWvoid:
+         st->base = mktype(TYVOID);
+         break;
+      case TKWsigned:
+         arith |= KSIGNED;
+         break;
+      case TKWunsigned:
+         arith |= KUNSIGNED;
+         break;
+      case TKW_Bool:
+      case TKWbool:
+         if (arith & KBOOL) goto Dup;
+         arith |= KBOOL;
+         break;
+      case TKWchar:
+         if (arith & KCHAR) {
+         Dup:
+            error(&tk.span, "duplicate %tk specifier", &tk);
+         }
+         arith |= KCHAR;
+         break;
+      case TKWshort:
+         arith |= KSHORT;
+         break;
+      case TKWlong:
+         if ((arith & (KLONG | KLONGLONG)) == KLONG)
+            arith = (arith &~ KLONG) | KLONGLONG;
+         else if ((arith & (KLONG | KLONGLONG)) == 0)
+            arith |= KLONG;
+         else
+            error(&tk.span, "too long");
+         break;
+      case TKWint:
+         if (arith & KINT) goto Dup;
+         arith |= KINT;
+         break;
+      case TKWfloat:
+         if (arith & KFLOAT) goto Dup;
+         arith |= KFLOAT;
+         break;
+      case TKWdouble:
+         if (arith & KDOUBLE) goto Dup;
+         arith |= KDOUBLE;
+         break;
+      case TKWenum:
+      case TKWstruct:
+      case TKWunion:
+         lex(cm, &tk);
+         st->base = tagtype(cm, tk.t);
+         st->tagdecl = 1;
+         if (!span.ex.len) span.ex = tk.span.ex;
+         joinspan(&span.ex, tk.span.ex);
+         goto End;
+      case TKIDENT:
+         if (!st->base.t && !arith && (decl = finddecl(cm, tk.s))
+             && decl->scls == SCTYPEDEF) {
+            st->base = decl->ty;
+            break;
+         }
+         /* fallthru */
+      default:
+         if (!span.ex.len) span.ex = tk.span.ex;
+         goto End;
+      case TKW_BitInt: case TKW_Complex:
+      case TKW_Decimal128: case TKW_Decimal32:
+      case TKW_Decimal64: case TKW_Imaginary:
+         error(&tk.span, "%'tk is unsupported", &tk);
+         arith = arith ? arith : KINT;
+      }
+      if (!span.ex.len) span.ex = tk.span.ex;
+      joinspan(&span.ex, tk.span.ex);
+      lex(cm, &tk);
+      if (st->base.t) break;
+   }
+End:
+   if (st->base.t && arith) {
+      /* combining arith type specifiers and other types */
+   Bad:
+      error(&span, "invalid declaration specifier");
+      st->base = mktype(TYINT);
+   } else if (!st->base.t && arith) {
+      enum typetag t;
+      ioflush(&bstderr);
+      if (arith == KFLOAT)
+         t = TYFLOAT;
+      else if (arith == KDOUBLE)
+         t = TYDOUBLE;
+      else if (arith == (KLONG | KDOUBLE)) {
+         t = TYLDOUBLE;
+         error(&span, "`long double' is unsupported");
+      } else if (arith == KBOOL)
+         t = TYBOOL;
+      else if (arith == KCHAR)
+         t = TYCHAR;
+      else if (arith == (KSIGNED | KCHAR))
+         t = TYSCHAR;
+      else if (arith == (KUNSIGNED | KCHAR))
+         t = TYUCHAR;
+      else if ((arith & ~KINT & ~KSIGNED) == KSHORT)
+         t = TYSHORT;
+      else if ((arith & ~KINT) == (KUNSIGNED | KSHORT))
+         t = TYUSHORT;
+      else if ((arith & ~KINT & ~KSIGNED) == 0)
+         t = TYINT;
+      else if ((arith & ~KINT) == KUNSIGNED)
+         t = TYUINT;
+      else if ((arith & ~KINT & ~KSIGNED) == KLONG)
+         t = TYLONG;
+      else if ((arith & ~KINT) == (KUNSIGNED | KLONG))
+         t = TYULONG;
+      else if ((arith & ~KINT & ~KSIGNED) == KLONGLONG)
+         t = TYVLONG;
+      else if ((arith & ~KINT) == (KUNSIGNED | KLONGLONG))
+         t = TYUVLONG;
+      else
+         goto Bad;
+      st->base = mktype(t ? t : TYINT);
+   } else if (!st->base.t && ccopt.cstd < STDC23) {
+      warn(&span, "type implicitly declared as int");
+      st->base = mktype(TYINT);
+   } else if (!st->base.t)
+      fatal(&span, "expected declaration type specifier");
+}
+
+/* circular doubly linked list used to parse declarators */
+static struct decllist {
+   struct decllist *prev, *next;
+   uchar t; /* TYPTR, TYARRAY or TYFUNC */
+   union {
+      uchar qual; /* TYPTR */
+      uint len; /* TYARRAY */
+      struct { /* TYFUNC */
+         union type *param;
+         const char **pnames;
+         struct span *pspans;
+         uchar *pqual;
+         short npar;
+         bool kandr : 1, variadic : 1;
+      };
+   };
+   struct span span;
+} decltmp[64], *declfreelist;
+static union type declparamtmp[16];
+static const char *declpnamestmp[16];
+static struct span declpspanstmp[16];
+static uchar declpqualtmp[tdqualsiz(16)];
+
+static void
+declinsert(struct decllist *list, const struct decllist *node)
+{
+   struct decllist *pnode = declfreelist;
+   if (!pnode) fatal(NULL, "too many nested declarators");
+   declfreelist = declfreelist->next;
+   *pnode = *node;
+	pnode->next = list->next;
+	pnode->prev = list;
+	list->next->prev = pnode;
+	list->next = pnode;
+}
+
+static int
+sclass(struct comp *cm, struct span *span)
+{
+   struct token tk;
+   int sc = 0, first = 1;
+   for (;; lex(cm, &tk)) {
+      switch (peek(cm, &tk)) {
+      case TKWtypedef:  sc |= SCTYPEDEF; break;
+      case TKWextern:   sc |= SCEXTERN; break;
+      case TKWstatic:   sc |= SCSTATIC; break;
+      case TKWauto:     sc |= SCAUTO; break;
+      case TKWregister: sc |= SCREGISTER; break;
+      case TKWthread_local:
+      case TKW_Thread_local:
+         sc |= SCTHREADLOCAL; break;
+      default: return sc;
+      }
+      if (first) *span = tk.span;
+      else joinspan(&span->ex, tk.span.ex);
+      first = 0;
+   }
+}
+
+static int
+cvqual(struct comp *cm)
+{
+   struct token tk;
+   int q = 0;
+   while (match(cm, &tk, TKWconst) || match(cm, &tk, TKWvolatile))
+      q |= tk.t == TKWconst ? QCONST : QVOLATILE;
+   return q;
+}
+
+static void
+decltypes(struct comp *cm, struct decllist *list, const char **name, struct span *span) {
+   struct token tk;
+   struct decllist *ptr, node;
+
+   while (match(cm, &tk, '*')) {
+      node.t = TYPTR;
+      node.qual = cvqual(cm);
+      node.span = tk.span;
+      declinsert(list, &node);
+   }
+   ptr = list->next;
+   switch (peek(cm, &tk)) {
+   case '(':
+      lex(cm, &tk);
+      if (isdecltok(cm)) {
+         goto Func;
+      } else if (match(cm, &tk, ')')) {
+         /* T () is K&R func proto */
+         node.span = tk.span;
+         node.t = TYFUNC;
+         node.param = NULL;
+         node.pqual = NULL;
+         node.pnames = NULL;
+         node.variadic = 0;
+         node.kandr = 1;
+         node.npar = 0;
+         declinsert(ptr->prev, &node);
+         break;
+      } else {
+         decltypes(cm, list, name, span);
+         expect(cm, ')', NULL);
+      }
+      break;
+   case TKIDENT:
+      if (!name)
+         error(&tk.span, "unexpected identifier in type name");
+      else {
+         *name = tk.s;
+         *span = tk.span;
+      }
+      lex(cm, &tk);
+      break;
+   default:
+      *span = tk.span;
+      if (name)
+         *name = NULL;
+   }
+   for (;;) {
+      if (match(cm, &tk, '[')) {
+         node.span = tk.span;
+         uint n = 0;
+         if (!match(cm, &tk, ']')) {
+            struct expr ex = expr(cm);
+            if (!eval(&ex, EVINTCONST)) {
+               error(&ex.span, "array length is not an integer constant");
+            } else if (typesize(ex.ty) < 8 && ex.i < 0) {
+               error(&ex.span, "array length is negative");
+            } else if (ex.u > (1ull << (8*sizeof n)) - 1) {
+               error(&ex.span, "array too long (%ul)", ex.u);
+            } else if (ex.u == 0) {
+               error(&ex.span, "array cannot have zero length");
+            } else {
+               n = ex.u;
+            }
+            peek(cm, &tk);
+            joinspan(&node.span.ex, tk.span.ex);
+            expect(cm, ']', NULL);
+         }
+         node.t = TYARRAY;
+         node.len = n;
+         declinsert(ptr->prev, &node);
+      } else if (match(cm, &tk, '(')) Func: {
+         static int depth = 0;
+         vec_of(union type) params = {0};
+         vec_of(uchar) qual = {0};
+         vec_of(const char *) names = {0};
+         vec_of(struct span) spans = {0};
+         bool anyqual = 0;
+
+         if (depth++ == 0) {
+            vinit(&params, declparamtmp, arraylength(declparamtmp));
+            vinit(&qual, declpqualtmp, arraylength(declpqualtmp));
+            vinit(&names, declpnamestmp, arraylength(declpnamestmp));
+            vinit(&spans, declpspanstmp, arraylength(declpspanstmp));
+         }
+         node.span = tk.span;
+         node.kandr = 0;
+         node.variadic = 0;
+
+         while (!match(cm, &tk, ')')) {
+            struct declstate st = { DFUNCPARAM };
+            struct decl decl;
+            if (match(cm, &tk, TKDOTS)) {
+               node.variadic = 1;
+               expect(cm, ')', NULL);
+               break;
+            }
+            decl = pdecl(&st, cm);
+            decl.ty = typedecay(decl.ty);
+            vpush(&params, decl.ty);
+            vpush(&names, decl.name);
+            vpush(&spans, decl.span);
+            if (decl.qual) {
+               anyqual = 1;
+               while (qual.n < tdqualsiz(params.n)) vpush(&qual, 0);
+               tdsetqual(qual.p, params.n-1, decl.qual);
+            }
+            if (isincomplete(decl.ty)) {
+               if (params.n > 1 || decl.ty.t != TYVOID || decl.qual || decl.name) {
+                  error(&decl.span,
+                        "function parameter #%d has incomplete type (%tq)",
+                        params.n, decl.ty, tdgetqual(qual.p, params.n-1));
+               }
+            }
+            joinspan(&node.span.ex, tk.span.ex);
+            if (!match(cm, &tk, ',')) {
+               expect(cm, ')', NULL);
+               break;
+            }
+         }
+         --depth;
+         node.kandr = params.n == 0 && ccopt.cstd < STDC23;
+         if (params.n == 1 && params.p[0].t == TYVOID && !qual.n && !names.p[0]) { /* (void) */
+            vfree(&params);
+            vfree(&names);
+            vfree(&spans);
+         } else if (params.n && params.p[0].t == TYVOID && !qual.n && !names.p[0]) {
+            error(&node.span, "function parameter #1 has incomplete type (%tq)",
+                  params.p[0], tdgetqual(qual.p, 0));
+         }
+         node.t = TYFUNC;
+         node.param = params.n ? params.p : NULL;
+         node.pqual = anyqual ? qual.p : NULL;
+         node.pnames = params.n ? names.p : NULL;
+         node.pspans = params.n ? spans.p : NULL;
+         node.npar = params.n;
+         declinsert(ptr->prev, &node);
+      } else break;
+   }
+}
+
+static struct decl
+declarator(struct declstate *st, struct comp *cm) {
+   struct decl decl = { st->base, st->scls, st->qual, st->align };
+   struct decllist list = { &list, &list }, *l;
+   static bool inidecltmp = 0;
+   if (!inidecltmp) {
+      inidecltmp = 1;
+      for (int i = 0; i < arraylength(decltmp); ++i) {
+         decltmp[i].next = declfreelist;
+         declfreelist = &decltmp[i];
+      }
+   }
+
+   decltypes(cm, &list, st->kind == DCASTEXPR ? NULL : &decl.name, &decl.span);
+   if (!decl.name && st->kind != DCASTEXPR && st->kind != DFUNCPARAM) {
+      if (list.prev == &list) lex(cm, NULL);
+      error(&decl.span, "expected `(', `*' or identifier");
+   }
+   for (l = list.prev; l != &list; l = l->prev) {
+      switch (l->t) {
+      case TYPTR:
+         decl.ty = mkptrtype(decl.ty, decl.qual);
+         decl.qual = l->qual;
+         break;
+      case TYARRAY:
+         if (isincomplete(decl.ty))
+            error(&l->span, "array has incomplete element type (%ty)", decl.ty);
+         else if (decl.ty.t == TYFUNC)
+            error(&l->span, "array has element has function type (%ty)", decl.ty);
+         decl.ty = mkarrtype(decl.ty, decl.qual, l->len);
+         decl.qual = 0;
+         break;
+      case TYFUNC:
+         if (decl.ty.t == TYFUNC)
+            error(&decl.span, "function cannot return function type (%ty)", decl.ty);
+         else if (decl.ty.t == TYARRAY)
+            error(&decl.span, "function cannot return array type", decl.ty);
+         else if (decl.ty.t != TYVOID && isincomplete(decl.ty))
+            error(&decl.span, "function cannot return incomplete type (%ty)", decl.ty);
+         decl.ty = mkfntype(decl.ty, l->npar, l->param, l->pqual, l->kandr, l->variadic);
+         if (l->param != declparamtmp) free(l->param);
+         if (l->pqual != declpqualtmp) free(l->pqual);
+         if (l->prev == &list && l->npar) { /* last */
+            st->pnames = alloc(&cm->fnarena, l->npar * sizeof(char *), 0);
+            st->pspans = alloc(&cm->fnarena, l->npar * sizeof(struct span), 0);
+            memcpy(st->pnames, l->pnames, l->npar * sizeof(char *));
+            memcpy(st->pspans, l->pspans, l->npar * sizeof(struct span));
+         }
+         if (l->pnames != declpnamestmp) free(l->pnames);
+         if (l->pspans != declpspanstmp) free(l->pspans);
+         decl.qual = 0;
+         break;
+      }
+
+      l->next = declfreelist;
+      declfreelist = l;
+   }
+
+   return decl;
+}
+
+static void
+pstaticassert(struct comp *cm, struct span *span)
+{
+   struct expr ex;
+   struct token tk, msg = {0};
+
+   /* _Static_assert '(' <expr> [ ',' <strlit> ] ')' ';' */
+   expect(cm, '(', NULL);
+   ex = expr(cm);
+   peek(cm, &tk);
+   if (match(cm, &tk, ',')) {
+      peek(cm, &msg);
+      expect(cm, TKSTRLIT, NULL);
+   }
+   peek(cm, &tk);
+   expect(cm, ')', NULL);
+   expect(cm, ';', NULL);
+
+   joinspan(&span->ex, tk.span.ex);
+   if (!msg.t && ccopt.cstd == STDC11)
+      warn(span, "_Static_assert without message is a C23 extension");
+   if (!eval(&ex, EVINTCONST)) {
+      error(&ex.span, "_Static_assert expression is not an integer constant");
+   } else if (iszero(ex)) {
+      if (msg.t)
+         error(&ex.span, "static assertion failed: %'S", msg.s, msg.len);
+      else
+         error(&ex.span, "static assertion failed");
+   }
+}
+
+static struct decl
+pdecl(struct declstate *st, struct comp *cm) {
+   struct token tk;
+   struct decl decl;
+   bool iniallowed = st->kind != DFIELD && st->kind != DFUNCPARAM && st->kind != DCASTEXPR;
+   bool staticassertok = iniallowed;
+   bool first = 0;
+
+   if (st->varini) {
+      memset(&decl, 0, sizeof decl);
+      goto AfterVarIni;
+   }
+
+   if (!st->base.t) {
+      if (staticassertok && match(cm, &tk, TKW_Static_assert)) {
+         pstaticassert(cm, &tk.span);
+         return decl = (struct decl){0};
+      }
+      first = 1;
+      st->scls = sclass(cm, &tk.span);
+      if (popcnt(st->scls) > 1)
+         error(&tk.span, "invalid combination of storage class specifiers");
+      else {
+         int allowed;
+         switch (st->kind) {
+         case DTOPLEVEL: allowed = SCTYPEDEF | SCEXTERN | SCSTATIC | SCTHREADLOCAL; break;
+         case DCASTEXPR: allowed = 0; break;
+         case DFIELD: allowed = 0; break;
+         case DFUNCPARAM: allowed = 0; break;
+         case DFUNCVAR:
+            allowed = SCTYPEDEF | SCREGISTER | SCAUTO | SCEXTERN | SCSTATIC | SCTHREADLOCAL;
+            break;
+         default: assert(0);
+         }
+         if ((st->scls & allowed) != st->scls)
+            error(&tk.span, "this storage class is not allowed in this context");
+         st->scls &= allowed;
+      }
+      declspec(st, cm);
+   }
+
+   if (first && st->tagdecl && match(cm, &tk, ';')) {
+      decl = (struct decl) { st->base, st->scls, st->qual, st->align, tk.span };
+      return decl;
+   }
+   decl = declarator(st, cm);
+
+   if (iniallowed && match(cm, &tk, '=')) {
+      st->varini = 1;
+      return decl;
+   } else if (first && decl.ty.t == TYFUNC && match(cm, &tk, '{')) {
+      st->funcdef = 1;
+      return decl;
+   }
+
+AfterVarIni:
+   st->varini = 0;
+   st->more = 0;
+   if (st->kind != DCASTEXPR && st->kind != DFUNCPARAM) {
+      if (match(cm, &tk, ','))
+         st->more = 1;
+      else expect(cm, st->kind == DFUNCPARAM ? ')' : ';', "or `,'");
+   }
+
+   return decl;
+}
+
+/*****************/
 /* IR Generation */
 /*****************/
 
@@ -1024,7 +1772,6 @@ expreffects(struct function *fn, const struct expr *ex)
 {
    compileexpr(fn, ex, /*discard*/ 1);
 }
-
 
 static void
 structcopy(struct function *fn, union type ty, union ref dst, union ref src)
@@ -2111,753 +2858,6 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
    }
 }
 
-/*****************/
-/* Decls Parsing */
-/*****************/
-
-static union type
-buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
-{
-   struct token tk;
-   union type t;
-   struct span flexspan;
-   struct namedfield fbuf[32];
-   vec_of(struct namedfield) fld = VINIT(fbuf, arraylength(fbuf));
-   struct typedata td = {tt};
-   bool isunion = tt == TYUNION;
-   const char *tag = isunion ? "union" : "struct";
-
-   while (!match(cm, &tk, '}')) {
-      struct declstate st = { DFIELD };
-      do {
-         struct decl decl = pdecl(&st, cm);
-         if (fld.n && td.flexi) {
-            td.flexi = 0;
-            error(&flexspan, "flexible array member is not at end of struct");
-         }
-         if (!isunion && decl.ty.t == TYARRAY && !typearrlen(decl.ty)) {
-            td.flexi = 1;
-            flexspan = decl.span;
-         } else if (isincomplete(decl.ty)) {
-            error(&decl.span, "field has incomplete type (%ty)", decl.ty);
-         } else if (decl.ty.t == TYFUNC)  {
-            error(&decl.span, "field has function type (%ty)", decl.ty);
-         }
-         if (decl.ty.t) {
-            uint align = typealign(decl.ty);
-            uint siz = typesize(decl.ty);
-            uint off = isunion ? 0 : alignup(td.siz, align);
-            struct namedfield f = { decl.name, { decl.ty, off, .qual = decl.qual }};
-            if (!decl.name) {
-               if (!isagg(decl.ty) || ttypenames[typedata[decl.ty.dat].id]) {
-                  warn(&decl.span, "declaration does not declare anything");
-                  continue;
-               } else if (ccopt.cstd < STDC11 && ccopt.pedant) {
-                  warn(&decl.span, "anonymous %s in %M is an extension",
-                       decl.ty.t == TYUNION ? "union" : "struct");
-               }
-            }
-            vpush(&fld, f);
-            td.anyconst |= decl.qual & QCONST;
-            if (isagg(decl.ty)) {
-               td.anyconst |= typedata[decl.ty.dat].anyconst;
-               if (typedata[decl.ty.dat].flexi)
-                  error(&decl.span, "nested aggregate has flexible array member");
-            }
-            if (isunion)
-               td.siz = td.siz < siz ? siz : td.siz;
-            else
-               td.siz = off + siz;
-            td.align = td.align < align ? align : td.align;
-         }
-      } while (st.more);
-   }
-   if (td.flexi && ccopt.cstd < STDC99 && ccopt.pedant)
-      warn(&flexspan, "flexible array member in %M is an extension");
-   if (fld.n == 0) {
-      struct namedfield dummy = { "", { mktype(TYCHAR), 0 }};
-      error(&tk.span, "%s cannot have zero members", tag);
-      vpush(&fld, dummy);
-      td.siz = td.align = 1;
-   }
-   td.siz = alignup(td.siz, td.align);
-   td.fld = fld.p;
-   td.nmemb = fld.n;
-   if (id != -1)
-      t = completetype(name, id, &td);
-   else
-      t = mktagtype(name, &td);
-   vfree(&fld);
-   return t;
-}
-
-static inline void
-inttyminmax(vlong *min, uvlong *max, enum typetag tt)
-{
-   uint bits = 8*targ_primsizes[tt];
-   *min = isunsignedt(tt) ? 0 : -(1ll << (bits - 1));
-   *max = isunsignedt(tt) ? ~0ull >> (64 - bits) : (1ll << (bits - 1)) - 1;
-}
-
-/* the backing type of enum (without a C23 fixed backing type) is int or the
- * smallest-rank type that all the enumerators fit in, or if it doesn't exist,
- * then the biggest signed type. the type of enumeration constants is the type of
- * its defining expression when present or the type of the previous enumerator
- * or in case of overflow the smallest type that fits (previous value + 1)
- * this isn't strictly conforming since pre C23 enums are pretty loosely defined,
- * and this is similar to existing compiler's de-facto behaviour (though gcc
- * prefers to use unsigned types when possible). should add support for -fshort-enums
- */
-static union type
-buildenum(struct comp *cm, const char *name, const struct span *span)
-{
-   struct token tk;
-   vlong tymin, minv = 0;
-   uvlong tymax, maxv = 0;
-   struct typedata td = {TYENUM, .backing = TYINT};
-   union type ty = mktype(td.backing);
-   struct span maxvspan;
-   vlong iota = 0;
-   bool somelonglong = 0;
-
-   inttyminmax(&tymin, &tymax, td.backing);
-   while (!match(cm, &tk, '}')) {
-      struct decl decl = {0};
-      peek(cm, &tk);
-      expect(cm, TKIDENT, NULL);
-      if (match(cm, NULL, '=') || (peek(cm, NULL) == TKNUMLIT && !expect(cm, '=', NULL))) {
-         struct expr ex = expr(cm);
-         if (eval(&ex, EVINTCONST)) {
-            iota = ex.i;
-            if (ex.ty.t != ty.t)
-               inttyminmax(&tymin, &tymax, ex.ty.t);
-            ty = ex.ty;
-         } else {
-            error(&ex.span, "enum value is not an integer constant");
-         }
-      } else if (tk.t != TKIDENT) {
-         lex(cm, NULL);
-         continue;
-      }
-      while (issigned(ty) ? (iota > (vlong)tymax || iota < tymin) : iota > tymax)
-         inttyminmax(&tymin, &tymax, ++ty.t);
-      somelonglong |= ty.t >= TYVLONG;
-      if ((isunsigned(ty) || iota > 0) && iota > maxv)
-         maxv = iota, maxvspan = tk.span;
-      else if (issigned(ty) && iota < minv)
-         minv = iota;
-
-      decl.name = tk.s;
-      decl.ty = ty;
-      decl.isenum = 1;
-      decl.value = iota++;
-      putdecl(cm, &decl);
-      if (!match(cm, &tk, ',')) {
-         if (expect(cm, '}', "or `,'"))
-            break;
-         else lex(cm, NULL);
-      }
-   }
-
-   td.backing = 0;
-   for (int t = TYINT; t <= TYUVLONG; ++t) {
-      inttyminmax(&tymin, &tymax, t);
-      if (minv >= tymin && maxv <= tymax) {
-         td.backing = t;
-         break;
-      }
-   }
-   if (!td.backing) {
-      td.backing = !somelonglong && ccopt.cstd == STDC89 && ccopt.pedant ? TYLONG : TYVLONG;
-      warn(&maxvspan, "enumerators exceed range of enum's backing type (%ty)", mktype(td.backing));
-   }
-   if (td.backing >= TYVLONG && !somelonglong && ccopt.cstd == STDC89 && ccopt.pedant)
-      warn(span, "enum backing type is '%ty' in %M", mktype(td.backing));
-
-   ty = mktagtype(name, &td);
-   ty.backing = td.backing;
-   return ty;
-}
-
-static union type
-tagtype(struct comp *cm, enum toktag kind)
-{
-   struct token tk;
-   union type t;
-   struct span span;
-   enum typetag tt = kind == TKWenum ? TYENUM : kind == TKWstruct ? TYSTRUCT : TYUNION;
-   const char *tag = NULL;
-
-   peek(cm, &tk);
-   if (match(cm, &tk, TKIDENT))
-      tag = tk.s;
-   span = tk.span;
-   if (!match(cm, NULL, '{')) {
-      if (!tag) {
-         error(&tk.span, "expected %tt name or '{'", kind);
-         return mktype(0);
-      }
-      t = gettagged(cm, &span, tt, tag, /* def? */ peek(cm, NULL) == ';');
-      if (tt == TYENUM && !t.t) {
-         error(&tk.span, "cannot forward-declare enum");
-         return mktype(TYINT);
-      }
-   } else {
-      if (tt != TYENUM) {
-         if (tag) {
-            t = deftagged(cm, &span, tt, tag, mktype(0));
-            if (t.t != tt || !isincomplete(t)) {
-               if (t.t != tt)
-                  error(&tk.span,
-                        "defining tagged type %'tk as %tt clashes with previous definition",
-                        &tk, kind);
-               else
-                  error(&tk.span, "redefinition of '%tt %s'", kind, tag, mktype(0));
-               note(&span, "previous definition:");
-            }
-         }
-         t = buildagg(cm, tt, tag, tag ? typedata[t.dat].id : -1);
-      } else {
-         t = buildenum(cm, tag, &span);
-         if (tag) deftagged(cm, &span, TYENUM, tag, t);
-      }
-   }
-
-   if (t.t != tt) {
-      error(&tk.span, "declaring tagged type %'tk as %tt clashes with previous definition",
-            &tk, kind);
-      note(&span, "previous definition:");
-   }
-   return t;
-}
-
-static void
-declspec(struct declstate *st, struct comp *cm)
-{
-   struct token tk;
-   struct decl *decl;
-   enum arith {
-      KSIGNED   = 1<<0,
-      KUNSIGNED = 1<<1,
-      KBOOL     = 1<<2,
-      KCHAR     = 1<<3,
-      KSHORT    = 1<<4,
-      KLONG     = 1<<5,
-      KLONGLONG = 1<<6,
-      KINT      = 1<<7,
-      KFLOAT    = 1<<8,
-      KDOUBLE   = 1<<9,
-   } arith = 0;
-   struct span span = {0};
-
-   for (;;) {
-      peek(cm, &tk);
-      switch (tk.t) {
-      case TKWconst:
-         st->qual |= QCONST;
-         break;
-      case TKWvolatile:
-         st->qual |= QVOLATILE;
-         break;
-      case TKW_Noreturn:
-         st->qual |= QNORETURN;
-         break;
-      case TKWinline:
-         st->qual |= QINLINE;
-         break;
-      case TKWvoid:
-         st->base = mktype(TYVOID);
-         break;
-      case TKWsigned:
-         arith |= KSIGNED;
-         break;
-      case TKWunsigned:
-         arith |= KUNSIGNED;
-         break;
-      case TKW_Bool:
-      case TKWbool:
-         if (arith & KBOOL) goto Dup;
-         arith |= KBOOL;
-         break;
-      case TKWchar:
-         if (arith & KCHAR) {
-         Dup:
-            error(&tk.span, "duplicate %tk specifier", &tk);
-         }
-         arith |= KCHAR;
-         break;
-      case TKWshort:
-         arith |= KSHORT;
-         break;
-      case TKWlong:
-         if ((arith & (KLONG | KLONGLONG)) == KLONG)
-            arith = (arith &~ KLONG) | KLONGLONG;
-         else if ((arith & (KLONG | KLONGLONG)) == 0)
-            arith |= KLONG;
-         else
-            error(&tk.span, "too long");
-         break;
-      case TKWint:
-         if (arith & KINT) goto Dup;
-         arith |= KINT;
-         break;
-      case TKWfloat:
-         if (arith & KFLOAT) goto Dup;
-         arith |= KFLOAT;
-         break;
-      case TKWdouble:
-         if (arith & KDOUBLE) goto Dup;
-         arith |= KDOUBLE;
-         break;
-      case TKWenum:
-      case TKWstruct:
-      case TKWunion:
-         lex(cm, &tk);
-         st->base = tagtype(cm, tk.t);
-         st->tagdecl = 1;
-         if (!span.ex.len) span.ex = tk.span.ex;
-         joinspan(&span.ex, tk.span.ex);
-         goto End;
-      case TKIDENT:
-         if (!st->base.t && !arith && (decl = finddecl(cm, tk.s))
-             && decl->scls == SCTYPEDEF) {
-            st->base = decl->ty;
-            break;
-         }
-         /* fallthru */
-      default:
-         if (!span.ex.len) span.ex = tk.span.ex;
-         goto End;
-      case TKW_BitInt: case TKW_Complex:
-      case TKW_Decimal128: case TKW_Decimal32:
-      case TKW_Decimal64: case TKW_Imaginary:
-         error(&tk.span, "%'tk is unsupported", &tk);
-         arith = arith ? arith : KINT;
-      }
-      if (!span.ex.len) span.ex = tk.span.ex;
-      joinspan(&span.ex, tk.span.ex);
-      lex(cm, &tk);
-      if (st->base.t) break;
-   }
-End:
-   if (st->base.t && arith) {
-      /* combining arith type specifiers and other types */
-   Bad:
-      error(&span, "invalid declaration specifier");
-      st->base = mktype(TYINT);
-   } else if (!st->base.t && arith) {
-      enum typetag t;
-      ioflush(&bstderr);
-      if (arith == KFLOAT)
-         t = TYFLOAT;
-      else if (arith == KDOUBLE)
-         t = TYDOUBLE;
-      else if (arith == (KLONG | KDOUBLE)) {
-         t = TYLDOUBLE;
-         error(&span, "`long double' is unsupported");
-      } else if (arith == KBOOL)
-         t = TYBOOL;
-      else if (arith == KCHAR)
-         t = TYCHAR;
-      else if (arith == (KSIGNED | KCHAR))
-         t = TYSCHAR;
-      else if (arith == (KUNSIGNED | KCHAR))
-         t = TYUCHAR;
-      else if ((arith & ~KINT & ~KSIGNED) == KSHORT)
-         t = TYSHORT;
-      else if ((arith & ~KINT) == (KUNSIGNED | KSHORT))
-         t = TYUSHORT;
-      else if ((arith & ~KINT & ~KSIGNED) == 0)
-         t = TYINT;
-      else if ((arith & ~KINT) == KUNSIGNED)
-         t = TYUINT;
-      else if ((arith & ~KINT & ~KSIGNED) == KLONG)
-         t = TYLONG;
-      else if ((arith & ~KINT) == (KUNSIGNED | KLONG))
-         t = TYULONG;
-      else if ((arith & ~KINT & ~KSIGNED) == KLONGLONG)
-         t = TYVLONG;
-      else if ((arith & ~KINT) == (KUNSIGNED | KLONGLONG))
-         t = TYUVLONG;
-      else
-         goto Bad;
-      st->base = mktype(t ? t : TYINT);
-   } else if (!st->base.t && ccopt.cstd < STDC23) {
-      warn(&span, "type implicitly declared as int");
-      st->base = mktype(TYINT);
-   } else if (!st->base.t)
-      fatal(&span, "expected declaration type specifier");
-}
-
-/* circular doubly linked list used to parse declarators */
-static struct decllist {
-   struct decllist *prev, *next;
-   uchar t; /* TYPTR, TYARRAY or TYFUNC */
-   union {
-      uchar qual; /* TYPTR */
-      uint len; /* TYARRAY */
-      struct { /* TYFUNC */
-         union type *param;
-         const char **pnames;
-         struct span *pspans;
-         uchar *pqual;
-         short npar;
-         bool kandr : 1, variadic : 1;
-      };
-   };
-   struct span span;
-} decltmp[64], *declfreelist;
-static union type declparamtmp[16];
-static const char *declpnamestmp[16];
-static struct span declpspanstmp[16];
-static uchar declpqualtmp[tdqualsiz(16)];
-
-static void
-declinsert(struct decllist *list, const struct decllist *node)
-{
-   struct decllist *pnode = declfreelist;
-   if (!pnode) fatal(NULL, "too many nested declarators");
-   declfreelist = declfreelist->next;
-   *pnode = *node;
-	pnode->next = list->next;
-	pnode->prev = list;
-	list->next->prev = pnode;
-	list->next = pnode;
-}
-
-static int
-sclass(struct comp *cm, struct span *span)
-{
-   struct token tk;
-   int sc = 0, first = 1;
-   for (;; lex(cm, &tk)) {
-      switch (peek(cm, &tk)) {
-      case TKWtypedef:  sc |= SCTYPEDEF; break;
-      case TKWextern:   sc |= SCEXTERN; break;
-      case TKWstatic:   sc |= SCSTATIC; break;
-      case TKWauto:     sc |= SCAUTO; break;
-      case TKWregister: sc |= SCREGISTER; break;
-      case TKWthread_local:
-      case TKW_Thread_local:
-         sc |= SCTHREADLOCAL; break;
-      default: return sc;
-      }
-      if (first) *span = tk.span;
-      else joinspan(&span->ex, tk.span.ex);
-      first = 0;
-   }
-}
-
-static int
-cvqual(struct comp *cm)
-{
-   struct token tk;
-   int q = 0;
-   while (match(cm, &tk, TKWconst) || match(cm, &tk, TKWvolatile))
-      q |= tk.t == TKWconst ? QCONST : QVOLATILE;
-   return q;
-}
-
-static void
-decltypes(struct comp *cm, struct decllist *list, const char **name, struct span *span) {
-   struct token tk;
-   struct decllist *ptr, node;
-
-   while (match(cm, &tk, '*')) {
-      node.t = TYPTR;
-      node.qual = cvqual(cm);
-      node.span = tk.span;
-      declinsert(list, &node);
-   }
-   ptr = list->next;
-   switch (peek(cm, &tk)) {
-   case '(':
-      lex(cm, &tk);
-      if (isdecltok(cm)) {
-         goto Func;
-      } else if (match(cm, &tk, ')')) {
-         /* T () is K&R func proto */
-         node.span = tk.span;
-         node.t = TYFUNC;
-         node.param = NULL;
-         node.pqual = NULL;
-         node.pnames = NULL;
-         node.variadic = 0;
-         node.kandr = 1;
-         node.npar = 0;
-         declinsert(ptr->prev, &node);
-         break;
-      } else {
-         decltypes(cm, list, name, span);
-         expect(cm, ')', NULL);
-      }
-      break;
-   case TKIDENT:
-      if (!name)
-         error(&tk.span, "unexpected identifier in type name");
-      else {
-         *name = tk.s;
-         *span = tk.span;
-      }
-      lex(cm, &tk);
-      break;
-   default:
-      *span = tk.span;
-      if (name)
-         *name = NULL;
-   }
-   for (;;) {
-      if (match(cm, &tk, '[')) {
-         node.span = tk.span;
-         uint n = 0;
-         if (!match(cm, &tk, ']')) {
-            struct expr ex = expr(cm);
-            if (!eval(&ex, EVINTCONST)) {
-               error(&ex.span, "array length is not an integer constant");
-            } else if (typesize(ex.ty) < 8 && ex.i < 0) {
-               error(&ex.span, "array length is negative");
-            } else if (ex.u > (1ull << (8*sizeof n)) - 1) {
-               error(&ex.span, "array too long (%ul)", ex.u);
-            } else if (ex.u == 0) {
-               error(&ex.span, "array cannot have zero length");
-            } else {
-               n = ex.u;
-            }
-            peek(cm, &tk);
-            joinspan(&node.span.ex, tk.span.ex);
-            expect(cm, ']', NULL);
-         }
-         node.t = TYARRAY;
-         node.len = n;
-         declinsert(ptr->prev, &node);
-      } else if (match(cm, &tk, '(')) Func: {
-         static int depth = 0;
-         vec_of(union type) params = {0};
-         vec_of(uchar) qual = {0};
-         vec_of(const char *) names = {0};
-         vec_of(struct span) spans = {0};
-         bool anyqual = 0;
-
-         if (depth++ == 0) {
-            vinit(&params, declparamtmp, arraylength(declparamtmp));
-            vinit(&qual, declpqualtmp, arraylength(declpqualtmp));
-            vinit(&names, declpnamestmp, arraylength(declpnamestmp));
-            vinit(&spans, declpspanstmp, arraylength(declpspanstmp));
-         }
-         node.span = tk.span;
-         node.kandr = 0;
-         node.variadic = 0;
-
-         while (!match(cm, &tk, ')')) {
-            struct declstate st = { DFUNCPARAM };
-            struct decl decl;
-            if (match(cm, &tk, TKDOTS)) {
-               node.variadic = 1;
-               expect(cm, ')', NULL);
-               break;
-            }
-            decl = pdecl(&st, cm);
-            decl.ty = typedecay(decl.ty);
-            vpush(&params, decl.ty);
-            vpush(&names, decl.name);
-            vpush(&spans, decl.span);
-            if (decl.qual) {
-               anyqual = 1;
-               while (qual.n < tdqualsiz(params.n)) vpush(&qual, 0);
-               tdsetqual(qual.p, params.n-1, decl.qual);
-            }
-            if (isincomplete(decl.ty)) {
-               if (params.n > 1 || decl.ty.t != TYVOID || decl.qual || decl.name) {
-                  error(&decl.span,
-                        "function parameter #%d has incomplete type (%tq)",
-                        params.n, decl.ty, tdgetqual(qual.p, params.n-1));
-               }
-            }
-            joinspan(&node.span.ex, tk.span.ex);
-            if (!match(cm, &tk, ',')) {
-               expect(cm, ')', NULL);
-               break;
-            }
-         }
-         --depth;
-         node.kandr = params.n == 0 && ccopt.cstd < STDC23;
-         if (params.n == 1 && params.p[0].t == TYVOID && !qual.n && !names.p[0]) { /* (void) */
-            vfree(&params);
-            vfree(&names);
-            vfree(&spans);
-         } else if (params.n && params.p[0].t == TYVOID && !qual.n && !names.p[0]) {
-            error(&node.span, "function parameter #1 has incomplete type (%tq)",
-                  params.p[0], tdgetqual(qual.p, 0));
-         }
-         node.t = TYFUNC;
-         node.param = params.n ? params.p : NULL;
-         node.pqual = anyqual ? qual.p : NULL;
-         node.pnames = params.n ? names.p : NULL;
-         node.pspans = params.n ? spans.p : NULL;
-         node.npar = params.n;
-         declinsert(ptr->prev, &node);
-      } else break;
-   }
-}
-
-static struct decl
-declarator(struct declstate *st, struct comp *cm) {
-   struct decl decl = { st->base, st->scls, st->qual, st->align };
-   struct decllist list = { &list, &list }, *l;
-   static bool inidecltmp = 0;
-   if (!inidecltmp) {
-      inidecltmp = 1;
-      for (int i = 0; i < arraylength(decltmp); ++i) {
-         decltmp[i].next = declfreelist;
-         declfreelist = &decltmp[i];
-      }
-   }
-
-   decltypes(cm, &list, st->kind == DCASTEXPR ? NULL : &decl.name, &decl.span);
-   if (!decl.name && st->kind != DCASTEXPR && st->kind != DFUNCPARAM) {
-      if (list.prev == &list) lex(cm, NULL);
-      error(&decl.span, "expected `(', `*' or identifier");
-   }
-   for (l = list.prev; l != &list; l = l->prev) {
-      switch (l->t) {
-      case TYPTR:
-         decl.ty = mkptrtype(decl.ty, decl.qual);
-         decl.qual = l->qual;
-         break;
-      case TYARRAY:
-         if (isincomplete(decl.ty))
-            error(&l->span, "array has incomplete element type (%ty)", decl.ty);
-         else if (decl.ty.t == TYFUNC)
-            error(&l->span, "array has element has function type (%ty)", decl.ty);
-         decl.ty = mkarrtype(decl.ty, decl.qual, l->len);
-         decl.qual = 0;
-         break;
-      case TYFUNC:
-         if (decl.ty.t == TYFUNC)
-            error(&decl.span, "function cannot return function type (%ty)", decl.ty);
-         else if (decl.ty.t == TYARRAY)
-            error(&decl.span, "function cannot return array type", decl.ty);
-         else if (decl.ty.t != TYVOID && isincomplete(decl.ty))
-            error(&decl.span, "function cannot return incomplete type (%ty)", decl.ty);
-         decl.ty = mkfntype(decl.ty, l->npar, l->param, l->pqual, l->kandr, l->variadic);
-         if (l->param != declparamtmp) free(l->param);
-         if (l->pqual != declpqualtmp) free(l->pqual);
-         if (l->prev == &list && l->npar) { /* last */
-            st->pnames = alloc(&cm->fnarena, l->npar * sizeof(char *), 0);
-            st->pspans = alloc(&cm->fnarena, l->npar * sizeof(struct span), 0);
-            memcpy(st->pnames, l->pnames, l->npar * sizeof(char *));
-            memcpy(st->pspans, l->pspans, l->npar * sizeof(struct span));
-         }
-         if (l->pnames != declpnamestmp) free(l->pnames);
-         if (l->pspans != declpspanstmp) free(l->pspans);
-         decl.qual = 0;
-         break;
-      }
-
-      l->next = declfreelist;
-      declfreelist = l;
-   }
-
-   return decl;
-}
-
-static void
-pstaticassert(struct comp *cm, struct span *span)
-{
-   struct expr ex;
-   struct token tk, msg = {0};
-
-   /* _Static_assert '(' <expr> [ ',' <strlit> ] ')' ';' */
-   expect(cm, '(', NULL);
-   ex = expr(cm);
-   peek(cm, &tk);
-   if (match(cm, &tk, ',')) {
-      peek(cm, &msg);
-      expect(cm, TKSTRLIT, NULL);
-   }
-   peek(cm, &tk);
-   expect(cm, ')', NULL);
-   expect(cm, ';', NULL);
-
-   joinspan(&span->ex, tk.span.ex);
-   if (!msg.t && ccopt.cstd == STDC11)
-      warn(span, "_Static_assert without message is a C23 extension");
-   if (!eval(&ex, EVINTCONST)) {
-      error(&ex.span, "_Static_assert expression is not an integer constant");
-   } else if (iszero(ex)) {
-      if (msg.t)
-         error(&ex.span, "static assertion failed: %'S", msg.s, msg.len);
-      else
-         error(&ex.span, "static assertion failed");
-   }
-}
-
-static struct decl
-pdecl(struct declstate *st, struct comp *cm) {
-   struct token tk;
-   struct decl decl;
-   bool iniallowed = st->kind != DFIELD && st->kind != DFUNCPARAM && st->kind != DCASTEXPR;
-   bool staticassertok = iniallowed;
-   bool first = 0;
-
-   if (st->varini) {
-      memset(&decl, 0, sizeof decl);
-      goto AfterVarIni;
-   }
-
-   if (!st->base.t) {
-      if (staticassertok && match(cm, &tk, TKW_Static_assert)) {
-         pstaticassert(cm, &tk.span);
-         return decl = (struct decl){0};
-      }
-      first = 1;
-      st->scls = sclass(cm, &tk.span);
-      if (popcnt(st->scls) > 1)
-         error(&tk.span, "invalid combination of storage class specifiers");
-      else {
-         int allowed;
-         switch (st->kind) {
-         case DTOPLEVEL: allowed = SCTYPEDEF | SCEXTERN | SCSTATIC | SCTHREADLOCAL; break;
-         case DCASTEXPR: allowed = 0; break;
-         case DFIELD: allowed = 0; break;
-         case DFUNCPARAM: allowed = 0; break;
-         case DFUNCVAR:
-            allowed = SCTYPEDEF | SCREGISTER | SCAUTO | SCEXTERN | SCSTATIC | SCTHREADLOCAL;
-            break;
-         default: assert(0);
-         }
-         if ((st->scls & allowed) != st->scls)
-            error(&tk.span, "this storage class is not allowed in this context");
-         st->scls &= allowed;
-      }
-      declspec(st, cm);
-   }
-
-   if (first && st->tagdecl && match(cm, &tk, ';')) {
-      decl = (struct decl) { st->base, st->scls, st->qual, st->align, tk.span };
-      return decl;
-   }
-   decl = declarator(st, cm);
-
-   if (iniallowed && match(cm, &tk, '=')) {
-      st->varini = 1;
-      return decl;
-   } else if (first && decl.ty.t == TYFUNC && match(cm, &tk, '{')) {
-      st->funcdef = 1;
-      return decl;
-   }
-
-AfterVarIni:
-   st->varini = 0;
-   st->more = 0;
-   if (st->kind != DCASTEXPR && st->kind != DFUNCPARAM) {
-      if (match(cm, &tk, ','))
-         st->more = 1;
-      else expect(cm, st->kind == DFUNCPARAM ? ')' : ';', "or `,'");
-   }
-
-   return decl;
-}
 
 void
 docomp(struct comp *cm)
