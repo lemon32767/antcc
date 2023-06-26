@@ -1678,9 +1678,9 @@ pstaticassert(struct comp *cm, struct span *span)
 
    joinspan(&span->ex, tk.span.ex);
    if (!msg.t && ccopt.cstd == STDC11)
-      warn(span, "_Static_assert without message is a C23 extension");
+      warn(span, "static assert without message is a C23 extension");
    if (!eval(&ex, EVINTCONST)) {
-      error(&ex.span, "_Static_assert expression is not an integer constant");
+      error(&ex.span, "static assert expression is not an integer constant");
    } else if (iszero(ex)) {
       if (msg.t)
          error(&ex.span, "static assertion failed: %'S", msg.s, msg.len);
@@ -1703,7 +1703,7 @@ pdecl(struct declstate *st, struct comp *cm) {
    }
 
    if (!st->base.t) {
-      if (staticassertok && match(cm, &tk, TKW_Static_assert)) {
+      if (staticassertok && (match(cm, &tk, TKW_Static_assert) || match(cm, &tk, TKWstatic_assert))) {
          pstaticassert(cm, &tk.span);
          return decl = (struct decl){0};
       }
