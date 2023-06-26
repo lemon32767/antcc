@@ -858,14 +858,10 @@ fixlive(struct function *fn)
    extern int ninstr;
    struct block *blk = fn->entry;
    struct bitset definedbuf[4] = {0};
-   struct bitset sealedbuf[2] = {0};
    struct bitset *defined = definedbuf;
-   struct bitset *sealed = sealedbuf;
 
    if (ninstr >= sizeof(definedbuf)*8)
       defined = xcalloc(sizeof *defined * BSSIZE(ninstr));
-   if (fn->nblk >= sizeof(sealedbuf)*8)
-      sealed = xcalloc(sizeof *sealed * BSSIZE(fn->nblk));
    npendingphi = 0;
 
    do {
@@ -902,7 +898,6 @@ fixlive(struct function *fn)
       irdump(fn);
    }
    if (defined != definedbuf) free(defined);
-   if (sealed != sealedbuf) free(sealed);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */
