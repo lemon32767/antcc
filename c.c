@@ -129,7 +129,7 @@ isdecltok(struct comp *cm)
    case TKWstruct: case TKWunion: case TKWenum: case TKWtypedef:
    case TKWextern: case TKWstatic: case TKWinline: case TKW_Noreturn:
    case TKWconst: case TKWvolatile: case TKWvoid: case TKWfloat:
-   case TKWdouble: case TKWregister:
+   case TKWdouble: case TKWregister: case TKW_Static_assert:
       return 1;
    case TKIDENT:
       return (decl = finddecl(cm, tk.s)) && decl->scls == SCTYPEDEF;
@@ -2761,11 +2761,43 @@ declarator(struct declstate *st, struct comp *cm) {
    return decl;
 }
 
+static void
+pstaticassert(struct comp *cm, struct span *span)
+{
+   struct expr ex;
+   struct token tk, msg = {0};
+
+   /* _Static_assert '(' <expr> [ ',' <strlit> ] ')' ';' */
+   expect(cm, '(', NULL);
+   ex = expr(cm);
+   peek(cm, &tk);
+   if (match(cm, &tk, ',')) {
+      peek(cm, &msg);
+      expect(cm, TKSTRLIT, NULL);
+   }
+   peek(cm, &tk);
+   expect(cm, ')', NULL);
+   expect(cm, ';', NULL);
+
+   joinspan(&span->ex, tk.span.ex);
+   if (!msg.t && ccopt.cstd == STDC11)
+      warn(span, "_Static_assert without message is a C23 extension");
+   if (!eval(&ex, EVINTCONST)) {
+      error(&ex.span, "_Static_assert expression is not an integer constant");
+   } else if (iszero(ex)) {
+      if (msg.t)
+         error(&ex.span, "static assertion failed: %'S", msg.s, msg.len);
+      else
+         error(&ex.span, "static assertion failed");
+   }
+}
+
 static struct decl
 pdecl(struct declstate *st, struct comp *cm) {
    struct token tk;
    struct decl decl;
    bool iniallowed = st->kind != DFIELD && st->kind != DFUNCPARAM && st->kind != DCASTEXPR;
+   bool staticassertok = iniallowed;
    bool first = 0;
 
    if (st->varini) {
@@ -2774,6 +2806,10 @@ pdecl(struct declstate *st, struct comp *cm) {
    }
 
    if (!st->base.t) {
+      if (staticassertok && match(cm, &tk, TKW_Static_assert)) {
+         pstaticassert(cm, &tk.span);
+         return decl = (struct decl){0};
+      }
       first = 1;
       st->scls = sclass(cm, &tk.span);
       if (popcnt(st->scls) > 1)

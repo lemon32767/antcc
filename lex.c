@@ -496,7 +496,7 @@ Begin:
             tmp[n++] = next(lx);
          }
          tmp[n] = 0;
-         if (!identkeyword(tk, tmp, n))
+         if (!identkeyword(tk, tmp, n) && ccopt.pedant)
             warn(&(struct span) {{ idx, lx->chridx - idx, lx->fileid }},
                   "%'tk in %M is an extension", tk);
          goto End;
