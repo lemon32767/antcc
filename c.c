@@ -1,6 +1,8 @@
 #include "c.h"
 #include "lex.h"
 #include "ir.h"
+#include "endian.h"
+#include "obj.h"
 
 /** C compiler state **/
 struct comp {
@@ -56,32 +58,9 @@ expectdie(struct comp *cm, enum toktag t, const char *s)
    return tk;
 }
 
-/**************************************/
-/* Data structures for C declarations */
-/**************************************/
-
-enum storageclass {
-   SCNONE,
-   SCTYPEDEF = 1<<0,
-   SCEXTERN = 1<<1,
-   SCSTATIC = 1<<2,
-   SCTHREADLOCAL = 1<<3,
-   SCAUTO = 1<<4,
-   SCREGISTER = 1<<5,
-};
-
-struct decl {
-   union type ty;
-   uchar scls;
-   uchar qual : 2;
-   uchar isenum : 1;
-   struct span span;
-   const char *name;
-   union {
-      struct { ushort align; int id; };
-      vlong value;
-   };
-};
+/******************************************/
+/* Data structures for declaration parser */
+/******************************************/
 
 enum declkind {
    DTOPLEVEL,
@@ -308,7 +287,7 @@ deftagged(struct comp *cm, struct span *span, enum typetag tt, const char *name,
 /* Expr Typechecking */
 /*********************/
 
-#define iszero(ex) ((ex).t == ENUMLIT && (ex).u == 0)
+#define iszero(ex) ((ex).t == ENUMLIT && isint((ex).ty) && (ex).u == 0)
 
 static bool
 islvalue(const struct expr *ex)
@@ -1008,6 +987,504 @@ commaexpr(struct comp *cm)
    return exprparse(cm, 1, NULL);
 }
 
+/****************/
+/* Initializers */
+/****************/
+
+static uint
+nmemb(union type ty)
+{
+   if (ty.t == TYARRAY)
+      return typearrlen(ty) ? typearrlen(ty) : -1u;
+   if (isagg(ty))
+      return typedata[ty.dat].nmemb;
+   return 1;
+}
+
+static bool
+objectp(union type ty)
+{
+   return isagg(ty) || ty.t == TYARRAY;
+}
+
+static bool
+chararrayp(union type ty)
+{
+   return ty.t == TYARRAY && in_range(typechild(ty).t, TYCHAR, TYUCHAR);
+}
+
+static union type
+membertype(uint *off, union type ty, uint idx)
+{
+   if (!objectp(ty)) {
+      *off = 0;
+      return ty;
+   } else if (ty.t == TYARRAY) {
+      *off = typesize(typechild(ty)) * idx;
+      return typechild(ty);
+   } else if (idx < typedata[ty.dat].nmemb) {
+      *off = typedata[ty.dat].fld[idx].f.off;
+      return typedata[ty.dat].fld[idx].f.t;
+   }
+   *off = ~0u;
+   return mktype(0);
+}
+
+struct initparser {
+   struct initcur {
+      union type ty;
+      uint idx;
+      uint off;
+      short prev;
+   } buf[32], *cur, *sub;
+   struct arena **arena;
+   uint arrlen;
+   enum evalmode ev;
+   bool dyn; /* size is not known until parsing done (implicit array size) */
+   union {
+      struct init *init; /* for initializer with automatic storage */
+      struct {  /* for static storage (dyn = 0) */
+         enum section sec;
+         uint off;
+      };
+      struct { /* for static storage (dyn = 1) */
+         vec_of(uchar) ddat;
+         struct dreloc {
+            struct dreloc *link;
+            const char *sym;
+            vlong addend;
+            uint off;
+         } *drel;
+      };
+   };
+};
+
+static void
+excesscheck(struct initparser *ip, const struct span *span)
+{
+   union type sub = ip->sub->ty;
+   uint n = nmemb(sub);
+   if (ip->sub->idx == n) {
+      if (sub.t == TYARRAY)
+         warn(span, "excess elements in array initializer for '%ty'", sub);
+      else if (sub.t == TYSTRUCT)
+         warn(span, "excess elements in initializer; '%ty' has %u member%s", sub, n, &"s"[n==1]);
+      else if (sub.t == TYUNION)
+         warn(span, "excess elements in union initializer");
+      else
+         warn(span, "excess elements in scalar initializer");
+   }
+}
+
+#if 1
+#define dumpini(_)
+#else
+/* debugging */
+static void
+dumpini(struct initparser *ip)
+{
+   efmt(">>>\n");
+   for (struct initcur *s = ip->buf; s < ip->sub+1; ++s) {
+      efmt("  ");
+      efmt("%d. [%ty, %u]", s- ip->buf, s->ty, s->idx);
+      if (s == ip->cur) efmt(" <-- cursor");
+      ioputc(&bstderr, '\n');
+   }
+   efmt("<<<\n");
+}
+#endif
+
+static union ref expraddr(struct function *, const struct expr *);
+static bool
+globsym(union ref *psym, const struct expr *ex)
+{
+   if (ex->t == ESTRLIT || (ex->t == ESYM && (ex->sym->scls & (SCSTATIC | SCEXTERN)))) {
+      *psym = expraddr(NULL, ex);
+      return 1;
+   }
+   return 0;
+
+}
+
+static void
+expr2reloc(union ref *psym, vlong *paddend, const struct expr *ex)
+{
+   if (ex->t == EADDROF && globsym(psym, ex)) {
+      *paddend = 0;
+   } else if (globsym(psym, ex) && in_range(ex->ty.t, TYARRAY, TYFUNC)) {
+      *paddend = 0;
+   } else if (ex->t == ESUB && globsym(psym, &ex->sub[0]) && isint(ex->sub[1].ty) && ex->sub[1].t == ENUMLIT) {
+      *paddend = ex->sub[1].i;
+   } else if (ex->t == EADD) {
+      for (int swp = 0; swp < 2; ++swp) {
+         if (globsym(psym, &ex->sub[swp]) && isint(ex->sub[swp^1].ty) && ex->sub[swp^1].t == ENUMLIT) {
+            *paddend = ex->sub[swp^1].i;
+            return;
+         }
+      }
+   } else
+      assert(0 && "non static reloc");
+}
+
+static void
+iniwrite(struct initparser *ip, uint off, union type ty, struct expr *ex)
+{
+   uchar *p;
+   if (ex->ty.t == TYSTRUCT) {
+      assert(ty.bits == ex->ty.bits);
+      for (uint i = 0, n = nmemb(ex->ty); i < n; ++i) {
+         uint suboff;
+         union type sub = membertype(&suboff, ex->ty, i);
+         iniwrite(ip, off + suboff, sub, &mkexpr(EGETF, ex->span, sub, .sub = ex));
+      }
+   } else if (ip->ev == EVSTATICINI) {
+      uint siz = typesize(ty);
+      if (ip->dyn) {
+         if (ip->ddat.n < off + siz) {
+            vresize(&ip->ddat, off + siz);
+            assert(off + siz == ip->ddat.n);
+         }
+         p = ip->ddat.p + off;
+      } else {
+         p = (ip->sec == Sdata ? objout.data.p : objout.rodata.p) + ip->off + off;
+      }
+
+      if (ex->t == ENUMLIT) {
+         struct expr *e = ex, tmp;
+         if (ex->ty.bits != ty.bits && ty.t != TYPTR) {
+            tmp = mkexpr(ECAST, ex->span, ty, .sub = ex);
+            e = &tmp;
+            eval(e, EVSTATICINI);
+            assert(e->t == ENUMLIT);
+         }
+         // efmt("#%u' wr %lx at %u\n", ip->dyn?0:ip->off, e->u, off);
+         ioflush(&bstderr);
+         switch (siz) {
+         default: assert(0);
+         case 1: *p = e->u; break;
+         case 2: wr16targ(p, e->u); break;
+         case 4: isint(ty) ? wr32targ(p, e->u) : wrf32targ(p, e->f); break;
+         case 8: isint(ty) ? wr64targ(p, e->u) : wrf64targ(p, e->f); break;
+         }
+      } else if (ty.t == TYARRAY && ex->t == ESTRLIT) {
+         uint n = siz < ex->s.n ? siz : ex->s.n;
+         //efmt("%s wrs %'S at %u\n", dat->name, ex->s.p, n, off);
+         memcpy(p , ex->s.p, n);
+      } else {
+         union ref sym;
+         vlong addend;
+         expr2reloc(&sym, &addend, ex);
+         assert(sym.t == RXCON);
+         if (!ip->dyn) {
+            objreloc(xcon2sym(sym.i), targ_64bit ? REL_ABS64 : REL_ABS32,
+                     ip->sec, ip->off + off, addend);
+         } else {
+            struct dreloc *rel = alloc(ip->arena, sizeof *rel, 0);
+            rel->link = ip->drel;
+            rel->sym = xcon2sym(sym.i);
+            rel->off = off;
+            rel->addend = addend;
+            ip->drel = rel;
+         }
+      }
+   }
+}
+
+static struct initcur *
+iniadvance(struct initparser *ip, struct initcur *c, const struct span *span)
+{
+   if (c - ip->buf >= arraylength(ip->buf) - 1)
+      fatal(span, "too many nested initializers");
+   return c + 1;
+}
+
+/* set the initializer cursor object */
+static void
+inifocus(struct initparser *ip, struct comp *cm, const struct span *span, uint idx)
+{
+   uint off;
+   union type targ = membertype(&off, ip->sub->ty, idx);
+   struct initcur *next = iniadvance(ip, ip->cur, span);
+
+   if (isagg(ip->sub->ty) && targ.t == TYARRAY && !typearrlen(targ))
+      error(span, "cannot initialize flexible array member");
+   excesscheck(ip, span);
+
+   next->ty = targ;
+   next->idx = 0;
+   next->off = ip->sub->off + off;
+   next->prev = ip->cur - ip->buf;
+   ++ip->cur->idx;
+   ip->sub = ip->cur = next;
+}
+
+/* initialize a character array with a string literal */
+static void
+inistrlit(struct comp *cm, struct expr *ex, union type *ty)
+{
+   if (isincomplete(*ty)) {
+      *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, ex->s.n + 1);
+   } else if (typesize(*ty) < ex->s.n) {
+      warn(&ex->span, "string literal in initializer is truncated from %u to %u bytes",
+            ex->s.n+1, typesize(*ty));
+   }
+   ex->ty = *ty;
+}
+
+/* read scalar initializer into initializer list and avance */
+static void
+ininext(struct initparser *ip, struct comp *cm)
+{
+   uint off;
+   union type targ;
+   struct expr ex = expr(cm);
+
+Retry:
+   targ = membertype(&off, ip->sub->ty, ip->sub->idx);
+
+   if (isagg(ip->sub->ty) && targ.t == TYARRAY && !typearrlen(targ)) {
+      error(&ex.span, "cannot initialize flexible array member");
+      ++ip->sub->idx;
+      return;
+   }
+   if (ex.t == ESTRLIT && chararrayp(targ)) {
+      assert(!isincomplete(targ));
+      inistrlit(cm, &ex, &targ);
+      iniwrite(ip, ip->sub->off + off, targ, &ex);
+      ++ip->sub->idx;
+      return;
+   } else if (ip->sub->idx >= nmemb(ip->sub->ty) && ip->sub != ip->cur) {
+      --ip->sub;
+      goto Retry;
+   } else if (objectp(targ) && targ.bits != ex.ty.bits) {
+      struct initcur *next = iniadvance(ip, ip->sub, &ex.span);
+      if (ip->sub - ip->buf == arraylength(ip->buf) - 1)
+         fatal(&ex.span, "too many nested initializers");
+      ++ip->sub->idx;
+      *next = (struct initcur) { targ, .off = ip->sub->off + off };
+      ip->sub = next;
+      goto Retry;
+   }
+   excesscheck(ip, &ex.span);
+
+   if (targ.t) {
+      if (!assigncheck(targ, &ex))
+         error(&ex.span, "cannot initialize '%ty' with expression of type '%ty'", targ, ex.ty);
+      else {
+         if (ip->ev && !eval(&ex, ip->ev))
+            error(&ex.span, "cannot evaluate expression statically");
+         else
+            iniwrite(ip, ip->sub->off + off, targ, &ex);
+      }
+   }
+   if (++ip->sub->idx == 0) {
+      error(&ex.span, "element makes object too large");
+      --ip->sub->idx;
+   }
+}
+
+static int
+aggdesignator(struct initparser *ip, union type ty, const char *name, const struct span *span)
+{
+   const struct typedata *td = &typedata[ty.dat];
+   for (int i = 0; i < td->nmemb; ++i) {
+      struct namedfield *fld = &td->fld[i];
+      if (fld->name == name) {
+         return i;
+      } else if (!fld->name) {
+         int save, sub;
+         struct initcur *next = iniadvance(ip, ip->sub, span);
+         save = ip->sub->idx;
+         ip->sub->idx = i+1;
+         *next = (struct initcur) { fld->f.t, .off = ip->sub->off + fld->f.off };
+         ip->sub = next;
+         sub = aggdesignator(ip, fld->f.t, name, span);
+         if (sub == -1) {
+            --ip->sub;
+            ip->sub->idx = save;
+         }
+         else return sub;
+      }
+   }
+   if (span)
+      error(span, "%ty has no such field: '%s'", ty, name);
+   return -1;
+}
+
+static bool
+designators(struct initparser *ip, struct comp *cm)
+{
+   struct token tk;
+   struct span span;
+   bool some = 0;
+
+   for (;;) {
+      uvlong idx = ~0ull;
+      if (match(cm, &tk, '[')) {
+         struct expr ex = commaexpr(cm);
+         span = tk.span;
+         joinspan(&span.ex, ex.span.ex);
+         peek(cm, &tk);
+         if (some) {
+            uint off;
+            union type ty = membertype(&off, ip->sub->ty, ip->sub->idx++);
+            struct initcur *next = iniadvance(ip, ip->sub, &tk.span);
+            *next = (struct initcur) { ty, .off = ip->sub->off + off };
+            ip->sub = next;
+            dumpini(ip);
+         }
+         if (expect(cm, ']', NULL)) joinspan(&span.ex, tk.span.ex);
+         if (ip->sub->ty.t != TYARRAY)
+            error(&ex.span, "array designator used with non-array type '%ty'", ip->sub->ty);
+         if (!eval(&ex, EVINTCONST))
+            error(&ex.span, "array designator index is not an integer constant");
+         else if (issigned(ex.ty) && ex.i < 0)
+            error(&ex.span, "negative array designator index");
+         else if (ex.i > ~0u - 1)
+            error(&ex.span, "index too large");
+         else {
+            idx = ex.u;
+            ip->sub->idx = idx;
+            if (ip->sub == ip->buf && ip->arrlen < idx+1)
+               ip->arrlen = idx+1;
+            dumpini(ip);
+         }
+         some = 1;
+      } else if (match(cm, &tk, '.')) {
+         span = tk.span;
+         peek(cm, &tk);
+         if (some) {
+            uint off;
+            union type ty = membertype(&off, ip->sub->ty, ip->sub->idx++);
+            struct initcur *next = iniadvance(ip, ip->sub, &tk.span);
+            *next = (struct initcur) { ty, .off = ip->sub->off + off };
+            ip->sub = next;
+            dumpini(ip);
+         }
+         if (expect(cm, TKIDENT, NULL)) joinspan(&span.ex, tk.span.ex);
+         if (!isagg(ip->sub->ty))
+            error(&span, "member designator used with non-aggregate type '%ty'", ip->sub->ty);
+         else if (tk.t == TKIDENT) {
+            idx = aggdesignator(ip, ip->sub->ty, tk.s, &span);
+            ip->sub->idx = idx;
+            dumpini(ip);
+         }
+         some = 1;
+      } else {
+         if (some) {
+            expect(cm, '=', NULL);
+         }
+         return some;
+      }
+   }
+}
+
+static struct expr
+initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
+            enum qualifier qual, const char *name)
+{
+   struct token tk;
+   struct span span;
+   struct init res = {0};
+   struct initparser ip[1] = {0};
+
+   ip->arena = &cm->exarena;
+   ip->ev = ev;
+   if (ev == EVSTATICINI) {
+      if (ty->t == TYARRAY && !typearrlen(*ty)) {
+         ip->dyn = 1;
+      } else {
+         ip->sec = qual & QCONST ? Srodata : Sdata;
+         ip->off = objnewdat(name, ip->sec, globl, typesize(*ty), typealign(*ty));
+      }
+   } else {
+      ip->init = &res;
+   }
+
+   if (!match(cm, &tk, '{')) {
+      struct expr ex = expr(cm);
+      if (ex.t == ESTRLIT && chararrayp(*ty)) {
+         inistrlit(cm, &ex, ty);
+         iniwrite(ip, 0, *ty, &ex);
+         if (ip->dyn)
+            goto Dynfix;
+      }
+      if (!assigncheck(*ty, &ex))
+         error(&ex.span, "cannot initialize '%ty' with expression of type '%ty'", *ty, ex.ty);
+      else {
+         if (ev && !eval(&ex, ev) && ev != EVFOLD)
+            error(&ex.span, "cannot evaluate expression statically");
+         else
+            iniwrite(ip, 0, *ty, &ex);
+      }
+      return ex;
+   }
+
+   span = tk.span;
+   ip->sub = ip->cur = ip->buf;
+   ip->cur->ty = *ty;
+   for (;;) {
+      peek(cm, &tk);
+      joinspan(&span.ex, tk.span.ex);
+      if (tk.t == '[' || tk.t == '.') {
+         designators(ip, cm);
+      }
+      if (match(cm, &tk, '}')) {
+         if (ip->cur == ip->buf) break;
+         ip->sub = ip->cur = ip->buf + ip->cur->prev;
+         dumpini(ip);
+      } else if (match(cm, &tk, '{')) {
+         struct span span = tk.span;
+         inifocus(ip, cm, &tk.span, ip->sub->idx);
+         if (peek(cm, &tk) == '}') {
+            if (!joinspan(&span.ex, tk.span.ex)) span = tk.span;
+            if (!objectp(ip->sub->ty)) {
+               error(&span, "scalar initializer cannot be empty");
+            } else if (ccopt.cstd < STDC23 && ccopt.pedant) {
+               warn(&span, "empty initializer in %M is an extension");
+            }
+         } else if (ip->sub->ty.t && !objectp(ip->sub->ty)) {
+            warn(&span, "brace initializer for scalar object (%ty)", ip->sub->ty);
+         }
+         continue;
+      } else {
+         dumpini(ip);
+         ininext(ip, cm);
+      }
+      match(cm, NULL, ',');
+   }
+   if (ip->dyn) {
+      enum section sec;
+      uint off, siz, align;
+      uchar *p;
+      uint len = ip->arrlen > ip->cur->idx ? ip->arrlen : ip->cur->idx;
+
+      if (len == 0)
+         error(&span, "array cannot have zero length");
+      *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, len);
+   Dynfix:
+      sec = qual & QCONST ? Srodata : Sdata;
+      off = objnewdat(name, sec, globl, siz = typesize(*ty), align = typealign(*ty));
+      p = sec == Srodata ? objout.rodata.p : objout.data.p;
+      memcpy(p + off, ip->ddat.p, ip->ddat.n);
+      memset(p + off + ip->ddat.n, 0, typesize(*ty) - ip->ddat.n);
+      vpush(&dattab, ((struct irdat) {
+         align, globl, sec, siz, off, name
+      }));
+      vfree(&ip->ddat);
+      for (struct dreloc *rel = ip->drel; rel; rel = rel->link) {
+         objreloc(rel->sym, targ_64bit ? REL_ABS64 : REL_ABS32, sec, off + rel->off, rel->addend);
+      }
+   }
+   dumpini(ip);
+
+   if (ev == EVSTATICINI) {
+      return (struct expr){0};
+   } else {
+      return mkexpr(EINIT, span, *ty, .init = alloccopy(&cm->exarena, &res, sizeof res, 0));
+   }
+}
+
 /*****************/
 /* Decls Parsing */
 /*****************/
@@ -1069,6 +1546,8 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
          }
       } while (st.more);
    }
+   if (td.flexi && fld.n == 1)
+      error(&flexspan, "flexible array member in otherwise empty aggregate");
    if (td.flexi && ccopt.cstd < STDC99 && ccopt.pedant)
       warn(&flexspan, "flexible array member in %M is an extension");
    if (fld.n == 0) {
@@ -2029,42 +2508,45 @@ struct condphis {
 
 static void
 condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
-            int boolcon, struct block *end, struct block *zero)
+            int boolcon, struct block *const next, struct block *end)
 {
-   struct block *tr, *fl, *next;
+   struct block *tr, *fl;
    union ref r;
    while (ex->t == ESEQ) {
       expreffects(fn, &ex->sub[0]);
       ex = &ex->sub[1];
    }
    if (ex->t == ELOGAND) {
-      next = newblk(fn);
-      condexprrec(fn, &ex->sub[0], phis, 0, next, end);
-      useblk(fn, next);
-      condexprrec(fn, &ex->sub[1], phis, -2, end, zero);
+      tr = newblk(fn);
+      condexprrec(fn, &ex->sub[0], phis, 0, tr, end);
+      useblk(fn, tr);
+      condexprrec(fn, &ex->sub[1], phis, 0, next, end);
    } else if (ex->t == ELOGIOR) {
-      next = newblk(fn);
-      condexprrec(fn, &ex->sub[0], phis, 1, end, next);
-      useblk(fn, next);
-      condexprrec(fn, &ex->sub[1], phis, -2, end, zero);
+      fl = newblk(fn);
+      condexprrec(fn, &ex->sub[0], phis, 1, end, fl);
+      useblk(fn, fl);
+      condexprrec(fn, &ex->sub[1], phis, 1, end, next ? next : end);
    } else if (ex->t == ECOND) {
       tr = newblk(fn);
       fl = newblk(fn);
       condjump(fn, &ex->sub[0], tr, fl);
       useblk(fn, tr);
-      condexprrec(fn, &ex->sub[1], phis, -1, end, zero);
+      condexprrec(fn, &ex->sub[1], phis, -1, end, end);
       useblk(fn, fl);
-      condexprrec(fn, &ex->sub[2], phis, -1, end, zero);
+      condexprrec(fn, &ex->sub[2], phis, -1, end, end);
    } else {
       r = exprvalue(fn, ex);
-      if (boolcon == -2)
-         r = cvt(fn, TYBOOL, ex->ty.t, r);
-      if (boolcon >= 0)
-         vpush(&phis->ref, mkintcon(KI4, boolcon));
-      else
-         vpush(&phis->ref, r);
-      if (zero) {
-         putcondbranch(fn, r, end, zero);
+      if (boolcon >= 0) {
+         if (!next || next == end) {
+            boolcon = -1;
+            r = cvt(fn, TYBOOL, ex->ty.t, r);
+         } else {
+            r = mkref(RICON, boolcon);
+         }
+      }
+      vpush(&phis->ref, r);
+      if (next && next != end) {
+         putcondbranch(fn, r, next, end);
       } else {
          assert(boolcon < 0);
          putbranch(fn, end);
@@ -2081,9 +2563,8 @@ condexprvalue(struct function *fn, const struct expr *ex)
    struct condphis phis = { VINIT(refbuf, arraylength(refbuf)) };
    struct block *dst = newblk(fn);
    union ref r;
-   condexprrec(fn, ex, &phis, -1, dst, NULL);
+   condexprrec(fn, ex, &phis, -1, NULL, dst);
    useblk(fn, dst);
-   assert(fn->curblk->npred == phis.ref.n);
    r = addphi(fn, type2cls[ex->ty.t], phis.ref.p);
    vfree(&phis.ref);
    return r;
@@ -2458,7 +2939,7 @@ stmt(struct comp *cm, struct function *fn)
          /* kludge for no backtracking and no lookahead */
          ex = exprparse(cm, 1, &tk);
          EMITS expreffects(fn, &ex);
-         return fn->curblk != NULL;
+         return fn->curblk == NULL;
       }
    }
 
@@ -2727,9 +3208,14 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
             if (forini)
                error(&decl.span, "static declaration in 'for' loop initializer");
             decl.id = ++staticid;
-            break;
+            goto Initz;
          case SCNONE:
+            if (decl.ty.t == TYFUNC) {
+               decl.scls = SCEXTERN;
+               break;
+            }
             decl.scls = SCAUTO;
+            /* fallthru */
          case SCAUTO:
          case SCREGISTER:
             if (isincomplete(decl.ty) || decl.ty.t == TYFUNC) {
@@ -2742,10 +3228,11 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
             EMITS {
                decl.id = addinstr(fn, mkalloca(typesize(decl.ty), typealign(decl.ty))).i;
             }
+         Initz:
             if (st.varini) {
-               putdecl(cm, &decl);
+               struct decl *d = putdecl(cm, &decl);
                put = 1;
-               ini = expr(cm);
+               ini = initializer(cm, &d->ty, EVFOLD, 0, decl.qual, decl.name);
                pdecl(&st, cm);
                if (!assigncheck(decl.ty, &ini)) {
                   struct span span = decl.span;
@@ -2753,12 +3240,15 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                   error(&span, "cannot initialize '%ty' variable with '%ty'",
                         decl.ty, ini.ty);
                }
-               EMITS {
-                  if (isagg(decl.ty))
-                     structcopy(fn, decl.ty, mkref(RTMP, decl.id), expraddr(fn, &ini));
-                  else
-                     genstore(fn, decl.ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
+               if (decl.scls & (SCAUTO | SCREGISTER)) {
+                  EMITS {
+                     if (isagg(decl.ty))
+                        structcopy(fn, decl.ty, mkref(RTMP, decl.id), expraddr(fn, &ini));
+                     else
+                        genstore(fn, decl.ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
+                  }
                }
+            } else if (decl.scls == SCSTATIC) {
             }
             break;
          case SCTYPEDEF:
@@ -2858,7 +3348,6 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
    }
 }
 
-
 void
 docomp(struct comp *cm)
 {
@@ -2869,7 +3358,6 @@ docomp(struct comp *cm)
    putdecl(cm, &(struct decl) { mktype(TYVALIST), SCTYPEDEF, .name = intern("__builtin_va_list") });
 
    while (peek(cm, tk) != TKEOF) {
-      struct expr ini;
       struct declstate st = { DTOPLEVEL };
       do {
          int nerr = nerror;
@@ -2882,6 +3370,7 @@ docomp(struct comp *cm)
             }
             continue;
          }
+         if (!decl.scls) decl.scls = SCEXTERN;
          if (st.funcdef) {
             const struct typedata *td =  &typedata[decl.ty.dat];
             struct function fn = { cm->fnarena, decl.name, .globl = decl.scls != SCSTATIC };
@@ -2894,18 +3383,16 @@ docomp(struct comp *cm)
                irdump(&fn);
             irfini(&fn);
          } else if (decl.name) {
-            putdecl(cm, &decl);
+            struct decl *d = putdecl(cm, &decl);
             if (st.varini) {
-               ini = expr(cm);
+               (void) initializer(cm, &d->ty, EVSTATICINI, decl.scls != SCSTATIC, decl.qual, decl.name);
                pdecl(&st, cm);
-               if (!assigncheck(decl.ty, &ini))
-                  error(&ini.span, "cannot initialize %ty with %ty", decl.ty, ini.ty);
-               if (!eval(&ini, EVSTATICINI))
-                  error(&ini.span, "cannot evaluate expression statically");
+            } else if (decl.scls == SCSTATIC) {
+               objnewdat(d->name, Sbss, 0, typesize(d->ty), typealign(d->ty));
             }
-            if (ccopt.dbg.p) efmt("var %s : %tq\n", decl.name, decl.ty, decl.qual);
+            if (ccopt.dbg.p) efmt("var %s : %tq\n", d->name, d->ty, d->qual);
          } else {
-            if (ccopt.dbg.p) efmt("type %ty\n", decl.ty);
+            if (ccopt.dbg.p && decl.ty.t) efmt("type %ty\n", decl.ty);
          }
          freearena(cm->fnarena);
          freearena(cm->exarena);

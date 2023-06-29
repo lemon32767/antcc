@@ -128,6 +128,20 @@ wr64targ(uchar *p, uvlong x)
    memcpy(p, &x, sizeof x);
 }
 
+static inline void
+wrf32targ(uchar *p, float x)
+{
+   union { float f; uint i; } u = { x };
+   wr32targ(p, u.i);
+}
+
+static inline void
+wrf64targ(uchar *p, double x)
+{
+   union { double f; uvlong i; } u = { x };
+   wr64targ(p, u.i);
+}
+
 #endif /* ENDIAN_H_ */
 
 /* vim:set ts=3 sw=3 expandtab: */

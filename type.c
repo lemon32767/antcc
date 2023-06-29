@@ -152,7 +152,7 @@ typealign(union type t)
    case TYENUM:
       return targ_primalign[t.backing];
    case TYARRAY:
-      return targ_primalign[typechild(t).t];
+      return typealign(typechild(t));
    case TYSTRUCT:
    case TYUNION:
       return typedata[t.dat].align;

@@ -21,9 +21,6 @@ struct sym {
           size;
 };
 static vec_of(struct sym) symtab;
-static uchar dataalign = 1, rodataalign = 1, bssalign = 1;
-static uint nbss;
-static vec_of(uchar) data, rodata;
 static uint ntextrel, nrodatarel, ndatarel;
 struct reloc {
    uchar section;
@@ -33,6 +30,8 @@ struct reloc {
    vlong addend;
 };
 static vec_of(struct reloc) relocs;
+
+#define O objout
 
 void
 elfinit(void)
@@ -115,7 +114,9 @@ elfaddsym(const char *nam, int info, enum section sect, uvlong value, uvlong siz
 
 static const ushort relktab[][NRELOCKIND] = {
    [ISamd64] = {
-      [REL_ABS]     = 5, /* R_X86_64_COPY */
+      [REL_ABS64]   = 1, /* R_X86_64_64 */
+      [REL_ABS32]   = 10, /* R_X86_64_32 */
+      [REL_ABS32S]  = 11, /* R_X86_64_32S */
       [REL_PCREL32] = 2, /* R_X86_64_PC32 */
    }
 };
@@ -133,50 +134,6 @@ elfreloc(const char *sym, enum relockind kind, enum section section, uint off, v
    assert(kind < NRELOCKIND);
    vpush(&relocs, ((struct reloc) { section, relktab[mctarg->isa][kind], snam, off, addend}));
 }
-
-void
-elfputdat(const struct irdat *dat)
-{
-   static const char zero[8];
-   enum section s;
-   uint off;
-   uint ndat = dat->siz <= 8 ? dat->siz : dat->dat.n;
-   uint nzr = dat->siz - ndat; 
-   const uchar *d = dat->siz <= 8 ? dat->sdat : dat->dat.p;
-
-   assert(dat->siz);
-   if (!dat->syms && (dat->siz > 8 ? !d : !memcmp(d, zero, dat->siz))) {
-      /* all zeroes */
-      s = Sbss;
-   } else {
-      s = dat->mut ? Sdata : Srodata;
-   }
-
-   switch (s) {
-   default: assert(0);
-   case Srodata:
-      if (dat->align > rodataalign) rodataalign = dat->align;
-      while (rodata.n & (dat->align - 1)) vpush(&rodata, 0);
-      off = rodata.n;
-      vpushn(&rodata, d, ndat);
-      while (nzr--) vpush(&rodata, 0);
-      break;
-   case Sdata:
-      if (dat->align > dataalign) dataalign = dat->align;
-      while (data.n & (dat->align - 1)) vpush(&data, 0);
-      off = data.n;
-      vpushn(&data, d, ndat);
-      while (nzr--) vpush(&data, 0);
-      break;
-   case Sbss:
-      if (dat->align > bssalign) bssalign = dat->align;
-      off = alignup(nbss, dat->align);
-      nbss = off + dat->siz;
-      break;
-   }
-   elfaddsym(dat->name, ELF_S_INFO(dat->globl, STT_OBJECT), s, off, dat->siz);
-}
-
 
 static void
 elf64puthdr(struct wbuf *out, struct elf64hdr *hdr)
@@ -419,9 +376,9 @@ elffini(struct wbuf *out)
          uchar *p;
          switch (rel->section) {
          default: assert(0);
-         case Sdata:   p = data.p + rel->off; break;
-         case Srodata: p = rodata.p + rel->off; break;
-         case Stext:   p = objout.textbegin + rel->off; break;
+         case Sdata:   p = O.data.p + rel->off; break;
+         case Srodata: p = O.rodata.p + rel->off; break;
+         case Stext:   p = O.textbegin + rel->off; break;
          }
          if (targ_64bit)
             wr64targ(p, rel->addend);
@@ -429,12 +386,12 @@ elffini(struct wbuf *out)
             wr32targ(p, rel->addend);
       }
    }
-   size_t codesize = alignup(objout.code - objout.textbegin, align),
+   size_t codesize = alignup(O.code - O.textbegin, align),
           rodataoff = (targ_64bit ? sizeof hdr.h64 : sizeof hdr.h32) + codesize,
-          rodatasize = rodata.n,
+          rodatasize = O.rodata.n,
           dataoff = rodataoff + rodatasize,
-          datasize = data.n,
-          bsssize = nbss,
+          datasize = O.data.n,
+          bsssize = O.nbss,
           shstrsoff = dataoff + datasize,
           shstrssize = sizeof(shstrs),
           strsoff = shstrsoff + shstrssize,
@@ -470,13 +427,13 @@ elffini(struct wbuf *out)
       elf32puthdr(out, &hdr.h32);
 
    /* .text progbits */
-   iowrite(out, objout.textbegin, codesize);
+   iowrite(out, O.textbegin, codesize);
 
    /* .rodata progbits */
-   iowrite(out, rodata.p, rodata.n);
+   iowrite(out, O.rodata.p, O.rodata.n);
 
    /* .data progbits */
-   iowrite(out, data.p, data.n);
+   iowrite(out, O.data.p, O.data.n);
 
    /* section names */
    iowrite(out, shstrs, sizeof shstrs);
@@ -518,17 +475,17 @@ elffini(struct wbuf *out)
    putshdr(.name = shnam_rodata, .type = SHT_PROGBITS,
            .flags = SHF_ALLOC,
            .offset = rodataoff, .size = rodatasize,
-           .addralign = rodataalign,);
+           .addralign = O.rodataalign,);
    /* §3 .data */
    putshdr(.name = shnam_data, .type = SHT_PROGBITS,
            .flags = SHF_ALLOC | SHF_WRITE,
            .offset = dataoff, .size = datasize,
-           .addralign = dataalign,);
+           .addralign = O.dataalign,);
    /* §4 .bss */
    putshdr(.name = shnam_bss, .type = SHT_NOBITS,
            .size = bsssize,
            .flags = SHF_ALLOC | SHF_WRITE,
-           .addralign = bssalign,);
+           .addralign = O.bssalign,);
    /* §5 .shstrtab */
    putshdr(.name = shnam_shstrtab, .type = SHT_STRTAB,
            .offset = shstrsoff, .size = shstrssize,

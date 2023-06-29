@@ -38,11 +38,43 @@ struct expr {
      uvlong u; vlong i; double f; /* ENUMLIT */
      struct bytes s; /* ESTRLIT */
      struct decl *sym; /* ESYM */
-     struct initializer *ini; /* EINIT */
+     struct init *init; /* EINIT */
+   };
+};
+
+struct init {
+   uint n;
+   struct bitset *zero;
+   uint *offs;
+   struct { uchar off, siz; } *bitf;
+   struct expr **ex;
+};
+
+enum storageclass {
+   SCNONE,
+   SCTYPEDEF = 1<<0,
+   SCEXTERN = 1<<1,
+   SCSTATIC = 1<<2,
+   SCTHREADLOCAL = 1<<3,
+   SCAUTO = 1<<4,
+   SCREGISTER = 1<<5,
+};
+
+struct decl {
+   union type ty;
+   uchar scls;
+   uchar qual : 2;
+   uchar isenum : 1;
+   struct span span;
+   const char *name;
+   union {
+      struct { ushort align; int id; };
+      vlong value;
    };
 };
 
 enum evalmode {
+   EVNONE,
    EVINTCONST,
    EVARITH,
    EVSTATICINI,

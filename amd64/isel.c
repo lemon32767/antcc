@@ -139,11 +139,29 @@ ascale(struct addr *addr, union ref a, union ref b)
 {
    if (b.t != RICON) return 0;
    if (addr->index.bits) return 0;
-   if (a.t != RTMP && a.t != RREG) return 0;
-   if ((unsigned)b.i > 3) return 0;
-   addr->shift = b.i;
-   addr->index = a;
-   return 1;
+   if (a.t == RREG) {
+   Scaled:
+      if ((unsigned)b.i > 3) return 0;
+      addr->index = a;
+      addr->shift = b.i;
+      return 1;
+   } else if (a.t == RTMP) {
+      struct instr *ins = &instrtab[a.i];
+      /* factor out shifted immediate from 'shl {add %x, imm}, s' */
+      /* XXX maybe we shouldn't do this here because it should be done by a generic
+       * arithemetic optimization pass ? */
+      if (ins->op == Oadd && (ins->l.t == RREG || ins->l.t == RTMP) && isintcon(ins->r)) {
+         vlong a = ((vlong) addr->disp + intconval(ins->r)) << b.i;
+         if (a != (int) a) return 0;
+         addr->disp = a;
+         addr->index = ins->l;
+         addr->shift = b.i;
+         return 1;
+      } else {
+         goto Scaled;
+      }
+   }
+   return 0;
 }
 
 static bool
@@ -176,6 +194,11 @@ aadd(struct addr *addr, union ref r)
       } else goto Ref;
    } else if (isnumcon(r)) {
       return acon(addr, r);
+   } else if (isaddrcon(r)) {
+      /* XXX PIC */
+      if (!addr->base.bits && !isaddrcon(addr->index)) addr->base = r;
+      else if (!addr->index.bits && !isaddrcon(addr->base)) addr->index = r;
+      else return 0;
    } else if (r.t == RREG) {
       /* temporaries are single assignment, but register aren't, so they can't be *
        * safely hoisted into an address value, unless they have global lifetime */
@@ -194,7 +217,7 @@ fuseaddr(union ref *r)
    struct addr addr = { 0 };
 
    if (r->t == RADDR) return 1;
-   if (r->t == RXCON && (!conht[r->i].cls && !conht[r->i].deref)) return 1;
+   if (isaddrcon(*r)) return 1;
    if (r->t != RTMP) return 0;
    if (!aadd(&addr, *r)) return 0;
 
@@ -206,8 +229,10 @@ fuseaddr(union ref *r)
 static bool
 addarg4addrp(union ref r)
 {
-   struct instr *ins = &instrtab[r.i];
+   struct instr *ins;
+   if (r.t == RXCON && !conht[r.i].cls && !conht[r.i].deref) return 1; /* sym or dat ref */
    if (r.t != RTMP) return 0;
+   ins = &instrtab[r.i];
    return ins->op == Oshl || (ins->op == Ocopy && ins->l.t == RADDR) || ins->op == Oadd;
 }
 
@@ -332,6 +357,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       if (iscon(ins->l))
          rswap(ins->l, ins->r);
    case Oneg: case Onot:
+   case Ocvtf4f8: case Ocvtf8f4: case Ocvtf4s: case Ocvtf8s:
    case Oexts1: case Oextu1: case Oexts2: case Oextu2: case Oexts4: case Oextu4:
    ALU:
       if (!(op == Oadd && kisint(ins->cls))) /* 3-address add is lea */

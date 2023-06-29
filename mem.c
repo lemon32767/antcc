@@ -46,7 +46,9 @@ vpush_(void **p, int *pcap, uint *pn, uint siz)
 {
    if (*pcap >= 0 && *pn >= *pcap) { /* empty or inline buffer */
       int cap = *pcap ? *pcap * 2 : 8;
+      void *old = *p;
       *p = xrealloc(NULL, cap * siz);
+      if (old) memcpy(*p, old, *pcap * siz);
       *pcap = -cap;
    } else if (*pcap < 0 && *pn >= -*pcap) { /* dyn buf */
       *p = xrealloc(*p, -(*pcap *= 2) * siz);
@@ -72,8 +74,17 @@ vpushn_(void **p, int *pcap, uint *pn, uint siz, const void *dat, uint ndat)
 void
 vresize_(void **p, int *pcap, uint *pn, uint siz, uint N)
 {
-   while (*pcap < N)
-      vpush_(p, pcap, pn, siz);
+   if (N <= *pn) {
+   } else if (*pcap > 0 && *pcap < N) {
+      void *old = *p;
+      *p = xrealloc(NULL, -(*pcap = -(N * siz)));
+      if (old) memcpy(*p, old, *pcap * siz);
+   } else if (*pcap <= 0 && -*pcap < N) {
+      *pcap = *pcap ? *pcap : -1;
+      do *pcap *= 2; while (-*pcap < N);
+      *p = xrealloc(*p, -*pcap * siz);
+      memset((char *)*p + *pn*siz, 0, (N - *pn) * siz);
+   }
    *pn = N;
 }
 

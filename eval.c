@@ -77,6 +77,30 @@ unop(struct expr *ex, enum evalmode mode)
 {
    struct expr *sub = ex->sub;
 
+   if (mode >= EVSTATICINI && ex->t == EDEREF) {
+      uvlong off;
+      struct bytes s;
+      if (sub->t == ESTRLIT) {
+         /*  *"s"  */
+         off = 0;
+         s = sub->s;
+      } else if (sub->t == EADD && sub->sub[0].t == ESTRLIT && eval(&sub->sub[1], EVINTCONST)) {
+         /*  "s"[0]  */
+         assert(sub->sub[1].t == ENUMLIT && isint(sub->sub[1].ty));
+         off = sub->sub[1].u;
+         s = sub->sub[0].s;
+      } else if (sub->t == EADD && sub->sub[1].t == ESTRLIT && eval(&sub->sub[0], EVINTCONST)) {
+         /*  0["s"]  */
+         assert(sub->sub[0].t == ENUMLIT && isint(sub->sub[0].ty));
+         off = sub->sub[0].u;
+         s = sub->sub[1].s;
+      } else return 0;
+      if (off > s.n) return 0;
+      ex->t = ENUMLIT;
+      ex->ty = mktype(TYINT);
+      ex->u = off == s.n ? 0 : s.p[off];
+      return 1;
+   }
    if (sub->t != ENUMLIT && !eval(sub, mode)) return 0;
    switch (ex->t) {
    case ECAST:
@@ -99,6 +123,30 @@ unop(struct expr *ex, enum evalmode mode)
    }
    if (!numcast(ex->ty.t, ex, sub)) return 0;
    return 1;
+}
+
+/* link time constants */
+static bool
+isglobsym(const struct expr *ex)
+{
+   return ex->t == ESTRLIT || (ex->t == ESYM && ex->sym && (ex->sym->scls & (SCSTATIC | SCEXTERN)));
+}
+
+static bool
+isaddrconst(struct expr *ex)
+{
+   if (ex->t == EADDROF && isglobsym(ex->sub))
+      return 1;
+   if (isglobsym(ex) && in_range(ex->ty.t, TYARRAY, TYFUNC))
+      return 1;
+   if (ex->t == ESUB)
+      return isglobsym(&ex->sub[0]) && isint(ex->sub[1].ty) && eval(&ex->sub[1], EVSTATICINI);
+   if (ex->t == EADD) {
+      for (int swp = 0; swp < 2; ++swp)
+         if (isglobsym(&ex->sub[swp]) && isint(ex->sub[swp^1].ty) && eval(&ex->sub[swp^1], EVSTATICINI))
+            return 1;
+   }
+   return 0;
 }
 
 static bool
@@ -205,6 +253,8 @@ eval(struct expr *ex, enum evalmode mode)
       if (mode <= EVINTCONST) return isint(ex->ty);
       return 1;
    }
+   if (mode == EVSTATICINI && isaddrconst(ex))
+      return 1;
    if (isunop(ex->t)) return unop(ex, mode) && eval(ex, mode);
    if (isbinop(ex->t)) return binop(ex, mode) && eval(ex, mode);
    if (ex->t == ESEQ) {

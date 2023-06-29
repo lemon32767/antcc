@@ -1,5 +1,6 @@
 #include "ir.h"
 #include "endian.h"
+#include "obj.h"
 
 uchar type2cls[NTYPETAG];
 uchar cls2siz[KF8+1];
@@ -100,36 +101,6 @@ addcon(const struct xcon *con)
    }
 }
 
-void
-conputdat(struct irdat *dat, uint off, enum typetag t, const void *src)
-{
-   uint siz = targ_primsizes[t];
-   bool iszero = 1;
-   uchar *pdat;
-   assert(off + siz <= dat->siz);
-   for (uint i = 0; i < siz; ++i) {
-      if (((uchar *)src) != 0) {
-         iszero = 0;
-         break;
-      }
-   }
-   if (iszero && (dat->siz <= 8 || dat->dat.n < off))
-      return;
-
-   if (dat->siz > 8)
-      while (off + siz > dat->dat.n)
-         vpush(&dat->dat, 0);
-   pdat = dat->siz <= 8 ? dat->sdat : dat->dat.p;
-
-   switch (siz) {
-   case 1: pdat[off] = *(uchar *)src; break;
-   case 2: wr16targ(&pdat[off], *(ushort *)src); break;
-   case 4: wr32targ(&pdat[off], *(uint *)src); break;
-   case 8: wr64targ(&pdat[off], *(uvlong *)src); break;
-   default: assert(0);
-   }
-}
-
 union irtype
 mkirtype(union type t)
 {
@@ -168,14 +139,9 @@ mksymref(const char *s)
 union ref
 mkdatref(const char *name, uint siz, uint align, const void *bytes, uint n, bool deref)
 {
-   struct irdat dat = { .align = align, .siz = siz, .name = name };
-   if (bytes) {
-      if (siz <= 8) memcpy(dat.sdat, bytes, n < siz ? n : siz);
-      else {
-         while (((uchar *)bytes)[n-1] == 0) --n; /* nip trailing zeroes */
-         if (n) vpushn(&dat.dat, bytes, n);
-      }
-   }
+   struct irdat dat = { .align = align, .siz = siz, .name = name, .section = Srodata };
+
+   assert(n <= siz && siz && align);
    if (!name) {
       extern const char *intern(const char *);
       char buf[32];
@@ -184,8 +150,11 @@ mkdatref(const char *name, uint siz, uint align, const void *bytes, uint n, bool
       bfmt(&wbuf, ".L.%d", dattab.n);
       ioputc(&wbuf, 0);
       assert(!wbuf.err);
-      dat.name = intern(buf);
+      dat.name = name = intern(buf);
    }
+   dat.off = objnewdat(name, dat.section, 0, siz, align);
+   memcpy(objout.rodata.p+dat.off, bytes, n);
+   memset(objout.rodata.p+dat.off+n, 0, siz - n);
    vpush(&dattab, dat);
    return mkref(RXCON, addcon(&(struct xcon){.isdat = 1, .deref = deref, .dat = dattab.n - 1}));
 }

@@ -1,44 +1,38 @@
 #include "ir.h"
+#include "obj.h"
 
 static int nextdat;
 
 static void
 pridat(const struct irdat *dat)
 {
-   efmt("%s %y(align %d, size %d):\n\t", dat->mut ? "dat" : "rodat", dat->name, dat->align, dat->siz);
-   assert(!dat->syms);
-   if (dat->siz <= 8) {
-      efmt("b ");
-      for (int i = 0; i < dat->siz; ++i)
-         efmt("%d,", dat->sdat[i]);
-   } else {
-      enum {
-         MINZERO = 4,
-         MAXLINE = 60,
-      };
-      int npri = 0;
-      int nzero = dat->siz - dat->dat.n;
-      int strbegin = 0, nstr = 0;
-      for (int i = 0; i < dat->dat.n + (nzero & -(nzero <= MINZERO)); ++i) {
-         int c = i < dat->dat.n ? dat->dat.p[i] : 0;
-         if (npri > MAXLINE) {
-            npri = 0;
-            efmt("\n\t");
-         }
-         if (aisprint(c)) {
-            if (!nstr++) strbegin = i;
-         } else {
-            if (nstr) {
-               npri += efmt("asc %'S,", dat->dat.p+strbegin, nstr);
-               nstr = 0;
-               efmt("b ");
-            }
-            npri += efmt("%d,", c);
-         }
+   uchar *p = (dat->section == Sdata ? objout.data.p : objout.rodata.p) + dat->off; 
+   enum {
+      MINZERO = 4,
+      MAXLINE = 60,
+   };
+   int npri = 0;
+   int strbegin = 0, nstr = 0;
+   assert(dat->section == Sdata || dat->section == Srodata);
+   efmt("%s %y(align %d, size %d):\n\t", dat->section == Sdata ? "data" : "rodata", dat->name, dat->align, dat->siz);
+   for (int i = 0; i < dat->siz; ++i) {
+      int c = p[i];
+      if (npri > MAXLINE) {
+         npri = 0;
+         efmt("\n\t");
       }
-      if (nstr) npri += efmt("asc %'S,", dat->dat.p+strbegin, nstr);
-      if ((nzero -= MINZERO) > 0) efmt("z %d", nzero);
+      if (aisprint(c)) {
+         if (!nstr++) strbegin = i;
+      } else {
+         if (nstr) {
+            npri += efmt("asc %'S,", p+strbegin, nstr);
+            nstr = 0;
+            efmt("b ");
+         }
+         npri += efmt("%d,", c);
+      }
    }
+   if (nstr) npri += efmt("asc %'S,", p+strbegin, nstr);
    efmt("\n");
 }
 

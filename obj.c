@@ -5,10 +5,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+
 void elfinit(void);
 void elfaddsym(const char *, int info, enum section, uvlong value, uvlong size);
 void elfreloc(const char *sym, enum relockind, enum section, uint off, vlong addend);
-void elfputdat(const struct irdat *);
 void elffini(struct wbuf *);
 
 struct objfile objout;
@@ -38,6 +38,44 @@ objdeffunc(const char *nam, bool globl, uint off, uint siz)
    }
 }
 
+uint
+objnewdat(const char *name, enum section sec, bool globl, uint siz, uint align)
+{
+   uint off;
+
+   assert(siz && align && ispo2(align));
+
+   switch (sec) {
+   default: assert(0);
+   case Srodata:
+      if (align > objout.rodataalign) objout.rodataalign = align;
+      while (objout.rodata.n & (align - 1)) vpush(&objout.rodata, 0);
+      off = objout.rodata.n;
+      vresize(&objout.rodata, objout.rodata.n + siz);
+      memset(objout.rodata.p+off, 0, siz);
+      break;
+   case Sdata:
+      if (align > objout.dataalign) objout.dataalign = align;
+      while (objout.data.n & (align - 1)) vpush(&objout.data, 0);
+      off = objout.data.n;
+      vresize(&objout.data, objout.data.n + siz);
+      memset(objout.data.p+off, 0, siz);
+      break;
+   case Sbss:
+      if (align > objout.bssalign) objout.bssalign = align;
+      off = alignup(objout.nbss, align);
+      objout.nbss = off + siz;
+      break;
+   }
+
+   switch (mctarg->objkind) {
+   case OBJELF:
+      elfaddsym(name, /*STT_LOCAL/GLOBAL*/globl<<4 | /*STT_OBJECT*/1, sec, off, siz);
+      break;
+   }
+   return off;
+}
+
 void
 objreloc(const char *sym, enum relockind reloc, enum section section, uint off, vlong addend)
 {
@@ -54,10 +92,6 @@ objfini(void)
    static char buf[1<<12];
    struct wbuf out = FDBUF(buf, sizeof buf, open(objout.file, O_WRONLY | O_CREAT | O_TRUNC, 0666));
    if (out.fd < 0) fatal(NULL, "could not open %'s for writing: %s", objout.file, strerror(errno));
-
-   for (int i = 0; i < dattab.n; ++i) {
-      elfputdat(&dattab.p[i]);
-   }
 
    switch (mctarg->objkind) {
    case OBJELF: elffini(&out); break;
