@@ -2921,6 +2921,10 @@ static bool /* return 1 if stmt is terminating (ends with a jump) */
 stmt(struct comp *cm, struct function *fn)
 {
    struct block *tr, *fl, *end, *begin;
+   union {
+      struct arena a;
+      char mem[sizeof(struct arena) + sizeof(struct expr)*4];
+   } atmp = { .a.cap = sizeof(struct expr)*4 };
    struct expr ex;
    struct env e;
    union ref r;
@@ -2938,6 +2942,7 @@ stmt(struct comp *cm, struct function *fn)
       } else {
          /* kludge for no backtracking and no lookahead */
          ex = exprparse(cm, 1, &tk);
+         stmtterm(cm);
          EMITS expreffects(fn, &ex);
          return fn->curblk == NULL;
       }
@@ -2983,6 +2988,10 @@ stmt(struct comp *cm, struct function *fn)
          }
       }
       EMITS if (!terminates) useblk(fn, end);
+      break;
+   case TKWelse:
+      lex(cm, &tk);
+      error(&tk.span, "'else' without matching 'if'");
       break;
    case TKWwhile: /* while ( <cond> ) <body> */
       lex(cm, NULL);
@@ -3095,7 +3104,14 @@ stmt(struct comp *cm, struct function *fn)
          }
       }
       if (!match(cm, NULL, ')')) { /* iter */
+         /* since exarena is free'd at the end of each stmt, create a new temporary
+          * arena to parse this expression because loop body statements would free it
+          * otherwise */
+         struct arena *tmp = cm->exarena;
+         cm->exarena = &atmp.a;
          ex = commaexpr(cm);
+         cm->exarena = tmp;
+
          end = newblk(fn);
          expect(cm, ')', NULL);
       }
@@ -3108,6 +3124,7 @@ stmt(struct comp *cm, struct function *fn)
             useblk(fn, end);
             expreffects(fn, &ex);
             putbranch(fn, begin);
+            freearena(&atmp.a);
          } else if (!terminates) putbranch(fn, begin);
          useblk(fn, fl);
       }
@@ -3360,6 +3377,7 @@ docomp(struct comp *cm)
    while (peek(cm, tk) != TKEOF) {
       struct declstate st = { DTOPLEVEL };
       do {
+         bool noscls;
          int nerr = nerror;
          struct decl decl = pdecl(&st, cm);
 
@@ -3370,7 +3388,10 @@ docomp(struct comp *cm)
             }
             continue;
          }
-         if (!decl.scls) decl.scls = SCEXTERN;
+         if (!decl.scls) {
+            noscls = 1;
+            decl.scls = SCEXTERN;
+         }
          if (st.funcdef) {
             const struct typedata *td =  &typedata[decl.ty.dat];
             struct function fn = { cm->fnarena, decl.name, .globl = decl.scls != SCSTATIC };
@@ -3387,8 +3408,8 @@ docomp(struct comp *cm)
             if (st.varini) {
                (void) initializer(cm, &d->ty, EVSTATICINI, decl.scls != SCSTATIC, decl.qual, decl.name);
                pdecl(&st, cm);
-            } else if (decl.scls == SCSTATIC) {
-               objnewdat(d->name, Sbss, 0, typesize(d->ty), typealign(d->ty));
+            } else if (decl.ty.t != TYFUNC && (decl.scls != SCEXTERN || noscls)) {
+               objnewdat(d->name, Sbss, decl.scls == SCEXTERN, typesize(d->ty), typealign(d->ty));
             }
             if (ccopt.dbg.p) efmt("var %s : %tq\n", d->name, d->ty, d->qual);
          } else {
