@@ -416,8 +416,8 @@ emitmove(enum irclass k, struct alloc dst, struct alloc src, struct block *blk, 
       case KF4: mv.op = Oloadf4; break;
       case KF8: mv.op = Oloadf8; break;
       }
-      mv.l = mkref(RICON, dst.a*8);
-      mv.reg = src.a;
+      mv.l = mkref(RICON, src.a*8);
+      mv.reg = dst.a+1;
       addstkslotref(insertinstr(blk, curi, mv));
    }
 }
@@ -563,8 +563,9 @@ resolve(struct function *fn, struct bbrm *bbrm, struct block *blk, struct block 
          }
          pmadd(insrescls(instrtab[var]), *alloc, *alloc2);
       }
-      if (!instrtab[var].reg && alloc->t == AREG)
+      if (!instrtab[var].reg && alloc->t == AREG) {
          instrtab[var].reg = alloc->a + 1;
+      }
    }
    if (n) emitpm(n);
 
@@ -656,7 +657,7 @@ regalloc(struct function *fn)
       for (int i = 0; i < 2; ++i) {
          if (!blk->jmp.arg[i].bits) break;
          /* do not allocate a reg for a cmp op used a branch argument, since it's a pseudo op */
-         if (blk->jmp.t == Jb && blk->jmp.arg[i].t == RTMP && oiscmp(instrtab[blk->jmp.arg[i].i].op))
+         if (blk->jmp.t == Jb && blk->jmp.arg[i].t == RTMP && instrtab[blk->jmp.arg[i].i].keep)
             break;
          use(&ra, blk, curi, -blk->jmp.t,
                   blk->jmp.t == Jret ? fn->abiret[i].reg : -1,
@@ -717,7 +718,7 @@ regalloc(struct function *fn)
             goto Nop;
          } else if (ins->op == Ocopy && ins->l.t == RREG && ins->reg-1 == ins->l.i) {
             goto Nop;
-         } else if (ins->inplace && ins->l.t == RREG && ins->reg-1 != ins->l.i) {
+         } else if (ins->inplace && ins->l.t == RREG && ins->reg && ins->reg-1 != ins->l.i) {
             /* fixup in-place (two-address) instructions */
             allnops = 0;
             insertinstr(blk, i++, mkmove(ins->cls, ins->reg-1, ins->l.i));

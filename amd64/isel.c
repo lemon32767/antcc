@@ -397,10 +397,8 @@ seljmp(struct function *fn, struct block *blk)
          c = insertinstr(blk, blk->ins.n, mkinstr(Ocopy, cls, c));
          sel(fn, &instrtab[c.i], blk, &curi);
       }
-      if (iflagsrc == c.i) {
-         if (!oiscmp(instrtab[c.i].op)) {
-            blk->jmp.arg[0] = NOREF; /* implicit by zero flag */
-         }
+      if (iflagsrc == c.i             /*           test                   cmp              */
+       && (oiscmp(instrtab[c.i].op) || instrtab[c.i].op == Oand || instrtab[c.i].op == Osub)) {
          instrtab[c.i].keep = 1;
       } else {
          if (!(opflags[instrtab[c.i].op] & ZF) || c.i != blk->ins.p[blk->ins.n - 1]) {

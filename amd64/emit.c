@@ -189,6 +189,7 @@ enum operenc {
    EN_MI16,   /* mem, imm16 with /x */
    EN_MI32,   /* mem, imm32 with /x */
    EN_OI,     /* reg, imm32 with op + reg */
+   EN_I8,     /* imm8 */
    EN_I32,    /* imm32 */
    EN_R32,    /* rel32 */
 };
@@ -315,7 +316,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
             objreloc(xcon2sym(mem.con), REL_ABS32S, Stext, *pcode - objout.textbegin, mem.disp);
          }
          I32(0);
-         break;
+         goto Imm;
       }
       if (mem.index == NOINDEX && mem.shift == 0) sib = 0;
       else sib = 1;
@@ -332,6 +333,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       else if (mod == 2 || (mod == 0 && mem.base == RBP/*RIP-rel*/)) {
          I32(mem.disp);
       }
+   Imm:
       if (en->operenc == EN_MI8) B(src.imm);
       if (en->operenc == EN_MI16) I16(src.imm);
       if (en->operenc == EN_MI32) I32(src.imm);
@@ -352,6 +354,11 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       B(*opc++ + (dst.reg & 7));
       D(opc, nopc - 1);
       I32(src.imm);
+      break;
+   case EN_I8:
+      if (rex) B(0x40 | rex);
+      D(opc, nopc);
+      B(src.imm);
       break;
    case EN_I32:
       if (rex) B(0x40 | rex);
@@ -470,6 +477,13 @@ DEFINSTR2(Xsubf,
    {4, PFPR, PMEM, "\xF3\x0F\x5C", EN_RM}, /* SUBSS xmm, m32 */
    {8, PFPR, PMEM, "\xF2\x0F\x5C", EN_RM}, /* SUBSD xmm, m64 */
 )
+DEFINSTR2(Xand,
+   {4|8, PGPR, PGPR, "\x23", EN_RR},           /* AND r32/64, r32/64 */
+   {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=4},  /* AND r32/64, imm8 */
+   {4|8, PRAX, PI32, "\x25", EN_I32},          /* AND eax/rax, imm */
+   {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=4}, /* AND r32/64, imm */
+   {  8, PGPR, PMEM, "\x23", EN_RM},           /* AND r64, m64 */
+)
 DEFINSTR2(Xxor,
    {4|8, PGPR, PGPR, "\x33", EN_RR},           /* XOR r32/64, r32/64 */
    {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=6},  /* XOR r32/64, imm8 */
@@ -493,6 +507,9 @@ DEFINSTR1(Xinc,
 DEFINSTR1(Xdec,
    {4|8, PGPR, 0, "\xFF", EN_R, .ext=1} /* DEC r32/64 */
 )
+DEFINSTR1(Xneg,
+   {4|8, PGPR, 0, "\xF7", EN_R, .ext=3} /* NEG r32/64 */
+)
 DEFINSTR1(Xidiv,
    {4|8, PGPR, 0, "\xF7", EN_R, .ext=7}, /* IDIV r32/64 */
    {4|8, PMEM, 0, "\xF7", EN_M, .ext=7}, /* IDIV m32/64 */
@@ -510,8 +527,42 @@ DEFINSTR2(Xcmp,
    {  8, PGPR, PMEM, "\x3B", EN_RM},           /* CMP r64, m64 */
 )
 DEFINSTR2(Xtest,
-   {4|8, PGPR, PGPR, "\x85", EN_RR}, /* TEST r32/64, r32/64 */
+   {4|8, PRAX, PI8,  "\xA8", EN_I8},  /* TEST AL, imm8 */
+   {4,   PRAX, PI32, "\xA9", EN_I32}, /* TEST EAX, imm32 */
+   {  8, PRAX, PU32, "\xA9", EN_I32}, /* TEST EAX, imm32 */
+   {  8, PRAX, PI32, "\xA9", EN_I32}, /* TEST RAX, imm32 */
+   {4|8, PGPR, PI8,  "\xF6", EN_RI8, .r8=1},  /* TEST r8, imm8 */
+   {4|8, PGPR, PGPR, "\x85", EN_RR},   /* TEST r32/64, r32/64 */
+   {4|8, PGPR, PMEM, "\x85", EN_RM},   /* TEST r32/64, m32/64 */
 )
+
+DEFINSTR2(Ximul2,
+   {4|8, PGPR, PGPR, "\x0F\xAF", EN_RR}, /* MUL r32/64, r32/64 */
+   {4|8, PGPR, PMEM, "\x0F\xAF", EN_RM}, /* MUL r32/64, m32/64 */
+)
+static void
+Xmul(uchar **pcode, enum irclass k, struct oper dst, struct oper s1, struct oper s2)
+{
+   static const struct desc imm8tab[] = {
+      {4|8, PGPR, PGPR, "\x6B", EN_RR}, /* MUL r32/64, r32/64, (imm8) */
+      {4|8, PGPR, PMEM, "\x6B", EN_RM}, /* MUL r32/64, m32/64, (imm8) */
+   }, imm32tab[] = {
+      {4|8, PGPR, PGPR, "\x69", EN_RR}, /* MUL r32/64, r32/64, (imm32) */
+      {4|8, PGPR, PMEM, "\x69", EN_RM}, /* MUL r32/64, m32/64, (imm32) */
+   };
+   if (!memcmp(&dst, &s1, sizeof dst) && s2.t != OIMM) {
+      Ximul2(pcode, k, dst, s2);
+      return;
+   }
+   assert(s2.t == OIMM);
+   if ((uint)(s2.imm + 128) < 256) {
+      encode(pcode, imm8tab, arraylength(imm8tab), k, dst, s1);
+      B(s2.imm);
+   } else {
+      encode(pcode, imm32tab, arraylength(imm32tab), k, dst, s1);
+      I32(s2.imm);
+   }
+}
 
 enum cc {
    CCO   = 0x0, /* OF = 1*/
@@ -685,6 +736,7 @@ static const uchar icmpop2cc[] = {
    [Oequ]  = CCE, [Oneq]  = CCNE,
    [Olth]  = CCL, [Ogth]  = CCG, [Olte]  = CCLE, [Ogte]  = CCGE,
    [Oulth] = CCB, [Ougth] = CCA, [Oulte] = CCBE, [Ougte] = CCGE,
+   [Oand] = CCNE, [Osub] = CCNE,
 };
 /* condition code for TEST reg,reg (compare with zero) */
 static const uchar icmpzero2cc[] = {
@@ -747,8 +799,26 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
          Xlea(pcode, cls, dst, mem);
       }
       break;
-   case Osub: X = kisint(cls) ? Xsub : Xsubf; goto ALU2;
+   case Osub:
+      dst = mkregoper(ins->l);
+      if (kisflt(cls)) {
+         Xsubf(pcode, cls, dst, mkimmdatregoper(ins->r));
+      } else if (ins->reg-1 == dst.reg) { /* two-address */
+         Xsub(pcode, cls, dst, mkimmdatregoper(ins->r));
+      } else {
+         assert(isintcon(ins->r));
+         Xlea(pcode, cls, dst,
+              mkoper(OMEM, .base = mkregoper(ins->l).reg, .index = NOINDEX, .disp = -intconval(ins->r)));
+      }
+      break;
    case Oshl: X = Xshl; goto ALU2;
+   case Oand:
+      if (!ins->reg) {
+         Xtest(pcode, cls, mkregoper(ins->l), mkimmdatregoper(ins->r));
+         break;
+      }
+      X = Xand;
+      goto ALU2;
    case Oxor: X = Xxor; goto ALU2;
    ALU2:
       dst = mkregoper(ins->l);
@@ -757,10 +827,16 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       break;
    case Oxinc: X1 = Xinc; goto ALU1;
    case Oxdec: X1 = Xdec; goto ALU1;
+   case Oneg: X1 = Xneg; goto ALU1;
    ALU1:
       dst = mkregoper(ins->l);
       assert(ins->reg-1 == dst.reg);
       X1(pcode, cls, dst);
+      break;
+   case Omul: 
+      if (kisint(cls)) {
+         Xmul(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r));
+      } else assert(0);
       break;
    case Odiv:
       switch (cls) {
@@ -837,22 +913,17 @@ emitbranch(uchar **pcode, struct block *blk)
    if (blk->s2) {
       /* conditional branch.. */
       union ref arg = blk->jmp.arg[0];
-
-      if (!arg.bits) /* implicit by ZF */
-         cc = CCNZ;
-      else {
-         struct instr *ins;
-         assert(arg.t == RTMP);
-         ins = &instrtab[arg.i];
-         assert(oiscmp(ins->op));
-         /* TODO handle float cmps */
-         if (ins->r.bits != ZEROREF.bits) {
-            /* for CMP instr */
-            cc = icmpop2cc[ins->op];
-         } else {
-            /* for TEST instr, which modifies ZF and SF and sets CF = OF = 0 */
-            cc = icmpzero2cc[ins->op];
-         }
+      struct instr *ins;
+      assert(arg.t == RTMP);
+      ins = &instrtab[arg.i];
+      assert(oiscmp(ins->op) || ins->op == Oand || ins->op == Osub);
+      /* TODO handle float cmps */
+      if (ins->r.bits != ZEROREF.bits) {
+         /* for CMP instr */
+         cc = icmpop2cc[ins->op];
+      } else {
+         /* for TEST instr, which modifies ZF and SF and sets CF = OF = 0 */
+         cc = icmpzero2cc[ins->op];
       }
       if (blk->s1 == blk->lnext) {
          /* if s1 is next adjacent block, swap s1,s2 and flip condition to emit a

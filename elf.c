@@ -449,7 +449,6 @@ elffini(struct wbuf *out)
       putsym(out, sym);
    }
 
-
    /* rel.* */
    assert(relocs.n == ntextrel + nrodatarel + ndatarel);
    for (enum section s = Stext; s <= Sbss; ++s) {
