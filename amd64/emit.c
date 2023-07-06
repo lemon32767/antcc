@@ -632,7 +632,7 @@ Xsetcc(uchar **pcode, enum cc cc, enum reg reg)
 
    if (in_range(reg, RSP, RDI)) rex = 0x40;
    rex |= (reg >> 3); /* REX.B */
-   if (rex) B(rex);
+   if (rex) B(rex | 0x40);
    B(0x0F), B(0x90+cc); /* SETcc */
    B(0xC0 + (reg & 7)); /* ModR/M with mod=11, rm=reg */
 
@@ -687,6 +687,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
        * which may clobber flags */
       const struct addr *addr = &addrht[val.i];
       if (flagslivep(blk, curi)) goto Lea;
+      if (addr->base.t != RREG) goto Lea;
       if (addr->base.bits && dst.reg == mkregoper(addr->base).reg) { /* base = dst */
          if (addr->index.bits && !addr->disp && !addr->shift){
             /* lea Rx, [Rx + Ry] -> add Rx, Ry */
