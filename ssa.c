@@ -18,7 +18,7 @@ copyopt(struct function *fn)
             if (arg.t == RTMP) k = insrescls(instrtab[arg.i]);
             else if (arg.t == RICON) k = cls2siz[ins->cls] == 4 ? KI4 : KI8;
             else if (arg.t == RXCON) k = isnumcon(arg) ? conht[arg.i].cls : KPTR;
-            else assert(0);
+            else continue;
             if (ins->cls != k) continue;
 
             replcuses(var, arg);
