@@ -25,6 +25,7 @@ struct pendingphi { ushort var, phi; };
 struct ssabuilder {
    vec_of(struct pendingphi) *pendingphis; /* map of block to list of incomplete phis in block */
    imap_of(union ref *) curdefs; /* map of var to (map of block to def of var) */
+   struct bitset *sealed;
    int lastvisit;
    int nblk;
 };
@@ -57,8 +58,10 @@ deltrivialphis(struct ssabuilder *sb, struct block *blk, union ref phiref)
    replcuses(phiref, same);
    imap_each(&sb->curdefs, var, pcurdefs) {
       (void)var;
-      if ((*pcurdefs)[blk->id].bits == phiref.bits)
-         (*pcurdefs)[blk->id] = same;
+      for (int i = blk->id; i < sb->nblk; ++i) {
+         if ((*pcurdefs)[i].bits == phiref.bits)
+            (*pcurdefs)[i] = same;
+      }
    }
 
    /* stops infinite recursion and marks phi for removal */
@@ -107,7 +110,7 @@ readvarrec(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
 {
    union ref val;
    assert(blk->npred > 0);
-   if (blk->id > sb->lastvisit) { /* unsealed block */
+   if (!bstest(sb->sealed, blk->id)) { /* unsealed block */
       val = insertphi(blk, cls);
       vpush(&sb->pendingphis[blk->id], ((struct pendingphi) { var, val.i }));
    } else if (blk->npred == 1) {
@@ -132,17 +135,50 @@ readvar(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
    return readvarrec(sb, var, cls, blk);
 }
 
+static bool
+tryseal(struct ssabuilder *sb, struct block *blk)
+{
+
+   vec_of(struct pendingphi) *pending;
+
+   if (bstest(sb->sealed, blk->id)) return 1;
+   if (blk->id > sb->lastvisit) return 0;
+   if (wasvisited(blk)) return 1;
+   markvisited(blk);
+   for (int i = 0; i < blk->npred; ++i) {
+      struct block *p = blkpred(blk, i);
+      if (!tryseal(sb, p)) return 0;
+   }
+
+   bsset(sb->sealed, blk->id);
+   pending = (void *) &sb->pendingphis[blk->id];
+   for (int i = 0; i < pending->n; ++i) {
+      addphiargs(sb, pending->p[i].var, instrtab[pending->p[i].phi].cls, blk,
+                 mkref(RTMP, pending->p[i].phi));
+   }
+   vfree(pending);
+   if (blk->s1) tryseal(sb, blk->s1);
+   if (blk->s2) tryseal(sb, blk->s2);
+   return 1;
+}
+
 /* require use, blkid; keeps use */
 void
 mem2reg(struct function *fn)
 {
+   static struct bitset ssealed[4];
    struct block *blk = fn->entry;
    struct ssabuilder sb = { .nblk = fn->nblk };
 
    sb.pendingphis = xcalloc(fn->nblk * sizeof *sb.pendingphis);
+   if (fn->nblk <= 64 * arraylength(ssealed)) {
+      sb.sealed = ssealed;
+      memset(ssealed, 0, BSSIZE(fn->nblk) * sizeof *ssealed);
+   } else {
+      sb.sealed = xcalloc(BSSIZE(fn->nblk) * sizeof *sb.sealed);
+   }
 
    do {
-      vec_of(struct pendingphi) *pending;
 
       for (int i = 0; i < blk->ins.n; ++i) {
          struct use *use, *uend;
@@ -202,13 +238,9 @@ mem2reg(struct function *fn)
       }
 
       assert(sb.lastvisit == blk->id);
-      pending = (void *) &sb.pendingphis[blk->id];
-      for (int i = 0; i < pending->n; ++i) {
-         addphiargs(&sb, pending->p[i].var, instrtab[pending->p[i].phi].cls, blk,
-                    mkref(RTMP, pending->p[i].phi));
-      }
       ++sb.lastvisit;
-      vfree(pending);
+      startbbvisit();
+      tryseal(&sb, blk);
    } while ((blk = blk->lnext) != fn->entry);
 
    do {
@@ -218,6 +250,7 @@ mem2reg(struct function *fn)
             delphi(blk, i--);
    } while ((blk = blk->lnext) != fn->entry);
 
+   if (sb.sealed != ssealed) free(sb.sealed);
    free(sb.pendingphis);
 
    for (int i = 0; i < sb.curdefs.mb.N; ++i)
