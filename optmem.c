@@ -136,18 +136,17 @@ readvar(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
 }
 
 static bool
-tryseal(struct ssabuilder *sb, struct block *blk)
+trysealrec(struct ssabuilder *sb, struct block *blk)
 {
-
    vec_of(struct pendingphi) *pending;
 
    if (bstest(sb->sealed, blk->id)) return 1;
    if (blk->id > sb->lastvisit) return 0;
-   if (wasvisited(blk)) return 1;
    markvisited(blk);
    for (int i = 0; i < blk->npred; ++i) {
       struct block *p = blkpred(blk, i);
-      if (!tryseal(sb, p)) return 0;
+      if (wasvisited(p)) continue;
+      if (!trysealrec(sb, p)) return 0;
    }
 
    bsset(sb->sealed, blk->id);
@@ -157,9 +156,16 @@ tryseal(struct ssabuilder *sb, struct block *blk)
                  mkref(RTMP, pending->p[i].phi));
    }
    vfree(pending);
-   if (blk->s1) tryseal(sb, blk->s1);
-   if (blk->s2) tryseal(sb, blk->s2);
+   if (blk->s1) trysealrec(sb, blk->s1);
+   if (blk->s2) trysealrec(sb, blk->s2);
    return 1;
+}
+
+static void
+tryseal(struct ssabuilder *sb, struct block *blk)
+{
+   startbbvisit();
+   trysealrec(sb, blk);
 }
 
 /* require use, blkid; keeps use */
@@ -239,7 +245,6 @@ mem2reg(struct function *fn)
 
       assert(sb.lastvisit == blk->id);
       ++sb.lastvisit;
-      startbbvisit();
       tryseal(&sb, blk);
    } while ((blk = blk->lnext) != fn->entry);
 
