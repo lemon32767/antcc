@@ -762,7 +762,13 @@ regalloc(struct function *fn)
             if (p->s1 == blk) p->s1 = next;
             else if (p->s2 == blk) p->s2 = next;
             else continue;
-            goto DelBlk;
+            for (int i = 0; i < next->npred; ++i) {
+               if (blkpred(next, i) == blk) {
+                  blkpred(next, i) = p;
+                  goto DelBlk;
+               }
+            }
+            assert(0);
          }
       }
    } while ((blk = blk->lnext) != fn->entry);
