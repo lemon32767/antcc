@@ -403,8 +403,8 @@ seljmp(struct function *fn, struct block *blk)
       } else {
          if (!(opflags[instrtab[c.i].op] & ZF) || c.i != blk->ins.p[blk->ins.n - 1]) {
             blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, instrtab[c.i].cls, c, ZEROREF));
+            instrtab[blk->jmp.arg[0].i].keep = 1;
          }
-         instrtab[blk->jmp.arg[0].i].keep = 1;
       }
    } else if (blk->jmp.t == Jret) {
       if (blk->jmp.arg[0].bits) {

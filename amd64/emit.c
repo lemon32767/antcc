@@ -127,14 +127,14 @@ mkmemoper(union ref r)
       }
       if (isaddrcon(addr->base)) {
          return mkoper(OSYM, .con = addr->base.i,
-                              .cindex = addr->index.bits ? mkregoper(addr->index).reg : NOINDEX,
-                              .cshift = addr->shift,
-                              .disp = addr->disp);
+                             .cindex = addr->index.bits ? mkregoper(addr->index).reg : NOINDEX,
+                             .cshift = addr->shift,
+                             .disp = addr->disp);
       } else if (isaddrcon(addr->index)) {
          assert(!addr->shift);
          return mkoper(OSYM, .con = addr->index.i,
-                              .cindex = addr->base.bits ? mkregoper(addr->base).reg : NOINDEX,
-                              .disp = addr->disp);
+                             .cindex = addr->base.bits ? mkregoper(addr->base).reg : NOINDEX,
+                             .disp = addr->disp);
       }
       return mkoper(OMEM, .base = addr->base.bits ? mkregoper(addr->base).reg : NOBASE,
                           .index = addr->index.bits ? mkregoper(addr->index).reg : NOINDEX,
@@ -192,6 +192,7 @@ enum operenc {
    EN_I8,     /* imm8 */
    EN_I32,    /* imm32 */
    EN_R32,    /* rel32 */
+   NOPERENC,
 };
 struct desc {
    uchar psiz; /* subset of {1,2,4,8} */
@@ -307,8 +308,10 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
          D(opc, nopc);
          if (mem.cindex == NOINDEX) {
             /* %rip(var) */
+            static uchar offs[NOPERENC] = { [EN_MI8] = 1, [EN_MI16] = 2, [EN_MI32] = 4 };
+            int off = -4 - offs[en->operenc];
             B(/*mod 0*/ (reg & 7) << 3 | RBP);
-            objreloc(xcon2sym(mem.con), REL_PCREL32, Stext, *pcode - objout.textbegin, -4 + mem.disp);
+            objreloc(xcon2sym(mem.con), REL_PCREL32, Stext, *pcode - objout.textbegin, mem.disp + off);
          } else {
             /* var(,%reg,shift) */
             B(/*mod 0*/ (reg & 7) << 3 | RSP);
@@ -917,14 +920,18 @@ emitbranch(uchar **pcode, struct block *blk)
       struct instr *ins;
       assert(arg.t == RTMP);
       ins = &instrtab[arg.i];
-      assert(oiscmp(ins->op) || ins->op == Oand || ins->op == Osub);
       /* TODO handle float cmps */
-      if (ins->r.bits != ZEROREF.bits) {
-         /* for CMP instr */
-         cc = icmpop2cc[ins->op];
+      if ((oiscmp(ins->op) || ins->op == Oand || ins->op == Osub)) {
+         if (ins->r.bits != ZEROREF.bits) {
+            /* for CMP instr */
+            cc = icmpop2cc[ins->op];
+         } else {
+            /* for TEST instr, which modifies ZF and SF and sets CF = OF = 0 */
+            cc = icmpzero2cc[ins->op];
+         }
       } else {
-         /* for TEST instr, which modifies ZF and SF and sets CF = OF = 0 */
-         cc = icmpzero2cc[ins->op];
+         /* implicit by ZF */
+         cc = CCNZ;
       }
       if (blk->s1 == blk->lnext) {
          /* if s1 is next adjacent block, swap s1,s2 and flip condition to emit a
