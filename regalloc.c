@@ -266,7 +266,7 @@ forcetake(struct rega *ra, int reg, union ref ref, struct block *blk, int curi) 
 static void
 use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union ref *ref, union ref other)
 {
-   struct instr *ins;
+   struct instr *iuse, *ins;
    uvlong excl = other.t == RREG ? 1ull<<other.i : 0;
    struct alloc *alloc;
    int reg;
@@ -294,6 +294,7 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
    }
    if (ref->t != RTMP) return;
 
+   iuse = &instrtab[blk->ins.p[curi]];
    ins = &instrtab[ref->i];
    if (!ins->cls) return;
    if (!(alloc = imap_get(&ra->m.allocs, ref->i)) || alloc->t != AREG) {
@@ -301,9 +302,14 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
       if (alloc && alloc->t == ASTACK) {
          /* ensure spill isn't overwritten by dest
           * e.g. in R0 = add %s, 7 => can't spill %s to R0 */
-         struct instr *use = &instrtab[blk->ins.p[curi]];
          s = alloc->a;
-         if (use->reg) excl = rsset(excl, use->reg-1);
+         if (iuse->reg) excl = rsset(excl, iuse->reg-1);
+      } else if (iuse->inplace && iuse->reg && ref == &iuse->r
+         && iuse->l.bits != mkref(RREG, iuse->reg-1).bits) {
+         /* ensure in an inplace operation rhs reg cannot overlap dest reg
+          * e.g. in R0 = sub R1, %x => cannot allocate %x to R0
+          * FIXME in commutative ops this is fine if we swap the operands */
+         excl = rsset(excl, iuse->reg-1);
       }
 
       assert(ins->op != Ocall);
@@ -401,7 +407,7 @@ pmadd(enum irclass k, struct alloc dst, struct alloc src)
 static void
 emitmove(enum irclass k, struct alloc dst, struct alloc src, struct block *blk, int curi)
 {
-   struct instr mv;
+   struct instr mv = {0};
    if (dst.t == AREG && src.t == AREG) {
       insertinstr(blk, curi, mkmove(k, dst.a, src.a));
    } else if (dst.t == ASTACK && src.t == AREG) {
@@ -573,6 +579,46 @@ resolve(struct function *fn, struct bbrm *bbrm, struct block *blk, struct block 
    dumpallocs("out", out);
 }
 
+static void
+rporec(struct block ***rpo, struct block *b)
+{
+   if (wasvisited(b)) return;
+   markvisited(b);
+   if (b->s2) rporec(rpo, b->s2);
+   if (b->s1) rporec(rpo, b->s1);
+   *--*rpo = b;
+}
+
+static void
+sortrpo(struct function *fn)
+{
+   static struct block **rpobuf;
+   struct block **rpoend, **rpo;
+   int i, ndead;
+
+   xbgrow(&rpobuf, fn->nblk);
+   rpo = rpoend = rpobuf + fn->nblk,
+
+   startbbvisit();
+   fn->entry->id = 0;
+   markvisited(fn->entry);
+   if (fn->entry->s1) rporec(&rpo, fn->entry->s1);
+   if (fn->entry->s2) rporec(&rpo, fn->entry->s2);
+   *--rpo = fn->entry;
+   ndead = rpo - rpobuf;
+   for (i = 1, ++rpo; rpo < rpoend; ++rpo, ++i) {
+      rpo[-1]->lnext = rpo[0];
+      rpo[0]->lprev = rpo[-1];
+      rpo[0]->id = i;
+   }
+   fn->entry->lprev = rpo[-1];
+   rpo[-1]->lnext = fn->entry;
+   for (rpo = rpobuf; ndead > 0; --ndead) {
+      (*rpo)->lnext = (*rpo)->lprev = NULL;
+      freeblk(fn, *rpo);
+   }
+}
+
 static void fixlive(struct function *fn);
 
 void
@@ -601,6 +647,9 @@ regalloc(struct function *fn)
    fn->stksiz = alignup(fn->stksiz, 8);
    fn->isleaf = 1;
    vinit(&stkslotrefs, stkslotrefsbuf, arraylength(stkslotrefsbuf));
+
+   /* put into reverse post order */
+   sortrpo(fn);
 
    /* fix liveness ranges */
    fixlive(fn);
@@ -743,10 +792,7 @@ regalloc(struct function *fn)
             p->jmp.t = Jret;
             p->s1 = NULL;
          DelBlk:
-            vfree(&blk->phi);
-            vfree(&blk->ins);
-            blk->lnext->lprev = blk->lprev;
-            blk->lprev->lnext = blk->lnext;
+            freeblk(fn, blk);
             --id;
          } else if (blk->s1) {
             /* simplify:
@@ -772,7 +818,6 @@ regalloc(struct function *fn)
          }
       }
    } while ((blk = blk->lnext) != fn->entry);
-   fn->nblk = id;
 
    fn->stksiz += ra.maxstk*8;
    if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
@@ -893,7 +938,7 @@ fixlive(struct function *fn)
       if (xbcap(pendingphis) <= blk->id) break;
 
       pphi = (void *)&pendingphis[blk->id];
-      if (pphi->n) --npendingphi;
+      npendingphi -= pphi->n;
       for (int i = 0; i < pphi->n; ++i) {
          fillphi(defined, mkref(RTMP, pphi->p[i].phi), instrtab[pphi->p[i].phi].cls, pphi->p[i].var, blk);
       }

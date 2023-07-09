@@ -225,6 +225,8 @@ union ref mkcallarg(union irtype ret, uint narg, int vararg);
 union ref mkaddr(struct addr);
 void addpred(struct block *blk, struct block *p);
 
+struct block *newblk(struct function *);
+void freeblk(struct function *, struct block *);
 struct block *insertblk(struct function *, struct block *pred, struct block *subst);
 void adduse(struct block *ublk, int ui, union ref r);
 union ref insertinstr(struct block *, int idx, struct instr);
@@ -241,7 +243,6 @@ void fillblkids(struct function *);
 /* IR builder functions */
 union ref addinstr(struct function *, struct instr);
 union ref addphi(struct function *, enum irclass, union ref []);
-struct block *newblk(struct function *);
 void useblk(struct function *, struct block *);
 void putbranch(struct function *, struct block *);
 void putcondbranch(struct function *, union ref arg, struct block *t, struct block *f);

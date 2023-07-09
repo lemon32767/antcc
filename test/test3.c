@@ -24,7 +24,7 @@ struct p divsh(int a) {
 }
 
 struct bitset { unsigned long long u; };
-static inline void
+void
 bscopy(struct bitset dst[/*siz*/], const struct bitset src[/*siz*/], unsigned siz)
 {
    while (siz--) dst++->u = src++->u;

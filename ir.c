@@ -225,6 +225,26 @@ delpred(struct block *blk, struct block *p)
 }
 
 struct block *
+newblk(struct function *fn)
+{
+   struct block *blk = alloc(&fn->arena, sizeof(struct block), 0);
+   memset(blk, 0, sizeof *blk);
+   blk->id = -1;
+   return blk;
+}
+
+void
+freeblk(struct function *fn, struct block *blk)
+{
+   vfree(&blk->phi);
+   vfree(&blk->ins);
+   if (blk->lnext) blk->lnext->lprev = blk->lprev;
+   if (blk->lprev) blk->lprev->lnext = blk->lnext;
+   blk->id = 1u<<31;
+   --fn->nblk;
+}
+
+struct block *
 insertblk(struct function *fn, struct block *pred, struct block *subst)
 {
    struct block *new = newblk(fn);
@@ -418,15 +438,6 @@ fillblkids(struct function *fn)
 }
 
 /** IR builders **/
-
-struct block *
-newblk(struct function *fn)
-{
-   struct block *blk = alloc(&fn->arena, sizeof(struct block), 0);
-   memset(blk, 0, sizeof *blk);
-   blk->id = -1;
-   return blk;
-}
 
 void
 useblk(struct function *fn, struct block *blk)
