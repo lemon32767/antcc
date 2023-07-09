@@ -329,7 +329,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       if (mod == 0 && (mem.base == RBP || mem.base == R13)) mod = 1;
       if (mem.base == RSP || mem.base == R12) sib = 1;
       D(opc, nopc);
-      B(mod << 6 | (reg & 7) << 3 | (sib ? 4 : mem.base));
+      B(mod << 6 | (reg & 7) << 3 | (sib ? 4 : (mem.base & 7)));
       if (sib)
          B(mem.shift << 6 | (mem.index & 7) << 3 | (mem.base & 7));
       if (mod == 1) B(mem.disp);
@@ -433,7 +433,7 @@ DEFINSTR2(Xmovsxl,
    {8, PGPR, PMEM, "\x63", EN_RM}, /* MOVSXD r64, m32 */
    {8, PGPR, PGPR, "\x63", EN_RR}, /* MOVSXD r64, r32 */
    {4, PGPR, PMEM, "\x8B", EN_RM}, /* MOV r32, m32 */
-   {4, PGPR, PGPR, "\x89", EN_RR}, /* MOV r32, r32 */
+   {4, PGPR, PGPR, "\x8B", EN_RR}, /* MOV r32, r32 */
 )
 DEFINSTR2(Xmovsxw,
    {4|8, PGPR, PMEM, "\x0F\xBF", EN_RM}, /* MOVSX r64, m16 */
@@ -731,7 +731,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
    } else {
       struct oper src = mkimmdatregoper(val);
       if (memcmp(&dst, &src, sizeof dst) != 0)
-         Xmov(pcode, cls == KF8 && src.reg < XMM0 ? KI8 : cls, dst, src);
+         Xmov(pcode, cls == KF8 && src.t == OREG && src.reg < XMM0 ? KI8 : cls, dst, src);
    }
 }
 
