@@ -357,14 +357,12 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       if (iscon(ins->l))
          rswap(ins->l, ins->r);
    case Oneg: case Onot:
-   case Ocvtf4f8: case Ocvtf8f4: case Ocvtf4s: case Ocvtf8s:
-   case Oexts1: case Oextu1: case Oexts2: case Oextu2: case Oexts4: case Oextu4:
    ALU:
       if (!(op == Oadd && kisint(ins->cls))) /* 3-address add is lea */
       if (!(in_range(op, Omul, Oumul) && kisint(ins->cls) && isimm32(ins->r))) /* for (I)MUL r,r/m,imm */
          ins->inplace = 1;
-      if (ins->l.t != RTMP && ins->l.t != RREG)
-         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
+      if (iscon(ins->l))
+         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, concls(ins->l), ins->l));
       if (ins->r.bits)
    case Omove:
          fixarg(&ins->r, ins, blk, curi);
@@ -379,6 +377,8 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->l));
       fixarg(&ins->r, ins, blk, curi);
       break;
+   case Ocvtf4f8: case Ocvtf8f4: case Ocvtf4s: case Ocvtf8s:
+   case Oexts1: case Oextu1: case Oexts2: case Oextu2: case Oexts4: case Oextu4:
    case Ocopy:
       fixarg(&ins->l, ins, blk, curi);
       break;
