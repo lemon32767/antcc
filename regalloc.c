@@ -41,7 +41,7 @@ addstkslotref(union ref inst)
 
 static int allocreg(struct rega *ra, enum irclass cls, union ref ref, uvlong excl);
 
-#if 0
+#if 1
 #define DBG(...) if(ccopt.dbg.r) efmt(__VA_ARGS__)
 static void
 dumpallocs(const char *s, struct rmap *m)
@@ -294,7 +294,7 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
    }
    if (ref->t != RTMP) return;
 
-   iuse = &instrtab[blk->ins.p[curi]];
+   iuse = curi < blk->ins.n ? &instrtab[blk->ins.p[curi]] : NULL;
    ins = &instrtab[ref->i];
    if (!ins->cls) return;
    if (!(alloc = imap_get(&ra->m.allocs, ref->i)) || alloc->t != AREG) {
@@ -303,8 +303,8 @@ use(struct rega *ra, struct block *blk, int curi, enum op op, int hint, union re
          /* ensure spill isn't overwritten by dest
           * e.g. in R0 = add %s, 7 => can't spill %s to R0 */
          s = alloc->a;
-         if (iuse->reg) excl = rsset(excl, iuse->reg-1);
-      } else if (iuse->inplace && iuse->reg && ref == &iuse->r
+         if (iuse && iuse->reg) excl = rsset(excl, iuse->reg-1);
+      } else if (iuse && iuse->inplace && iuse->reg && ref == &iuse->r
          && iuse->l.bits != mkref(RREG, iuse->reg-1).bits) {
          /* ensure in an inplace operation rhs reg cannot overlap dest reg
           * e.g. in R0 = sub R1, %x => cannot allocate %x to R0
