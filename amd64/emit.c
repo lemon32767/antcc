@@ -480,6 +480,18 @@ DEFINSTR2(Xsubf,
    {4, PFPR, PMEM, "\xF3\x0F\x5C", EN_RM}, /* SUBSS xmm, m32 */
    {8, PFPR, PMEM, "\xF2\x0F\x5C", EN_RM}, /* SUBSD xmm, m64 */
 )
+DEFINSTR2(Xmulf,
+   {4, PFPR, PFPR, "\xF3\x0F\x59", EN_RR}, /* MULSS xmm, xmm */
+   {8, PFPR, PFPR, "\xF2\x0F\x59", EN_RR}, /* MULSD xmm, xmm */
+   {4, PFPR, PMEM, "\xF3\x0F\x59", EN_RM}, /* MULSS xmm, m32 */
+   {8, PFPR, PMEM, "\xF2\x0F\x59", EN_RM}, /* MULSD xmm, m64 */
+)
+DEFINSTR2(Xdivf,
+   {4, PFPR, PFPR, "\xF3\x0F\x5E", EN_RR}, /* DIVSS xmm, xmm */
+   {8, PFPR, PFPR, "\xF2\x0F\x5E", EN_RR}, /* DIVSD xmm, xmm */
+   {4, PFPR, PMEM, "\xF3\x0F\x5E", EN_RM}, /* DIVSS xmm, m32 */
+   {8, PFPR, PMEM, "\xF2\x0F\x5E", EN_RM}, /* DIVSD xmm, m64 */
+)
 DEFINSTR2(Xand,
    {4|8, PGPR, PGPR, "\x23", EN_RR},           /* AND r32/64, r32/64 */
    {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=4},  /* AND r32/64, imm8 */
@@ -838,9 +850,10 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       X1(pcode, cls, dst);
       break;
    case Omul: 
-      if (kisint(cls)) {
+      if (kisint(cls))
          Xmul(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r));
-      } else assert(0);
+      else
+         Xmulf(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->r));
       break;
    case Odiv:
       switch (cls) {
@@ -851,7 +864,9 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
                 assert(mkregoper(ins->l).reg == RAX);
                 Xidiv(pcode, cls, mkdatregoper(ins->r));
                 break;
-      case KF4: case KF8: assert(!"nyi");
+      case KF4: case KF8:
+                Xdivf(pcode, cls, reg2oper(ins->reg-1), mkdatregoper(ins->r));
+                break;
       }
       break;
    case Oequ: case Oneq:
