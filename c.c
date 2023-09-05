@@ -1123,8 +1123,8 @@ expr2reloc(union ref *psym, vlong *paddend, const struct expr *ex)
             return;
          }
       }
-   } else
-      assert(0 && "non static reloc");
+      goto Fail;
+   } else Fail: assert(0 && "non static reloc");
 }
 
 static void
