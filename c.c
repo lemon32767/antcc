@@ -15,16 +15,6 @@ struct comp {
    pmap_of(struct label) labels;
 };
 
-struct label {
-   struct span usespan;
-   struct block *blk;
-   /* if usespan.ex.len == 0, this label is resolved and blk is the block that
-    * the label starts, otherwise the label is unresolved and blk is the head
-    * of a linked list of relocations, the next list entry is in blk->s1, etc,
-    * terminated by NULL */
-
-};
-
 /** Parsing helper functions **/
 #define peek(Cm,Tk) lexpeek(&(Cm)->lx,Tk)
 #define lex(Cm,Tk) lex(&(Cm)->lx,Tk)
@@ -2866,6 +2856,15 @@ stmtterm(struct comp *cm)
 static void block(struct comp *cm, struct function *fn);
 static bool stmt(struct comp *cm, struct function *fn);
 static void localdecl(struct comp *cm, struct function *fn, bool forinit);
+
+struct label {
+   struct span usespan;
+   struct block *blk;
+   /* if usespan.ex.len == 0, this label is resolved and blk is the block that
+    * the label starts, otherwise the label is unresolved and blk is the head
+    * of a linked list of relocations, the next list entry is in blk->s1, etc,
+    * terminated by NULL */
+};
 
 static void
 deflabel(struct comp *cm, struct function *fn, const struct span *span, const char *name)
