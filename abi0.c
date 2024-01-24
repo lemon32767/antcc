@@ -18,8 +18,7 @@ abiret(struct abiarg abiret[2], struct abiargsvec *abiargs, int *ni, union irtyp
    if (retty.isagg) {
       retreg = mctarg->abiret(r, cls, ni, retty);
       if (!retreg) {
-         ++*ni;
-         vpush(abiargs, ((struct abiarg) { cls2type(KPTR), .stk = r[1] }));
+         vpush(abiargs, ((struct abiarg) { cls2type(KPTR), .reg = r[1] }));
          if (r[0] == -1) {
             memset(abiret, 0, 2*sizeof *abiret);
          } else {
@@ -295,11 +294,16 @@ abi0(struct function *fn)
          struct instr param = copyparam(fn, NULL, 0, abiargs.p[0]);
          sret = insertinstr(fn->entry, 0, param);
          ++istart;
+         /* increment real param ordinals */
+         for (int i = 1; i < fn->entry->ins.n; ++i) {
+            struct instr *ins = &instrtab[fn->entry->ins.p[i]];
+            if (ins->op == Oparam) ++ins->l.i;
+         }
       }
    }
 
    /* adjust params */
-   for (int i = 0, param = 0; i < nparam; ++i) {
+   for (int i = 0, param = abiargs.n; i < nparam; ++i) {
       union irtype pty = mkirtype(paramty[i]);
       int first = abiargs.n;
       int ret = abiarg(&abiargs, &ni, &nf, &ns, pty);
