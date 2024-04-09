@@ -3428,7 +3428,7 @@ ccomp(const char *file)
    static union { char m[sizeof(struct arena) + N]; struct arena *_align; } amem[2];
    struct comp cm = {0};
 
-   initlexer(&cm.lx, file, &cm.exarena);
+   initlexer(&cm.lx, NULL, file, &cm.exarena);
    cm.fnarena = (void *)amem[0].m;
    cm.fnarena->cap = N;
    cm.exarena = (void *)amem[1].m;

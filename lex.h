@@ -15,6 +15,8 @@ enum toktag { /* single-character tokens' tag value is the character itself */
    TKNUMLIT,
    TKCHRLIT,
    TKSTRLIT,
+   TKPPHDRH, /* <hdr> (for #include) */
+   TKPPHDRQ, /* "hdr" (for #include) */
    TKEQU = '@', /* == */
    TKNEQ, /* != */
    TKLTE, /* <= */
@@ -104,6 +106,6 @@ const char *intern(const char *);
 int lex(struct lexer *, struct token *);
 int lexpeek(struct lexer *, struct token *);
 enum typetag parsenumlit(uvlong *, double *, const struct token *, bool ispp);
-void initlexer(struct lexer *, const char *file, struct arena **);
+void initlexer(struct lexer *, const struct span *span, const char *file, struct arena **tmparena);
 
 /* vim:set ts=3 sw=3 expandtab: */

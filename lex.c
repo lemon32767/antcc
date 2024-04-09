@@ -366,6 +366,40 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim)
    vfree(&b);
 }
 
+/* for #include directive, read "header" or <header> */
+static void
+readheadername(struct lexer *lx, struct token *tk, char delim)
+{
+   int c;
+   uchar tmp[80];
+   vec_of(uchar) b = VINIT(tmp, sizeof tmp);
+   struct span span = {0};
+   uint beginoff, idx;
+   beginoff = idx = lx->chridx;
+
+   while ((c = next(lx)) != delim) {
+      if (c == '\n' || c == TKEOF) {
+         span.sl = (struct span0) { idx, lx->chridx - idx, lx->fileid };
+         error(&span, "missing terminating %c character", delim);
+         break;
+      }
+      vpush(&b, c);
+      idx = lx->chridx;;
+   }
+   tk->t = delim == '"' ? TKPPHDRQ : TKPPHDRH;
+   tk->len = b.n;
+   if (lx->chridx - beginoff == tk->len + 1) {
+      tk->litlit = 1;
+      tk->s = (char *)&lx->dat[beginoff];
+   } else {
+      tk->litlit = 0;
+      vpush(&b, 0);
+      tk->s = alloc(lx->tmparena, b.n, 1);
+      memcpy((char *)tk->s, b.p, b.n);
+   }
+   vfree(&b);
+}
+
 /* matches "<digit> | <identifier-nondigit> | '.' | ([eEpP][+-])" */
 static bool
 isppnum(char prev, char c)
@@ -376,6 +410,9 @@ isppnum(char prev, char c)
      return (prev|0x20) == 'e' || (prev|0x20) == 'p';
    return 0;
 }
+
+/* special mode to parse header path for #include */
+static bool lexingheadername = 0;
 
 static int
 lex0(struct lexer *lx, struct token *tk)
@@ -443,6 +480,11 @@ Begin:
       if (match(lx, '=')) RET(TKEQU);
       RET(c);
    case '<':
+      if (lexingheadername) {
+         readheadername(lx, tk, '>');
+         lexingheadername = 0;
+         goto End;
+      }
       if (match(lx, '=')) RET(TKLTE);
       if (match(lx, '<')) RET(match(lx, '=') ? TKSETSHL : TKSHL);
       RET(c);
@@ -458,9 +500,14 @@ Begin:
       if (match(lx, '|')) RET(TKLOGIOR);
       if (match(lx, '=')) RET(TKSETIOR);
       RET(c);
-   case '\'':
    case '"':
-      readstrchrlit(lx, tk, c);
+      if (lexingheadername) {
+         readheadername(lx, tk, '"');
+         lexingheadername = 0;
+      } else {
+   case '\'':
+         readstrchrlit(lx, tk, c);
+      }
       goto End;
    case '.':
       if (peek(lx, 0) == '.' && peek(lx, 1) == '.') {
@@ -903,6 +950,45 @@ ppelse(struct lexer *lx, const struct span *span)
    cnd->elsep = 1;
 }
 
+static int includedepth;
+enum { MAXINCLUDE = 200 };
+
+static void
+ppinclude(struct lexer *lx, const struct span *span0)
+{
+   char path[4096];
+   struct lexer new;
+   struct token tk;
+   struct span span = *span0;
+
+   lexingheadername = 1;
+   if (in_range(lex0(lx, &tk), TKPPHDRH, TKPPHDRQ)) {
+      const char *base, *end;
+
+      /* build relative path */
+      base = getfilename(lx->fileid);
+      for (end = base; *end != 0; ++end) {}
+      for (--end; *end != '/' && end != base; --end) {}
+      if (*end == '/') ++end;
+      memcpy(path, base, end - base);
+      memcpy(path + (end - base), tk.s, tk.len);
+      path[end - base + tk.len] = 0;
+   } else {
+      error(&tk.span, "garbage after #include");
+      ppskipline(lx);
+      return;
+   }
+   //efmt(">include %'s\n", path);
+   joinspan(&span.ex, tk.span.ex);
+   initlexer(&new, &span, path, lx->tmparena);
+   new.save = xcalloc(sizeof *new.save);
+   memcpy(new.save, lx, sizeof *lx);
+   *lx = new;
+
+   if (++includedepth == MAXINCLUDE)
+      fatal(&span, "Maximum nested include depth of %d reached", includedepth);
+}
+
 static struct macrostack mstk[64], *mfreelist;
 static bool
 tryexpand(struct lexer *lx, const struct token *tk)
@@ -1056,6 +1142,7 @@ lex(struct lexer *lx, struct token *tk_)
                case PPELIF:   ppelif(lx, &tk->span); break;
                case PPENDIF:  ppendif(lx, &tk->span); break;
                case PPELSE:   ppelse(lx, &tk->span); break;
+               case PPINCLUDE: ppinclude(lx, &tk->span); break;
                default: assert(0&&"nyi");
                }
             } else {
@@ -1090,7 +1177,15 @@ lex(struct lexer *lx, struct token *tk_)
             struct span span = { ppcndstk[nppcnd-1].ifspan };
             error(&span, "#if is not matched by #endif");
          }
-         return t;
+         if (t == TKEOF && lx->save) {
+            /* end of #include'd file, restore previous state */
+            struct lexer *sv = lx->save;
+            memcpy(lx, lx->save, sizeof *lx);
+            free(sv);
+            --includedepth;
+         } else {
+            return t;
+         }
       }
    }
    assert(0);
@@ -1113,7 +1208,7 @@ lexpeek(struct lexer *lx, struct token *tk_)
 }
 
 void
-initlexer(struct lexer *lx, const char *file, struct arena **tmparena)
+initlexer(struct lexer *lx, const struct span *span, const char *file, struct arena **tmparena)
 {
    const char *error;
    struct memfile *f;
@@ -1121,7 +1216,7 @@ initlexer(struct lexer *lx, const char *file, struct arena **tmparena)
    memset(lx, 0, sizeof *lx);
    lx->fileid = openfile(&error, &f, file);
    if (lx->fileid < 0)
-      fatal(NULL, "Cannot open %'s: %s", file, error);
+      fatal(span, "Cannot open %'s: %s", file, error);
    lx->dat = f->p;
    lx->ndat = f->n;
    lx->tmparena = tmparena;
