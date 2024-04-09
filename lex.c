@@ -1043,7 +1043,7 @@ lex(struct lexer *lx, struct token *tk_)
    }
 
    skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
-   for (linebegin = 0;;) {
+   for (linebegin = 1;;) {
       while ((t = lex0(lx, tk)) == '\n') linebegin = 1;
       if (t == '#' && linebegin) {
          if (lex0(lx, tk) == '\n') { }
@@ -1080,6 +1080,7 @@ lex(struct lexer *lx, struct token *tk_)
             }
             ppskipline(lx);
          }
+         linebegin = 1;
       } else {
          linebegin = 0;
          if (skip && tk->t != TKEOF) continue;
