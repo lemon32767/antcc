@@ -818,7 +818,7 @@ vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
 
       /* find start of line */
       for (i = loc->off - 1; i + 1 > 0 && f->p[i] != '\n'; --i) ;
-      if (i) ++i;
+      if (i || f->p[i] == '\n') ++i;
 
       nmark = loc->len;
       while (i < loc->off + loc->len) {
