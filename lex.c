@@ -889,6 +889,23 @@ ppif(struct lexer *lx, const struct span *span)
 }
 
 static void
+ppifxdef(struct lexer *lx, bool defp, const struct span *span)
+{
+   struct token tk;
+
+   lex0(lx, &tk);
+   if (!isppident(tk)) {
+      error(&tk.span, "macro name missing");
+      ppskipline(lx);
+      return;
+   }
+   assert(nppcnd < arraylength(ppcndstk) && "too many nested #if");
+   ppcndstk[nppcnd].ifspan = span->sl;
+   ppcndstk[nppcnd].cnd = (findmac(tk.s) == NULL) ^ defp ? PPCNDTRUE : PPCNDFALSE;
+   ppcndstk[nppcnd++].elsep = 0;
+}
+
+static void
 ppelif(struct lexer *lx, const struct span *span)
 {
    vlong v;
@@ -911,6 +928,36 @@ ppelif(struct lexer *lx, const struct span *span)
    case PPCNDTAKEN: assert(0);
    }
 }
+static void
+ppelifxdef(struct lexer *lx, bool defp, const struct span *span)
+{
+   struct token tk;
+   struct ppcnd *cnd;
+
+   if (!nppcnd) {
+      error(span, "#elif%sdef without matching #if", &"n"[defp]);
+      ppif(lx, span);
+      return;
+   }
+   cnd = &ppcndstk[nppcnd-1];
+   if (cnd->elsep) {
+      error(span, "#elif%sdef after #else", &"n"[defp]);
+      return;
+   }
+   lex0(lx, &tk);
+   if (!isppident(tk)) {
+      error(&tk.span, "macro name missing");
+      ppskipline(lx);
+      return;
+   }
+   switch (cnd->cnd) {
+   case PPCNDTRUE: cnd->cnd = PPCNDTAKEN; break;
+   case PPCNDFALSE: cnd->cnd = (findmac(tk.s) == NULL) ^ defp ? PPCNDTRUE : PPCNDFALSE; break;
+   case PPCNDTAKEN: assert(0);
+   }
+}
+
+
 
 static void
 ppendif(struct lexer *lx, const struct span *span)
@@ -1137,11 +1184,15 @@ lex(struct lexer *lx, struct token *tk_)
             if (!skip) {
                switch (findppcmd(tk)) {
                case PPXXX: goto BadPP;
-               case PPDEFINE: ppdefine(lx); break;
-               case PPIF:     ppif(lx, &tk->span); break;
-               case PPELIF:   ppelif(lx, &tk->span); break;
-               case PPENDIF:  ppendif(lx, &tk->span); break;
-               case PPELSE:   ppelse(lx, &tk->span); break;
+               case PPDEFINE:   ppdefine(lx); break;
+               case PPIF:       ppif(lx, &tk->span); break;
+               case PPIFDEF:    ppifxdef(lx, 1, &tk->span); break;
+               case PPIFNDEF:   ppifxdef(lx, 0, &tk->span); break;
+               case PPELIF:     ppelif(lx, &tk->span); break;
+               case PPELIFDEF:  ppelifxdef(lx, 1, &tk->span); break;
+               case PPELIFNDEF: ppelifxdef(lx, 0, &tk->span); break;
+               case PPENDIF:    ppendif(lx, &tk->span); break;
+               case PPELSE:     ppelse(lx, &tk->span); break;
                case PPINCLUDE: ppinclude(lx, &tk->span); break;
                default: assert(0&&"nyi");
                }
