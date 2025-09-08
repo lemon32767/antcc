@@ -1,6 +1,5 @@
 #include "all.h"
 
-
 static int classify(uchar cls[2], const struct typedata *td, uint off);
 static int
 classifyarr(uchar cls[2], union type ty, uint off)

@@ -71,7 +71,7 @@ addmemoper(struct oper *mem, struct oper add)
 static inline struct oper
 mkregoper(union ref r)
 {
-   assert(r.t == RREG || (r.t == RTMP && ioper[r.i].t == RREG));
+   assert(r.t == RREG || (r.t == RTMP && ioper[r.i].t == OREG));
    return r.t == RREG ? reg2oper(r.i) : ioper[r.i];
 }
 
@@ -344,6 +344,10 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
    case EN_R: case EN_RI32: case EN_RI8:
       rex |= (dst.reg >> 3) << 0; /* REX.B */
       if (rex) B(0x40 | rex);
+      else if (en->r8 && in_range(dst.reg, RSP, RDI)) {
+         /* /r8 needs REX to encode SP,BP,SI,DI (otherwise -> AH..BH) */
+         B(0x40);
+      }
       D(opc, nopc);
       B(0300 | en->ext << 3 | (dst.reg & 7));
       if (en->operenc == EN_RI32)
@@ -657,7 +661,7 @@ static void
 Xpush(uchar **pcode, enum reg reg)
 {
    assert(in_range(reg, RAX, R15));
-   if (reg >> 3) B(0x44); /* REX.R */
+   if (reg >> 3) B(0x41); /* REX.B */
    B(0x50 + (reg & 7));
 }
 
@@ -665,7 +669,7 @@ static void
 Xpop(uchar **pcode, enum reg reg)
 {
    assert(in_range(reg, RAX, R15));
-   if (reg >> 3) B(0x44); /* REX.R */
+   if (reg >> 3) B(0x41); /* REX.B */
    B(0x58 + (reg & 7));
 }
 
@@ -1038,8 +1042,9 @@ emitbin(struct function *fn)
    calleesave(&npush, pcode, fn);
 
    /* ensure stack is 16-byte aligned for function calls */
-   if (!fn->isleaf && ((fn->stksiz + npush*8) & 0xF) != 0x8)
+   if (!fn->isleaf && ((fn->stksiz + npush*8) & 0xF) != 0x8) {
       fn->stksiz += 8;
+   }
 
    if (fn->stksiz != 0) {
       /* sub rsp, <stack size> */
