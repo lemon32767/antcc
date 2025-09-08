@@ -90,6 +90,7 @@ enum op {
 #define oisstore(o) in_range(o, Ostore1, Ostore8)
 #define oisload(o) in_range(o, Oloads1, Oloadf8)
 extern const char *opnames[];
+extern const uchar opnarg[];
 
 enum intrin {
    INxxx,
@@ -105,7 +106,7 @@ struct instr {
          keep : 1; /* for codegen, keep instr even if result seems unused */
    uchar inplace : 1; /* set (by isel) for instructions which modify its first arg in place */
    uchar reg; /* 0 -> no reg; else reg + 1 */
-   union ref l, r;
+   union ref l, r; /* args */
 };
 
 enum jumpkind { JXXX, Jb, Jret, };
@@ -114,6 +115,7 @@ struct block {
    int id;
    int npred;
    int visit;
+   int inumstart;
    union {
       struct block *_pred0;
       struct block **_pred;
@@ -239,6 +241,7 @@ void fillblkids(struct function *);
 #define startbbvisit() (void)(++visitmark)
 #define wasvisited(blk) ((blk)->visit == visitmark)
 #define markvisited(blk) ((blk)->visit = visitmark)
+void numberinstrs(struct function *);
 
 /* IR builder functions */
 union ref addinstr(struct function *, struct instr);

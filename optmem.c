@@ -19,7 +19,7 @@ static const uchar load2ext[] = {
 #define load2ext(o) (load2ext[(o) - Oloads1])
 #define storesz(o) (1 << ((o) - Ostore1))
 
-/* Implements algorithm in 'Simple and Efficient Construction of Static Single' (Braun et al) */
+/* Implements algorithm in 'Simple and Efficient Construction of Static Single Assignment' (Braun et al) */
 
 struct pendingphi { ushort var, phi; };
 struct ssabuilder {
@@ -42,6 +42,9 @@ deltrivialphis(struct ssabuilder *sb, struct block *blk, union ref phiref)
    union ref same = {0};
 
    assert(instrtab[phiref.i].op == Ophi);
+
+   if (phiref.i == 4)
+      efmt("");
 
    for (int i = 0; i < blk->npred; ++i) {
       if (args[i].bits == same.bits || args[i].bits == phiref.bits)
@@ -79,6 +82,7 @@ Redo:
          }
       }
    }
+   deluses(phiref.i);
 
    return same;
 }
@@ -185,7 +189,6 @@ mem2reg(struct function *fn)
    }
 
    do {
-
       for (int i = 0; i < blk->ins.n; ++i) {
          struct use *use, *uend;
          enum irclass k = 0;

@@ -411,8 +411,8 @@ int imap_set_(struct imapbase *, void **v, uint vsiz, short k);
 #define imap_clear(m) ((m)->mb.bs ? bszero((m)->mb.bs, BSSIZE((m)->mb.N)) : (void)0, \
                        (m)->mb.n = 0)
 #define imap_get(m, k) ((m)->tmp = imap_get_(&(m)->mb, k), (m)->tmp < 0 ? NULL : &(m)->v[(m)->tmp])
-#define imap_set(m, k, x) ((m)->tmp = imap_set_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, k), \
-                           (m)->v[(m)->tmp] = (x), &(m)->v[(m)->tmp])
+#define imap_set(m, k, ...) ((m)->tmp = imap_set_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, k), \
+                           (m)->v[(m)->tmp] = (__VA_ARGS__), &(m)->v[(m)->tmp])
 #define imap_each(m,kx,pvx) \
    for (int _i = 0; _i < (m)->mb.N && ((kx) = (m)->mb.k[_i], (pvx) = &(m)->v[_i], 1); ++_i) \
       if (bstest((m)->mb.bs, _i))
@@ -471,6 +471,12 @@ bscopy(struct bitset dst[/*siz*/], const struct bitset src[/*siz*/], uint siz)
    while (siz--) dst++->u = src++->u;
 }
 
+static inline void
+bsunion(struct bitset dst[/*siz*/], const struct bitset src[/*siz*/], uint siz)
+{
+   while (siz--) dst++->u |= src++->u;
+}
+
 static inline bool
 bsiter(uint *i, struct bitset bs[/*siz*/], uint siz)
 {
@@ -478,6 +484,7 @@ bsiter(uint *i, struct bitset bs[/*siz*/], uint siz)
       if (bstest(bs, *i)) return 1;
    return 0;
 }
+#define bs_each(T, var, bs, siz) for (T (var) = 0; bsiter(&(var), (bs), (siz)); ++(var))
 
 typedef uvlong regset;
 #define rsset(S, r) ((S) | 1ull << (r))

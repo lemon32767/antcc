@@ -86,6 +86,8 @@ static struct task {
    bool verbose;
 } task;
 
+static void prihelp(void);
+
 static void
 optparse(char **args)
 {
@@ -101,7 +103,10 @@ optparse(char **args)
          ft = IFTauto;
          continue;
       }
-      if ((x = optval(arg, "std"))) {
+      if (!strcmp(arg, "help") || !strcmp(arg, "h") || !strcmp(arg, "-help")) {
+         prihelp();
+         exit(0);
+      } else if ((x = optval(arg, "std"))) {
          if (!strcmp(x, "c89") || !strcmp(x, "c90")) ccopt.cstd = STDC89;
          else if (!strcmp(x, "c99")) ccopt.cstd = STDC99;
          else if (!strcmp(x, "c11")) ccopt.cstd = STDC11;
@@ -264,6 +269,21 @@ dolink(void)
    waitpid(p, &wstat, 0);
    if (!WIFEXITED(wstat)) return 127;
    return WEXITSTATUS(wstat);
+}
+
+static void
+prihelp(void)
+{
+   pfmt("Usage: antcc [options] file...\n\n"
+       "Options:\n"
+       " -help   \tPrint this help message\n"
+       " -std=<..> \tSet C standard\n"
+       " -pedantic \tWarnings for strict standards compliance\n"
+       " -d{pailrm} \tDebug options\n"
+       " -o <file> \tPlace the output into <file>\n"
+       " -v     \tVerbose output\n"
+       " -c     \tEmit object file but do not link\n"
+   );
 }
 
 static int

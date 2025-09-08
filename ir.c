@@ -1,5 +1,4 @@
 #include "ir.h"
-#include "endian.h"
 #include "obj.h"
 
 uchar type2cls[NTYPETAG];
@@ -9,6 +8,13 @@ const uchar siz2intcls[] = { [1] = KI4, [2] = KI4, [4] = KI4, [8] = KI8 };
 const char *opnames[] = {
    "?\??",
 #define _(o,...) #o,
+#include "op.def"
+#undef _
+};
+
+const uchar opnarg[] = {
+   0,
+#define _(o,n) n,
 #include "op.def"
 #undef _
 };
@@ -362,6 +368,17 @@ insertphi(struct block *blk, enum irclass cls)
    return mkref(RTMP, new);
 }
 
+void
+numberinstrs(struct function *fn)
+{
+   struct block *blk = fn->entry;
+   int start = 0;
+   do {
+      blk->inumstart = start;
+      start += blk->ins.n+2;
+   } while ((blk = blk->lnext) != fn->entry);
+}
+
 /* require use */
 void
 replcuses(union ref from, union ref to)
@@ -387,7 +404,6 @@ replcuses(union ref from, union ref to)
          if (u[j].bits == from.bits) {
             u[j].bits = to.bits;
             adduse(use.blk, use.u, to);
-            deluse(use.blk, use.u, from);
             --i;
             break;
          }
@@ -411,7 +427,7 @@ delinstr(struct block *blk, int idx)
    memcpy(&instrtab[t], &instrfreelist, sizeof(int));
    instrfreelist = t;
    deluses(t);
-   for (int i = idx; i < blk->ins.n; ++i)
+   for (int i = idx; i < blk->ins.n-1; ++i)
       blk->ins.p[i] = blk->ins.p[i + 1];
    --blk->ins.n;
 }

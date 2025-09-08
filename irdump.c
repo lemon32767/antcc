@@ -142,18 +142,10 @@ dumpcall(struct call *call)
    }
 }
 
-static const uchar opnarg[] = {
-   0,
-#define _(o,n) n,
-#include "op.def"
-#undef _
-};
-
 static void
 dumpinst(const struct instr *ins)
 {
    int i;
-   efmt("    ");
    if (ins->op == Omove) {
       efmt("move %s ", clsname[ins->cls]);
    } else {
@@ -190,7 +182,9 @@ dumpblk(struct function *fn, struct block *blk)
    for (i = 0; i < blk->phi.n; ++i) {
       struct instr *phi = &instrtab[blk->phi.p[i]];
       union ref *refs = phitab.p[phi->l.i];
-      efmt("    %s ", clsname[phi->cls]);
+      if (i == 0) efmt("%-4d", blk->inumstart);
+      else efmt(" |> ");
+      efmt("  %s ", clsname[phi->cls]);
       if (!phi->reg) efmt("%%%d = %s ", blk->phi.p[i], opnames[phi->op]);
       else efmt("(%%%d)%s = %s ", phi - instrtab, mctarg->rnames[phi->reg-1], opnames[phi->op]);
       for (int i = 0; i < blk->npred; ++i) {
@@ -201,9 +195,10 @@ dumpblk(struct function *fn, struct block *blk)
       efmt("\n");
    }
    for (i = 0; i < blk->ins.n; ++i) {
+      efmt("%-4d  ", blk->inumstart + 1 + i);
       dumpinst(&instrtab[blk->ins.p[i]]);
    }
-   efmt("    %s ", jnames[blk->jmp.t]);
+   efmt("%-4d  %s ", blk->inumstart + 1 + i, jnames[blk->jmp.t]);
    if (blk->jmp.arg[0].bits && !fn->nabiret && isagg(fn->retty)) {
       /* un-lowered struct return */
       dumpref(0, mktyperef(mkirtype(fn->retty)));
@@ -248,6 +243,7 @@ irdump(struct function *fn)
       }
       efmt("\n");
    }
+   numberinstrs(fn);
    blk = fn->entry;
    do {
       dumpblk(fn, blk);
