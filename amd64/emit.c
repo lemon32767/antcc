@@ -455,6 +455,10 @@ DEFINSTR2(Xmovzxb,
    {4|8, PGPR, PMEM, "\x0F\xB6", EN_RM}, /* MOVZX r64, m8 */
    {4|8, PGPR, PGPR, "\x0F\xB6", EN_RR, .r8=1}, /* MOVZX r64, r8 */
 )
+DEFINSTR2(Xxchg,
+   {4|8, PGPR, PGPR, "\x87", EN_RR}, /* XCHG r32/64, r32/64 */
+   //{4|8, PGPR, PMEM, "\x87", EN_RM}, /* XCHG r32/64, m32/64 */
+)
 DEFINSTR2(Xlea,
    {4|8, PGPR, PMEM, "\x8D", EN_RM}, /* LEA r32/64,m32/64 */
 )
@@ -509,12 +513,17 @@ DEFINSTR2(Xxor,
    {4|8, PRAX, PI32, "\x35", EN_I32},          /* XOR eax/rax, imm */
    {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=6}, /* XOR r32/64, imm */
    {  8, PGPR, PMEM, "\x33", EN_RM},           /* XOR r64, m64 */
-   {4|8, PFPR, PFPR, "\x0F\x57", EN_RR}, /* XORPS xmm, xmm */
+   {4|8, PFPR, PFPR, "\x0F\x57", EN_RR},       /* XORPS xmm, xmm */
 )
 DEFINSTR2(Xshl,
    {4|8, PGPR, P1,   "\xD1", EN_R, .ext=4},   /* SHL r32/64, 1 */
    {4|8, PGPR, PI32, "\xC1", EN_RI8, .ext=4}, /* SHL r32/64, imm */
    {4|8, PGPR, PRCX, "\xD3", EN_R, .ext=4},   /* SHL r32/64, CL */
+)
+DEFINSTR2(Xsar,
+   {4|8, PGPR, P1,   "\xD1", EN_R, .ext=7},   /* SAR r32/64, 1 */
+   {4|8, PGPR, PI32, "\xC1", EN_RI8, .ext=7}, /* SAR r32/64, imm */
+   {4|8, PGPR, PRCX, "\xD3", EN_R, .ext=7},   /* SAR r32/64, CL */
 )
 DEFINSTR2(Xcvtss2sd,
    {-1,  PFPR, PFPR, "\xF3\x0F\x5A", EN_RR}, /* CVTSS2SD xmm, xmm */
@@ -832,6 +841,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       }
       break;
    case Oshl: X = Xshl; goto ALU2;
+   case Osar: X = Xsar; goto ALU2;
    case Oand:
       if (!ins->reg) {
          Xtest(pcode, cls, mkregoper(ins->l), mkimmdatregoper(ins->r));
@@ -911,6 +921,16 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
    case Ocopy:
       dst = reg2oper(ins->reg-1);
       gencopy(pcode, cls, blk, curi, dst, ins->l);
+      break;
+   case Oswap:
+      if (kisint(cls))
+         Xxchg(pcode, cls, mkregoper(ins->l), mkregoper(ins->r));
+      else {
+         struct oper l = mkregoper(ins->l), r = mkregoper(ins->r);
+         Xxor(pcode, cls, l, r);
+         Xxor(pcode, cls, r, l);
+         Xxor(pcode, cls, l, r);
+      }
       break;
    case Ocall:
       if (calltab.p[ins->r.i].vararg >= 0) {
