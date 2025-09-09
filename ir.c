@@ -462,7 +462,7 @@ delnops(struct block *blk)
          instrfreelist = t;
          ++n;
       } else if (n) {
-         memmove(blk->ins.p+i+1, blk->ins.p+i+1+n, (blk->ins.n - n - i)*sizeof *blk->ins.p);
+         memmove(blk->ins.p+i+1, blk->ins.p+i+1+n, (blk->ins.n - n - i - 1)*sizeof *blk->ins.p);
          blk->ins.n -= n;
          n = 0;
       }
