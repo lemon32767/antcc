@@ -997,18 +997,22 @@ emitbranch(uchar **pcode, struct block *blk)
       Xjcc(pcode, ALWAYS, blk->s2);
 }
 
-static void
+static bool
 calleesave(int *npush, uchar **pcode, struct function *fn)
 {
+   bool any = 0;
    if (rstest(fn->regusage, RBX)) {
       Xpush(pcode, RBX);
       ++*npush;
+      any = 1;
    }
    for (int r = R12; r <= R15; ++r)
       if (rstest(fn->regusage, r)) {
          Xpush(pcode, r);
          ++*npush;
+         any = 1;
       }
+   return any;
 }
 
 static void
@@ -1048,7 +1052,7 @@ emitbin(struct function *fn)
    uchar **pcode = &objout.code;
    uchar *start;
    int npush = 0;
-   bool usebp = 0;
+   bool usebp = 0, saverestore;
 
    if (nblkaddr < fn->nblk) {
       blkaddr = xrealloc(blkaddr, fn->nblk * sizeof *blkaddr);
@@ -1068,7 +1072,7 @@ emitbin(struct function *fn)
       DS("\x55\x48\x89\xE5");
       ++npush;
    }
-   calleesave(&npush, pcode, fn);
+   saverestore = calleesave(&npush, pcode, fn);
 
    /* ensure stack is 16-byte aligned for function calls */
    if (!fn->isleaf && ((fn->stksiz + npush*8) & 0xF) != 0x8) {
@@ -1106,10 +1110,11 @@ emitbin(struct function *fn)
       }
       if (blk->jmp.t == Jret) {
          /* epilogue */
-         calleerestore(pcode, fn);
-         if (usebp) B(0xC9); /* leave */
-         else if (fn->stksiz)
+         if (fn->stksiz && (saverestore || !usebp))
             Xadd(pcode, KPTR, mkoper(OREG, .reg = RSP), mkoper(OIMM, .imm = fn->stksiz));
+         if (saverestore)
+            calleerestore(pcode, fn);
+         if (usebp) B(0xC9); /* leave */
          B(0xC3); /* ret */
       } else emitbranch(pcode, blk);
    } while ((blk = blk->lnext) != fn->entry);
