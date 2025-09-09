@@ -1191,22 +1191,26 @@ lex(struct lexer *lx, struct token *tk_)
                case PPELIF:     ppelif(lx, &tk->span); break;
                case PPELIFDEF:  ppelifxdef(lx, 1, &tk->span); break;
                case PPELIFNDEF: ppelifxdef(lx, 0, &tk->span); break;
-               case PPENDIF:    ppendif(lx, &tk->span); break;
                case PPELSE:     ppelse(lx, &tk->span); break;
-               case PPINCLUDE: ppinclude(lx, &tk->span); break;
+               case PPENDIF:    ppendif(lx, &tk->span); break;
+               case PPINCLUDE:  ppinclude(lx, &tk->span); break;
                default: assert(0&&"nyi");
                }
             } else {
                switch (findppcmd(tk)) {
                case PPIF: /* increment nesting level */
+               case PPIFDEF:
+               case PPIFNDEF:
                   assert(nppcnd < arraylength(ppcndstk) && "too many nested #if");
                   ppcndstk[nppcnd].ifspan = tk->span.sl;
                   ppcndstk[nppcnd].cnd = PPCNDTAKEN;
                   ppcndstk[nppcnd++].elsep = 0;
                   break;
-               case PPELIF:  ppelif(lx, &tk->span); break;
-               case PPENDIF: ppendif(lx, &tk->span); break;
-               case PPELSE:  ppelse(lx, &tk->span); break;
+               case PPELIF:     ppelif(lx, &tk->span); break;
+               case PPELIFDEF:  ppelifxdef(lx, 1, &tk->span); break;
+               case PPELIFNDEF: ppelifxdef(lx, 0, &tk->span); break;
+               case PPELSE:     ppelse(lx, &tk->span); break;
+               case PPENDIF:    ppendif(lx, &tk->span); break;
                default: ppskipline(lx); break;
                }
             }
