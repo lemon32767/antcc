@@ -427,7 +427,7 @@ delinstr(struct block *blk, int idx)
    memcpy(&instrtab[t], &instrfreelist, sizeof(int));
    instrfreelist = t;
    deluses(t);
-   for (int i = idx; i < blk->ins.n-1; ++i)
+   for (int i = idx; i < blk->ins.n - 1; ++i)
       blk->ins.p[i] = blk->ins.p[i + 1];
    --blk->ins.n;
 }
@@ -440,9 +440,35 @@ delphi(struct block *blk, int idx)
    memcpy(&instrtab[t], &instrfreelist, sizeof(int));
    instrfreelist = t;
    deluses(t);
-   for (int i = idx; i < blk->phi.n; ++i)
+   for (int i = idx; i < blk->phi.n - 1; ++i)
       blk->phi.p[i] = blk->phi.p[i + 1];
    --blk->phi.n;
+}
+
+void
+delnops(struct block *blk)
+{
+   int i, n, t;
+   /* delete trailing nops */
+   while (blk->ins.n > 0 && instrtab[t = blk->ins.p[blk->ins.n - 1]].op == Onop) {
+      --blk->ins.n;
+      memcpy(&instrtab[t], &instrfreelist, sizeof(int));
+      instrfreelist = t;
+   }
+   /* delete rest of nops */
+   for (i = blk->ins.n - 2, n = 0; i >= 0; --i) {
+      if (instrtab[t = blk->ins.p[i]].op == Onop) {
+         memcpy(&instrtab[t], &instrfreelist, sizeof(int));
+         instrfreelist = t;
+         ++n;
+      } else if (n) {
+         memmove(blk->ins.p+i+1, blk->ins.p+i+1+n, (blk->ins.n - n - i)*sizeof *blk->ins.p);
+         blk->ins.n -= n;
+         n = 0;
+      }
+   }
+   if (n)
+      memmove(blk->ins.p, blk->ins.p + n, (blk->ins.n -= n)*sizeof *blk->ins.p);
 }
 
 void
@@ -568,6 +594,10 @@ irfini(struct function *fn)
    lowerintrin(fn);
    mem2reg(fn);
    copyopt(fn);
+   if (ccopt.dbg.o) {
+      efmt("<< Before isel >>\n");
+      irdump(fn);
+   }
    mctarg->isel(fn);
    regalloc(fn);
    if (!ccopt.dbg.any)

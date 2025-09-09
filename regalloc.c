@@ -877,7 +877,7 @@ regalloc(struct function *fn)
    fillblkids(fn);
    
    if (ccopt.dbg.r) {
-      DBG("<< Before linear scan >>\n");
+      efmt("<< Before linear scan >>\n");
       irdump(fn);
    }
 

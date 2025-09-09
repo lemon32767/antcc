@@ -237,6 +237,7 @@ void replcuses(union ref from, union ref to);
 void deluses(int ins);
 void delinstr(struct block *, int idx);
 void delphi(struct block *, int idx);
+void delnops(struct block *blk);
 void fillblkids(struct function *);
 #define startbbvisit() (void)(++visitmark)
 #define wasvisited(blk) ((blk)->visit == visitmark)

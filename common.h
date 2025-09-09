@@ -127,6 +127,7 @@ struct option {
          bool p : 1, /* after parsing */
               a : 1, /* after abi0 */
               m : 1, /* after mem */
+              o : 1, /* after optimizations */
               i : 1, /* after isel */
               l : 1, /* after liveness fixup */
               r : 1; /* after regalloc */

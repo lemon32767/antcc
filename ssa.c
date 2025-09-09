@@ -26,6 +26,7 @@ copyopt(struct function *fn)
             deluses(var.i);
          }
       }
+      delnops(blk);
    } while ((blk = blk->lnext) != fn->entry);
 }
 

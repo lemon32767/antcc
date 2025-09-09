@@ -1,6 +1,6 @@
 unsigned fib(unsigned x) {
    unsigned r = 0, q = 1;
-   while (x-- > 1) {
+   for (; x > 1; --x) {
       unsigned s = r + q;
       r = q;
       q = s;
