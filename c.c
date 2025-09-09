@@ -2925,6 +2925,7 @@ stmt(struct comp *cm, struct function *fn)
       struct arena a;
       char mem[sizeof(struct arena) + sizeof(struct expr)*4];
    } atmp = { .a.cap = sizeof(struct expr)*4 };
+   struct arena *atmpp;
    struct expr ex;
    struct env e;
    union ref r;
@@ -3110,6 +3111,7 @@ stmt(struct comp *cm, struct function *fn)
          struct arena *tmp = cm->exarena;
          cm->exarena = &atmp.a;
          ex = commaexpr(cm);
+         atmpp = cm->exarena;
          cm->exarena = tmp;
 
          end = newblk(fn);
@@ -3124,7 +3126,7 @@ stmt(struct comp *cm, struct function *fn)
             useblk(fn, end);
             expreffects(fn, &ex);
             putbranch(fn, begin);
-            freearena(&atmp.a);
+            freearena(atmpp);
          } else if (!terminates) putbranch(fn, begin);
          useblk(fn, fl);
       }
