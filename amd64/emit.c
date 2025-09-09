@@ -10,7 +10,7 @@
  */
 enum operkind { ONONE, OREG, OIMM, OMEM, OSYM };
 enum { NOBASE = 63, NOINDEX = 63 };
-static struct oper {
+struct oper {
    uchar t;
    union {
       struct { uchar base; }; /* OMEM */
@@ -25,17 +25,24 @@ static struct oper {
       int disp; /* OMEM, OSYM */
       int imm; /* OIMM */
    };
-} ioper[MAXINSTR];
+};
 #define mkoper(t, ...) ((struct oper){(t), __VA_ARGS__})
 #define reg2oper(R) (assert((uint)(R) <= XMM15), mkoper(OREG, .reg = (R)))
 
 static struct oper mkmemoper(union ref);
 
 static struct oper
+ioper(int i)
+{
+   int reg = instrtab[i].reg - 1;
+   return reg < 0 ? mkoper(ONONE,) : reg2oper(reg);
+}
+
+static struct oper
 ref2oper(union ref r)
 {
    switch (r.t) {
-   case RTMP: return ioper[r.i];
+   case RTMP: return ioper(r.i);
    case RREG: return reg2oper(r.i);
    case RICON: return mkoper(OIMM, .imm = r.i);
    case RXCON:
@@ -71,8 +78,8 @@ addmemoper(struct oper *mem, struct oper add)
 static inline struct oper
 mkregoper(union ref r)
 {
-   assert(r.t == RREG || (r.t == RTMP && ioper[r.i].t == OREG));
-   return r.t == RREG ? reg2oper(r.i) : ioper[r.i];
+   assert(r.t == RREG || (r.t == RTMP && ioper(r.i).t == OREG));
+   return r.t == RREG ? reg2oper(r.i) : ioper(r.i);
 }
 
 static inline struct oper
@@ -82,8 +89,8 @@ mkimmoper(union ref r)
    return mkoper(OIMM, .imm = intconval(r));
 }
 
-#define ismemref(ref) ((ref).t == RTMP && ioper[(ref).i].t == OMEM)
-#define isregref(ref) ((ref).t == RREG || ((ref).t == RTMP && ioper[(ref).i].t == OREG))
+#define ismemref(ref) ((ref).t == RTMP && ioper((ref).i).t == OMEM)
+#define isregref(ref) ((ref).t == RREG || ((ref).t == RTMP && ioper((ref).i).t == OREG))
 
 static inline struct oper
 mkimmregoper(union ref r)
@@ -110,15 +117,15 @@ static struct oper
 mkmemoper(union ref r)
 {
    if (r.t == RTMP) {
-      struct oper wop = ioper[r.i];
+      struct oper wop = ioper(r.i);
       if (wop.t == OMEM) return wop;
       assert(wop.t == OREG);
       return mkoper(OMEM, .base = wop.reg, .index = NOINDEX);
    } else if (r.t == RADDR) {
       const struct addr *addr = &addrht[r.i];
       struct oper mem;
-      if (addr->base.t == RTMP && ioper[addr->base.i].t == OMEM) {
-         mem = ioper[addr->base.i];
+      if (addr->base.t == RTMP && ioper(addr->base.i).t == OMEM) {
+         mem = ioper(addr->base.i);
          if (addr->index.bits) addmemoper(&mem, mkregoper(addr->index));
          assert(!mem.shift);
          mem.shift = addr->shift;
@@ -330,8 +337,10 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       if (mem.base == RSP || mem.base == R12) sib = 1;
       D(opc, nopc);
       B(mod << 6 | (reg & 7) << 3 | (sib ? 4 : (mem.base & 7)));
-      if (sib)
+      if (sib) {
+         if (mem.index == NOINDEX) mem.index = RSP;
          B(mem.shift << 6 | (mem.index & 7) << 3 | (mem.base & 7));
+      }
       if (mod == 1) B(mem.disp);
       else if (mod == 2 || (mod == 0 && mem.base == RBP/*RIP-rel*/)) {
          I32(mem.disp);
@@ -945,7 +954,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       Xcall(pcode, KPTR, ref2oper(ins->l));
       break;
    }
-   if (ins->reg) ioper[ins - instrtab] = reg2oper(ins->reg-1);
+   // if (ins->reg) ioper(ins - instrtab) = reg2oper(ins->reg-1);
 }
 
 static void
