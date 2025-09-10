@@ -5,6 +5,5 @@
 int
 main(void)
 {
-   hi();
-   return Foo + Bar;
+   hi(ADD(Foo, SQR(Bar+1)));
 }

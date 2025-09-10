@@ -476,6 +476,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
                n += bfmt(buf, "%'S", tok->s, tok->len);
                break;
             case TKIDENT:
+            case TKPPMACARG:
                n += bfmt(buf, "`%s'", tok->s);
                break;
             case TKEOF:

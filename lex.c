@@ -564,6 +564,18 @@ End:
 /* PREPROCESSOR */
 /****************/
 
+struct macro {
+   const char *name; /* interned */
+   const char **param;
+   struct span0 span;
+   uchar nparam;
+   bool fnlike, variadic;
+   struct rlist {
+     struct token *tk;
+     int n;
+   } rlist;
+};
+
 #define isppident(tk) (in_range((tk).t, TKIDENT, TKWEND_))
 
 static vec_of(struct macro) macros;
@@ -677,6 +689,7 @@ ppdefine(struct lexer *lx)
    struct token tk0, tk;
    struct macro mac = {0};
    vec_of(struct token) rlist = {0};
+   vec_of(const char *) params = {0};
 
    lex0(lx, &tk0);
    if (!isppident(tk0)) {
@@ -687,13 +700,37 @@ ppdefine(struct lexer *lx)
    mac.name = tk0.s;
    mac.span = tk0.span.sl;
    
-   if (peek(lx, 0) == '(') {
+   if (match(lx, '(')) {
       mac.fnlike = 1;
+      while (lex0(lx, &tk0) != ')') {
+         if (params.n > 0) {
+            if (tk0.t != ',')
+               error(&tk0.span, "expected `,' or `)'");
+            if (tk0.t == TKEOF) return;
+            lex0(lx, &tk0);
+         }
+         if (isppident(tk0))
+            vpush(&params, tk0.s);
+         else {
+            error(&tk0.span, "expected parameter name or `)'");
+            if (tk0.t == TKEOF)
+               return;
+         }
+      }
+      mac.param = params.p;
+      mac.nparam = params.n;
    }
 
    while (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
       if (!wsseparated(&tk0, &tk))
          warn(&tk.span, "no whitespace after macro name");
+      if (mac.fnlike && isppident(tk)) for (int i = 0; i < mac.nparam; ++i) {
+         if (tk.s == mac.param[i]) {
+            tk.t = TKPPMACARG;
+            tk.argidx = i;
+            break;
+         }
+      }
       vpush(&rlist, tk);
    }
    mac.rlist.tk = rlist.p;
@@ -847,7 +884,6 @@ Unary:
             goto Err;
          }
          y = expr(lx, &yu, 1);
-         efmt("%ld ? %ld : %ld\n", x, m, y);
          x = x ? m : y;
          xu |= yu;
       }
@@ -1003,7 +1039,7 @@ enum { MAXINCLUDE = 200 };
 static void
 ppinclude(struct lexer *lx, const struct span *span0)
 {
-   char path[4096];
+   char *path;
    struct lexer new;
    struct token tk;
    struct span span = *span0;
@@ -1017,6 +1053,7 @@ ppinclude(struct lexer *lx, const struct span *span0)
       for (end = base; *end != 0; ++end) {}
       for (--end; *end != '/' && end != base; --end) {}
       if (*end == '/') ++end;
+      path = xcalloc(end - base + tk.len + 1);
       memcpy(path, base, end - base);
       memcpy(path + (end - base), tk.s, tk.len);
       path[end - base + tk.len] = 0;
@@ -1036,17 +1073,41 @@ ppinclude(struct lexer *lx, const struct span *span0)
       fatal(&span, "Maximum nested include depth of %d reached", includedepth);
 }
 
-static struct macrostack mstk[64], *mfreelist;
+static struct macrostack {
+   struct macrostack *link;
+   struct rlist *args;
+   const struct rlist *rlist;
+   struct span0 exspan;
+   int macno;
+   int idx;
+} mstk[64], *mfreelist;
+
+static void
+pushmacstk(struct lexer *lx, const struct span *span, const struct macrostack *m)
+{
+   struct macrostack *l;
+   if (!(l = mfreelist)) fatal(span, "macro depth limit reached");
+   l = mfreelist;
+   mfreelist = l->link;
+   l->link = lx->macstk;
+   assert(m->rlist);
+   l->rlist = m->rlist;
+   l->macno = m->macno;
+   l->args = m->args;
+   l->idx = 0;
+   l->exspan = span->ex;
+   lx->macstk = l;
+}
+
 static bool
 tryexpand(struct lexer *lx, const struct token *tk)
 {
    static bool inimstk;
-   struct macro *mac;
-   struct macrostack *l;
    int macidx, i;
-
-   if (!isppident(*tk) || !(mac = findmac(tk->s)))
-      return 0;
+   struct span span = tk->span;
+   struct macrostack *l;
+   struct macro *mac = NULL;
+   struct rlist *args = NULL;
 
    if (!inimstk) {
       inimstk = 1;
@@ -1056,23 +1117,90 @@ tryexpand(struct lexer *lx, const struct token *tk)
       }
    }
 
+   if (tk->t == TKPPMACARG) {
+      struct rlist *arg;
+      l = lx->macstk;
+      arg = &l->args[tk->argidx];
+      if (arg->n) {
+         pushmacstk(lx, &span, &(struct macrostack){
+            .idx = 0,
+            .rlist = arg,
+            .macno = -1,
+         });
+      }
+      return 1;
+   } else if (!isppident(*tk) || !(mac = findmac(tk->s)))
+      return 0;
+
    macidx = mac - macros.p;
    /* prevent infinite recursion */
    for (l = lx->macstk; l; l = l->link)
-      if (l->mac == macidx)
+      if (l->macno == macidx)
          return 0;
 
+
    if (mac->fnlike) {
+      vec_of(struct token) rlist = {0};
+      bool toomany = 0;
+      struct span endspan;
+      int cur, n, i, bal;
+      struct token tk;
+
+      if (lexpeek(lx, &tk) != '(')
+         return 0;
+      lex(lx, &tk);
+      args = xcalloc((mac->nparam + mac->variadic) * sizeof *args);
+
+      for (cur = 0, i = 0, bal = 0, n = 0; (lex(lx, &tk) != ')' || bal != 0) && tk.t != TKEOF; ) {
+         if (tk.t == ',' && bal == 0) {
+            if (i == mac->nparam-1) {
+               if (!mac->variadic) {
+                  endspan = tk.span;
+                  toomany = 1;
+               }
+            } else if (i < mac->nparam) {
+               args[i].tk = &tk + cur;
+               args[i].n = n;
+               cur = rlist.n;
+               n = 0;
+               ++i;
+            }
+         } else if (!toomany) {
+            if (tk.t == '(' || tk.t == '[') ++bal;
+            else if (tk.t == ')' || tk.t == ']') --bal;
+            vpush(&rlist, tk);
+            ++n;
+         }
+      }
+      if (tk.t == TKEOF)
+         error(&span, "unterminated function-like macro invocation");
+      else if (i < mac->nparam) {
+         args[i].tk = &tk + cur;
+         args[i].n = n;
+         cur = rlist.n;
+         n = 0;
+         ++i;
+      }
+      joinspan(&span.ex, tk.span.ex);
+      if (i < mac->nparam)
+         error(&span, "not enough arguments in function-like macro invocation");
+      else if (toomany) {
+         joinspan(&endspan.ex, tk.span.ex);
+         error(&endspan, "excess arguments in function-like macro invocation");
+      }
+      for (int i = 0; i < mac->nparam + mac->variadic; ++i) {
+         int idx = args[i].tk ? args[i].tk - &tk : rlist.n;
+         args[i].tk = rlist.p + idx;
+      }
    }
+
    if (mac->rlist.n) {
-      if (!(l = mfreelist)) fatal(&tk->span, "macro depth limit reached");
-      l = mfreelist;
-      mfreelist = l->link;
-      l->link = lx->macstk;
-      l->mac = macidx;
-      l->idx = 0;
-      l->exspan = tk->span.ex;
-      lx->macstk = l;
+      pushmacstk(lx, &span, &(struct macrostack){
+         .rlist = &mac->rlist,
+         .macno = macidx,
+         .args = args,
+         .idx = 0,
+      });
    }
    return 1;
 }
@@ -1084,10 +1212,14 @@ popmac(struct lexer *lx)
    
    assert(stk = lx->macstk);
    do {
+      if (stk->args) {
+         free(stk->args->tk);
+         free(stk->args);
+      }
       lx->macstk = stk->link;
       stk->link = mfreelist;
       mfreelist = stk;
-   } while ((stk = lx->macstk) && stk->idx >= macros.p[stk->mac].rlist.n);
+   } while ((stk = lx->macstk) && stk->idx >= stk->rlist->n);
 }
 
 enum directive {
@@ -1163,14 +1295,13 @@ lex(struct lexer *lx, struct token *tk_)
    }
 
    if (lx->macstk) {
-      struct macro *mac = &macros.p[lx->macstk->mac];
-      struct rlist rl = mac->rlist;
-      *tk = rl.tk[lx->macstk->idx++];
+      const struct rlist *rl = lx->macstk->rlist;
+      *tk = rl->tk[lx->macstk->idx++];
       assert(tk->t);
       tk->span.ex = lx->macstk->exspan;
       if (tryexpand(lx, tk))
          return lex(lx, tk_);
-      if (lx->macstk->idx == rl.n)
+      if (lx->macstk->idx == rl->n)
          popmac(lx);
       return tk->t;
    }
@@ -1276,6 +1407,5 @@ initlexer(struct lexer *lx, const struct span *span, const char *file, struct ar
    lx->ndat = f->n;
    lx->tmparena = tmparena;
 }
-
 
 /* vim:set ts=3 sw=3 expandtab: */

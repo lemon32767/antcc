@@ -17,6 +17,7 @@ enum toktag { /* single-character tokens' tag value is the character itself */
    TKSTRLIT,
    TKPPHDRH, /* <hdr> (for #include) */
    TKPPHDRQ, /* "hdr" (for #include) */
+   TKPPMACARG, /* macro param in repl list */
    TKEQU = '@', /* == */
    TKNEQ, /* != */
    TKLTE, /* <= */
@@ -49,7 +50,9 @@ enum toktag { /* single-character tokens' tag value is the character itself */
 struct token {
    short t; /* toktag */
    bool litlit;
-   uint len;
+   union {
+      uint len, argidx;
+   };
    struct span span;
    const char *s; 
    /* for (multi-)character tokens s & len are unused
@@ -63,27 +66,10 @@ struct token {
     *  when litlit : s points to start of token within file buffer (normal case)
     *                len == span.sl.len (number literal appears literally in source code)
     *  otherwise s is heap allocated buffer of len bytes
+    * for macro arg:
+    *  s is like keyword/ident
+    *  argidx is index in macro param list
     */
-};
-
-struct macro {
-   const char *name; /* interned */
-   const char **param;
-   struct span0 span;
-   uchar nparam;
-   bool fnlike, variadic;
-   struct rlist {
-     struct token *tk;
-     int n;
-   } rlist;
-};
-
-struct macrostack {
-   struct macrostack *link;
-   struct rlist *args;
-   struct span0 exspan;
-   int mac;
-   int idx;
 };
 
 extern int nerror;
