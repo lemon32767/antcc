@@ -475,9 +475,16 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             case TKSTRLIT:
                n += bfmt(buf, "%'S", tok->s, tok->len);
                break;
-            case TKIDENT:
+            case TKPPMACSTR:
+               if (quote) n += bputc(buf, '`');
+               n += bfmt(buf, "#%s", tok->s);
+               if (quote) n += bputc(buf, '\'');
+               break;
             case TKPPMACARG:
-               n += bfmt(buf, "`%s'", tok->s);
+            case TKIDENT:
+               if (quote) n += bputc(buf, '`');
+               n += bfmt(buf, "%s", tok->s);
+               if (quote) n += bputc(buf, '\'');
                break;
             case TKEOF:
                n += bwriteS(buf, "<end-of-file>");

@@ -17,7 +17,8 @@ enum toktag { /* single-character tokens' tag value is the character itself */
    TKSTRLIT,
    TKPPHDRH, /* <hdr> (for #include) */
    TKPPHDRQ, /* "hdr" (for #include) */
-   TKPPMACARG, /* macro param in repl list */
+   TKPPMACARG, /* macro param, in repl list */
+   TKPPMACSTR, /* stringify macro param, in repl list */
    TKEQU = '@', /* == */
    TKNEQ, /* != */
    TKLTE, /* <= */
@@ -66,7 +67,7 @@ struct token {
     *  when litlit : s points to start of token within file buffer (normal case)
     *                len == span.sl.len (number literal appears literally in source code)
     *  otherwise s is heap allocated buffer of len bytes
-    * for macro arg:
+    * for macro arg/stringify:
     *  s is like keyword/ident
     *  argidx is index in macro param list
     */
