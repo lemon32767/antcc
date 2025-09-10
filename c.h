@@ -65,6 +65,7 @@ struct decl {
    uchar scls;
    uchar qual : 2;
    uchar isenum : 1;
+   uchar isdef : 1;
    struct span span;
    const char *name;
    union {

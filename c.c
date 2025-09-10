@@ -198,6 +198,11 @@ redeclarationok(const struct decl *old, const struct decl *new)
 {
    if (old->scls != new->scls) return 0;
    switch (old->scls) {
+   case SCSTATIC:
+      if (old->ty.t != TYFUNC)
+         break;
+      /*fallthru*/
+   case SCEXTERN:
    case SCTYPEDEF:
       return old->ty.bits == new->ty.bits;
    }
@@ -209,9 +214,16 @@ putdecl(struct comp *cm, const struct decl *decl)
 {
    struct decl *l;
    for (l = NULL; enviterdecl(&l, cm->env);) {
-      if (decl->name == l->name && !redeclarationok(l, decl)) {
-         error(&decl->span, "incompatible redeclaration of '%s'", decl->name);
-         note(&l->span, "previously declared here");
+      if (decl->name == l->name) {
+         if (l->isdef && decl->isdef) {
+            error(&decl->span, "redefinition of '%s'", decl->name);
+            note(&l->span, "previously defined here");
+            break;
+         } else if (!redeclarationok(l, decl)) {
+            error(&decl->span, "incompatible redeclaration of '%s'", decl->name);
+            note(&l->span, "previously declared here");
+            break;
+         }
       }
    }
    l = envadddecl(cm->env, decl);
@@ -2201,7 +2213,7 @@ pdecl(struct declstate *st, struct comp *cm) {
    }
 
    if (first && st->tagdecl && match(cm, &tk, ';')) {
-      decl = (struct decl) { st->base, st->scls, st->qual, st->align, tk.span };
+      decl = (struct decl) { st->base, st->scls, st->qual, st->align, 0, tk.span };
       return decl;
    }
    decl = declarator(st, cm);
@@ -3268,6 +3280,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                   }
                }
             } else if (decl.scls == SCSTATIC) {
+               assert(0);
             }
             break;
          case SCTYPEDEF:
@@ -3394,11 +3407,13 @@ docomp(struct comp *cm)
             noscls = 1;
             decl.scls = SCEXTERN;
          }
+         decl.isdef = st.varini;
          if (st.funcdef) {
             const struct typedata *td =  &typedata[decl.ty.dat];
             struct function fn = { cm->fnarena, decl.name, .globl = decl.scls != SCSTATIC };
             fn.fnty = decl.ty;
             fn.retty = td->ret;
+            decl.isdef = 1;
             putdecl(cm, &decl);
             irinit(&fn);
             function(cm, &fn, st.pnames, st.pspans);
