@@ -1,6 +1,7 @@
 Things to finish before moving onto compiler optimizations, C extensions, other nice features
 
-- frontend: finish C impl: initializers, preprocessor (#include, fn-like macros, etc), forward declarations, switch, goto
+- backend: finish regalloc
+- frontend: finish C impl: initializers, preprocessor (#include, etc), switch
 - frontend: optimize lexer
 
 at some point add another backend like arm64 to make sure the non target specific stuff is generic enough..
