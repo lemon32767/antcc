@@ -1190,7 +1190,7 @@ tryexpand(struct lexer *lx, struct token *tk)
       vec_of(struct token) rlist = {0};
       bool toomany = 0;
       struct span excessspan;
-      int cur, n, i, bal;
+      int cur, len, i, bal, narg;
       struct token tk;
 
       noexpandmac = 1;
@@ -1205,9 +1205,10 @@ tryexpand(struct lexer *lx, struct token *tk)
        * while we're building the list, args[i].tk points to &tk + idx, because rlist.p can move,
        * then we fix them up in the end to point to rlist.p + idx */
 
-      cur = i = bal = n = 0;
+      cur = i = bal = len = narg = 0;
       while ((lex(lx, &tk) != ')' || bal != 0) && tk.t != TKEOF) {
          if (tk.t == ',' && bal == 0) {
+            ++narg;
             if (i == mac->nparam-1) {
                if (!mac->variadic) {
                   excessspan = tk.span;
@@ -1215,34 +1216,35 @@ tryexpand(struct lexer *lx, struct token *tk)
                }
             } else if (i < mac->nparam) {
                args[i].tk = &tk + cur;
-               args[i].n = n;
+               args[i].n = len;
                cur = rlist.n;
-               n = 0;
+               len = 0;
                ++i;
             }
          } else if (!toomany) {
             if (tk.t == '(' || tk.t == '[') ++bal;
             else if (tk.t == ')' || tk.t == ']') --bal;
             vpush(&rlist, tk);
-            ++n;
+            ++len;
          }
       }
       noexpandmac = 0;
       if (tk.t == TKEOF)
          error(&span, "unterminated function-like macro invocation");
       else if (i < mac->nparam) {
+         ++narg;
          args[i].tk = &tk + cur;
-         args[i].n = n;
+         args[i].n = len;
          cur = rlist.n;
-         n = 0;
+         len = 0;
          ++i;
       }
       joinspan(&span.ex, tk.span.ex);
-      if (i < mac->nparam)
+      if (narg < mac->nparam)
          error(&span, "not enough arguments in function-like macro invocation");
       else if (toomany) {
          joinspan(&excessspan.ex, tk.span.ex);
-         error(&excessspan, "excess arguments in function-like macro invocation");
+         error(&excessspan, "macro `%s' passed %d arguments, but takes just %d", mac->name, narg, mac->nparam);
       }
       /* fix up args slice pointers */
       for (int i = 0; i < mac->nparam + mac->variadic; ++i) {
