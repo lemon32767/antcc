@@ -50,7 +50,7 @@ irinit(struct function *fn)
    if (naddrht >= arraylength(addrht)/2)
       memset(addrht, naddrht = 0, sizeof addrht);
    if (nconht >= arraylength(conht)/2)
-      memset(addrht, nconht = 0, sizeof addrht);
+      memset(conht, nconht = 0, sizeof conht);
    if (!type2cls[TYINT]) {
       for (int i = TYBOOL; i <= TYUVLONG; ++i) {
          int siz = targ_primsizes[i];
