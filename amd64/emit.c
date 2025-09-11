@@ -837,6 +837,9 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
          Xaddf(pcode, cls, dst, mkimmdatregoper(ins->r));
       } else if (ins->reg-1 == dst.reg) { /* two-address add */
          Xadd(pcode, cls, dst, mkimmdatregoper(ins->r));
+      } else if (isregref(ins->r) && ins->reg-1 == mkregoper(ins->r).reg) {
+         /* also two-address after swapping operands */
+         Xadd(pcode, cls, reg2oper(ins->reg-1), mkimmdatregoper(ins->l));
       } else { /* three-address add (lea) */
          struct oper mem = { OMEM, .base = NOBASE, .index = NOINDEX };
          dst = reg2oper(ins->reg-1);
