@@ -239,6 +239,8 @@ opermatch(enum operpat pat, struct oper oper)
 #define I32(w) (wr32le(*pcode, (w)), *pcode += 4)
 #define DS(S) D(S, sizeof S - 1)
 
+static bool usebp; /* use RBP? */
+
 /* Given an instruction description table, find the first entry that matches
  * the operands (where dst, src are the operands in intel syntax order) and encode it */
 static void
@@ -326,26 +328,32 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
             objreloc(xcon2sym(mem.con), REL_ABS32S, Stext, *pcode - objout.textbegin, mem.disp);
          }
          I32(0);
-         goto Imm;
+      } else {
+         if (!usebp && mem.base == RBP) {
+            /* if RBP isn't being set up (leaf functions with no stack allocations),
+             * access thru RSP (function arguments in the stack) */
+            mem.base = RSP;
+            mem.disp -= 8;
+         }
+
+         if (mem.index == NOINDEX && mem.shift == 0) sib = 0;
+         else sib = 1;
+         mod = !mem.disp ? 0                    /* disp = 0 -> mod = 00 */
+             : (uint)(mem.disp + 128) < 256 ? 1 /* disp8 -> mod = 01 */
+             : 2;                               /* disp32 -> mod = 10 */
+         if (mod == 0 && (mem.base == RBP || mem.base == R13)) mod = 1;
+         if (mem.base == RSP || mem.base == R12) sib = 1;
+         D(opc, nopc);
+         B(mod << 6 | (reg & 7) << 3 | (sib ? 4 : (mem.base & 7)));
+         if (sib) {
+            if (mem.index == NOINDEX) mem.index = RSP;
+            B(mem.shift << 6 | (mem.index & 7) << 3 | (mem.base & 7));
+         }
+         if (mod == 1) B(mem.disp);
+         else if (mod == 2 || (mod == 0 && mem.base == RBP/*RIP-rel*/)) {
+            I32(mem.disp);
+         }
       }
-      if (mem.index == NOINDEX && mem.shift == 0) sib = 0;
-      else sib = 1;
-      mod = !mem.disp ? 0                    /* disp = 0 -> mod = 00 */
-          : (uint)(mem.disp + 128) < 256 ? 1 /* disp8 -> mod = 01 */
-          : 2;                               /* disp32 -> mod = 10 */
-      if (mod == 0 && (mem.base == RBP || mem.base == R13)) mod = 1;
-      if (mem.base == RSP || mem.base == R12) sib = 1;
-      D(opc, nopc);
-      B(mod << 6 | (reg & 7) << 3 | (sib ? 4 : (mem.base & 7)));
-      if (sib) {
-         if (mem.index == NOINDEX) mem.index = RSP;
-         B(mem.shift << 6 | (mem.index & 7) << 3 | (mem.base & 7));
-      }
-      if (mod == 1) B(mem.disp);
-      else if (mod == 2 || (mod == 0 && mem.base == RBP/*RIP-rel*/)) {
-         I32(mem.disp);
-      }
-   Imm:
       if (en->operenc == EN_MI8) B(src.imm);
       if (en->operenc == EN_MI16) I16(src.imm);
       if (en->operenc == EN_MI32) I32(src.imm);
@@ -1052,7 +1060,8 @@ emitbin(struct function *fn)
    uchar **pcode = &objout.code;
    uchar *start;
    int npush = 0;
-   bool usebp = 0, saverestore;
+   uint epilogueaddr = 0;
+   bool saverestore;
 
    if (nblkaddr < fn->nblk) {
       blkaddr = xrealloc(blkaddr, fn->nblk * sizeof *blkaddr);
@@ -1066,6 +1075,7 @@ emitbin(struct function *fn)
    /** prologue **/
 
    /* only use frame pointer in non-leaf functions and functions that use the stack */
+   usebp = 0;
    if (!fn->isleaf || fn->stksiz) {
       usebp = 1;
       /* push rbp; mov rbp, rsp */
@@ -1110,12 +1120,24 @@ emitbin(struct function *fn)
       }
       if (blk->jmp.t == Jret) {
          /* epilogue */
-         if (fn->stksiz && (saverestore || !usebp))
-            Xadd(pcode, KPTR, mkoper(OREG, .reg = RSP), mkoper(OIMM, .imm = fn->stksiz));
-         if (saverestore)
-            calleerestore(pcode, fn);
-         if (usebp) B(0xC9); /* leave */
-         B(0xC3); /* ret */
+         uint here = *pcode - start;
+         if (epilogueaddr) {
+            int disp = epilogueaddr - (here + 2);
+            if ((uint)(disp + 128) < 256) {/* can use 1-byte displacement? */
+               B(0xEB), B(disp); /* JMP rel8 */
+            } else {
+               B(0xE9), I32(disp - 3); /* JMP rel32 */
+            }
+         } else {
+            if (fn->stksiz && (saverestore || !usebp))
+               Xadd(pcode, KPTR, mkoper(OREG, .reg = RSP), mkoper(OIMM, .imm = fn->stksiz));
+            if (saverestore) {
+               epilogueaddr = here;
+               calleerestore(pcode, fn);
+            }
+            if (usebp) B(0xC9); /* leave */
+            B(0xC3); /* ret */
+         }
       } else emitbranch(pcode, blk);
    } while ((blk = blk->lnext) != fn->entry);
    objdeffunc(fn->name, fn->globl, start - objout.textbegin, *pcode - start);
