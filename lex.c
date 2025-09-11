@@ -1085,13 +1085,18 @@ ppinclude(struct lexer *lx, const struct span *span0)
       fatal(&span, "Maximum nested include depth of %d reached", includedepth);
 }
 
+/* horrible kludge for proper expansion in the face of nested macros with arguments,
+ * stringifying, etc */
+static bool noexpandmac;
+
 static struct macrostack {
    struct macrostack *link;
    struct rlist *args;
    const struct rlist *rlist;
    struct span0 exspan;
-   int macno;
    int idx;
+   int macno:30;
+   int prevnoexpandmac:1;
 } mstk[64], *mfreelist;
 
 static void
@@ -1108,10 +1113,9 @@ pushmacstk(struct lexer *lx, const struct span *span, const struct macrostack *m
    l->args = m->args;
    l->idx = 0;
    l->exspan = span->ex;
+   l->prevnoexpandmac = noexpandmac;
    lx->macstk = l;
 }
-
-static bool lexnoexpand;
 
 static bool
 tryexpand(struct lexer *lx, struct token *tk)
@@ -1138,6 +1142,7 @@ tryexpand(struct lexer *lx, struct token *tk)
       for (l = lx->macstk; l->macno != tk->macidx; l = l->link) ;
       arg = &l->args[tk->argidx];
       if (tk->t == TKPPMACARG && arg->n) {
+         noexpandmac = 0;
          pushmacstk(lx, &span, &(struct macrostack){
             .idx = 0,
             .rlist = arg,
@@ -1145,27 +1150,33 @@ tryexpand(struct lexer *lx, struct token *tk)
          });
          return 1;
       } else {
-         char tmp[200];
+         char tmp[100];
          struct wbuf buf = MEMBUF(tmp, sizeof tmp);
-         //vec_of(uchar) b = VINIT(tmp, sizeof tmp);
+         int n = 0;
 
          // XXX this is wrong bc the string literal produced should be re-parsed later
          // i.e. stringifying the token sequence '\n' should ultimately produce a
          // string with an actual newline, not {'\\','n'}
-
+      Redo:
          for (const struct token *tk = arg->tk, *end = tk + arg->n; tk != end; ++tk) {
+            //efmt("strify ++ (%d) %'tk\n", tk->t,tk);
             if (tk != arg->tk && wsseparated(tk-1, tk))
-               bfmt(&buf, " ");
-            bfmt(&buf, "%tk", tk);
+               n += bfmt(&buf, " ");
+            n += bfmt(&buf, "%tk", tk);
          }
          ioputc(&buf, 0);
-         assert(!buf.err && "strify too long");
+         if (buf.err) {
+            struct wbuf new = MEMBUF(alloc(lx->tmparena, n+1, 1), n+1);
+            assert(buf.buf == tmp);
+            memcpy(&buf, &new, sizeof buf);
+            goto Redo;
+         }
          tk->t = TKSTRLIT;
-         tk->s = alloccopy(lx->tmparena, buf.buf, buf.len, 1);
+         tk->s = buf.buf != tmp ? buf.buf : alloccopy(lx->tmparena, buf.buf, buf.len, 1);
          tk->len = buf.len;
          return 0;
       }
-   } else if (!isppident(*tk) || !(mac = findmac(tk->s)))
+   } else if (noexpandmac || !isppident(*tk) || !(mac = findmac(tk->s)))
       return 0;
 
    macidx = mac - macros.p;
@@ -1182,9 +1193,11 @@ tryexpand(struct lexer *lx, struct token *tk)
       int cur, n, i, bal;
       struct token tk;
 
-      lexnoexpand = 1;
-      if (lexpeek(lx, &tk) != '(')
+      noexpandmac = 1;
+      if (lexpeek(lx, &tk) != '(') {
+         noexpandmac = 0;
          return 0;
+      }
       lex(lx, &tk);
       args = xcalloc((mac->nparam + mac->variadic) * sizeof *args);
 
@@ -1214,7 +1227,7 @@ tryexpand(struct lexer *lx, struct token *tk)
             ++n;
          }
       }
-      lexnoexpand = 0;
+      noexpandmac = 0;
       if (tk.t == TKEOF)
          error(&span, "unterminated function-like macro invocation");
       else if (i < mac->nparam) {
@@ -1257,6 +1270,7 @@ popmac(struct lexer *lx)
    
    assert(stk = lx->macstk);
    do {
+      noexpandmac = stk->prevnoexpandmac;
       if (stk->args) {
          free((void *)stk->args[0].tk);
          free(stk->args);
@@ -1348,7 +1362,7 @@ lex(struct lexer *lx, struct token *tk_)
       *tk = rl->tk[lx->macstk->idx++];
       assert(tk->t);
       tk->span.ex = lx->macstk->exspan;
-      if (!lexnoexpand && tryexpand(lx, tk))
+      if (tryexpand(lx, tk))
          return lex(lx, tk_);
       return tk->t;
    }
@@ -1404,7 +1418,7 @@ lex(struct lexer *lx, struct token *tk_)
       } else {
          linebegin = 0;
          if (skip && tk->t != TKEOF) continue;
-         if (!lexnoexpand && tryexpand(lx, tk))
+         if (tryexpand(lx, tk))
             return lex(lx, tk_);
          if (t == TKEOF && nppcnd) {
             struct span span = { ppcndstk[nppcnd-1].ifspan };

@@ -452,12 +452,14 @@ delnops(struct block *blk)
    /* delete trailing nops */
    while (blk->ins.n > 0 && instrtab[t = blk->ins.p[blk->ins.n - 1]].op == Onop) {
       --blk->ins.n;
+      deluses(t);
       memcpy(&instrtab[t], &instrfreelist, sizeof(int));
       instrfreelist = t;
    }
    /* delete rest of nops */
    for (i = blk->ins.n - 2, n = 0; i >= 0; --i) {
       if (instrtab[t = blk->ins.p[i]].op == Onop) {
+         deluses(t);
          memcpy(&instrtab[t], &instrfreelist, sizeof(int));
          instrfreelist = t;
          ++n;

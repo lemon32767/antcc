@@ -604,7 +604,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             n += bputc(out, ' ');
       }
    }
-   return buf->err ? -1 : n;
+   return n;
 }
 
 int
