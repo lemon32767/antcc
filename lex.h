@@ -52,7 +52,8 @@ struct token {
    short t; /* toktag */
    bool litlit;
    union {
-      uint len, argidx;
+      uint len;
+      struct { ushort macidx, argidx; };
    };
    struct span span;
    const char *s; 
@@ -69,7 +70,8 @@ struct token {
     *  otherwise s is heap allocated buffer of len bytes
     * for macro arg/stringify:
     *  s is like keyword/ident
-    *  argidx is index in macro param list
+    *  argidx is index in macro param list,
+    *  macidx is macro id of which it is a parameter
     */
 };
 

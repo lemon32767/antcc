@@ -612,7 +612,7 @@ tokequ(const struct token *a, const struct token *b)
    if (a->t == TKNUMLIT || a->t == TKSTRLIT || a->t == TKCHRLIT) {
       if (a->len != b->len) return 0;
       return !memcmp(a->s, b->s, a->len);
-   } else if (a->t == TKIDENT) {
+   } else if (a->t == TKIDENT || a->t == TKPPMACARG || a->t == TKPPMACSTR) {
       return a->s == b->s;
    }
    return 1;
@@ -687,6 +687,7 @@ static void
 ppdefine(struct lexer *lx)
 {
    struct token tk0, tk;
+   int newmacidx;
    struct macro mac = {0};
    vec_of(struct token) rlist = {0};
    vec_of(const char *) params = {0};
@@ -721,6 +722,7 @@ ppdefine(struct lexer *lx)
       mac.nparam = params.n;
    }
 
+   newmacidx = macros.n;
    while (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
       if (!wsseparated(&tk0, &tk))
          warn(&tk.span, "no whitespace after macro name");
@@ -729,11 +731,13 @@ ppdefine(struct lexer *lx)
             if (rlist.n > 0 && rlist.p[rlist.n - 1].t == '#') {
                tk.t = TKPPMACSTR;
                tk.argidx = i;
+               tk.macidx = newmacidx;
                rlist.p[rlist.n - 1] = tk;
                goto Next;
             } else {
                tk.t = TKPPMACARG;
                tk.argidx = i;
+               tk.macidx = newmacidx;
                break;
             }
          }
@@ -1107,6 +1111,8 @@ pushmacstk(struct lexer *lx, const struct span *span, const struct macrostack *m
    lx->macstk = l;
 }
 
+static bool lexnoexpand;
+
 static bool
 tryexpand(struct lexer *lx, struct token *tk)
 {
@@ -1127,7 +1133,9 @@ tryexpand(struct lexer *lx, struct token *tk)
 
    if (tk->t == TKPPMACARG || tk->t == TKPPMACSTR) {
       struct rlist *arg;
-      l = lx->macstk;
+
+      ioflush(&bstderr);
+      for (l = lx->macstk; l->macno != tk->macidx; l = l->link) ;
       arg = &l->args[tk->argidx];
       if (tk->t == TKPPMACARG && arg->n) {
          pushmacstk(lx, &span, &(struct macrostack){
@@ -1174,6 +1182,7 @@ tryexpand(struct lexer *lx, struct token *tk)
       int cur, n, i, bal;
       struct token tk;
 
+      lexnoexpand = 1;
       if (lexpeek(lx, &tk) != '(')
          return 0;
       lex(lx, &tk);
@@ -1205,6 +1214,7 @@ tryexpand(struct lexer *lx, struct token *tk)
             ++n;
          }
       }
+      lexnoexpand = 0;
       if (tk.t == TKEOF)
          error(&span, "unterminated function-like macro invocation");
       else if (i < mac->nparam) {
@@ -1223,7 +1233,8 @@ tryexpand(struct lexer *lx, struct token *tk)
       }
       /* fix up args slice pointers */
       for (int i = 0; i < mac->nparam + mac->variadic; ++i) {
-         int idx = args[i].tk ? args[i].tk - &tk : rlist.n;
+         int idx = args[i].tk - &tk;
+         ioflush(&bstderr);
          args[i].tk = rlist.p + idx;
       }
    }
@@ -1247,7 +1258,7 @@ popmac(struct lexer *lx)
    assert(stk = lx->macstk);
    do {
       if (stk->args) {
-         free((void *)stk->args->tk);
+         free((void *)stk->args[0].tk);
          free(stk->args);
       }
       lx->macstk = stk->link;
@@ -1330,13 +1341,15 @@ lex(struct lexer *lx, struct token *tk_)
 
    if (lx->macstk) {
       const struct rlist *rl = lx->macstk->rlist;
+      if (lx->macstk->idx == rl->n) {
+         popmac(lx);
+         return lex(lx, tk_);
+      }
       *tk = rl->tk[lx->macstk->idx++];
       assert(tk->t);
       tk->span.ex = lx->macstk->exspan;
-      if (tryexpand(lx, tk))
+      if (!lexnoexpand && tryexpand(lx, tk))
          return lex(lx, tk_);
-      if (lx->macstk->idx == rl->n)
-         popmac(lx);
       return tk->t;
    }
 
@@ -1391,7 +1404,7 @@ lex(struct lexer *lx, struct token *tk_)
       } else {
          linebegin = 0;
          if (skip && tk->t != TKEOF) continue;
-         if (tryexpand(lx, tk))
+         if (!lexnoexpand && tryexpand(lx, tk))
             return lex(lx, tk_);
          if (t == TKEOF && nppcnd) {
             struct span span = { ppcndstk[nppcnd-1].ifspan };
