@@ -16,6 +16,9 @@ void hi(int x) {
 #define ADD(a,b) (a)+(b)
 #define STR(h) #h 
 
+#define xstr(s1) str(s1)
+#define str(s) #s
+
 #endif
 
 extern int printf(const char *, ...);

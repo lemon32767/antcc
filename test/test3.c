@@ -27,7 +27,7 @@ struct bitset { unsigned long long u; };
 void
 bscopy(struct bitset dst[/*siz*/], const struct bitset src[/*siz*/], unsigned siz)
 {
-   while (siz--) dst++->u = src++->u;
+   for (; siz; --siz, ++dst, ++src) dst->u = src->u;
 }
 
 

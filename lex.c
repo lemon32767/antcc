@@ -1241,7 +1241,7 @@ tryexpand(struct lexer *lx, struct token *tk)
       }
       joinspan(&span.ex, tk.span.ex);
       if (narg < mac->nparam)
-         error(&span, "not enough arguments in function-like macro invocation");
+         error(&excessspan, "macro `%s' passed %d arguments, but takes %d", mac->name, narg, mac->nparam);
       else if (toomany) {
          joinspan(&excessspan.ex, tk.span.ex);
          error(&excessspan, "macro `%s' passed %d arguments, but takes just %d", mac->name, narg, mac->nparam);

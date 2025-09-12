@@ -242,6 +242,8 @@ newblk(struct function *fn)
 void
 freeblk(struct function *fn, struct block *blk)
 {
+   if (blk->npred > 1)
+      xbfree(blk->_pred);
    vfree(&blk->phi);
    vfree(&blk->ins);
    if (blk->lnext) blk->lnext->lprev = blk->lprev;

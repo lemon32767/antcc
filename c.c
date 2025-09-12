@@ -965,7 +965,7 @@ Postfix:
             span.ex = tk.span.ex;
          ty = condtype(&tmp, &rhs);
          if (!ty.t) {
-            error(&span, "bad operands to conditional expression (%ty, %ty)", tmp.ty, rhs.ty);
+            error(&span, "incompatible types in conditional expression (%ty, %ty)", tmp.ty, rhs.ty);
             ty = tmp.ty;
          }
          sub = alloc(&cm->exarena, 3 * sizeof*sub, 0);
@@ -2109,7 +2109,6 @@ declarator(struct declstate *st, struct comp *cm) {
          else if (decl.ty.t == TYFUNC)
             error(&l->span, "array has element has function type (%ty)", decl.ty);
          decl.ty = mkarrtype(decl.ty, decl.qual, l->len);
-         decl.qual = 0;
          break;
       case TYFUNC:
          if (decl.ty.t == TYFUNC)
@@ -2211,6 +2210,7 @@ pdecl(struct declstate *st, struct comp *cm) {
       }
       declspec(st, cm);
    }
+   if (st->scls == SCTYPEDEF) iniallowed = 0;
 
    if (first && st->tagdecl && match(cm, &tk, ';')) {
       decl = (struct decl) { st->base, st->scls, st->qual, st->align, 0, tk.span };
@@ -2272,6 +2272,18 @@ structreturn(struct function *fn, const struct expr *src)
 
 static union ref compilecall(struct function *fn, const struct expr *ex);
 
+static const char *
+mkhiddensym(const char *fnname, const char *name, int id)
+{
+   char buf[200];
+   struct wbuf wbuf = MEMBUF(buf, sizeof buf);
+   assert(id > 0);
+   bfmt(&wbuf, "%s.%s.%d", fnname, name, id);
+   ioputc(&wbuf, 0);
+   assert(!wbuf.err);
+   return intern(buf);
+}
+
 static union ref
 expraddr(struct function *fn, const struct expr *ex)
 {
@@ -2289,8 +2301,10 @@ expraddr(struct function *fn, const struct expr *ex)
       case SCEXTERN: case SCNONE:
          return mksymref(decl->name);
       case SCSTATIC:
-         assert(!"nyi");
-         break;
+         if (!decl->id)
+            return mksymref(decl->name);
+         else
+            return mksymref(mkhiddensym(fn->name, decl->name, decl->id));
       default:
          assert(0);
       }
@@ -3262,22 +3276,32 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
          Initz:
             if (st.varini) {
                struct decl *d = putdecl(cm, &decl);
+               bool statik = st.scls & (SCSTATIC | SCEXTERN);
+               const char *name = decl.name;
                put = 1;
-               ini = initializer(cm, &d->ty, EVFOLD, 0, decl.qual, decl.name);
+               if (decl.scls == SCSTATIC)
+                  name = mkhiddensym(fn->name, name, decl.id);
+               ini = initializer(cm, &d->ty, statik ? EVSTATICINI : EVFOLD,
+                                 /* globl? */ decl.scls == SCEXTERN, decl.qual, name);
                pdecl(&st, cm);
-               if (!assigncheck(decl.ty, &ini)) {
-                  struct span span = decl.span;
-                  joinspan(&span.ex, ini.span.ex);
-                  error(&span, "cannot initialize '%ty' variable with '%ty'",
-                        decl.ty, ini.ty);
-               }
-               if (decl.scls & (SCAUTO | SCREGISTER)) {
+               if (!statik) {
+                  if (!assigncheck(decl.ty, &ini)) {
+                     struct span span = decl.span;
+                     joinspan(&span.ex, ini.span.ex);
+                     error(&span, "cannot initialize '%ty' variable with '%ty'",
+                           decl.ty, ini.ty);
+                  }
                   EMITS {
                      if (isagg(decl.ty))
                         structcopy(fn, decl.ty, mkref(RTMP, decl.id), expraddr(fn, &ini));
                      else
                         genstore(fn, decl.ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
                   }
+               } else if (decl.scls == SCEXTERN) {
+                  struct span span = decl.span;
+                  joinspan(&span.ex, ini.span.ex);
+                  error(&span,
+                        "declaration of block local with extern linkage cannot have an initializer");
                }
             } else if (decl.scls == SCSTATIC) {
                assert(0);
@@ -3290,6 +3314,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
          case SCEXTERN:
             if (forini)
                error(&decl.span, "extern declaration in 'for' loop initializer");
+            if (st.varini) goto Initz;
             break;
          default: assert(0);
          }
