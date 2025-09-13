@@ -315,11 +315,10 @@ fixcssa(struct function *fn)
    } while ((blk = blk->lnext) != fn->entry);
 }
 
-static bool
+static inline bool
 rangeoverlap(struct range a, struct range b)
 {
-   return (a.from < b.from && b.from < a.to)
-       || (b.from < a.from && a.from < b.to);
+   return a.from < b.to && b.from < a.to;
 }
 
 static bool
@@ -342,6 +341,18 @@ pushrange(struct interval *lv, struct range r)
    }
 }
 #define itrange(lv, i) ((lv)->nrange <= 2 ? (lv)->_inl : (lv)->_dyn)[i]
+
+static bool
+intervaloverlap(struct interval *a, struct interval *b)
+{
+   for (int i = 0, j = 0; i < a->nrange && j < b->nrange; ) {
+      struct range r1 = itrange(a, i), r2 = itrange(b, 2);
+      if (rangeoverlap(r1, r2)) return 1;
+      if (r1.to <= r2.from) ++i;
+      else ++j;
+   }
+   return 0;
+}
 
 static void
 addrange0(struct interval *it, struct range new)
@@ -459,10 +470,10 @@ buildintervals(struct rega *ra)
 {
    extern int ninstr;
    struct block *blk, *last;
-   struct bitset **livein = xcalloc(ra->fn->nblk * sizeof *livein);
+   struct bitset **livein = alloc(&ra->arena, ra->fn->nblk * sizeof *livein, 0);
 
    for (int i = 0; i < ra->fn->nblk; ++i)
-      livein[i] = xcalloc(BSSIZE(ninstr) * sizeof *livein[i]);
+      livein[i] = allocz(&ra->arena, BSSIZE(ninstr) * sizeof *livein[i], 0);
 
    numberinstrs(ra->fn);
    /* visit blocks in reverse, to build lifetime intervals */
@@ -541,24 +552,18 @@ buildintervals(struct rega *ra)
                   defreg(ra, reg, pos);
                }
             }
-            for (int j = 0; j < call->narg; ++j) {
-               int reg = call->abiarg[j].reg;
-               if (reg >= 0) {
-                  rclob = rsclr(rclob, reg);
-                  usereg(ra, reg, blk, pos);
-               }
-            }
             if (rclob) {
                struct fixinterval *fxit = alloc(&ra->arena, sizeof *fxit, 0);
                fxit->next = ra->intervals.fixed;
                fxit->range = (struct range) {pos, pos};
                fxit->rs = rclob;
                ra->intervals.fixed = fxit;
-               /*DBG("CLOBBER @%d:%d {", blk->id, curi);
-               for (int reg = 0; rsiter(&reg, rclob); ++reg) {
-                  DBG("%s,",mctarg->rnames[reg]);
+            }
+            for (int j = call->narg - 1; j >= 0; --j) {
+               int reg = call->abiarg[j].reg;
+               if (reg >= 0) {
+                  usereg(ra, reg, blk, pos);
                }
-               DBG("}\n");*/
             }
          }
 
@@ -622,24 +627,21 @@ buildintervals(struct rega *ra)
       // DBG("live out: "), priliveset(live, bssize);
    } while ((blk = blk->lprev) != last);
 
-   for (int i = 0; i < ra->fn->nblk; ++i) free(livein[i]);
-   free(livein);
-
    int var;
    struct interval *lv;
    imap_each(&ra->intervals.temps, var, lv) {
-      DBG("lifetime of %%%d: [ ", var);
+      DBG("lifetime of %%%d: ", var);
       for (int i = 0; i < lv->nrange; ++i) {
          struct range r = itrange(lv, i); 
-         DBG("%d-%d, ", r.from, r.to);
+         DBG("[%d,%d)%s", r.from, r.to, i < lv->nrange-1 ? ", " : "");
       }
-      DBG("]\n");
+      DBG("\n");
    }
    for (struct fixinterval *fx = ra->intervals.fixed; fx; fx = fx->next) {
       DBG("fixed {");
       for (int r = 0; rsiter(&r, fx->rs); ++r)
          DBG("%s,", mctarg->rnames[r]);
-      DBG("}: [%d-%d]\n", fx->range.from, fx->range.to);
+      DBG("}: [%d,%d)\n", fx->range.from, fx->range.to);
    }
 }
 
@@ -717,7 +719,7 @@ linearscan(struct rega *ra)
             inactive = it;
             if (it->alloc.t == AREG) {
                ra->free |= 1<<it->alloc.a;
-               //DBG("   unblock %s\n", mctarg->rnames[it->reg]);
+               DBG(" >> %%%d unblock %s\n", ra->intervals.temps.mb.k[it-ra->intervals.temps.v], mctarg->rnames[it->alloc.a]);
             }
          } else lnk = &it->next;
       }
@@ -741,7 +743,7 @@ linearscan(struct rega *ra)
             if (it->alloc.t == AREG) {
                assert(rstest(ra->free, it->alloc.a));
                ra->free &= ~(1<<it->alloc.a);
-               //DBG("reblock %s\n", mctarg->rnames[it->reg]);
+               DBG(" << %%%d reblock %s\n", ra->intervals.temps.mb.k[it-ra->intervals.temps.v], mctarg->rnames[it->alloc.a]);
             }
          } else lnk = &it->next;
       }
@@ -753,19 +755,29 @@ linearscan(struct rega *ra)
          struct instr *ins = &instrtab[this];
          int reg = 0;
          int end = itrange(current, current->nrange-1).to;
-         // XXX check regs in inactive intervals dont overlap with current
+
+         /* exclude regs from overlapping fixed intervals */
          for (struct fixinterval *fxit = intervals->fixed; fxit; fxit = fxit->next) {
             if (fxit->range.to <= pos) {
                intervals->fixed = fxit->next;
                continue;
-            } else if (fxit->range.from >= end)
+            } else if (fxit->range.from >= end) {
                break;
-//            if (rangeoverlap(it->range, (struct range) {pos, itrange(current, current->n-1).to})) {
-            // if (fxit->range.to >= pos && fxit->range.to < itrange(current, current->n-1).from) {
-            if (rangeoverlap(fxit->range, (struct range) {pos, end}) && fxit->range.from != end) {
-               free = rsminus(free, fxit->rs);
+            }
+
+            for (int i = 0; i < current->nrange; ++i) {
+               if (rangeoverlap(fxit->range, itrange(current, i))) {
+                  free = rsminus(free, fxit->rs);
+               }
             }
          }
+         /* exclude regs from overlapping inactive intervals */
+         for (struct interval *it = inactive; it; it = it->next) {
+            if (it->alloc.t == AREG && intervaloverlap(it, current)) {
+               free = rsclr(free, it->alloc.a);
+            }
+         }
+         /* for 2-address instrs, exclude reg from 2nd arg */
          if (ins->inplace && opnarg[ins->op] == 2) {
             int xreg;
             if (ins->r.t == RREG) free = rsclr(free, ins->r.i);
@@ -783,6 +795,7 @@ linearscan(struct rega *ra)
             continue;
          }
 
+         /* have free regs, try to use hint */
          if (current->rhint >= 0)
             DBG("have hint %s for %%%d\n",
                   mctarg->rnames[current->rhint], intervals->temps.mb.k[current - intervals->temps.v]);
@@ -809,6 +822,10 @@ linearscan(struct rega *ra)
                      goto GotReg;
                }
             }
+
+            /* prefer caller-saved registers */
+            if (rsminus(free, mctarg->rcallee) != 0) free = rsminus(free, mctarg->rcallee);
+
             for (reg = 0; !rstest(free, reg); ++reg);
          }
       GotReg:
@@ -834,7 +851,7 @@ regalloc(struct function *fn)
    struct rega ra = {fn, .arena = (void *)amem.m};
    struct block *blk, *last;
    memset(ra.arena, 0, sizeof *ra.arena);
-   ra.arena->cap = sizeof amem.m;
+   ra.arena->cap = sizeof amem.m - sizeof(struct arena);
 
    /* setup */
    if (!fpregset || !gpregset) {
@@ -1157,7 +1174,7 @@ fixlive(struct function *fn)
    struct bitset definedbuf[4] = {0};
    struct bitset *defined = definedbuf;
 
-   if (ninstr >= sizeof(definedbuf)*8)
+   if (BSSIZE(ninstr) >= sizeof(definedbuf))
       defined = xcalloc(sizeof *defined * BSSIZE(ninstr));
    npendingphi = 0;
 

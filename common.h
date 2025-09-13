@@ -377,6 +377,7 @@ xbgrow_(void **p, size_t n)
 
 struct arena *newarena(uint chunksiz);
 void *alloc(struct arena **, uint siz, uint align);
+void *allocz(struct arena **, uint siz, uint align);
 static inline void *
 alloccopy(struct arena **arena, const void *src, uint siz, uint align)
 {

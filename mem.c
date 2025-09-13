@@ -117,6 +117,12 @@ alloc(struct arena **par, uint siz, uint align)
    return new->mem;
 }
 
+void *
+allocz(struct arena **par, uint siz, uint align)
+{
+   return memset(alloc(par, siz, align), 0, siz);
+}
+
 void
 freearena(struct arena *ar)
 {
