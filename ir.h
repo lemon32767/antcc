@@ -157,6 +157,7 @@ struct mctarg {
    short gpr0, /* first gpr */
          ngpr, /* gpr count */
          bpr,  /* frame/base pointer reg */
+         gprscratch, fprscratch, /* scratch registers for regalloc */
          fpr0, /* first fpr */
          nfpr; /* fpr count */
    regset rcallee, /* callee-saved */

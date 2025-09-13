@@ -139,6 +139,7 @@ static const char amd64_rnames[][6] = {
 const struct mctarg t_amd64_sysv = {
    .gpr0 = RAX, .ngpr = R15 - RAX + 1,
    .bpr = RBP,
+   .gprscratch = R11, .fprscratch = XMM15,
    .fpr0 = XMM0, .nfpr = XMM15 - XMM0 + 1,
    .rcallee = 1<<RBX | 1<<R12 | 1<<R13 | 1<<R14 | 1<<R15,
    .rglob = 1<<RSP | 1<<RBP,
