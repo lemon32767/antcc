@@ -2117,6 +2117,8 @@ declarator(struct declstate *st, struct comp *cm) {
             error(&decl.span, "function cannot return array type", decl.ty);
          else if (decl.ty.t != TYVOID && isincomplete(decl.ty))
             error(&decl.span, "function cannot return incomplete type (%ty)", decl.ty);
+         if (l->kandr && ccopt.cstd > STDC89)
+            warn(&l->span, "function declaration without a prototype is deprecated");
          decl.ty = mkfntype(decl.ty, l->npar, l->param, l->pqual, l->kandr, l->variadic);
          if (l->param != declparamtmp) free(l->param);
          if (l->pqual != declpqualtmp) free(l->pqual);
