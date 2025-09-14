@@ -14,8 +14,8 @@ int : 0;
    short a:15;
 };
 
-int bitf(struct foo q) {
-   return q.x + q.y - q.k + q.a;
+int bitf(struct foo *q) {
+   return q->x + q->y - q->k + q->a;
 }
 
 int main() {

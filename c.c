@@ -2710,10 +2710,10 @@ getbits(struct function *fn, const union type ty, union ref addr, uint off, int 
       }
    } else {
       /* shift left and shift right arithmetic to propagate sign bit */
-      int sh = 8*typesize(ty) - bitsiz - bitoff;
+      int sh = 8*cls2siz[k] - bitsiz - bitoff;
       if (sh)
          tmp = addinstr(fn, mkinstr(Oshl, k, .l = tmp, .r = mkintcon(KI4, sh)));
-      sh = 8*typesize(ty) - sh + bitoff;
+      sh = 8*cls2siz[k] - sh + bitoff;
       if (sh)
          tmp = addinstr(fn, mkinstr(Osar, k, .l = tmp, .r = mkintcon(KI4, sh)));
    }
