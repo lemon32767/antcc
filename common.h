@@ -344,8 +344,9 @@ struct arena {
 #define vec_of(T) struct { T *p; int _cap; uint n; }
 
 /* libc *alloc wrappers */
-extern void *xcalloc(size_t n, const char *);
-extern void *xrealloc(void *, size_t n, const char *);
+void *xcalloc(size_t n, const char *);
+void *xrealloc(void *, size_t n, const char *);
+void free(void *);
 #define xcalloc(n) xcalloc(n, __func__)
 #define xrealloc(p,n) xrealloc(p, n, __func__)
 
@@ -383,13 +384,12 @@ alloccopy(struct arena **arena, const void *src, uint siz, uint align)
 {
    return memcpy(alloc(arena, siz, align), src, siz);
 }
-void freearena(struct arena *);
+void freearena(struct arena **);
 
 void vinit_(void **p, int *pcap, void *inlbuf, int cap, uint siz);
 void vpush_(void **p, int *pcap, uint *pn, uint siz);
 void *vpushn_(void **p, int *pcap, uint *pn, uint siz, const void *dat, uint ndat);
 void vresize_(void **p, int *pcap, uint *pn, uint siz, uint N);
-extern void free(void *);
 #define VINIT(inlbuf, Cap) { (inlbuf), (Cap) }
 #define vfree(v) ((v)->_cap < 0 ? free((v)->p) : (void)0, memset((v), 0, sizeof*(v)))
 #define vinit(v, inlbuf, Cap) (vfree(v), vinit_((void **)&(v)->p, &(v)->_cap, inlbuf, (Cap), sizeof *(v)->p))

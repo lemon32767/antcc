@@ -3154,7 +3154,7 @@ stmt(struct comp *cm, struct function *fn)
             useblk(fn, end);
             expreffects(fn, &ex);
             putbranch(fn, begin);
-            freearena(atmpp);
+            freearena(&atmpp);
          } else if (!terminates) putbranch(fn, begin);
          useblk(fn, fl);
       }
@@ -3222,7 +3222,7 @@ stmt(struct comp *cm, struct function *fn)
       EMITS expreffects(fn, &ex);
       break;
    }
-   freearena(cm->exarena);
+   freearena(&cm->exarena);
    return fn->curblk == NULL;
 }
 
@@ -3459,8 +3459,8 @@ docomp(struct comp *cm)
          } else {
             if (ccopt.dbg.p && decl.ty.t) efmt("type %ty\n", decl.ty);
          }
-         freearena(cm->fnarena);
-         freearena(cm->exarena);
+         freearena(&cm->fnarena);
+         freearena(&cm->exarena);
       } while (st.more);
    }
 }

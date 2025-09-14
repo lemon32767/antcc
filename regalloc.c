@@ -1107,7 +1107,6 @@ regalloc(struct function *fn)
       irdump(fn);
    }
    fn->regusage = globusage;
-   freearena(ra.arena);
 }
 
 

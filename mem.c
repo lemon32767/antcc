@@ -124,16 +124,17 @@ allocz(struct arena **par, uint siz, uint align)
 }
 
 void
-freearena(struct arena *ar)
+freearena(struct arena **par)
 {
    struct arena *prev;
-   for (; ar; ar = prev) {
-      prev = ar->prev;
-      if (ar->dyn)
-         free(ar);
+   for (; *par; *par = prev) {
+      prev = (*par)->prev;
+      if ((*par)->dyn)
+         free(*par);
       else {
          assert(!prev);
-         ar->n = 0;
+         (*par)->n = 0;
+         return;
       }
    }
 }
