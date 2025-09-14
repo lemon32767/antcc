@@ -78,6 +78,8 @@ struct declstate {
                    call pdecl() to advance state before checking .more */
         funcdef, /* caller should parse an func definition ('{' <body> '}').
                     the declaration list is finished. */
+        bitf, /* caller should parse a bitfield size and
+                 call pdecl() to advance state before checking .more */
         tagdecl;
    const char **pnames; /* param names for function definition */
    struct span *pspans; /* param spans ditto */
@@ -319,13 +321,13 @@ static void
 incdeccheck(enum toktag tt, const struct expr *ex, const struct span *span)
 {
    if (!isscalar(ex->ty))
-      error(&ex->span, "invalid operand to %tt (%ty)", tt, ex->ty);
+      error(&ex->span, "invalid operand to %tt '%ty'", tt, ex->ty);
    else if (!islvalue(ex))
       error(&ex->span, "operand to %tt is not an lvalue", tt);
    else if (ex->ty.t == TYPTR && isincomplete(typechild(ex->ty)))
-      error(span, "arithmetic on pointer to incomplete type (%ty)", ex->ty);
+      error(span, "arithmetic on pointer to incomplete type '%ty'", ex->ty);
    else if (ex->ty.t == TYPTR && typechild(ex->ty).t == TYFUNC)
-      error(span, "arithmetic on function pointer (%ty)", ex->ty);
+      error(span, "arithmetic on function pointer '%ty'", ex->ty);
 }
 
 static bool /* 6.5.4 Cast operators */
@@ -348,18 +350,18 @@ subscriptcheck(const struct expr *ex, const struct expr *rhs, const struct span 
    union type ty;
    if (ex->ty.t == TYPTR || ex->ty.t == TYARRAY) {
       if (isincomplete(ty = typechild(ex->ty))) {
-         error(span, "cannot dereference pointer to incomplete type (%ty)", ty);
+         error(span, "cannot dereference pointer to incomplete type '%ty'", ty);
          ty = mktype(TYINT);
       } else if (ty.t == TYFUNC) {
          error(span, "subscripted value is pointer to function");
          ty = mktype(TYINT);
       }
    } else {
-      error(&ex->span, "subscripted value is not pointer-convertible (%ty)", ex->ty);
+      error(&ex->span, "subscripted value is not pointer-convertible '%ty'", ex->ty);
       ty = mktype(TYINT);
    }
    if (!isint(rhs->ty))
-      error(&rhs->span, "array subscript is not integer (%ty)", rhs->ty);
+      error(&rhs->span, "array subscript is not integer ('%ty')", rhs->ty);
    return ty;
 }
 
@@ -367,9 +369,9 @@ static void /* 6.5.3.4 The sizeof operator */
 sizeofcheck(const struct span *span, union type ty)
 {
    if (isincomplete(ty))
-      error(span, "cannot apply sizeof to incomplete type (%ty)", ty);
+      error(span, "cannot apply sizeof to incomplete type '%ty'", ty);
    else if (ty.t == TYFUNC)
-      error(span, "cannot apply sizeof to function type (%ty)", ty);
+      error(span, "cannot apply sizeof to function type '%ty'", ty);
 }
 
 static bool /* 6.5.8 Relational operators */
@@ -429,7 +431,7 @@ condtype(const struct expr *a, const struct expr *b)
 static void
 bintypeerr(const struct span *span, enum toktag tt, union type lhs, union type rhs)
 {
-   error(span, "bad operands to %tt (%ty, %ty)", tt, lhs, rhs);
+   error(span, "bad operands to %tt: %'ty', '%ty'", tt, lhs, rhs);
 }
 
 enum binopclass { /* binary operator type-checking classes */
@@ -481,11 +483,11 @@ bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct e
       else if (lhs->qual & QCONST)
          error(&lhs->span, "cannot assign to const-qualified lvalue (%tq)", ty, lhs->qual);
       else if (isincomplete(ty))
-         error(&lhs->span, "cannot assign to incomplete type (%ty)", ty);
+         error(&lhs->span, "cannot assign to incomplete type '%ty'", ty);
       else if (ty.t == TYARRAY)
-         error(&lhs->span, "cannot assign to array type (%ty)", ty);
+         error(&lhs->span, "cannot assign to array type '%ty'", ty);
       else if (ty.t == TYFUNC)
-         error(&lhs->span, "cannot assign to function designator (%ty)", lhs->ty);
+         error(&lhs->span, "cannot assign to function designator '%ty'", lhs->ty);
    }
    switch (k &~ BCSET) {
    case 0:
@@ -513,20 +515,20 @@ bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct e
          /* ptr +/- int */
          union type pointee = typechild(ty);
          if (isincomplete(pointee))
-            error(span, "arithmetic on pointer to incomplete type (%ty)", ty);
+            error(span, "arithmetic on pointer to incomplete type '%ty'", ty);
          else if (pointee.t == TYFUNC)
-            error(span, "arithmetic on function pointer (%ty)", ty);
+            error(span, "arithmetic on function pointer '%ty'", ty);
          ty = typedecay(ty);
       } else if (tt == '-' && isptrcvt(ty) && isptrcvt(rhs->ty)) {
          /* ptr - ptr */
          union type pointee1 = typechild(typedecay(ty)),
                     pointee2 = typechild(typedecay(rhs->ty));
          if (isincomplete(pointee1))
-            error(span, "arithmetic on pointer to incomplete type (%ty)", ty);
+            error(span, "arithmetic on pointer to incomplete type '%ty'", ty);
          else if (pointee1.t == TYFUNC)
-            error(span, "arithmetic on function pointer (%ty)", lhs->ty);
+            error(span, "arithmetic on function pointer '%ty'", lhs->ty);
          else if (pointee1.bits != pointee2.bits) {
-            error(span, "arithmetic on incompatible pointer types (%ty, %ty)",
+            error(span, "arithmetic on incompatible pointer types: '%ty', '%ty'",
                   ty, rhs->ty);
          }
          ty = mktype(targ_ptrdifftype);
@@ -650,7 +652,7 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
             td->nmemb, td->nmemb != 1 ? "s" : "");
       printsig = 1;
    }
-   if (printsig) note(&callee->span, "function signature is %ty", ty);
+   if (printsig) note(&callee->span, "function signature is '%ty'", ty);
 
    ex = mkexpr(ECALL, span, ty.t == TYFUNC ? td->ret : ty, .narg = args.n,
                .sub = alloc(&cm->exarena, (args.n+1)*sizeof(struct expr), 0));
@@ -834,7 +836,7 @@ Postfix:
       goto Postfix;
    case TKARROW:
       if (ex.ty.t != TYPTR && ex.ty.t != TYARRAY)
-         error(&ex.span, "operand to -> is not a pointer (%ty)", ex.ty);
+         error(&ex.span, "operand to -> is not a pointer: '%ty'", ex.ty);
       else
          ex = mkexpr(EDEREF, ex.span, typechild(ex.ty), .qual = ex.ty.flag & TFCHLDQUAL,
                      .sub = exprdup(cm, &ex));
@@ -847,7 +849,7 @@ Postfix:
       if (!joinspan(&span.ex, tk.span.ex) || !joinspan(&span.ex, tk2.span.ex))
          span = tk.span;
       if (!isagg(ex.ty)) {
-         error(&span, "member access operand is not an aggregate (%ty)%s", ex.ty,
+         error(&span, "member access operand is not an aggregate: '%ty'%s", ex.ty,
                ex.ty.t == TYPTR && isagg(typechild(ex.ty)) ? "; did you mean to use '->'?" : "");
       } else {
          struct fielddata fld = {.t = mktype(TYINT)};
@@ -887,7 +889,7 @@ Postfix:
          Alu:
             ty = ek == ELOGNOT ? mktype(TYINT) : cvtarith(ex.ty, ex.ty);
             if (!ty.t || (ek == ECOMPL && !isint(ty))) {
-               error(&tk.span, "invalid operand to %'tk (%ty)", &tk, ex.ty);
+               error(&tk.span, "invalid operand to %'tk '%ty'", &tk, ex.ty);
                ty = mktype(TYINT);
             }
             ex = mkexpr(ek, span, ty, .sub = exprdup(cm, &ex));
@@ -902,11 +904,11 @@ Postfix:
             if (ex.ty.t == TYPTR || ex.ty.t == TYARRAY) {
                ty = typechild(ex.ty);
                if (isincomplete(ty)) {
-                  error(&span, "cannot dereference pointer to incomplete type (%ty)", ty);
+                  error(&span, "cannot dereference pointer to incomplete type '%ty'", ty);
                   ty = mktype(TYINT);
                }
             } else {
-               error(&span, "invalid operand to unary * (%ty)", ex.ty);
+               error(&span, "invalid operand to unary * '%ty'", ex.ty);
                ty = mktype(TYINT);
             }
             ex = mkexpr(EDEREF, span, ty, .qual = ex.ty.flag & TFCHLDQUAL,
@@ -955,7 +957,7 @@ Postfix:
          span.sl = tk.span.sl;
          span.ex = ex.span.ex;
          if (!isscalar(ex.ty))
-            error(&ex.span, "?: condition is not a scalar type (%ty)", ex.ty);
+            error(&ex.span, "?: condition is not a scalar type: '%ty'", ex.ty);
          tmp = commaexpr(cm);
          joinspan(&tk.span.ex, tmp.span.ex);
          expect(cm, ':', NULL);
@@ -965,7 +967,7 @@ Postfix:
             span.ex = tk.span.ex;
          ty = condtype(&tmp, &rhs);
          if (!ty.t) {
-            error(&span, "incompatible types in conditional expression (%ty, %ty)", tmp.ty, rhs.ty);
+            error(&span, "incompatible types in conditional expression: '%ty', '%ty'", tmp.ty, rhs.ty);
             ty = tmp.ty;
          }
          sub = alloc(&cm->exarena, 3 * sizeof*sub, 0);
@@ -980,7 +982,13 @@ Postfix:
 static struct expr
 expr(struct comp *cm)
 {
-   return exprparse(cm, 2, NULL); /* non-comma expr */
+   return exprparse(cm, bintab['='].prec, NULL); /* non-comma expr */
+}
+
+static struct expr
+constantexpr(struct comp *cm)
+{
+   return exprparse(cm, bintab['?'].prec, NULL); /* conditional-expr */
 }
 
 static struct expr
@@ -1447,7 +1455,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
                warn(&span, "empty initializer in %M is an extension");
             }
          } else if (ip->sub->ty.t && !objectp(ip->sub->ty)) {
-            warn(&span, "brace initializer for scalar object (%ty)", ip->sub->ty);
+            warn(&span, "brace initializer for scalar object '%ty'", ip->sub->ty);
          }
          continue;
       } else {
@@ -1498,11 +1506,13 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
    struct token tk;
    union type t;
    struct span flexspan;
+   uint bitoff, bitsiz, bitfbyteoff;
    struct namedfield fbuf[32];
    vec_of(struct namedfield) fld = VINIT(fbuf, arraylength(fbuf));
    struct typedata td = {tt};
    bool isunion = tt == TYUNION;
    const char *tag = isunion ? "union" : "struct";
+   uint bitftypesiz = 0;
 
    while (!match(cm, &tk, '}')) {
       struct declstate st = { DFIELD };
@@ -1516,16 +1526,64 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
             td.flexi = 1;
             flexspan = decl.span;
          } else if (isincomplete(decl.ty)) {
-            error(&decl.span, "field has incomplete type (%ty)", decl.ty);
+            error(&decl.span, "field has incomplete type '%ty'", decl.ty);
          } else if (decl.ty.t == TYFUNC)  {
-            error(&decl.span, "field has function type (%ty)", decl.ty);
+            error(&decl.span, "field has function type '%ty'", decl.ty);
+         }
+         bitsiz = 0;
+         if (st.bitf) {
+            struct expr ex = expr(cm);
+            const char *name = decl.name ? decl.name : "<anonymous>";
+            if (!isint(decl.ty)) {
+               error(&decl.span, "bit-field '%s' has non-integer type '%ty'", name, decl.ty);
+            } else if (!isint(ex.ty)) {
+               error(&ex.span, "integer constant expression has non-integer type '%ty'", decl.ty);
+            } else if (!eval(&ex, EVINTCONST)) {
+               error(&ex.span, "cannot evaluate integer constant expression");
+            } else if (ex.i < 0) {
+               error(&ex.span, "bit-field '%s' has negative width '%ld'", name, ex.i);
+            } else if (ex.i > 8*typesize(decl.ty)) {
+               error(&ex.span, "width of bit-field '%s' (%ld) exceeds width of type (%d)",
+                               name, ex.i, 8*typesize(decl.ty));
+            } else if (ex.i == 0 && decl.name) {
+               error(&ex.span, "named bit-field '%s' has zero width", name);
+            } else {
+               bitsiz = ex.i;
+               if (bitsiz == 0) {
+                  if (bitftypesiz) {
+                     bitfbyteoff += bitftypesiz;
+                     bitfbyteoff = alignup(bitfbyteoff, typealign(decl.ty));
+                  }
+                  bitoff = 0;
+               } else if (bitftypesiz && bitftypesiz < typesize(decl.ty)) {
+                  /* end of previous bitfield */
+                  bitoff = 0;
+                  bitfbyteoff += bitftypesiz;
+               } else if (!bitftypesiz) {
+                  bitoff = 0;
+                  bitfbyteoff = alignup(td.siz, typealign(decl.ty));
+               } else if (bitoff + bitsiz > 8*bitftypesiz) {
+                  /* no straddling boundaries */
+                  bitoff = 0;
+                  bitfbyteoff += bitftypesiz;
+               }
+               if (typesize(decl.ty) > bitftypesiz) bitftypesiz = typesize(decl.ty);
+            }
+            pdecl(&st, cm);
+         } else {
+            bitftypesiz = bitoff = bitsiz = 0;
          }
          if (decl.ty.t) {
             uint align = typealign(decl.ty);
             uint siz = typesize(decl.ty);
-            uint off = isunion ? 0 : alignup(td.siz, align);
-            struct namedfield f = { decl.name, { decl.ty, off, .qual = decl.qual }};
-            if (!decl.name) {
+            uint off = bitftypesiz ? bitfbyteoff : isunion ? 0 : alignup(td.siz, align);
+            struct namedfield f = { decl.name, { decl.ty, off, bitsiz, bitoff, .qual = decl.qual }};
+            if (bitftypesiz && siz != bitftypesiz) while (f.f.bitoff + f.f.bitsiz > 8*siz) {
+               /* adjust bitfields narrower than container type */
+               f.f.off += siz;
+               f.f.bitoff -= 8*siz;
+            }
+            if (!decl.name && !bitftypesiz) {
                if (!isagg(decl.ty) || ttypenames[typedata[decl.ty.dat].id]) {
                   warn(&decl.span, "declaration does not declare anything");
                   continue;
@@ -1534,7 +1592,10 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
                        decl.ty.t == TYUNION ? "union" : "struct");
                }
             }
-            vpush(&fld, f);
+            if (bitftypesiz &&decl.name)
+               efmt("bitf %s %d[%d:%d]\n", decl.name,f.f.off, f.f.bitoff, f.f.bitoff+f.f.bitsiz-1);
+            if (decl.name || !bitftypesiz)
+               vpush(&fld, f);
             td.anyconst |= decl.qual & QCONST;
             if (isagg(decl.ty)) {
                td.anyconst |= typedata[decl.ty.dat].anyconst;
@@ -1546,6 +1607,7 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
             else
                td.siz = off + siz;
             td.align = td.align < align ? align : td.align;
+            bitoff += bitsiz;
          }
       } while (st.more);
    }
@@ -1648,7 +1710,7 @@ buildenum(struct comp *cm, const char *name, const struct span *span)
    }
    if (!td.backing) {
       td.backing = !somelonglong && ccopt.cstd == STDC89 && ccopt.pedant ? TYLONG : TYVLONG;
-      warn(&maxvspan, "enumerators exceed range of enum's backing type (%ty)", mktype(td.backing));
+      warn(&maxvspan, "enumerators exceed range of enum's backing type '%ty'", mktype(td.backing));
    }
    if (td.backing >= TYVLONG && !somelonglong && ccopt.cstd == STDC89 && ccopt.pedant)
       warn(span, "enum backing type is '%ty' in %M", mktype(td.backing));
@@ -2105,18 +2167,18 @@ declarator(struct declstate *st, struct comp *cm) {
          break;
       case TYARRAY:
          if (isincomplete(decl.ty))
-            error(&l->span, "array has incomplete element type (%ty)", decl.ty);
+            error(&l->span, "array has incomplete element type '%ty'", decl.ty);
          else if (decl.ty.t == TYFUNC)
-            error(&l->span, "array has element has function type (%ty)", decl.ty);
+            error(&l->span, "array has element has function type '%ty'", decl.ty);
          decl.ty = mkarrtype(decl.ty, decl.qual, l->len);
          break;
       case TYFUNC:
          if (decl.ty.t == TYFUNC)
-            error(&decl.span, "function cannot return function type (%ty)", decl.ty);
+            error(&decl.span, "function cannot return function type '%ty'", decl.ty);
          else if (decl.ty.t == TYARRAY)
             error(&decl.span, "function cannot return array type", decl.ty);
          else if (decl.ty.t != TYVOID && isincomplete(decl.ty))
-            error(&decl.span, "function cannot return incomplete type (%ty)", decl.ty);
+            error(&decl.span, "function cannot return incomplete type '%ty'", decl.ty);
          if (l->kandr && ccopt.cstd > STDC89)
             warn(&l->span, "function declaration without a prototype is deprecated");
          decl.ty = mkfntype(decl.ty, l->npar, l->param, l->pqual, l->kandr, l->variadic);
@@ -2180,9 +2242,11 @@ pdecl(struct declstate *st, struct comp *cm) {
    bool staticassertok = iniallowed;
    bool first = 0;
 
-   if (st->varini) {
+   assert(!st->funcdef);
+
+   if (st->varini || st->bitf) {
       memset(&decl, 0, sizeof decl);
-      goto AfterVarIni;
+      goto AfterIniBitf;
    }
 
    if (!st->base.t) {
@@ -2217,6 +2281,10 @@ pdecl(struct declstate *st, struct comp *cm) {
    if (first && st->tagdecl && match(cm, &tk, ';')) {
       decl = (struct decl) { st->base, st->scls, st->qual, st->align, 0, tk.span };
       return decl;
+   } else if (st->kind == DFIELD && match(cm, &tk, ':')) {
+      decl = (struct decl) { st->base, st->scls, st->qual, st->align, 0, tk.span };
+      st->bitf = 1;
+      return decl;
    }
    decl = declarator(st, cm);
 
@@ -2226,10 +2294,13 @@ pdecl(struct declstate *st, struct comp *cm) {
    } else if (first && decl.ty.t == TYFUNC && match(cm, &tk, '{')) {
       st->funcdef = 1;
       return decl;
+   } else if (st->kind == DFIELD && match(cm, &tk, ':')) {
+      st->bitf = 1;
+      return decl;
    }
 
-AfterVarIni:
-   st->varini = 0;
+AfterIniBitf:
+   st->varini = st->bitf = 0;
    st->more = 0;
    if (st->kind != DCASTEXPR && st->kind != DFUNCPARAM) {
       if (match(cm, &tk, ','))
@@ -2620,6 +2691,36 @@ compilecall(struct function *fn, const struct expr *ex)
 }
 
 static union ref
+getbits(struct function *fn, const union type ty, union ref addr, uint off, int bitsiz, int bitoff)
+{
+   enum irclass k = type2cls[ty.t];
+   union ref tmp;
+   uvlong mask;
+
+   if (off > 0)
+      addr = addinstr(fn, mkinstr(Oadd, KPTR, .l = addr, .r = mkintcon(KI4, off)));
+   tmp = genload(fn, ty, addr);
+   if (!issigned(ty)) {
+      /* shift right and mask */
+      if (bitoff > 0)
+         tmp = addinstr(fn, mkinstr(Oslr, k, .l = tmp, .r = mkintcon(KI4, bitoff)));
+      if (bitsiz < 8*typesize(ty)) {
+         mask = bitsiz == 64 ? -1ull : (1ull << bitsiz) - 1;
+         tmp = addinstr(fn, mkinstr(Oand, k, .l = tmp, .r = mkintcon(k, mask)));
+      }
+   } else {
+      /* shift left and shift right arithmetic to propagate sign bit */
+      int sh = 8*typesize(ty) - bitsiz - bitoff;
+      if (sh)
+         tmp = addinstr(fn, mkinstr(Oshl, k, .l = tmp, .r = mkintcon(KI4, sh)));
+      sh = 8*typesize(ty) - sh + bitoff;
+      if (sh)
+         tmp = addinstr(fn, mkinstr(Osar, k, .l = tmp, .r = mkintcon(KI4, sh)));
+   }
+   return tmp;
+}
+
+static union ref
 compileexpr(struct function *fn, const struct expr *ex, bool discard)
 {
    union type ty;
@@ -2647,6 +2748,8 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       return genload(fn, ex->ty, expraddr(fn, ex));
    case EGETF:
       if (discard && !(ex->qual & QVOLATILE)) return NOREF;
+      if (ex->fld.bitsiz)
+         return getbits(fn, ex->ty, expraddr(fn, ex->sub), ex->fld.off, ex->fld.bitsiz, ex->fld.bitoff);
       return genload(fn, ex->ty, expraddr(fn, ex));
    case ECAST:
       if (ex->ty.t == TYVOID) {
@@ -2993,7 +3096,7 @@ stmt(struct comp *cm, struct function *fn)
       ex = commaexpr(cm);
       expect(cm, ')', NULL);
       if (!isscalar(ex.ty))
-         error(&ex.span, "'if' condition is not a scalar (%ty)", ex.ty);
+         error(&ex.span, "'if' condition is not a scalar '%ty'", ex.ty);
       tr = fl = end = NULL;
       EMITS {
          tr = newblk(fn);
@@ -3028,7 +3131,7 @@ stmt(struct comp *cm, struct function *fn)
       ex = commaexpr(cm);
       expect(cm, ')', NULL);
       if (!isscalar(ex.ty))
-         error(&ex.span, "'while' condition is not a scalar (%ty)", ex.ty);
+         error(&ex.span, "'while' condition is not a scalar '%ty'", ex.ty);
       tr = begin = end = NULL;
       /* @begin:
        *   <cond>
@@ -3075,7 +3178,7 @@ stmt(struct comp *cm, struct function *fn)
       ex = commaexpr(cm);
       expect(cm, ')', NULL);
       if (!isscalar(ex.ty))
-         error(&ex.span, "'while' condition is not a scalar (%ty)", ex.ty);
+         error(&ex.span, "'while' condition is not a scalar '%ty'", ex.ty);
       stmtterm(cm);
       EMITS {
          if (!terminates) putbranch(fn, tr);
@@ -3125,7 +3228,7 @@ stmt(struct comp *cm, struct function *fn)
          ex = commaexpr(cm);
          expect(cm, ';', NULL);
          if (!isscalar(ex.ty))
-            error(&ex.span, "'for' condition is not a scalar (%ty)", ex.ty);
+            error(&ex.span, "'for' condition is not a scalar type ('%ty')", ex.ty);
          EMITS {
             tr = newblk(fn);
             condjump(fn, &ex, tr, fl);

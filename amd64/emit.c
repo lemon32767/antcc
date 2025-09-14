@@ -566,6 +566,11 @@ DEFINSTR2(Xsar,
    {4|8, PGPR, PI32, "\xC1", EN_RI8, .ext=7}, /* SAR r32/64, imm */
    {4|8, PGPR, PRCX, "\xD3", EN_R, .ext=7},   /* SAR r32/64, CL */
 )
+DEFINSTR2(Xshr,
+   {4|8, PGPR, P1,   "\xD1", EN_R, .ext=5},   /* SHR r32/64, 1 */
+   {4|8, PGPR, PI32, "\xC1", EN_RI8, .ext=5}, /* SHR r32/64, imm */
+   {4|8, PGPR, PRCX, "\xD3", EN_R, .ext=5},   /* SHR r32/64, CL */
+)
 DEFINSTR2(Xcvtss2sd,
    {-1,  PFPR, PFPR, "\xF3\x0F\x5A", EN_RR}, /* CVTSS2SD xmm, xmm */
    {-1,  PFPR, PMEM, "\xF3\x0F\x5A", EN_RM}, /* CVTSS2SD xmm, xmm */
@@ -900,6 +905,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       break;
    case Oshl: X = Xshl; goto ALU2;
    case Osar: X = Xsar; goto ALU2;
+   case Oslr: X = Xshr; goto ALU2;
    case Oand:
       if (!ins->reg) {
          Xtest(pcode, cls, mkregoper(ins->l), mkimmdatregoper(ins->r));

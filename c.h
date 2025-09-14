@@ -30,7 +30,7 @@ struct expr {
    union {
      struct {
         struct expr *sub;
-        struct {
+        struct exgetfld {
            ushort off;
            uchar bitsiz, bitoff;
         } fld; /* EGETF */
