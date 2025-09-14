@@ -132,6 +132,7 @@ optparse(char **args)
          else if (args[1]) task.out = *++args;
          else goto Bad;
       } else if (*arg == 'f') {
+         /* -fabc / -fno-abc flags */
          const char *flag = arg+1;
          bool set = 1;
          if (!strncmp(flag, "no-", 3)) {
@@ -295,6 +296,8 @@ prihelp(void)
        " -o <file> \tPlace the output into <file>\n"
        " -v     \tVerbose output\n"
        " -c     \tEmit object file but do not link\n"
+       " -fpie  \tEmit code for position independent executable\n"
+       " -fpic  \tEmit position independent code\n"
    );
 }
 
