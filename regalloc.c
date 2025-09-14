@@ -709,6 +709,8 @@ linearscan(struct rega *ra)
             if (it->alloc.t == AREG) {
                ra->free |= 1<<it->alloc.a;
                //DBG("   unblock %s\n", mctarg->rnames[it->reg]);
+            } else if (it->alloc.t == ASTACK) {
+               freestk(ra, it->alloc.a);
             }
          } else
          /* it does not cover position? */
@@ -733,6 +735,9 @@ linearscan(struct rega *ra)
             *lnk = next;
             it->next = handled;
             handled = it;
+            if (it->alloc.t == ASTACK) {
+               freestk(ra, it->alloc.a);
+            }
          } else
          /* it covers position? */
          if (itcontainspos(it, pos)) {
@@ -789,9 +794,9 @@ linearscan(struct rega *ra)
             /* spill */
             current->alloc = allocstk(ra);
             DBG("%%%d got stk%d\n", this, current->alloc.a);
-            /* move current to handled */
-            current->next = handled;
-            handled = current;
+            /* move current to active */
+            current->next = active;
+            active = current;
             continue;
          }
 
@@ -804,6 +809,7 @@ linearscan(struct rega *ra)
             reg = current->rhint;
             goto GotReg;
          } else {
+            /* for two-address instructions, try to use the reg of left arg */
             if (ins->op != Ophi && (opnarg[ins->op] == 1 || (opnarg[ins->op] == 2 && ins->inplace))) {
                DBG(" %%%d try %d,%d\n", this, ins->l.t,ins->l.i);
                if (ins->l.t == RREG && rstest(free, reg = ins->l.i))
@@ -812,6 +818,7 @@ linearscan(struct rega *ra)
                if ((reg = instrtab[ins->l.i].reg-1) >= 0)
                if (rstest(free, reg))
                   goto GotReg;
+            /* for phi, try to use reg of any arg */
             } else if (ins->op == Ophi) {
                union ref *arg = phitab.p[ins->l.i];
                for (int i = 0; i < xbcap(arg); ++i) {
@@ -907,14 +914,14 @@ regalloc(struct function *fn)
    id = 0;
    blk = fn->entry;
    do {
-      struct interval *it;
-      struct alloc *alloc;
       bool allnops = 1;
 
       blk->id = id++;
       for (int curi = 0; curi < blk->ins.n; ++curi) {
          int t = blk->ins.p[curi];
          struct instr *ins = &instrtab[t];
+         struct interval *it;
+         struct alloc *alloc;
          union ref *targs[4];
          int ntargs = 0;
          int nspill = 0;
@@ -923,6 +930,9 @@ regalloc(struct function *fn)
          for (int i = 0; i < 2; ++i) {
             union ref *r = &i[&ins->l];
             if (r->t == RADDR) {
+               /* XXX mutating hashed addr.. should be fine though (because
+                * new RADDR shouldn't be created after regalloc)
+                * maybe hashing them in the first place is unnecessary */
                struct addr *a = &addrht[r->i];
                targs[ntargs++] = &a->base;
                targs[ntargs++] = &a->index;
