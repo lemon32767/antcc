@@ -540,6 +540,14 @@ DEFINSTR2(Xand,
    {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=4}, /* AND r32/64, imm */
    {  8, PGPR, PMEM, "\x23", EN_RM},           /* AND r64, m64 */
 )
+DEFINSTR2(Xior,
+   {4|8, PGPR, PGPR, "\x0B", EN_RR},           /* OR r32/64, r32/64 */
+   {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=1},  /* OR r32/64, imm8 */
+   {4|8, PRAX, PI32, "\x0D", EN_I32},          /* OR eax/rax, imm */
+   {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=1}, /* OR r32/64, imm */
+   {  8, PGPR, PMEM, "\x0B", EN_RM},           /* OR r64, m64 */
+   {4|8, PFPR, PFPR, "\x0F\x57", EN_RR},       /* ORPS xmm, xmm */
+)
 DEFINSTR2(Xxor,
    {4|8, PGPR, PGPR, "\x33", EN_RR},           /* XOR r32/64, r32/64 */
    {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=6},  /* XOR r32/64, imm8 */
@@ -586,6 +594,10 @@ DEFINSTR2(Xcmp,
    {4|8, PRAX, PI32, "\x3D", EN_I32},          /* CMP eax/rax, imm */
    {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=7}, /* CMP r32/64, imm */
    {  8, PGPR, PMEM, "\x3B", EN_RM},           /* CMP r64, m64 */
+   {4  , PFPR, PFPR, "\x0F\x2F", EN_RR},       /* COMISS xmm, xmm */
+   {4  , PFPR, PMEM, "\x0F\x2F", EN_RM},       /* COMISS xmm, m32 */
+   {  8, PFPR, PFPR, "\x66\x0F\x2F", EN_RR},   /* COMISD xmm, xmm */
+   {  8, PFPR, PMEM, "\x66\x0F\x2F", EN_RM},   /* COMISD xmm, m64 */
 )
 DEFINSTR2(Xtest,
    {4|8, PRAX, PI8,  "\xA8", EN_I8},  /* TEST AL, imm8 */
@@ -896,6 +908,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       X = Xand;
       goto ALU2;
    case Oxor: X = Xxor; goto ALU2;
+   case Oior: X = Xior; goto ALU2;
    ALU2:
       dst = mkregoper(ins->l);
       assert(ins->reg-1 == dst.reg);
@@ -943,10 +956,10 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
          Xxor(pcode, KI4, dst, dst);
          regzeroed = 1;
       }
-      if (ins->r.bits != ZEROREF.bits)
-         Xcmp(pcode, cls, dst, src);
-      else
+      if (kisint(ins->cls) && ins->r.bits == ZEROREF.bits)
          Xtest(pcode, cls, dst, dst);
+      else
+         Xcmp(pcode, cls, dst, src);
       if (ins->reg) {
          enum cc cc;
          dst = reg2oper(ins->reg-1);

@@ -2531,7 +2531,6 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
             int boolcon, struct block *const next, struct block *end)
 {
    struct block *tr, *fl;
-   union ref r;
    while (ex->t == ESEQ) {
       expreffects(fn, &ex->sub[0]);
       ex = &ex->sub[1];
@@ -2555,16 +2554,16 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
       useblk(fn, fl);
       condexprrec(fn, &ex->sub[2], phis, -1, end, end);
    } else {
-      r = exprvalue(fn, ex);
+      union ref r = exprvalue(fn, ex), val = r;
       if (boolcon >= 0) {
          if (!next || next == end) {
             boolcon = -1;
-            r = cvt(fn, TYBOOL, ex->ty.t, r);
+            val = cvt(fn, TYBOOL, ex->ty.t, r);
          } else {
-            r = mkref(RICON, boolcon);
+            val = mkref(RICON, boolcon);
          }
       }
-      vpush(&phis->ref, r);
+      vpush(&phis->ref, val);
       if (next && next != end) {
          putcondbranch(fn, r, next, end);
       } else {

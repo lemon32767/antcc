@@ -65,9 +65,12 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          /* add X, INT32MAX+1 -> sub X, INT32MIN */
          ins->op = Oadd + (op == Oadd);
          *r = mkintcon(KI4, -2147483648);
-      } else if ((in_range(op, Ocopy, Omove) || op == Ophi) && kisflt(con->cls) && con->f == 0) {
+      } else if (kisflt(con->cls) && con->f == 0) {
          /* copy of float zero -> regular zero, that emit() will turn into xor x,x */
-         *r = mkref(RICON, 0);
+         if (in_range(op, Ocopy, Omove) || op == Ophi)
+            *r = ZEROREF;
+         else
+            *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, con->cls, ZEROREF));
       } else if (kisflt(con->cls) || con->cls == KI8) {
          /* float immediates & >32b immediates are loaded from memory */
          uchar data[8];
