@@ -3,3 +3,5 @@ obj/
 compile_commands.json
 .cache/
 .gdb_history
+*.o
+a.out

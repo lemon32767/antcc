@@ -22,7 +22,7 @@ obj/%.o: %.c common.h
 	$(CC) $(CFLAGS) -MMD -MP -MT $@ -MF obj/$*.d -c -o $@ $<
 
 clean:
-	$(RM) -r obj/ $(OUT)
+	$(RM) -r obj/ $(OUT) *.o a.out
 
 .PHONY: clean
 
