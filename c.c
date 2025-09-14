@@ -2447,10 +2447,11 @@ genptroff(struct function *fn, enum op op, uint siz, union ref ptr,
    assert(siz);
 
    idx = cvt(fn, targ_sizetype, tt, idx);
-   if (siz ==  1) off = idx;
-   else if (idx.t == RICON)
-      off = mkintcon(cls, idx.i * siz);
-   else if (ispo2(siz))
+   if (siz == 1) off = idx;
+   else if (idx.t == RICON) {
+      if (op == Osub) op = Oadd, idx.i = -idx.i;
+      off = mkintcon(cls, idx.i * (int)siz);
+   } else if (ispo2(siz))
       off = addinstr(fn,
             mkinstr(Oshl, cls, .l = idx, .r = mkintcon(cls, ilog2(siz))));
    else

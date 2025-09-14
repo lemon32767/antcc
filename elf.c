@@ -118,6 +118,9 @@ static const ushort relktab[][NRELOCKIND] = {
       [REL_ABS32]   = 10, /* R_X86_64_32 */
       [REL_ABS32S]  = 11, /* R_X86_64_32S */
       [REL_PCREL32] = 2, /* R_X86_64_PC32 */
+      [REL_PLT32]   = 4, /* R_X86_64_PLT32 */
+      [REL_GOTPCRELX]     = 41, /* R_X86_64_GOTPCRELX */
+      [REL_GOTPCRELX_REX] = 42, /* R_X86_64_REX_GOTPCRELX */
    }
 };
 
@@ -132,7 +135,7 @@ elfreloc(const char *sym, enum relockind kind, enum section section, uint off, v
    case Sdata:   ++ndatarel; break;
    }
    assert(kind < NRELOCKIND);
-   vpush(&relocs, ((struct reloc) { section, relktab[mctarg->isa][kind], snam, off, addend}));
+   vpush(&relocs, ((struct reloc) { section, relktab[mctarg->isa][kind], snam, off, addend }));
 }
 
 static void

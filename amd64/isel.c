@@ -44,6 +44,13 @@ static const uchar opflags[] = {
 static int iflagsrc = -1;
 
 static void
+picfixsym(union ref *r, struct block *blk, int *curi)
+{
+   if (!ccopt.pic || !isaddrcon(*r)) return;
+   *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, .l = *r));
+}
+
+static void
 fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
 {
    int sh;
@@ -72,6 +79,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
             wr32le(data, pun.i);
          }
          *r = mkdatref(NULL, siz, /*align*/siz, data, siz, /*deref*/1);
+         picfixsym(r, blk, curi);
       } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls))
          goto DivImm;
    } else if (r->t == RICON && in_range(op, Odiv, Ourem) && kisint(ins->cls)) {
@@ -195,9 +203,7 @@ aadd(struct addr *addr, union ref r)
    } else if (isnumcon(r)) {
       return acon(addr, r);
    } else if (isaddrcon(r)) {
-      /* XXX PIC */
       if (!addr->base.bits && !isaddrcon(addr->index)) addr->base = r;
-      else if (!addr->index.bits && !isaddrcon(addr->base)) addr->index = r;
       else return 0;
    } else if (r.t == RREG) {
       /* temporaries are single assignment, but register aren't, so they can't be *
@@ -212,7 +218,7 @@ aadd(struct addr *addr, union ref r)
 }
 
 static bool
-fuseaddr(union ref *r)
+fuseaddr(union ref *r, struct block *blk, int *curi)
 {
    struct addr addr = { 0 };
 
@@ -220,6 +226,15 @@ fuseaddr(union ref *r)
    if (isaddrcon(*r)) return 1;
    if (r->t != RTMP) return 0;
    if (!aadd(&addr, *r)) return 0;
+
+   if (ccopt.pic || (ccopt.pie && isaddrcon(addr.base) && addr.index.bits)) {
+      /* pic needs to load from GOT */
+      /* pie cannot encode RIP-relative address with index register */
+      /*     first load symbol address into a temp register */
+      union ref temp = mkaddr((struct addr){.base = addr.base, .disp = ccopt.pic ? 0 : addr.disp});
+      addr.base = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, .l = temp));
+      if (!ccopt.pic) addr.disp = 0;
+   }
 
    *r = mkaddr(addr);
    return 1;
@@ -318,7 +333,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          /* sub x,1 -> dec x */
          ins->op = op = Oxdec;
          ins->r = NOREF;
-      } else if (iscon(ins->l)) {
+      } else if (isintcon(ins->l)) {
          /* sub imm, x -> sub x, imm; neg x */
          struct instr sub = *ins;
          rswap(sub.l, sub.r);
@@ -333,7 +348,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
             temp.op = Ocopy;
             temp.cls = ins->cls;
             temp.l = mkref(RTMP, ins - instrtab);
-            if (fuseaddr(&temp.l)) {
+            if (fuseaddr(&temp.l, blk, curi)) {
                *ins = temp;
                break;
             }
@@ -362,19 +377,21 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       if (!(in_range(op, Omul, Oumul) && kisint(ins->cls) && isimm32(ins->r))) /* for (I)MUL r,r/m,imm */
          ins->inplace = 1;
       if (iscon(ins->l))
-         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, concls(ins->l), ins->l));
+         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
       if (ins->r.bits)
    case Omove:
          fixarg(&ins->r, ins, blk, curi);
       break;
    case Oloads1: case Oloadu1: case Oloads2: case Oloadu2:
    case Oloads4: case Oloadu4: case Oloadi8: case Oloadf4: case Oloadf8:
-      if (!fuseaddr(&ins->l) && ins->l.t != RTMP && ins->l.t != RREG)
+      if (!fuseaddr(&ins->l, blk, curi) && ins->l.t != RTMP && ins->l.t != RREG)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->l));
+      picfixsym(&ins->l, blk, curi);
       break;
    case Ostore1: case Ostore2: case Ostore4: case Ostore8:
-      if (!fuseaddr(&ins->l) && ins->l.t != RTMP && ins->l.t != RREG)
+      if (!fuseaddr(&ins->l, blk, curi) && ins->l.t != RTMP && ins->l.t != RREG)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->l));
+      picfixsym(&ins->l, blk, curi);
       fixarg(&ins->r, ins, blk, curi);
       break;
    case Ocvtf4f8: case Ocvtf8f4: case Ocvtf4s: case Ocvtf8s:

@@ -131,6 +131,16 @@ optparse(char **args)
          if (arg[1]) task.out = arg+1;
          else if (args[1]) task.out = *++args;
          else goto Bad;
+      } else if (*arg == 'f') {
+         const char *flag = arg+1;
+         bool set = 1;
+         if (!strncmp(flag, "no-", 3)) {
+            set = 0;
+            flag += 3;
+         }
+         if (!strcmp(flag, "pie") || !strcmp(flag, "PIE")) ccopt.pie = set;
+         else if (!strcmp(flag, "pic") || !strcmp(flag, "PIC")) ccopt.pic = set;
+         else goto Bad;
       } else if (!strcmp(arg, "v") || !strcmp(arg, "-verbose")) {
          task.verbose = 1;
       } else if (!strcmp(arg, "c")) {
@@ -242,8 +252,9 @@ dolink(void)
    vpush(&cmd, "/bin/gcc");
    if (task.outft == OFTdll) {
       vpush(&cmd, "-shared");
+   } else if (task.outft == OFTexe) {
+      vpush(&cmd, ccopt.pie ? "-pie" : "-no-pie");
    }
-   vpush(&cmd, "-no-pie");
    vpush(&cmd, "-o");
    vpush(&cmd, task.out);
    assert(task.ninf > 0);
@@ -335,6 +346,7 @@ main(int argc, char **argv)
    /* setup defaults */
    detectcolor();
    ccopt.cstd = STDC99;
+   ccopt.pie = 1;
 
    /* parse cli ags */
    optparse(argv);

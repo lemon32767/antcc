@@ -240,14 +240,21 @@ opermatch(enum operpat pat, struct oper oper)
 #define DS(S) D(S, sizeof S - 1)
 
 static bool usebp; /* use RBP? */
+static const char *curfnsym;
+static uchar *fnstart;
 
 /* Given an instruction description table, find the first entry that matches
  * the operands (where dst, src are the operands in intel syntax order) and encode it */
 static void
 encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct oper dst, struct oper src)
 {
-   const uchar *opc; int nopc, mod, rex;
-   bool sib = 0; uchar reg; struct oper mem; const struct desc *en = NULL;
+   const uchar *opc;
+   int nopc, mod, rex;
+   const char *sym;
+   uchar reg;
+   struct oper mem;
+   bool sib = 0;
+   const struct desc *en = NULL;
 
    for (int i = 0; i < ntab; ++i) {
       if ((tab[i].psiz & cls2siz[k]) && opermatch(tab[i].ptd, dst) && opermatch(tab[i].pts, src)) {
@@ -313,16 +320,17 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       else if (en->r8 && in_range(reg, RSP, RDI)) B(0x40);
 
       if (mem.t == OSYM) {
-         /* XXX PIC */
          D(opc, nopc);
          if (mem.cindex == NOINDEX) {
             /* %rip(var) */
             static uchar offs[NOPERENC] = { [EN_MI8] = 1, [EN_MI16] = 2, [EN_MI32] = 4 };
+            enum relockind r = (!conht[mem.con].deref && ccopt.pic) ? (rex ? REL_GOTPCRELX : REL_GOTPCRELX_REX) : REL_PCREL32;
             int off = -4 - offs[en->operenc];
             B(/*mod 0*/ (reg & 7) << 3 | RBP);
-            objreloc(xcon2sym(mem.con), REL_PCREL32, Stext, *pcode - objout.textbegin, mem.disp + off);
+            objreloc(xcon2sym(mem.con), r, Stext, *pcode - objout.textbegin, mem.disp + off);
          } else {
             /* var(,%reg,shift) */
+            assert(!ccopt.pic && !ccopt.pie && "cannot encode [RIP-rel + REG] for position independent");
             B(/*mod 0*/ (reg & 7) << 3 | RSP);
             B(mem.cshift << 6 | mem.cindex << 3 | RBP); /* SIB [index*s + disp32] */
             objreloc(xcon2sym(mem.con), REL_ABS32S, Stext, *pcode - objout.textbegin, mem.disp);
@@ -393,8 +401,15 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       if (rex) B(0x40 | rex);
       D(opc, nopc);
       assert(dst.t == OSYM);
-      objreloc(xcon2sym(dst.con), REL_PCREL32, Stext, *pcode - objout.textbegin, -4);
-      I32(0);
+      sym = xcon2sym(dst.con);
+      if (sym != curfnsym) {
+         enum relockind r = (ccopt.pie|ccopt.pic) ? REL_PLT32 : REL_PCREL32;
+         objreloc(sym, r, Stext, *pcode - objout.textbegin, -4);
+         I32(0);
+      } else {
+         /* self-recursive call */
+         I32(fnstart - *pcode - 4);
+      }
       break;
    }
 }
@@ -478,6 +493,7 @@ DEFINSTR2(Xxchg,
 )
 DEFINSTR2(Xlea,
    {4|8, PGPR, PMEM, "\x8D", EN_RM}, /* LEA r32/64,m32/64 */
+   {  8, PGPR, PSYM, "\x8D", EN_RM}, /* LEA rel32 */
 )
 DEFINSTR2(Xadd,
    {4|8, PGPR, PGPR, "\x03", EN_RR},   /* ADD r32/64, r32/64 */
@@ -764,12 +780,22 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       }
       /* normal (not 2-address) case */
    Lea:
+      if (isaddrcon(addr->base) && ccopt.pic) {
+         assert(!addr->disp && !addr->index.bits);
+         val = addr->base;
+         goto GOTLoad;
+      }
       Xlea(pcode, cls, dst, ref2oper(val));
    } else if (val.bits == ZEROREF.bits && dst.t == OREG && !flagslivep(blk, curi)) {
       /* dst = 0 -> xor dst, dst; but only if it is ok to clobber flags */
       Xxor(pcode, kisint(cls) ? KI4 : cls, dst, dst);
    } else if (isaddrcon(val)) {
-      Xlea(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));
+      if (ccopt.pic) GOTLoad:
+         /* for  mov reg, [rip(sym@GOTPCREL)] */ 
+         Xmov(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));
+      else
+         /* for  lea reg, [rip(sym)] */ 
+         Xlea(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));
    } else {
       struct oper src = mkimmdatregoper(val);
       if (memcmp(&dst, &src, sizeof dst) != 0)
@@ -1067,7 +1093,6 @@ emitbin(struct function *fn)
 {
    struct block *blk;
    uchar **pcode = &objout.code;
-   uchar *start;
    int npush = 0;
    uint epilogueaddr = 0;
    bool saverestore;
@@ -1079,7 +1104,8 @@ emitbin(struct function *fn)
    memset(blkaddr, 0, nblkaddr * sizeof *blkaddr);
 
    nops(pcode, 16);
-   start = *pcode;
+   fnstart = *pcode;
+   curfnsym = fn->name;
 
    /** prologue **/
 
@@ -1129,7 +1155,7 @@ emitbin(struct function *fn)
       }
       if (blk->jmp.t == Jret) {
          /* epilogue */
-         uint here = *pcode - start;
+         uint here = *pcode - fnstart;
          if (epilogueaddr) {
             int disp = epilogueaddr - (here + 2);
             if ((uint)(disp + 128) < 256) {/* can use 1-byte displacement? */
@@ -1149,7 +1175,7 @@ emitbin(struct function *fn)
          }
       } else emitbranch(pcode, blk);
    } while ((blk = blk->lnext) != fn->entry);
-   objdeffunc(fn->name, fn->globl, start - objout.textbegin, *pcode - start);
+   objdeffunc(fn->name, fn->globl, fnstart - objout.textbegin, *pcode - fnstart);
 }
 
 void
