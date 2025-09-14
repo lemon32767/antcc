@@ -489,12 +489,9 @@ bsiter(uint *i, struct bitset bs[/*siz*/], uint siz)
 #define bs_each(T, var, bs, siz) for (T (var) = 0; bsiter(&(var), (bs), (siz)); ++(var))
 
 typedef uvlong regset;
-#define rsset(S, r) ((S) | 1ull << (r))
-#define rsclr(S, r) ((S) & ~(1ull << (r)))
+#define rsset(pS, r) (*(pS) |= 1ull << (r))
+#define rsclr(pS, r) (*(pS) &=~ (1ull << (r)))
 #define rstest(S, r) ((S) >> (r) & 1)
-#define rsminus(A, B) ((A) & ~(B))
-#define rsand(A, B) ((A) & (B))
-#define rsunion(A, B) ((A) | (B))
 static inline bool
 rsiter(int *i, uvlong rs)
 {

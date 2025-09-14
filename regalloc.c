@@ -542,13 +542,13 @@ buildintervals(struct rega *ra)
             defreg(ra, ins->l.i, pos);
          } else if (ins->op == Ocall) {
             struct call *call = &calltab.p[ins->r.i];
-            regset rclob = rsminus(rsunion(gpregset, fpregset), rsunion(mctarg->rglob, mctarg->rcallee));
+            regset rclob = (gpregset | fpregset) &~ (mctarg->rglob | mctarg->rcallee);
             ra->fn->isleaf = 0;
 
             for (int i = 0; i < 2; ++i) {
                if (call->abiret[i].ty.bits) {
                   int reg = call->abiret[i].reg;
-                  rclob = rsclr(rclob, reg);
+                  rsclr(&rclob, reg);
                   defreg(ra, reg, pos);
                }
             }
@@ -756,7 +756,7 @@ linearscan(struct rega *ra)
       /* find a register for current */
       {
          int this = intervals->temps.mb.k[current - intervals->temps.v];
-         regset free = rsminus(ra->free, current->fpr ? gpregset : fpregset);
+         regset free = ra->free & (current->fpr ? fpregset : gpregset);
          struct instr *ins = &instrtab[this];
          int reg = 0;
          int end = itrange(current, current->nrange-1).to;
@@ -772,22 +772,22 @@ linearscan(struct rega *ra)
 
             for (int i = 0; i < current->nrange; ++i) {
                if (rangeoverlap(fxit->range, itrange(current, i))) {
-                  free = rsminus(free, fxit->rs);
+                  free &=~ fxit->rs;
                }
             }
          }
          /* exclude regs from overlapping inactive intervals */
          for (struct interval *it = inactive; it; it = it->next) {
             if (it->alloc.t == AREG && intervaloverlap(it, current)) {
-               free = rsclr(free, it->alloc.a);
+               rsclr(&free, it->alloc.a);
             }
          }
          /* for 2-address instrs, exclude reg from 2nd arg */
          if (ins->inplace && opnarg[ins->op] == 2) {
             int xreg;
-            if (ins->r.t == RREG) free = rsclr(free, ins->r.i);
+            if (ins->r.t == RREG) rsclr(&free, ins->r.i);
             else if (ins->r.t == RTMP && (xreg = instrtab[ins->r.i].reg))
-               free = rsclr(free, xreg-1);
+               rsclr(&free, xreg-1);
          }
 
          if (!free) {
@@ -831,7 +831,7 @@ linearscan(struct rega *ra)
             }
 
             /* prefer caller-saved registers */
-            if (rsminus(free, mctarg->rcallee) != 0) free = rsminus(free, mctarg->rcallee);
+            if (free &~ mctarg->rcallee) free &=~ mctarg->rcallee;
 
             for (reg = 0; !rstest(free, reg); ++reg);
          }
@@ -839,8 +839,8 @@ linearscan(struct rega *ra)
          current->alloc = areg(reg);
          ins->reg = reg + 1;
          DBG("%%%d got %s\n", this, mctarg->rnames[reg]);
-         ra->free = rsclr(ra->free, reg);
-         ra->fn->regusage = rsset(ra->fn->regusage, reg);
+         rsclr(&ra->free, reg);
+         rsset(&ra->fn->regusage, reg);
 
          //if current has a register assigned then add current to active
          current->next = active;
@@ -1056,14 +1056,14 @@ regalloc(struct function *fn)
 
    /* setup */
    if (!fpregset || !gpregset) {
-      for (int i = 0; i < MAXREGS; ++i) {
-         if (isfpr(i))
-            fpregset = rsset(fpregset, i);
-         else if (isgpr(i))
-            gpregset = rsset(gpregset, i);
+      for (int r = 0; r < MAXREGS; ++r) {
+         if (isfpr(r))
+            rsset(&fpregset, r);
+         else if (isgpr(r))
+            rsset(&gpregset, r);
       }
    }
-   ra.free = rsclr(rsclr(rsminus(rsunion(gpregset, fpregset), mctarg->rglob), mctarg->gprscratch), mctarg->fprscratch);
+   ra.free = (gpregset | fpregset) &~ (mctarg->rglob | (1ull<<mctarg->gprscratch) | (1ull<<mctarg->fprscratch));
    memset(ra.freestk, 0xFF, sizeof ra.freestk);
    fn->regusage = 0;
    fn->stksiz = alignup(fn->stksiz, 8);
