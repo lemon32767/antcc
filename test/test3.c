@@ -31,7 +31,6 @@ bscopy(struct bitset dst[/*siz*/], const struct bitset src[/*siz*/], unsigned si
 }
 
 
-#if 0
 long test(long x) {
     return x + (long)"abc";
 }
@@ -48,4 +47,3 @@ void testss() {
 
 long fma(long x, long y) {
 return x + (y <<1) - 2147483648;}
-#endif
