@@ -135,7 +135,7 @@ struct use { struct block *blk; ushort u; };
 enum { MAXREGS = 64 };
 
 struct function {
-   struct arena *arena;
+   struct arena **arena;
    const char *name;
    struct block *entry, *curblk;
    struct use *use;
@@ -191,6 +191,7 @@ struct mctarg {
 
 enum { MAXINSTR = 1<<14 };
 
+/** ir.c **/
 extern uchar type2cls[];
 extern uchar cls2siz[];
 extern const uchar siz2intcls[];
@@ -253,15 +254,27 @@ void putbranch(struct function *, struct block *);
 void putcondbranch(struct function *, union ref arg, struct block *t, struct block *f);
 void putreturn(struct function *, union ref r0, union ref r1);
 
+/** irdump.c **/
 void irdump(struct function *);
 
+/** ssa.c **/
 void filluses(struct function *);
 void copyopt(struct function *);
 
+/** cfg.c **/
+void sortrpo(struct function *fn);
+
+/** abi0.c **/
 void abi0(struct function *);
 void abi0_call(struct function *, struct instr *, struct block *blk, int *curi);
+
+/** optmem.c **/
 void mem2reg(struct function *);
+
+/** intrin.c **/
 void lowerintrin(struct function *);
+
+/** regalloc.c **/
 void regalloc(struct function *);
 
 /* vim:set ts=3 sw=3 expandtab: */

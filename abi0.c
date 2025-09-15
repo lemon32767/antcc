@@ -270,7 +270,7 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 
    if (call->ret.isagg) call->ret = (union irtype){0};
    call->vararg = vararg;
-   call->abiarg = alloccopy(&fn->arena, abiargs.p, abiargs.n * sizeof(struct abiarg), 0);
+   call->abiarg = alloccopy(fn->arena, abiargs.p, abiargs.n * sizeof(struct abiarg), 0);
    call->narg = abiargs.n;
    vfree(&abiargs);
 }
@@ -309,7 +309,7 @@ abi0(struct function *fn)
       int ret = abiarg(&abiargs, &ni, &nf, &ns, pty);
       patchparam(fn, &istart, &param, pty.isagg ? pty.dat : -1, ret+!ret, &abiargs.p[first]);
    }
-   fn->abiarg = alloccopy(&fn->arena, abiargs.p, abiargs.n * sizeof *abiargs.p, 0);
+   fn->abiarg = alloccopy(fn->arena, abiargs.p, abiargs.n * sizeof *abiargs.p, 0);
    fn->nabiarg = abiargs.n;
    vfree(&abiargs);
 

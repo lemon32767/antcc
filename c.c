@@ -3540,7 +3540,7 @@ docomp(struct comp *cm)
          decl.isdef = st.varini;
          if (st.funcdef) {
             const struct typedata *td =  &typedata[decl.ty.dat];
-            struct function fn = { cm->fnarena, decl.name, .globl = decl.scls != SCSTATIC };
+            struct function fn = { &cm->fnarena, decl.name, .globl = decl.scls != SCSTATIC };
             fn.fnty = decl.ty;
             fn.retty = td->ret;
             decl.isdef = 1;

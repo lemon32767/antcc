@@ -64,7 +64,7 @@ irinit(struct function *fn)
       cls2siz[KI8] = cls2siz[KF8] = 8;
       cls2siz[KPTR] = targ_primsizes[TYPTR];
    }
-   fn->entry = fn->curblk = alloc(&fn->arena, sizeof(struct block), 0);
+   fn->entry = fn->curblk = alloc(fn->arena, sizeof(struct block), 0);
    fn->nblk = 1;
    memset(fn->entry, 0, sizeof *fn->entry);
    fn->entry->lprev = fn->entry->lnext = fn->entry;
@@ -233,7 +233,7 @@ delpred(struct block *blk, struct block *p)
 struct block *
 newblk(struct function *fn)
 {
-   struct block *blk = alloc(&fn->arena, sizeof(struct block), 0);
+   struct block *blk = alloc(fn->arena, sizeof(struct block), 0);
    memset(blk, 0, sizeof *blk);
    blk->id = -1;
    return blk;

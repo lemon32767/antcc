@@ -291,7 +291,7 @@ putdouble(struct wbuf *buf, double x, vlong prec)
 int
 vbfmt(struct wbuf *out, const char *fmt, va_list ap)
 {
-   bool quote, umod, lmod, lower;
+   bool quote, umod, lmod, zmod, lower;
    int base;
    vlong i;
    int pad, prec, q;
@@ -340,7 +340,10 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             prec = prec*10 + *fmt-'0';
       }
       fmt += umod = *fmt == 'u';
-      fmt += lmod = *fmt == 'l';
+      if ((zmod = *fmt == 'z'))
+         ++fmt, lmod = 0;
+      else
+         fmt += lmod = *fmt == 'l';
       lower = 0;
       prevn = n;
       switch (*fmt++) {
@@ -403,7 +406,10 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
          base = 10;
       Int:
          if (base != 10) umod = 1;
-         i = lmod ? va_arg(ap, vlong) : (umod ? va_arg(ap, uint) : (vlong)va_arg(ap, int));
+         i = lmod ? va_arg(ap, vlong)
+           : umod ? va_arg(ap, uint)
+           : zmod && sizeof(&i-&i) > sizeof(int) ? va_arg(ap, vlong)
+           : (vlong)va_arg(ap, int);
          tmp2.len = 0;
          if (quote) {
             switch (base) {

@@ -1,49 +1,180 @@
 #include "ir.h"
 
-/* Implements linear scan register allocation */
+/** Implements linear scan register allocation **/
+
+#if 1
+#define DBG(...) if(ccopt.dbg.r) efmt(__VA_ARGS__)
+#else
+#define DBG(...) ((void)0)
+#endif
+
+/* The algorithm used here to introduce phis for temporaries whose definitions
+ * appear later than some of its uses is very similar to that in mem2reg() */
+
+static int livelastblk;
+struct pendingphi { ushort var, phi; };
+static vec_of(struct pendingphi) *pendingphis;
+static int npendingphi;
+static ushort **curdefs;
+static union ref readvar(struct bitset *defined, enum irclass cls, int var, struct block *blk);
+
+static void
+fillphi(struct bitset *defined, union ref phi, enum irclass cls, int var, struct block *blk)
+{
+   union ref *args = phitab.p[instrtab[phi.i].l.i];
+   assert(blk->npred > 0);
+   for (int i = 0; i < blk->npred; ++i)
+      args[i] = readvar(defined, cls, var, blk);
+}
+
+static union ref
+readvar(struct bitset *defined, enum irclass cls, int var, struct block *blk)
+{
+   union ref val;
+
+   if (bstest(defined, var)) return mkref(RTMP, var);
+
+   /* memoed definition */
+   if (xbcap(curdefs) > blk->id && xbcap(curdefs[blk->id]) > var && curdefs[blk->id][var])
+      return mkref(RTMP, curdefs[blk->id][var]);
+
+   xbgrowz(&curdefs, blk->id + 1);
+   if (blk->id > livelastblk) {
+      ++npendingphi;
+      val = insertphi(blk, cls);
+      xbgrowz(&pendingphis, blk->id + 1);
+      vpush(&pendingphis[blk->id], ((struct pendingphi) { var, val.i }));
+   } else if (blk->npred == 1) {
+      val = readvar(defined, cls, var, blkpred(blk, 0));
+   } else {
+      val = insertphi(blk, cls);
+      fillphi(defined, val, cls, var, blk);
+   }
+   xbgrowz(&curdefs[blk->id], var + 1);
+   assert(val.i > 0);
+   curdefs[blk->id][var] = val.i;
+   return val;
+}
+
+static void
+liveuse(struct bitset *defined, struct instr *ins, union ref *r, struct block *blk)
+{
+   int var;
+   if (r->t == RADDR) {
+      liveuse(defined, ins, &addrht[r->i].base, blk);
+      liveuse(defined, ins, &addrht[r->i].index, blk);
+      return;
+   } else if (r->t != RTMP) return;
+   var = r->i;
+   if (bstest(defined, var)) return;
+
+   *r = readvar(defined, insrescls(instrtab[r->i]), var, blk);
+}
+
+/* regalloc() assumes every use of a temporary is visited before its definition
+ * so this function fixes cases where that would not apply by introducing phi functions */
+static void
+fixlive(struct function *fn)
+{
+   extern int ninstr;
+   struct block *blk = fn->entry;
+   struct bitset definedbuf[4] = {0};
+   struct bitset *defined = definedbuf;
+
+   if (BSSIZE(ninstr) >= sizeof(definedbuf))
+      defined = xcalloc(sizeof *defined * BSSIZE(ninstr));
+   npendingphi = 0;
+
+   do {
+      for (int i = 0; i < blk->phi.n; ++i) {
+         int var = blk->phi.p[i];
+         bsset(defined, var);
+      }
+
+      for (int i = 0; i < blk->ins.n; ++i) {
+         int var = blk->ins.p[i];
+         struct instr *ins = &instrtab[var];
+         if (ins->l.t) liveuse(defined, ins, &ins->l, blk);
+         if (ins->r.t) liveuse(defined, ins, &ins->r, blk);
+         bsset(defined, var);
+      }
+   } while ((blk = blk->lnext) != fn->entry);
+
+   do {
+      vec_of(struct pendingphi) *pphi;
+
+      if (!npendingphi) break;
+      if (xbcap(pendingphis) <= blk->id) break;
+
+      pphi = (void *)&pendingphis[blk->id];
+      npendingphi -= pphi->n;
+      for (int i = 0; i < pphi->n; ++i) {
+         fillphi(defined, mkref(RTMP, pphi->p[i].phi), instrtab[pphi->p[i].phi].cls, pphi->p[i].var, blk);
+      }
+      vfree(pphi);
+   } while ((blk = blk->lnext) != fn->entry);
+
+   if (ccopt.dbg.l) {
+      DBG("<< After liveness fixup >>\n");
+      irdump(fn);
+   }
+   if (defined != definedbuf) free(defined);
+}
 
 static regset gpregset, fpregset;
 
 #define isfpr(reg) in_range((reg), mctarg->fpr0, mctarg->fpr0 + mctarg->nfpr - 1)
 #define isgpr(reg) in_range((reg), mctarg->gpr0, mctarg->gpr0 + mctarg->nfpr - 1)
 
-enum { ADEAD, AREG, ASTACK } ;
+/* an allocated physical register or stack slot */
+enum { ADEAD, AREG, ASTACK };
 struct alloc { ushort t : 2, a : 14; };
 #define afree() ((struct alloc) { ADEAD })
 #define areg(r) ((struct alloc) { AREG, (r) })
 #define astack(s) ((struct alloc) { ASTACK, (s) })
 
-enum { MAXSPILL = 128 };
+enum { MAXSPILL = 512 };
 
+/* half-closed instr range [from, to) */
 struct range { ushort from, to; };
+
+/* a temporary's lifetime interval */
 struct interval {
-   struct interval *next;
+   struct interval *next; /* for linked list of active,inactive,handled sets in linear scan */
    struct alloc alloc;
-   schar rhint : 7, fpr : 1;
+   schar rhint : 7, /* register hint */
+         fpr : 1; /* needs float register? */
+
+   /* sorted ranges array */
    uchar nrange;
    union {
       struct range _inl[2];
       struct range *_dyn;
    };
 };
-struct lifetimes {
-   imap_of(struct interval) temps;
+
+struct intervals {
+   int count; /* number of actual intervals */
+   struct interval *temps; /* map of tmp -> interval */
    struct fixinterval {
       struct fixinterval *next;
       regset rs;
       struct range range;
-   } *fixed;
+   } *fixed; /* linked list of fixed intervals, always sorted */
 };
 
 struct rega {
    struct function *fn;
-   struct arena *arena;
+   struct arena **arena;
    regset free; /* free registers */
    struct bitset freestk[BSSIZE(MAXSPILL)]; /* free stack slots */
-   int maxstk, stktop, savereg1, savereg2;
-   struct lifetimes intervals;
+   int maxstk, /* highest stack slot used */
+       stktop;
+   struct intervals intervals;
 };
 
+/* materialization of stack slot references is deferred until the end because
+ * the offset from base pointer depends on how many slots we end up allocating */
 static vec_of(union ref *) stkslotrefs;
 
 static void
@@ -53,14 +184,6 @@ addstkslotref(int instr, uint off)
    *ref = mkref(RICON, off);
    vpush(&stkslotrefs, ref);
 }
-
-#define mkmove(k, rd, rs) mkinstr(Omove, k, mkref(RREG, rd), mkref(RREG, rs))
-
-#if 1
-#define DBG(...) if(ccopt.dbg.r) efmt(__VA_ARGS__)
-#else
-#define DBG(...) ((void)0)
-#endif
 
 static struct alloc
 allocstk(struct rega *ra)
@@ -95,6 +218,8 @@ freestk(struct rega *ra, int slot)
 }
 
 /* Parallel moves algorithm from QBE: https://c9x.me/git/qbe.git/tree/rega.c?id=e493a7f23352f51acc0a1e12284ab19d7894488a#n201 */
+
+#define mkmove(k, rd, rs) mkinstr(Omove, k, mkref(RREG, rd), mkref(RREG, rs))
 
 enum pmstat { PMTOMOVE, PMMOVING, PMDONE };
 static struct pmove {
@@ -225,7 +350,7 @@ lowerphis(struct rega *ra, struct block *blk, struct block *suc)
          from = areg(instrtab[arg->i].reg - 1);
          DBG("  it had R%d\n", from.a);
       } else {
-         from = imap_get(&ra->intervals.temps, arg->i)->alloc;
+         from = ra->intervals.temps[arg->i].alloc;
          assert(from.t != ADEAD);
          DBG("  found %c%d\n", " RS"[from.t], from.a);
          if (from.t == AREG)
@@ -235,7 +360,7 @@ lowerphis(struct rega *ra, struct block *blk, struct block *suc)
          to = areg(phi->reg - 1);
          DBG("  phi had R%d\n", to.a);
       } else {
-         to = imap_get(&ra->intervals.temps, phi - instrtab)->alloc;
+         to = ra->intervals.temps[phi - instrtab].alloc;
          assert(to.t != ADEAD);
          DBG("  found phi %c%d\n", " RS"[to.t], to.a);
          if (to.t == AREG)
@@ -247,48 +372,6 @@ lowerphis(struct rega *ra, struct block *blk, struct block *suc)
    }
    if (n) emitpm(n);
 }
-
-static void
-porec(struct block ***rpo, struct block *b)
-{
-   if (wasvisited(b)) return;
-   markvisited(b);
-   if (b->s2) porec(rpo, b->s2);
-   if (b->s1) porec(rpo, b->s1);
-   *--*rpo = b;
-}
-
-static void
-sortrpo(struct function *fn)
-{
-   static struct block **rpobuf;
-   struct block **rpoend, **rpo;
-   int i, ndead;
-
-   xbgrow(&rpobuf, fn->nblk);
-   rpo = rpoend = rpobuf + fn->nblk,
-
-   startbbvisit();
-   fn->entry->id = 0;
-   markvisited(fn->entry);
-   if (fn->entry->s1) porec(&rpo, fn->entry->s1);
-   if (fn->entry->s2) porec(&rpo, fn->entry->s2);
-   *--rpo = fn->entry;
-   ndead = rpo - rpobuf;
-   for (i = 1, ++rpo; rpo < rpoend; ++rpo, ++i) {
-      rpo[-1]->lnext = rpo[0];
-      rpo[0]->lprev = rpo[-1];
-      rpo[0]->id = i;
-   }
-   fn->entry->lprev = rpo[-1];
-   rpo[-1]->lnext = fn->entry;
-   for (rpo = rpobuf; ndead > 0; --ndead) {
-      (*rpo)->lnext = (*rpo)->lprev = NULL;
-      freeblk(fn, *rpo);
-   }
-}
-
-static void fixlive(struct function *fn);
 
 /* generate copies for phi operands to transform into conventional-SSA */
 static void
@@ -402,31 +485,30 @@ addrange0(struct interval *it, struct range new)
 }
 
 static void
-addrange(struct lifetimes *intervals, int t, struct range range, int reghint)
+addrange(struct intervals *intervals, int t, struct range range, int reghint)
 {
-   struct interval *it;
-   it = imap_get(&intervals->temps, t);
-   if (!it) {
-      it = imap_set(&intervals->temps, t,
-            (struct interval){ .rhint = reghint, .fpr = kisflt(insrescls(instrtab[t])) });
+   struct interval *it = &intervals->temps[t];
+   if (!it->nrange) {
+      ++intervals->count;
+      it->rhint = reghint;
+      it->fpr = kisflt(insrescls(instrtab[t]));
    }
    addrange0(it, range);
 }
 
 static bool
-intervaldef(struct lifetimes *intervals, int t, struct block *blk, int pos, int reghint)
+intervaldef(struct intervals *intervals, int t, struct block *blk, int pos, int reghint)
 {
-   struct interval *it = imap_get(&intervals->temps, t);
-   if (it) {
-      assert(it->nrange > 0);
-
+   struct interval *it = &intervals->temps[t];
+   if (it->nrange) {
       if (itrange(it, 0).from <= pos) /* shorten */
          itrange(it, 0).from = pos;
       else
          addrange0(it, (struct range){pos, blk->inumstart + blk->ins.n+1});
       if (it->rhint < 0) it->rhint = reghint;
+      return 1;
    }
-   return it != NULL;
+   return 0;
 }
 
 static void
@@ -445,7 +527,7 @@ priliveset(struct bitset *s, size_t siz)
 static void
 usereg(struct rega *ra, int reg, struct block *blk, int pos)
 {
-   struct fixinterval *fxit = alloc(&ra->arena, sizeof *fxit, 0);
+   struct fixinterval *fxit = alloc(ra->arena, sizeof *fxit, 0);
    fxit->next = ra->intervals.fixed;
    fxit->range = (struct range) {blk->inumstart, pos};
    fxit->rs = 1<<reg;
@@ -465,15 +547,16 @@ defreg(struct rega *ra, int reg, int pos) {
    assert(0&&"def reg not used");
 }
 
+/* lifetime interval construction: https://c9x.me/compile/bib/Wimmer10a.pdf */
 static void
 buildintervals(struct rega *ra)
 {
    extern int ninstr;
    struct block *blk, *last;
-   struct bitset **livein = alloc(&ra->arena, ra->fn->nblk * sizeof *livein, 0);
-
+   struct bitset **livein = alloc(ra->arena, ra->fn->nblk * sizeof *livein, 0);
    for (int i = 0; i < ra->fn->nblk; ++i)
-      livein[i] = allocz(&ra->arena, BSSIZE(ninstr) * sizeof *livein[i], 0);
+      livein[i] = allocz(ra->arena, BSSIZE(ninstr) * sizeof *livein[i], 0);
+   ra->intervals.temps = allocz(ra->arena, ninstr * sizeof *ra->intervals.temps, 0);
 
    numberinstrs(ra->fn);
    /* visit blocks in reverse, to build lifetime intervals */
@@ -523,12 +606,7 @@ buildintervals(struct rega *ra)
          /* for each output operand opd of op do
           *    intervals[opd].setFrom(op.id)
           *    live.remove(opd)
-          *
-          * for each input operand opd of op do
-          *    intervals[opd].addRange(b.from, op.id)
-          *    live.add(opd)
           */
-
          reghint = ins && ins->op == Ocopy && ins->l.t == RREG ? ins->l.i : -1;
          if (!intervaldef(&ra->intervals, out, blk, pos, reghint)) {
             if (insrescls(*ins) && ins->op != Omove && !ins->keep && !(ins->op == Ocopy && ins->l.t == RREG)) {
@@ -537,6 +615,8 @@ buildintervals(struct rega *ra)
             }
          }
          bsclr(live, out);
+
+         /* gather fixed intervals */
          if (ins->op == Omove) {
             assert(ins->l.t == RREG);
             defreg(ra, ins->l.i, pos);
@@ -553,7 +633,7 @@ buildintervals(struct rega *ra)
                }
             }
             if (rclob) {
-               struct fixinterval *fxit = alloc(&ra->arena, sizeof *fxit, 0);
+               struct fixinterval *fxit = alloc(ra->arena, sizeof *fxit, 0);
                fxit->next = ra->intervals.fixed;
                fxit->range = (struct range) {pos, pos};
                fxit->rs = rclob;
@@ -567,6 +647,11 @@ buildintervals(struct rega *ra)
             }
          }
 
+
+         /* for each input operand opd of op do
+          *    intervals[opd].addRange(b.from, op.id)
+          *    live.add(opd)
+          */
          reghint = (ins && ins->op == Omove && ins->l.t == RREG) ? ins->l.i : -1;
          queue[0] = ins->r, queue[1] = ins->l;
          if (0) {
@@ -627,13 +712,13 @@ buildintervals(struct rega *ra)
       // DBG("live out: "), priliveset(live, bssize);
    } while ((blk = blk->lprev) != last);
 
-   int var;
-   struct interval *lv;
-   imap_each(&ra->intervals.temps, var, lv) {
+   for (int var = 0; var < ninstr; ++var) {
+      struct interval *it = &ra->intervals.temps[var];
+      if (!it->nrange) continue;
       DBG("lifetime of %%%d: ", var);
-      for (int i = 0; i < lv->nrange; ++i) {
-         struct range r = itrange(lv, i);
-         DBG("[%d,%d)%s", r.from, r.to, i < lv->nrange-1 ? ", " : "");
+      for (int i = 0; i < it->nrange; ++i) {
+         struct range r = itrange(it, i);
+         DBG("[%d,%d)%s", r.from, r.to, i < it->nrange-1 ? ", " : "");
       }
       DBG("\n");
    }
@@ -666,35 +751,34 @@ itcontainspos(const struct interval *it, int pos)
 static void
 linearscan(struct rega *ra)
 {
-   struct lifetimes *intervals = &ra->intervals;
-   struct interval *unhandled = NULL, *active = NULL, *inactive = NULL, *handled = NULL;
+   struct intervals *intervals = &ra->intervals;
+   int nunhandled = 0;
+   struct interval **unhandled = NULL;
+   struct interval *active = NULL, *inactive = NULL, *handled = NULL;
+
    /* sort intervals */
    {
       extern void qsort(void *p, size_t n, size_t size, int (*)(void *, void *));
-      struct interval **unhandleds = xcalloc(sizeof *unhandleds * intervals->temps.mb.n);
-      int i = 0, var;
-      struct interval *lv;
+      extern int ninstr;
+      unhandled = xcalloc(sizeof *unhandled * intervals->count);
 
-      imap_each(&intervals->temps, var, lv) {
-         unhandleds[i++] = lv;
+      for (int i = 0; i < ninstr; ++i) {
+         if (!intervals->temps[i].nrange) continue;
+         unhandled[nunhandled++] = &intervals->temps[i];
       }
-      if (!i) {
-         free(unhandleds);
+      assert(nunhandled == intervals->count);
+      if (!nunhandled) {
+         free(unhandled);
          return;
       }
-      qsort(unhandleds, i, sizeof *unhandleds, cmppinterval);
-      unhandled = NULL;
-      while (i-- > 0) {
-         unhandleds[i]->next = unhandled;
-         unhandled = unhandleds[i];
-      }
-      free(unhandleds);
+      qsort(unhandled, nunhandled, sizeof *unhandled, cmppinterval);
    }
 
    /* LINEAR SCAN */
-   for (struct interval *current, *next; (current = unhandled); unhandled = next) {
+   for (struct interval **pcurrent = unhandled; nunhandled-- > 0; ++pcurrent) {
+      struct interval *current = *pcurrent;
       int pos = itrange(current, 0).from;
-      next = current->next;
+
       /* Expire old intervals */
 
       /* check for intervals in active that are handled or inactive */
@@ -721,7 +805,7 @@ linearscan(struct rega *ra)
             inactive = it;
             if (it->alloc.t == AREG) {
                ra->free |= 1<<it->alloc.a;
-               DBG(" >> %%%d unblock %s\n", ra->intervals.temps.mb.k[it-ra->intervals.temps.v], mctarg->rnames[it->alloc.a]);
+               DBG(" >> %%%zd unblock %s\n", it-ra->intervals.temps, mctarg->rnames[it->alloc.a]);
             }
          } else lnk = &it->next;
       }
@@ -748,14 +832,14 @@ linearscan(struct rega *ra)
             if (it->alloc.t == AREG) {
                assert(rstest(ra->free, it->alloc.a));
                ra->free &= ~(1<<it->alloc.a);
-               DBG(" << %%%d reblock %s\n", ra->intervals.temps.mb.k[it-ra->intervals.temps.v], mctarg->rnames[it->alloc.a]);
+               DBG(" << %%%zd reblock %s\n", it-ra->intervals.temps, mctarg->rnames[it->alloc.a]);
             }
          } else lnk = &it->next;
       }
 
       /* find a register for current */
       {
-         int this = intervals->temps.mb.k[current - intervals->temps.v];
+         int this = current - intervals->temps;
          regset free = ra->free & (current->fpr ? fpregset : gpregset);
          struct instr *ins = &instrtab[this];
          int reg = 0;
@@ -802,8 +886,8 @@ linearscan(struct rega *ra)
 
          /* have free regs, try to use hint */
          if (current->rhint >= 0)
-            DBG("have hint %s for %%%d\n",
-                  mctarg->rnames[current->rhint], intervals->temps.mb.k[current - intervals->temps.v]);
+            DBG("have hint %s for %%%zd\n",
+                  mctarg->rnames[current->rhint], current - intervals->temps);
          if (current->rhint >= 0 && rstest(free, current->rhint)) {
             DBG(" (used hint)\n");
             reg = current->rhint;
@@ -847,6 +931,8 @@ linearscan(struct rega *ra)
          active = current;
       }
    }
+
+   free(unhandled);
 }
 
 /* replace temps with physical regs, add loads & stores for spilled temps */
@@ -879,15 +965,15 @@ devirt(struct rega *ra, struct block *blk)
          }
       }
       for (int i = 0; i < nargref; ++i) {
+         static uchar cls2load[] = {
+            [KI4] = Oloads4, [KI8] = Oloadi8, [KF4] = Oloadf4, [KF8] = Oloadf8, [KPTR] = 0
+         };
+         cls2load[KPTR] = targ_64bit ? Oloadi8 : Oloads4;
          union ref *r = argref[i];
          int tr;
          if (r->t == RTMP) {
-            static uchar cls2load[] = {
-               [KI4] = Oloads4, [KI8] = Oloadi8, [KF4] = Oloadf4, [KF8] = Oloadf8, [KPTR] = 0
-            };
-            cls2load[KPTR] = targ_64bit ? Oloadi8 : Oloads4;
 
-            alloc = (it = imap_get(&ra->intervals.temps, r->i)) ? &it->alloc : NULL;
+            alloc = (it = &ra->intervals.temps[r->i]) && it->nrange ? &it->alloc : NULL;
             if (alloc->t == ASTACK && ins->op == Omove) {
                /* move [reg], [stk] -> [reg] = load [stk] */
                assert(r == &ins->r && ins->l.t == RREG);
@@ -919,14 +1005,7 @@ devirt(struct rega *ra, struct block *blk)
                   }
                }
                ld.reg = reg+1;
-               switch (ld.cls) {
-               default: assert(0);
-               case KI4:  ld.op = Oloads4; break;
-               case KI8:  ld.op = Oloadi8; break;
-               case KPTR: ld.op = targ_64bit ? Oloadi8 : Oloads4; break;
-               case KF4:  ld.op = Oloadf4; break;
-               case KF8:  ld.op = Oloadf8; break;
-               }
+               ld.op = cls2load[ld.cls];
                addstkslotref(insertinstr(blk, curi++, ld).i, alloc->a*8);
                *r = mkref(RREG, reg);
                if (nspill > 0 && dosave) {
@@ -942,7 +1021,7 @@ devirt(struct rega *ra, struct block *blk)
       if (nspill > 0) assert(ins->op != Ocall);
 
       /* devirtualize destination */
-      alloc = (it = imap_get(&ra->intervals.temps, temp)) ? &it->alloc : NULL;
+      alloc = (it = &ra->intervals.temps[temp]) && it->nrange ? &it->alloc : NULL;
       if (alloc && alloc->t == ASTACK) {
          int store = Ostore1 + ilog2(cls2siz[insrescls(*ins)]);
          /* t was spilled, gen store */
@@ -1047,119 +1126,6 @@ fini(struct rega *ra)
    } while ((blk = blk->lnext) != fn->entry);
 }
 
-static int livelastblk;
-struct pendingphi { ushort var, phi; };
-static vec_of(struct pendingphi) *pendingphis;
-static int npendingphi;
-static ushort **curdefs;
-static union ref readvar(struct bitset *defined, enum irclass cls, int var, struct block *blk);
-
-/* The algorithm used here to introduce phis for temporaries whose definitions
- * appear later than some of its uses is very similar to that in mem2reg() */
-
-static void
-fillphi(struct bitset *defined, union ref phi, enum irclass cls, int var, struct block *blk)
-{
-   union ref *args = phitab.p[instrtab[phi.i].l.i];
-   assert(blk->npred > 0);
-   for (int i = 0; i < blk->npred; ++i)
-      args[i] = readvar(defined, cls, var, blk);
-}
-
-static union ref
-readvar(struct bitset *defined, enum irclass cls, int var, struct block *blk)
-{
-   union ref val;
-
-   if (bstest(defined, var)) return mkref(RTMP, var);
-
-   /* memoed definition */
-   if (xbcap(curdefs) > blk->id && xbcap(curdefs[blk->id]) > var && curdefs[blk->id][var])
-      return mkref(RTMP, curdefs[blk->id][var]);
-
-   xbgrowz(&curdefs, blk->id + 1);
-   if (blk->id > livelastblk) {
-      ++npendingphi;
-      val = insertphi(blk, cls);
-      xbgrowz(&pendingphis, blk->id + 1);
-      vpush(&pendingphis[blk->id], ((struct pendingphi) { var, val.i }));
-   } else if (blk->npred == 1) {
-      val = readvar(defined, cls, var, blkpred(blk, 0));
-   } else {
-      val = insertphi(blk, cls);
-      fillphi(defined, val, cls, var, blk);
-   }
-   xbgrowz(&curdefs[blk->id], var + 1);
-   assert(val.i > 0);
-   curdefs[blk->id][var] = val.i;
-   return val;
-}
-
-static void
-liveuse(struct bitset *defined, struct instr *ins, union ref *r, struct block *blk)
-{
-   int var;
-   if (r->t == RADDR) {
-      liveuse(defined, ins, &addrht[r->i].base, blk);
-      liveuse(defined, ins, &addrht[r->i].index, blk);
-      return;
-   } else if (r->t != RTMP) return;
-   var = r->i;
-   if (bstest(defined, var)) return;
-
-   *r = readvar(defined, insrescls(instrtab[r->i]), var, blk);
-}
-
-/* regalloc() assumes every use of a temporary is visited before its definition
- * so this function fixes cases where that would not apply by introducing phi functions */
-static void
-fixlive(struct function *fn)
-{
-   extern int ninstr;
-   struct block *blk = fn->entry;
-   struct bitset definedbuf[4] = {0};
-   struct bitset *defined = definedbuf;
-
-   if (BSSIZE(ninstr) >= sizeof(definedbuf))
-      defined = xcalloc(sizeof *defined * BSSIZE(ninstr));
-   npendingphi = 0;
-
-   do {
-      for (int i = 0; i < blk->phi.n; ++i) {
-         int var = blk->phi.p[i];
-         bsset(defined, var);
-      }
-
-      for (int i = 0; i < blk->ins.n; ++i) {
-         int var = blk->ins.p[i];
-         struct instr *ins = &instrtab[var];
-         if (ins->l.t) liveuse(defined, ins, &ins->l, blk);
-         if (ins->r.t) liveuse(defined, ins, &ins->r, blk);
-         bsset(defined, var);
-      }
-   } while ((blk = blk->lnext) != fn->entry);
-
-   do {
-      vec_of(struct pendingphi) *pphi;
-
-      if (!npendingphi) break;
-      if (xbcap(pendingphis) <= blk->id) break;
-
-      pphi = (void *)&pendingphis[blk->id];
-      npendingphi -= pphi->n;
-      for (int i = 0; i < pphi->n; ++i) {
-         fillphi(defined, mkref(RTMP, pphi->p[i].phi), instrtab[pphi->p[i].phi].cls, pphi->p[i].var, blk);
-      }
-      vfree(pphi);
-   } while ((blk = blk->lnext) != fn->entry);
-
-   if (ccopt.dbg.l) {
-      DBG("<< After liveness fixup >>\n");
-      irdump(fn);
-   }
-   if (defined != definedbuf) free(defined);
-}
-
 void
 regalloc(struct function *fn)
 {
@@ -1218,13 +1184,9 @@ regalloc(struct function *fn)
    /* devirtualize & final cleanup */
    fini(&ra);
 
-   {  int var;
-      struct interval *lv;
-      imap_each(&ra.intervals.temps, var, lv) {
-         (void)var;
-         if (lv->nrange > 2) xbfree(lv->_dyn);
-      }
-      imap_free(&ra.intervals.temps);
+   for (struct interval *it = ra.intervals.temps; ra.intervals.count > 0; ++it) {
+      if (it->nrange > 2) xbfree(it->_dyn);
+      if (it->nrange > 0) --ra.intervals.count;
    }
 
    fn->stksiz += ra.maxstk*8;
@@ -1233,6 +1195,7 @@ regalloc(struct function *fn)
       union ref *adr = stkslotrefs.p[--stkslotrefs.n];
       *adr = mkaddr((struct addr) { .base = mkref(RREG, mctarg->bpr), .disp = -fn->stksiz + adr->i });
    }
+   vfree(&stkslotrefs);
 
    if (ccopt.dbg.r) {
       DBG("<< After regalloc >>\n");
