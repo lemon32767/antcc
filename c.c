@@ -1518,6 +1518,7 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
       struct declstate st = { DFIELD };
       do {
          struct decl decl = pdecl(&st, cm);
+         uint tysize = typesize(decl.ty);
          if (fld.n && td.flexi) {
             td.flexi = 0;
             error(&flexspan, "flexible array member is not at end of struct");
@@ -1542,9 +1543,9 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
                error(&ex.span, "cannot evaluate integer constant expression");
             } else if (ex.i < 0) {
                error(&ex.span, "bit-field '%s' has negative width '%ld'", name, ex.i);
-            } else if (ex.i > 8*typesize(decl.ty)) {
+            } else if (ex.i > 8*tysize) {
                error(&ex.span, "width of bit-field '%s' (%ld) exceeds width of type (%d)",
-                               name, ex.i, 8*typesize(decl.ty));
+                               name, ex.i, 8*tysize);
             } else if (ex.i == 0 && decl.name) {
                error(&ex.span, "named bit-field '%s' has zero width", name);
             } else {
@@ -1555,7 +1556,7 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
                      bitfbyteoff = alignup(bitfbyteoff, typealign(decl.ty));
                   }
                   bitoff = 0;
-               } else if (bitftypesiz && bitftypesiz < typesize(decl.ty)) {
+               } else if (bitftypesiz && bitftypesiz < tysize) {
                   /* end of previous bitfield */
                   bitoff = 0;
                   bitfbyteoff += bitftypesiz;
@@ -1567,7 +1568,7 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
                   bitoff = 0;
                   bitfbyteoff += bitftypesiz;
                }
-               if (typesize(decl.ty) > bitftypesiz) bitftypesiz = typesize(decl.ty);
+               if (tysize > bitftypesiz) bitftypesiz = tysize;
             }
             pdecl(&st, cm);
          } else {
@@ -1575,7 +1576,7 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
          }
          if (decl.ty.t) {
             uint align = typealign(decl.ty);
-            uint siz = typesize(decl.ty);
+            uint siz = tysize;
             uint off = bitftypesiz ? bitfbyteoff : isunion ? 0 : alignup(td.siz, align);
             struct namedfield f = { decl.name, { decl.ty, off, bitsiz, bitoff, .qual = decl.qual }};
             if (bitftypesiz && siz != bitftypesiz) while (f.f.bitoff + f.f.bitsiz > 8*siz) {
@@ -1592,8 +1593,6 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
                        decl.ty.t == TYUNION ? "union" : "struct");
                }
             }
-            if (bitftypesiz &&decl.name)
-               efmt("bitf %s %d[%d:%d]\n", decl.name,f.f.off, f.f.bitoff, f.f.bitoff+f.f.bitsiz-1);
             if (decl.name || !bitftypesiz)
                vpush(&fld, f);
             td.anyconst |= decl.qual & QCONST;
@@ -2351,7 +2350,7 @@ mkhiddensym(const char *fnname, const char *name, int id)
    char buf[200];
    struct wbuf wbuf = MEMBUF(buf, sizeof buf);
    assert(id > 0);
-   bfmt(&wbuf, "%s.%s.%d", fnname, name, id);
+   bfmt(&wbuf, "%s.%s.%d", fnname, name, id-1);
    ioputc(&wbuf, 0);
    assert(!wbuf.err);
    return intern(buf);
@@ -2490,23 +2489,35 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
 }
 
 static union ref
-narrow(struct function *fn, enum irclass to, enum typetag tt, union ref ref)
+narrow(struct function *fn, enum irclass to, enum typetag tt, union ref ref, uint bitsiz)
 {
    struct instr ins = {0};
    assert(isscalart(tt));
-   if (targ_primsizes[tt] >= cls2siz[to]) return ref;
-   ins.cls = to;
-   if (isfltt(tt)) {
-      assert(to == KF4 && tt == TYDOUBLE);
-      ins.op = Ocvtf8f4;
-   } else {
-      static const enum op ext[5][2] = {
-         [1] = {Oextu1, Oexts1}, [2] = {Oextu2, Oexts2}, [4] = {Oextu4, Oexts4}
-      };
-      ins.op = ext[targ_primsizes[tt]][issignedt(tt)];
+   if (targ_primsizes[tt] < cls2siz[to]) {
+      ins.cls = to;
+      if (isfltt(tt)) {
+         assert(to == KF4 && tt == TYDOUBLE);
+         ins.op = Ocvtf8f4;
+      } else {
+         static const enum op ext[5][2] = {
+            [1] = {Oextu1, Oexts1}, [2] = {Oextu2, Oexts2}, [4] = {Oextu4, Oexts4}
+         };
+         ins.op = ext[targ_primsizes[tt]][issignedt(tt)];
+      }
+      ins.l = ref;
+      ref = addinstr(fn, ins);
    }
-   ins.l = ref;
-   return addinstr(fn, ins);
+   if (bitsiz) {
+      assert(kisint(to) && isintt(tt) && bitsiz < 8*targ_primsizes[tt]);
+      if (!issignedt(tt)) {
+         ref = addinstr(fn, mkinstr(Oand, to, .l = ref, .r = mkintcon(to, (1ull<<bitsiz)-1)));
+      } else {
+         uint sh = 8*cls2siz[to] - bitsiz;
+         ref = addinstr(fn, mkinstr(Oshl, to, .l = ref, .r = mkref(RICON, sh)));
+         ref = addinstr(fn, mkinstr(Osar, to, .l = ref, .r = mkref(RICON, sh)));
+      }
+   }
+   return ref;
 }
 
 union ref
@@ -2691,19 +2702,20 @@ compilecall(struct function *fn, const struct expr *ex)
 }
 
 static union ref
-getbits(struct function *fn, const union type ty, union ref addr, uint off, int bitsiz, int bitoff)
+genbitfload(struct function *fn, const union type ty, union ref *addr, const struct exgetfld *fld)
 {
    enum irclass k = type2cls[ty.t];
+   uint off = fld->off, bitsiz = fld->bitsiz, bitoff = fld->bitoff;
    union ref tmp;
    uvlong mask;
 
    if (off > 0)
-      addr = addinstr(fn, mkinstr(Oadd, KPTR, .l = addr, .r = mkintcon(KI4, off)));
-   tmp = genload(fn, ty, addr);
+      *addr = addinstr(fn, mkinstr(Oadd, KPTR, .l = *addr, .r = mkintcon(KI4, off)));
+   tmp = genload(fn, ty, *addr);
    if (!issigned(ty)) {
       /* shift right and mask */
       if (bitoff > 0)
-         tmp = addinstr(fn, mkinstr(Oslr, k, .l = tmp, .r = mkintcon(KI4, bitoff)));
+         tmp = addinstr(fn, mkinstr(Oslr, k, .l = tmp, .r = mkref(RICON, bitoff)));
       if (bitsiz < 8*typesize(ty)) {
          mask = bitsiz == 64 ? -1ull : (1ull << bitsiz) - 1;
          tmp = addinstr(fn, mkinstr(Oand, k, .l = tmp, .r = mkintcon(k, mask)));
@@ -2712,12 +2724,46 @@ getbits(struct function *fn, const union type ty, union ref addr, uint off, int 
       /* shift left and shift right arithmetic to propagate sign bit */
       int sh = 8*cls2siz[k] - bitsiz - bitoff;
       if (sh)
-         tmp = addinstr(fn, mkinstr(Oshl, k, .l = tmp, .r = mkintcon(KI4, sh)));
-      sh = 8*cls2siz[k] - sh + bitoff;
+         tmp = addinstr(fn, mkinstr(Oshl, k, .l = tmp, .r = mkref(RICON, sh)));
+      sh += bitoff;
       if (sh)
-         tmp = addinstr(fn, mkinstr(Osar, k, .l = tmp, .r = mkintcon(KI4, sh)));
+         tmp = addinstr(fn, mkinstr(Osar, k, .l = tmp, .r = mkref(RICON, sh)));
    }
    return tmp;
+}
+
+static void
+genbitfstore(struct function *fn, const union type ty, union ref addr,
+             const struct exgetfld *fld, union ref tmp, union ref val)
+{
+   enum irclass k = type2cls[ty.t];
+   uint off = fld->off, bitsiz = fld->bitsiz, bitoff = fld->bitoff;
+   uint bittypesize = 8*typesize(ty);
+   uvlong mask;
+
+   if (!tmp.bits) {
+      if (off > 0)
+         addr = addinstr(fn, mkinstr(Oadd, KPTR, .l = addr, .r = mkintcon(KI4, off)));
+      tmp = genload(fn, ty, addr);
+   }
+   mask = (bitsiz == 64 ? -1ull : (1ull << bitsiz) - 1) << bitoff;
+
+   /* mask out bits in existing container */
+   tmp = addinstr(fn, mkinstr(Oand, k, .l = tmp, .r = mkintcon(k, ~mask)));
+
+   /* shift and mask source value */
+   if (isintcon(val)) {
+      val = mkintcon(k, ((uvlong)intconval(val) << bitoff) & mask);
+   } else {
+      if (bitoff)
+         val = addinstr(fn, mkinstr(Oshl, k, .l = val, .r = mkref(RICON, bitoff)));
+      if (bitsiz < bittypesize)
+         val = addinstr(fn, mkinstr(Oand, k, .l = val, .r = mkintcon(k, mask)));
+   }
+   /* combine and write */
+   if (bitsiz < bittypesize)
+      val = addinstr(fn, mkinstr(Oior, k, .l = tmp, .r = val));
+   genstore(fn, ty, addr, val);
 }
 
 static union ref
@@ -2725,6 +2771,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
 {
    union type ty;
    union ref r, q;
+   uint bitsiz;
    enum irclass cls = type2cls[ex->ty.t];
    struct instr ins = {0};
    int swp = 0;
@@ -2748,8 +2795,11 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       return genload(fn, ex->ty, expraddr(fn, ex));
    case EGETF:
       if (discard && !(ex->qual & QVOLATILE)) return NOREF;
-      if (ex->fld.bitsiz)
-         return getbits(fn, ex->ty, expraddr(fn, ex->sub), ex->fld.off, ex->fld.bitsiz, ex->fld.bitoff);
+      if (ex->fld.bitsiz) {
+         /* bit-field */
+         r = expraddr(fn, ex->sub);
+         return genbitfload(fn, ex->ty, &r, &ex->fld);
+      }
       return genload(fn, ex->ty, expraddr(fn, ex));
    case ECAST:
       if (ex->ty.t == TYVOID) {
@@ -2861,7 +2911,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       q = addinstr(fn, ins);
       genstore(fn, sub->ty, r, q);
       if (discard) return NOREF;
-      return narrow(fn, cls, ex->ty.t, q);
+      return narrow(fn, cls, ex->ty.t, q, 0);
    case EEQU:
       ins.op = Oequ;
       goto Cmp;
@@ -2894,10 +2944,17 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    case ESET:
       assert(isscalar(ex->ty));
       q = cvt(fn, sub[0].ty.t, sub[1].ty.t, exprvalue(fn, &sub[1]));
-      r = expraddr(fn, &sub[0]);
-      genstore(fn, ex->ty, r, q);
+      if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
+         /* bit-field */
+         r = expraddr(fn, &sub[0].sub[0]);
+         genbitfstore(fn, ex->ty, r, &sub[0].fld, NOREF, q);
+      } else {
+         bitsiz = 0;
+         r = expraddr(fn, &sub[0]);
+         genstore(fn, ex->ty, r, q);
+      }
       if (discard) return NOREF;
-      return narrow(fn, cls, sub[0].ty.t, q);
+      return narrow(fn, cls, sub[0].ty.t, q, bitsiz);
    case ESETMUL:
       ins.op = isunsigned(ex->ty) ? Oumul : Omul;
       goto Compound;
@@ -2928,26 +2985,35 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    case ESETADD:
       ins.op = Oadd;
    Compound:
-      r = expraddr(fn, &sub[0]);
       ty = in_range(ex->t, ESETSHL, ESETSHR) ? mktype(intpromote(ex->ty.t))
                                              : cvtarith(sub[0].ty, sub[1].ty);
       ins.cls = cls;
-      ins.l = genload(fn, ex->ty, r);
       ins.r = exprvalue(fn, &sub[1]);
-      if ((ins.op != Oadd && ins.op != Osub) || cls != KPTR) {
-         ins.l = cvt(fn, ty.t, sub[0].ty.t, ins.l);
-         ins.r = cvt(fn, ex->ty.t, sub[1].ty.t, ins.r);
+      if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
+         /* bit-field */
+         r = expraddr(fn, &sub[0].sub[0]);
+         ins.l = genbitfload(fn, sub[0].ty, &r, &sub[0].fld);
          q = addinstr(fn, ins);
+         genbitfstore(fn, sub[0].ty, r, &sub[0].fld, ins.l, q);
       } else {
-         q = genptroff(fn, ins.op, typesize(typechild(ex->ty)), ins.l, sub[1].ty.t, ins.r);
+         bitsiz = 0;
+         r = expraddr(fn, &sub[0]);
+         ins.l = genload(fn, ex->ty, r);
+         if ((ins.op != Oadd && ins.op != Osub) || cls != KPTR) {
+            ins.l = cvt(fn, ty.t, sub[0].ty.t, ins.l);
+            ins.r = cvt(fn, ex->ty.t, sub[1].ty.t, ins.r);
+            q = addinstr(fn, ins);
+         } else {
+            q = genptroff(fn, ins.op, typesize(typechild(ex->ty)), ins.l, sub[1].ty.t, ins.r);
+         }
+         genstore(fn, ex->ty, r, q);
       }
-      genstore(fn, ex->ty, r, q);
       if (discard) return NOREF;
-      return narrow(fn, cls, ex->ty.t, q);
+      return narrow(fn, cls, ex->ty.t, q, bitsiz);
    case ECALL:
       r = compilecall(fn, ex);
       if (isint(ex->ty))
-         return narrow(fn, cls, ex->ty.t, r);
+         return narrow(fn, cls, ex->ty.t, r, 0);
       return r;
    case ECOND:
       if (ex->ty.t == TYVOID) {
@@ -3404,17 +3470,17 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                                  /* globl? */ decl.scls == SCEXTERN, decl.qual, name);
                pdecl(&st, cm);
                if (!statik) {
-                  if (!assigncheck(decl.ty, &ini)) {
+                  if (!assigncheck(d->ty, &ini)) {
                      struct span span = decl.span;
                      joinspan(&span.ex, ini.span.ex);
                      error(&span, "cannot initialize '%ty' variable with '%ty'",
-                           decl.ty, ini.ty);
+                           d->ty, ini.ty);
                   }
                   EMITS {
-                     if (isagg(decl.ty))
-                        structcopy(fn, decl.ty, mkref(RTMP, decl.id), expraddr(fn, &ini));
+                     if (isagg(d->ty))
+                        structcopy(fn, d->ty, mkref(RTMP, decl.id), expraddr(fn, &ini));
                      else
-                        genstore(fn, decl.ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
+                        genstore(fn, d->ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
                   }
                } else if (decl.scls == SCEXTERN) {
                   struct span span = decl.span;
@@ -3423,7 +3489,12 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                         "declaration of block local with extern linkage cannot have an initializer");
                }
             } else if (decl.scls == SCSTATIC) {
-               assert(0);
+               /* zero-initialized static */
+               const char *sym = mkhiddensym(fn->name, decl.name, decl.id);
+               if (decl.ty.t == TYARRAY && isincomplete(decl.ty))
+                  error(&decl.span, "definition of variable with array type needs size or initializer");
+               else
+                  objnewdat(sym, Sbss, 0, typesize(decl.ty), typealign(decl.ty));
             }
             break;
          case SCTYPEDEF:
