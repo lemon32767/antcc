@@ -43,17 +43,15 @@ deltrivialphis(struct ssabuilder *sb, struct block *blk, union ref phiref)
 
    assert(instrtab[phiref.i].op == Ophi);
 
-   if (phiref.i == 4)
-      efmt("");
-
    for (int i = 0; i < blk->npred; ++i) {
-      if (args[i].bits == same.bits || args[i].bits == phiref.bits)
+      if (args[i].bits == same.bits || args[i].bits == phiref.bits) {
          continue; /* unique value or self-reference */
-      if (same.bits != 0) {
+      } if (same.bits != 0) {
          return phiref; /* non-trivial */
       }
       same = args[i];
    }
+
    if (same.bits == 0)
       same = UNDREF; /* the phi is unreachable or in the start block */
 
@@ -78,6 +76,7 @@ Redo:
          union ref vphi2 = deltrivialphis(sb, use->blk, it);
          if (vphi2.bits != it.bits) {
             /* deletion happened so phiref use may have changed */
+            if (same.bits == it.bits) same.bits = vphi2.bits;
             goto Redo;
          }
       }
@@ -106,6 +105,7 @@ writevar(struct ssabuilder *sb, int var, struct block *blk, union ref val)
    if (!(pcurdefs = imap_get(&sb->curdefs, var))) {
       pcurdefs = imap_set(&sb->curdefs, var, xcalloc(sb->nblk * sizeof(union ref)));
    }
+   if (val.t == RTMP) assert(instrtab[val.i].op != Onop);
    (*pcurdefs)[blk->id] = val;
 }
 
@@ -144,6 +144,7 @@ trysealrec(struct ssabuilder *sb, struct block *blk)
 {
    vec_of(struct pendingphi) *pending;
 
+Recur:
    if (bstest(sb->sealed, blk->id)) return 1;
    if (blk->id > sb->lastvisit) return 0;
    markvisited(blk);
@@ -160,8 +161,14 @@ trysealrec(struct ssabuilder *sb, struct block *blk)
                  mkref(RTMP, pending->p[i].phi));
    }
    vfree(pending);
-   if (blk->s1) trysealrec(sb, blk->s1);
-   if (blk->s2) trysealrec(sb, blk->s2);
+   if (blk->s1 && !blk->s2) {
+      blk = blk->s1;
+      goto Recur;
+   } else if (blk->s1 && blk->s2) {
+      trysealrec(sb, blk->s1);
+      blk = blk->s2;
+      goto Recur;
+   }
    return 1;
 }
 

@@ -33,6 +33,7 @@ readvar(struct bitset *defined, enum irclass cls, int var, struct block *blk)
    union ref val;
 
    if (bstest(defined, var)) return mkref(RTMP, var);
+   assert(cls && "?");
 
    /* memoed definition */
    if (xbcap(curdefs) > blk->id && xbcap(curdefs[blk->id]) > var && curdefs[blk->id][var])

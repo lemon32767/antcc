@@ -288,7 +288,7 @@ newinstr(void)
       assert(ninstr < arraylength(instrtab));
       t = ninstr++;
    }
-   if (instrnuse[t] > arraylength(*instrusebuf))
+   if (instruse[t] != instrusebuf[t])
       xbfree(instruse[t]);
    instruse[t] = instrusebuf[t];
    instrnuse[t] = 0;
@@ -298,8 +298,9 @@ newinstr(void)
 void
 adduse(struct block *ublk, int ui, union ref r) {
    struct use user = { ublk, ui };
+
    if (r.t != RTMP) return;
-   if (instrnuse[r.i] < arraylength(*instrusebuf)) {
+   if (instrnuse[r.i] < arraylength(instrusebuf[r.i])) {
       instruse[r.i][instrnuse[r.i]++] = user;
    } else if (instrnuse[r.i] == arraylength(*instrusebuf)) {
       struct use *use = NULL;
@@ -416,8 +417,10 @@ replcuses(union ref from, union ref to)
 void
 deluses(int ins)
 {
-   if (instrnuse[ins] > 2)
+   if (instruse[ins] != instrusebuf[ins]) {
       xbfree(instruse[ins]);
+      instruse[ins] = instrusebuf[ins];
+   }
    instrnuse[ins] = 0;
 }
 
