@@ -730,13 +730,6 @@ buildintervals(struct rega *ra)
    }
 }
 
-static int
-cmppinterval(void *a, void *b)
-{
-   struct interval **la = a, **lb = b;
-   return (int)itrange(*la, 0).from - (int)itrange(*lb, 0).from;
-}
-
 static bool
 itcontainspos(const struct interval *it, int pos)
 {
@@ -746,6 +739,36 @@ itcontainspos(const struct interval *it, int pos)
       if (pos < r.to) return 1;
    }
    return 0;
+}
+
+/* quicksort */
+static void
+sortintervals(struct interval **xs, int lo, int hi)
+{
+   assert(lo >= 0 && hi >= 0);
+   while (lo < hi) {
+      /* partition */
+      int i = lo - 1, p = hi + 1,
+          pivot = itrange(xs[lo], 0).from;
+      for (;;) {
+         struct interval *tmp;
+         do ++i; while (itrange(xs[i], 0).from < pivot);
+         do --p; while (itrange(xs[p], 0).from > pivot);
+         if (i >= p) break;
+         /* swap */
+         tmp = xs[i];
+         xs[i] = xs[p];
+         xs[p] = tmp;
+      }
+      /* recur */
+      if (p + 1 >= hi) {
+         hi = p;
+      } else {
+         if (lo < p)
+            sortintervals(xs, lo, p);
+         lo = p + 1;
+      }
+   }
 }
 
 static void
@@ -758,7 +781,6 @@ linearscan(struct rega *ra)
 
    /* sort intervals */
    {
-      extern void qsort(void *p, size_t n, size_t size, int (*)(void *, void *));
       extern int ninstr;
       unhandled = xcalloc(sizeof *unhandled * intervals->count);
 
@@ -771,7 +793,7 @@ linearscan(struct rega *ra)
          free(unhandled);
          return;
       }
-      qsort(unhandled, nunhandled, sizeof *unhandled, cmppinterval);
+      sortintervals(unhandled, 0, nunhandled-1);
    }
 
    /* LINEAR SCAN */
