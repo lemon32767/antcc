@@ -899,7 +899,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
          Xsub(pcode, cls, dst, mkimmdatregoper(ins->r));
       } else {
          assert(isintcon(ins->r));
-         Xlea(pcode, cls, dst,
+         Xlea(pcode, cls, reg2oper(ins->reg-1),
               mkoper(OMEM, .base = mkregoper(ins->l).reg, .index = NOINDEX, .disp = -intconval(ins->r)));
       }
       break;
