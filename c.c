@@ -12,7 +12,7 @@ struct comp {
    struct span fnblkspan;
    uint loopdepth, switchdepth;
    struct block *loopbreak, *loopcont;
-   pmap_of(struct label) labels;
+   struct label *labels;
 };
 
 /** Parsing helper functions **/
@@ -2989,18 +2989,28 @@ static bool stmt(struct comp *cm, struct function *fn);
 static void localdecl(struct comp *cm, struct function *fn, bool forinit);
 
 struct label {
-   struct span usespan;
+   struct label *link;
+   const char *name;
    struct block *blk;
+   struct span usespan;
    /* if usespan.ex.len == 0, this label is resolved and blk is the block that
     * the label starts, otherwise the label is unresolved and blk is the head
     * of a linked list of relocations, the next list entry is in blk->s1, etc,
     * terminated by NULL */
 };
 
+static struct label *
+findlabel(struct comp *cm, const char *name)
+{
+   for (struct label *l = cm->labels; l; l = l->link)
+      if (l->name == name) return l;
+   return NULL;
+}
+
 static void
 deflabel(struct comp *cm, struct function *fn, const struct span *span, const char *name)
 {
-   struct label *label = pmap_get(&cm->labels, name);
+   struct label *label = findlabel(cm, name);
    if (label && label->usespan.ex.len == 0) {
       error(span, "redefinition of label '%s'", name);
    } else if (label) {
@@ -3021,12 +3031,14 @@ deflabel(struct comp *cm, struct function *fn, const struct span *span, const ch
       label->blk = fn->curblk;
       if (!nerror) useblk(fn, new);
    } else {
+      struct label l = { cm->labels, name };
       if (!nerror) {
          struct block *new = newblk(fn);
          if (fn->curblk) putbranch(fn, new);
          useblk(fn, new);
       }
-      pmap_set(&cm->labels, name, ((struct label) { .blk = fn->curblk }));
+      l.blk = fn->curblk;
+      cm->labels = alloccopy(fn->arena, &l, sizeof l, 0);
    }
 }
 
@@ -3281,10 +3293,11 @@ stmt(struct comp *cm, struct function *fn)
       lex(cm, &tk);
       peek(cm, &tk);
       if (expect(cm, TKIDENT, NULL)) {
-         struct label *label = pmap_get(&cm->labels, tk.s);
+         struct label *label = findlabel(cm, tk.s);
          if (!label) {
             /* create reloc list */
-            pmap_set(&cm->labels, tk.s, ((struct label) { .usespan = tk.span, .blk = fn->curblk }));
+            struct label l = { cm->labels, tk.s, fn->curblk, tk.span };
+            cm->labels = alloccopy(fn->arena, &l, sizeof l, 0);
             fn->curblk = NULL;
          } else if (label && label->usespan.ex.len != 0) {
             /* append to relocs list */
@@ -3293,6 +3306,7 @@ stmt(struct comp *cm, struct function *fn)
             label->blk = fn->curblk;
             fn->curblk = NULL;
          } else {
+            assert(label->blk);
             EMITS putbranch(fn, label->blk);
          }
       }
@@ -3487,15 +3501,10 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
    }
    block(cm, fn);
    envup(cm);
-   if (cm->labels.mb.n) {
-      const char *name;
-      struct label *label;
-      pmap_each(&cm->labels, name, label) {
-         if (label->usespan.ex.len) {
-            error(&label->usespan, "label '%s' used but never defined", name);
-         }
+   for (struct label *l = cm->labels; l; l = l->link) {
+      if (l->usespan.ex.len) {
+         error(&l->usespan, "label '%s' used but never defined", l->name);
       }
-      pmap_free(&cm->labels);
    }
    if (fn->curblk) {
       if (!strcmp(fn->name, "main") && fn->retty.t == TYINT) {
