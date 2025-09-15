@@ -1047,86 +1047,6 @@ fini(struct rega *ra)
    } while ((blk = blk->lnext) != fn->entry);
 }
 
-void
-regalloc(struct function *fn)
-{
-   static union ref *stkslotrefsbuf[64];
-   struct rega ra = {fn, .arena = fn->arena};
-   struct block *blk, *last;
-
-   /* setup */
-   if (!fpregset || !gpregset) {
-      for (int r = 0; r < MAXREGS; ++r) {
-         if (isfpr(r))
-            rsset(&fpregset, r);
-         else if (isgpr(r))
-            rsset(&gpregset, r);
-      }
-   }
-   ra.free = (gpregset | fpregset) &~ (mctarg->rglob | (1ull<<mctarg->gprscratch) | (1ull<<mctarg->fprscratch));
-   memset(ra.freestk, 0xFF, sizeof ra.freestk);
-   fn->regusage = 0;
-   fn->stksiz = alignup(fn->stksiz, 8);
-   fn->isleaf = 1;
-   vinit(&stkslotrefs, stkslotrefsbuf, arraylength(stkslotrefsbuf));
-
-   /* put into reverse post order */
-   sortrpo(fn);
-
-   /* fix liveness ranges */
-   fixlive(fn);
-
-   /* transform into CSSA */
-   fixcssa(fn);
-
-   fillblkids(fn);
-
-   if (ccopt.dbg.r) {
-      efmt("<< Before linear scan >>\n");
-      irdump(fn);
-   }
-
-   /* linear scan: build lifetime intervals */
-   buildintervals(&ra);
-
-   /* linear scan: assign physical registers and stack slots */
-   linearscan(&ra);
-
-   /* get out of SSA */
-   blk = last = fn->entry->lprev;
-   do {
-      if (blk->id < 0) continue;
-      for (int i = 0; i < blk->npred; ++i) {
-         lowerphis(&ra, blkpred(blk, i), blk);
-      }
-      vfree(&blk->phi);
-   } while ((blk = blk->lprev) != last);
-
-   /* devirtualize & final cleanup */
-   fini(&ra);
-
-   {  int var;
-      struct interval *lv;
-      imap_each(&ra.intervals.temps, var, lv) {
-         (void)var;
-         if (lv->nrange > 2) xbfree(lv->_dyn);
-      }
-      imap_free(&ra.intervals.temps);
-   }
-
-   fn->stksiz += ra.maxstk*8;
-   if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
-   while (stkslotrefs.n) {
-      union ref *adr = stkslotrefs.p[--stkslotrefs.n];
-      *adr = mkaddr((struct addr) { .base = mkref(RREG, mctarg->bpr), .disp = -fn->stksiz + adr->i });
-   }
-
-   if (ccopt.dbg.r) {
-      DBG("<< After regalloc >>\n");
-      irdump(fn);
-   }
-}
-
 static int livelastblk;
 struct pendingphi { ushort var, phi; };
 static vec_of(struct pendingphi) *pendingphis;
@@ -1238,6 +1158,86 @@ fixlive(struct function *fn)
       irdump(fn);
    }
    if (defined != definedbuf) free(defined);
+}
+
+void
+regalloc(struct function *fn)
+{
+   static union ref *stkslotrefsbuf[64];
+   struct rega ra = {fn, .arena = fn->arena};
+   struct block *blk, *last;
+
+   /* setup */
+   if (!fpregset || !gpregset) {
+      for (int r = 0; r < MAXREGS; ++r) {
+         if (isfpr(r))
+            rsset(&fpregset, r);
+         else if (isgpr(r))
+            rsset(&gpregset, r);
+      }
+   }
+   ra.free = (gpregset | fpregset) &~ (mctarg->rglob | (1ull<<mctarg->gprscratch) | (1ull<<mctarg->fprscratch));
+   memset(ra.freestk, 0xFF, sizeof ra.freestk);
+   fn->regusage = 0;
+   fn->stksiz = alignup(fn->stksiz, 8);
+   fn->isleaf = 1;
+   vinit(&stkslotrefs, stkslotrefsbuf, arraylength(stkslotrefsbuf));
+
+   /* put into reverse post order */
+   sortrpo(fn);
+
+   /* fix liveness ranges */
+   fixlive(fn);
+
+   /* transform into CSSA */
+   fixcssa(fn);
+
+   fillblkids(fn);
+
+   if (ccopt.dbg.r) {
+      efmt("<< Before linear scan >>\n");
+      irdump(fn);
+   }
+
+   /* linear scan: build lifetime intervals */
+   buildintervals(&ra);
+
+   /* linear scan: assign physical registers and stack slots */
+   linearscan(&ra);
+
+   /* get out of SSA */
+   blk = last = fn->entry->lprev;
+   do {
+      if (blk->id < 0) continue;
+      for (int i = 0; i < blk->npred; ++i) {
+         lowerphis(&ra, blkpred(blk, i), blk);
+      }
+      vfree(&blk->phi);
+   } while ((blk = blk->lprev) != last);
+
+   /* devirtualize & final cleanup */
+   fini(&ra);
+
+   {  int var;
+      struct interval *lv;
+      imap_each(&ra.intervals.temps, var, lv) {
+         (void)var;
+         if (lv->nrange > 2) xbfree(lv->_dyn);
+      }
+      imap_free(&ra.intervals.temps);
+   }
+
+   fn->stksiz += ra.maxstk*8;
+   if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
+   while (stkslotrefs.n) {
+      union ref *adr = stkslotrefs.p[--stkslotrefs.n];
+      *adr = mkaddr((struct addr) { .base = mkref(RREG, mctarg->bpr), .disp = -fn->stksiz + adr->i });
+   }
+
+   if (ccopt.dbg.r) {
+      DBG("<< After regalloc >>\n");
+      irdump(fn);
+   }
 }
 
 /* vim:set ts=3 sw=3 expandtab: */
