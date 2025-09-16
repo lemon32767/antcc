@@ -184,8 +184,8 @@ void
 mem2reg(struct function *fn)
 {
    static struct bitset ssealed[4];
-   struct block *blk = fn->entry;
    struct ssabuilder sb = { .nblk = fn->nblk };
+   struct block *blk;
 
    sb.pendingphis = xcalloc(fn->nblk * sizeof *sb.pendingphis);
    if (fn->nblk <= 64 * arraylength(ssealed)) {
@@ -194,6 +194,9 @@ mem2reg(struct function *fn)
    } else {
       sb.sealed = xcalloc(BSSIZE(fn->nblk) * sizeof *sb.sealed);
    }
+
+   sortrpo(fn);
+   blk = fn->entry;
 
    do {
       for (int i = 0; i < blk->ins.n; ++i) {
