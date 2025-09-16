@@ -952,8 +952,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
    case Olth: case Ogth: case Olte: case Ogte:
    case Oulth: case Ougth: case Oulte: case Ougte:
       dst = mkregoper(ins->l);
-      /* TODO handle float cmps */
-      src = mkimmdatregoper(ins->r);
+      src = ref2oper(ins->r);
       regzeroed = 0;
       if (ins->reg && dst.reg != ins->reg-1 && (src.t != OREG || src.reg != ins->reg-1)) {
          /* can zero output reg before test instruction (differs from both inputs) */

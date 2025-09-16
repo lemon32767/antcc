@@ -82,7 +82,6 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
             wr32le(data, pun.i);
          }
          *r = mkdatref(NULL, siz, /*align*/siz, data, siz, /*deref*/1);
-         picfixsym(r, blk, curi);
       } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls))
          goto DivImm;
    } else if (r->t == RICON && in_range(op, Odiv, Ourem) && kisint(ins->cls)) {
@@ -93,6 +92,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
    ShiftImm: /* shift immediate is always 8bit */
       *r = mkref(RICON, sh & 255);
    }
+   picfixsym(r, blk, curi);
 }
 
 static void
@@ -395,7 +395,10 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       if (!fuseaddr(&ins->l, blk, curi) && ins->l.t != RTMP && ins->l.t != RREG)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->l));
       picfixsym(&ins->l, blk, curi);
-      fixarg(&ins->r, ins, blk, curi);
+      if (isaddrcon(ins->r))
+         ins->r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->r));
+      else
+         fixarg(&ins->r, ins, blk, curi);
       break;
    case Ocvtf4f8: case Ocvtf8f4: case Ocvtf4s: case Ocvtf8s:
    case Oexts1: case Oextu1: case Oexts2: case Oextu2: case Oexts4: case Oextu4:
