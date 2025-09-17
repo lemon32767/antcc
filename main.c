@@ -52,6 +52,12 @@ ftdetect(const char *s)
    return IFTc;
 }
 
+static union {
+   struct arena a;
+   char mem[sizeof(struct arena) + (1<<10)];
+} _arenamem;
+struct arena *globarena = &_arenamem.a;
+
 /* withext("x/y.c", "o") -> "y.o"; withext("f9", "s") -> "f9.s" */
 static const char *
 withext(const char *path, const char *ext)
@@ -69,7 +75,7 @@ withext(const char *path, const char *ext)
       len = strlen(file);
    else
       len = oext - file - 1;
-   res = xcalloc(len + 1 + strlen(ext) + 1);
+   res = alloc(&globarena, len + 1 + strlen(ext) + 1, 1);
    memcpy(res, file, len);
    res[len] = '.';
    memcpy(res + len + 1, ext, strlen(ext));
@@ -193,8 +199,9 @@ tempfile(const char *path, const char *ext)
       else ioputc(&fbuf, '_');
    }
    bfmt(&fbuf, "%s%s", &"."[!ext], ext ? ext : "");
+   ioputc(&fbuf, 0);
    assert(!fbuf.err);
-   return memcpy(xcalloc(fbuf.len + 1), fbuf.buf, fbuf.len);
+   return alloccopy(&globarena, fbuf.buf, fbuf.len, 1);
 }
 
 static int cc1(const char *out, const char *in);
@@ -345,6 +352,7 @@ int
 main(int argc, char **argv)
 {
    atexit(flushstd);
+   globarena->cap = sizeof(_arenamem.mem) - sizeof(struct arena);
 
    /* setup defaults */
    detectcolor();

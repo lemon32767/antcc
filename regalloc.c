@@ -780,20 +780,17 @@ linearscan(struct rega *ra)
    struct interval **unhandled = NULL;
    struct interval *active = NULL, *inactive = NULL, *handled = NULL;
 
+   if (!intervals->count) return;
    /* sort intervals */
    {
       extern int ninstr;
-      unhandled = xcalloc(sizeof *unhandled * intervals->count);
+      unhandled = alloc(ra->arena, sizeof *unhandled * intervals->count, 0);
 
       for (int i = 0; i < ninstr; ++i) {
          if (!intervals->temps[i].nrange) continue;
          unhandled[nunhandled++] = &intervals->temps[i];
       }
       assert(nunhandled == intervals->count);
-      if (!nunhandled) {
-         free(unhandled);
-         return;
-      }
       sortintervals(unhandled, 0, nunhandled-1);
    }
 
@@ -954,8 +951,6 @@ linearscan(struct rega *ra)
          active = current;
       }
    }
-
-   free(unhandled);
 }
 
 /* replace temps with physical regs, add loads & stores for spilled temps */

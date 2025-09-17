@@ -11,6 +11,14 @@
 } while (0)
 
 void *
+(xmalloc)(size_t n, const char *f)
+{
+   void *p = malloc(n);
+   if (!p) ALLOCERR(f);
+   return p;
+}
+
+void *
 (xcalloc)(size_t n, const char *f)
 {
    void *p = calloc(n, 1);
@@ -84,7 +92,7 @@ vresize_(void **p, int *pcap, uint *pn, uint siz, uint N)
 struct arena *
 newarena(uint chunksiz)
 {
-   struct arena *ar = xcalloc(offsetof(struct arena, mem) + chunksiz);
+   struct arena *ar = xmalloc(offsetof(struct arena, mem) + chunksiz);
    assert(chunksiz < 1u<<31 && "toobig");
    ar->cap = chunksiz;
    ar->dyn = 1;

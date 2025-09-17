@@ -583,7 +583,7 @@ bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct e
 static struct expr *
 exprdup(struct comp *cm, const struct expr *e)
 {
-   return memcpy(alloc(&cm->exarena, sizeof *e, 0), e, sizeof *e);
+   return alloccopy(&cm->exarena, e, sizeof *e, 0);
 }
 static struct expr *
 exprdup2(struct comp *cm, const struct expr *e1, const struct expr *e2)
@@ -2185,10 +2185,8 @@ declarator(struct declstate *st, struct comp *cm) {
          if (l->param != declparamtmp) free(l->param);
          if (l->pqual != declpqualtmp) free(l->pqual);
          if (l->prev == &list && l->npar) { /* last */
-            st->pnames = alloc(&cm->fnarena, l->npar * sizeof(char *), 0);
-            st->pspans = alloc(&cm->fnarena, l->npar * sizeof(struct span), 0);
-            memcpy(st->pnames, l->pnames, l->npar * sizeof(char *));
-            memcpy(st->pspans, l->pspans, l->npar * sizeof(struct span));
+            st->pnames = alloccopy(&cm->fnarena, l->pnames, l->npar * sizeof(char *), 0);
+            st->pspans = alloccopy(&cm->fnarena, l->pspans, l->npar * sizeof(struct span), 0);
          }
          if (l->pnames != declpnamestmp) free(l->pnames);
          if (l->pspans != declpspanstmp) free(l->pspans);

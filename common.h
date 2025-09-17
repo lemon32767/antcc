@@ -342,12 +342,16 @@ struct arena {
    uchar mem[];
 };
 
+extern struct arena *globarena;
+
 #define vec_of(T) struct { T *p; int _cap; uint n; }
 
 /* libc *alloc wrappers */
+void *xmalloc(size_t n, const char *);
 void *xcalloc(size_t n, const char *);
 void *xrealloc(void *, size_t n, const char *);
 void free(void *);
+#define xmalloc(n) xmalloc(n, __func__)
 #define xcalloc(n) xcalloc(n, __func__)
 #define xrealloc(p,n) xrealloc(p, n, __func__)
 

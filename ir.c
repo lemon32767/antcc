@@ -64,9 +64,8 @@ irinit(struct function *fn)
       cls2siz[KI8] = cls2siz[KF8] = 8;
       cls2siz[KPTR] = targ_primsizes[TYPTR];
    }
-   fn->entry = fn->curblk = alloc(fn->arena, sizeof(struct block), 0);
+   fn->entry = fn->curblk = allocz(fn->arena, sizeof(struct block), 0);
    fn->nblk = 1;
-   memset(fn->entry, 0, sizeof *fn->entry);
    fn->entry->lprev = fn->entry->lnext = fn->entry;
 }
 

@@ -341,8 +341,7 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim)
       } else {
          tk->litlit = 0;
          vpush(&b, 0);
-         tk->s = alloc(lx->tmparena, b.n, 1);
-         memcpy((char *)tk->s, b.p, b.n);
+         tk->s = alloccopy(lx->tmparena, b.p, b.n, 1);
       }
    } else {
       if (b.n == 0) {
@@ -359,8 +358,7 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim)
          tk->s = (char *)&lx->dat[beginoff];
       } else {
          tk->litlit = 0;
-         tk->s = alloc(lx->tmparena, tk->len, 1);
-         memcpy((char *)tk->s, b.p, tk->len);
+         tk->s = alloccopy(lx->tmparena, b.p, tk->len, 1);
       }
    }
    vfree(&b);
@@ -394,8 +392,7 @@ readheadername(struct lexer *lx, struct token *tk, char delim)
    } else {
       tk->litlit = 0;
       vpush(&b, 0);
-      tk->s = alloc(lx->tmparena, b.n, 1);
-      memcpy((char *)tk->s, b.p, b.n);
+      tk->s = alloccopy(lx->tmparena, b.p, b.n, 1);
    }
    vfree(&b);
 }
@@ -530,8 +527,7 @@ Begin:
          tk->len = n;
          if (n == lx->chridx - idx) tk->s = (char *)&lx->dat[idx];
          else {
-            tk->s = alloc(lx->tmparena, n, 1);
-            memcpy((char *)tk->s, tmp, n);
+            tk->s = alloccopy(lx->tmparena, tmp, n, 1);
          }
          RET(TKNUMLIT);
       } else if (c == '_' || aisalpha(c)) {
@@ -1065,7 +1061,7 @@ ppinclude(struct lexer *lx, const struct span *span0)
       for (end = base; *end != 0; ++end) {}
       for (--end; *end != '/' && end != base; --end) {}
       if (*end == '/') ++end;
-      path = xcalloc(end - base + tk.len + 1);
+      path = alloc(&globarena, end - base + tk.len + 1, 1);
       memcpy(path, base, end - base);
       memcpy(path + (end - base), tk.s, tk.len);
       path[end - base + tk.len] = 0;
@@ -1077,7 +1073,7 @@ ppinclude(struct lexer *lx, const struct span *span0)
    //efmt(">include %'s\n", path);
    joinspan(&span.ex, tk.span.ex);
    initlexer(&new, &span, path, lx->tmparena);
-   new.save = xcalloc(sizeof *new.save);
+   new.save = xmalloc(sizeof *new.save);
    memcpy(new.save, lx, sizeof *lx);
    *lx = new;
 
