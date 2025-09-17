@@ -1507,13 +1507,13 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
    struct token tk;
    union type t;
    struct span flexspan;
-   uint bitoff, bitsiz, bitfbyteoff;
    struct namedfield fbuf[32];
    vec_of(struct namedfield) fld = VINIT(fbuf, arraylength(fbuf));
    struct typedata td = {tt};
    bool isunion = tt == TYUNION;
    const char *tag = isunion ? "union" : "struct";
-   uint bitftypesiz = 0;
+   uint bitsiz = 0, bitfbyteoff = 0,
+        bitoff = 0, bitftypesiz = 0;
 
    while (!match(cm, &tk, '}')) {
       struct declstate st = { DFIELD };
@@ -1534,7 +1534,7 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
          }
          bitsiz = 0;
          if (st.bitf) {
-            struct expr ex = expr(cm);
+            struct expr ex = constantexpr(cm);
             const char *name = decl.name ? decl.name : "<anonymous>";
             if (!isint(decl.ty)) {
                error(&decl.span, "bit-field '%s' has non-integer type '%ty'", name, decl.ty);
@@ -3081,7 +3081,7 @@ deflabel(struct comp *cm, struct function *fn, const struct span *span, const ch
    if (label && label->usespan.ex.len == 0) {
       error(span, "redefinition of label '%s'", name);
    } else if (label) {
-      struct block *new;
+      struct block *new = NULL;
       if (!nerror) {
          new = newblk(fn);
          if (fn->curblk) putbranch(fn, new);
@@ -3208,7 +3208,7 @@ stmt(struct comp *cm, struct function *fn)
       if (tk.t == TKWcase) {
          /* case <expr> ':' */
          if (!cm->switchstmt) error(&tk.span, "'case' outside of switch statement");
-         ex = commaexpr(cm);
+         ex = constantexpr(cm);
          if (!eval(&ex, EVINTCONST)) error(&ex.span, "not an integer constant expression");
          expect(cm, ':', NULL);
          begin = newblk(fn);
