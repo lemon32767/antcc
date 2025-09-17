@@ -662,7 +662,7 @@ mapopen(const char **err, const char *path)
             goto Err;
          }
          p = (void *)f.p;
-         ret = read(fd, p, CHUNKSIZ);
+         ret = read(fd, (char *)p + f.n, CHUNKSIZ);
          if (ret >= 0)
             f.n += ret;
          else if (errno != EAGAIN && errno != EWOULDBLOCK)
