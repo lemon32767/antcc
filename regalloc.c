@@ -558,8 +558,9 @@ buildintervals(struct rega *ra)
    extern int ninstr;
    struct block *blk, *last;
    struct bitset **livein = alloc(ra->arena, ra->fn->nblk * sizeof *livein, 0);
+   size_t bssize = BSSIZE(ninstr);
    for (int i = 0; i < ra->fn->nblk; ++i)
-      livein[i] = allocz(ra->arena, BSSIZE(ninstr) * sizeof *livein[i], 0);
+      livein[i] = allocz(ra->arena, bssize * sizeof *livein[i], 0);
    ra->intervals.temps = allocz(ra->arena, ninstr * sizeof *ra->intervals.temps, 0);
 
    numberinstrs(ra->fn);
@@ -568,7 +569,6 @@ buildintervals(struct rega *ra)
    do {
       struct instr *ins = NULL;
       struct bitset *live = livein[blk->id];
-      size_t bssize = BSSIZE(ninstr);
       struct block *suc = blk->s1;
       // DBG("--- @%d ---\n",blk->id);
 
@@ -993,7 +993,6 @@ devirt(struct rega *ra, struct block *blk)
          union ref *r = argref[i];
          int tr;
          if (r->t == RTMP) {
-
             alloc = (it = &ra->intervals.temps[r->i]) && it->nrange ? &it->alloc : NULL;
             if (alloc->t == ASTACK && ins->op == Omove) {
                /* move [reg], [stk] -> [reg] = load [stk] */
