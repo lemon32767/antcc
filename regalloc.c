@@ -528,7 +528,9 @@ priliveset(struct bitset *s, size_t siz)
 static void
 usereg(struct rega *ra, int reg, struct block *blk, int pos)
 {
-   struct fixinterval *fxit = alloc(ra->arena, sizeof *fxit, 0);
+   struct fixinterval *fxit;
+   if (rstest(mctarg->rglob, reg)) return; /* regalloc never allocates globally live regs, so don't need intervals for those */
+   fxit = alloc(ra->arena, sizeof *fxit, 0);
    fxit->next = ra->intervals.fixed;
    fxit->range = (struct range) {blk->inumstart, pos};
    fxit->rs = 1<<reg;
@@ -537,6 +539,7 @@ usereg(struct rega *ra, int reg, struct block *blk, int pos)
 
 static void
 defreg(struct rega *ra, int reg, int pos) {
+   if (rstest(mctarg->rglob, reg)) return;
    for (struct fixinterval *fxit = ra->intervals.fixed; fxit; fxit = fxit->next) {
       if (fxit->rs == 1<<reg) {
          assert(fxit->range.from <= pos);
