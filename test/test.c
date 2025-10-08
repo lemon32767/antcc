@@ -40,8 +40,7 @@ struct quad {
 };
 
 struct quad quad(long x, long y, long z, long w) {
-    struct quad q;
-    q.x = x, q.y = y, q.z = z, q.w = w;
+    struct quad q = {x,y,z,w};
     return q;
 }
 
@@ -62,9 +61,11 @@ int test2(struct big *b) {
 
 struct f2 { float f,g; };
 struct f2 f2test(struct f2 *r) {
+   struct f2 q = {1,3,.f=2};
+   *r = q;
     return *r;
 }
-#if 0
+#if 1
 void fill(char *p, int c, unsigned long n)
 {
     int t;
@@ -82,7 +83,7 @@ enum ball  {
     X = 2147483647,
     Y,
     Z,
-    W = ~0ull
+    W = ~0ull //warn
 };
 enum ball x;
 
@@ -96,4 +97,13 @@ struct f{
     char flex[];
 };
 #endif
+
+int main() {
+   char str[] = "abcdef!";
+   int arr[] = {[4]=1,9001};
+   str[1]&=~0x20;
+   extern int printf(char *, ...);
+   printf("%s %d,%d\n",str, arr[0],arr[5]);
+   return sizeof arr;
+}
 //

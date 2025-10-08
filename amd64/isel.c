@@ -82,6 +82,10 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
             wr32le(data, pun.i);
          }
          *r = mkdatref(NULL, siz, /*align*/siz, data, siz, /*deref*/1);
+         if (&ins->l != r && ins->l.t == RADDR) {
+            /* can't use memory arg in rhs if lhs is memory */
+            *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, con->cls, *r));
+         }
       } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls))
          goto DivImm;
    } else if (r->t == RICON && in_range(op, Odiv, Ourem) && kisint(ins->cls)) {

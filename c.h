@@ -43,11 +43,14 @@ struct expr {
 };
 
 struct init {
-   uint n;
-   struct bitset *zero;
-   uint *offs;
-   struct { uchar off, siz; } *bitf;
-   struct expr **ex;
+   uint nzero;
+   struct bitset *zero; /* bytes to zero out */
+   struct initval {
+      struct initval *next;
+      uint off;
+      uchar bitoff, bitsiz;
+      struct expr ex;
+   } *vals, **tail;
 };
 
 enum storageclass {

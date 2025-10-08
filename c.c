@@ -318,6 +318,14 @@ assigncheck(union type t, const struct expr *src)
    return 0;
 }
 
+static bool
+initcheck(union type t, const struct expr *src)
+{
+   if (assigncheck(t, src)) return 1;
+   if (t.bits == src->ty.bits && (src->t == EINIT || src->t == ESTRLIT)) return 1;
+   return 0;
+}
+
 static void
 incdeccheck(enum toktag tt, const struct expr *ex, const struct span *span)
 {
@@ -1025,8 +1033,9 @@ chararrayp(union type ty)
 }
 
 static union type
-membertype(uint *off, union type ty, uint idx)
+membertype(uint *off, uint *bitsiz, uint *bitoff, union type ty, uint idx)
 {
+   *bitsiz = *bitoff = 0;
    if (!objectp(ty)) {
       *off = 0;
       return ty;
@@ -1034,8 +1043,10 @@ membertype(uint *off, union type ty, uint idx)
       *off = typesize(typechild(ty)) * idx;
       return typechild(ty);
    } else if (idx < typedata[ty.dat].nmemb) {
-      *off = typedata[ty.dat].fld[idx].f.off;
-      return typedata[ty.dat].fld[idx].f.t;
+      struct fielddata fld = typedata[ty.dat].fld[idx].f;
+      *off = fld.off;
+      *bitsiz = fld.bitsiz, *bitoff = fld.bitoff;
+      return fld.t;
    }
    *off = ~0u;
    return mktype(0);
@@ -1139,15 +1150,17 @@ expr2reloc(union ref *psym, vlong *paddend, const struct expr *ex)
 }
 
 static void
-iniwrite(struct initparser *ip, uint off, union type ty, struct expr *ex)
+iniwrite(struct comp *cm, struct initparser *ip, uint off, union type ty, struct expr *ex)
 {
    uchar *p;
+   uint bitsiz, bitoff;
    if (ex->ty.t == TYSTRUCT) {
       assert(ty.bits == ex->ty.bits);
       for (uint i = 0, n = nmemb(ex->ty); i < n; ++i) {
          uint suboff;
-         union type sub = membertype(&suboff, ex->ty, i);
-         iniwrite(ip, off + suboff, sub, &mkexpr(EGETF, ex->span, sub, .sub = ex));
+         union type sub = membertype(&suboff, &bitsiz, &bitoff, ex->ty, i);
+         assert(!bitsiz);
+         iniwrite(cm, ip, off + suboff, sub, &mkexpr(EGETF, ex->span, sub, .sub = ex));
       }
    } else if (ip->ev == EVSTATICINI) {
       uint siz = typesize(ty);
@@ -1170,7 +1183,7 @@ iniwrite(struct initparser *ip, uint off, union type ty, struct expr *ex)
             assert(e->t == ENUMLIT);
          }
          // efmt("#%u' wr %lx at %u\n", ip->dyn?0:ip->off, e->u, off);
-         ioflush(&bstderr);
+         // ioflush(&bstderr);
          switch (siz) {
          default: assert(0);
          case 1: *p = e->u; break;
@@ -1199,6 +1212,24 @@ iniwrite(struct initparser *ip, uint off, union type ty, struct expr *ex)
             ip->drel = rel;
          }
       }
+   } else {
+      struct init *init = ip->init;
+      struct initval val = {
+         .off = off,
+         .ex = *ex
+      }, *new = alloccopy(&cm->exarena, &val, sizeof val, 0);
+      *init->tail = new;
+      init->tail = &new->next;
+      if (BSSIZE(off+typesize(ex->ty)) > init->nzero) {
+         uint oldn = init->nzero;
+         struct bitset *old = init->zero;
+         init->nzero = BSSIZE(off+typesize(ex->ty));
+         init->zero = alloc(&cm->exarena, sizeof *init->zero * init->nzero, 0);
+         if (old) memcpy(init->zero, old, oldn * sizeof *old);
+         memset(init->zero+oldn, 0xFF, sizeof *init->zero * (init->nzero - oldn));
+      }
+      for (uint i = off, end = i + typesize(ex->ty); i < end; ++i)
+         bsclr(init->zero, i);
    }
 }
 
@@ -1214,9 +1245,10 @@ iniadvance(struct initparser *ip, struct initcur *c, const struct span *span)
 static void
 inifocus(struct initparser *ip, struct comp *cm, const struct span *span, uint idx)
 {
-   uint off;
-   union type targ = membertype(&off, ip->sub->ty, idx);
+   uint off, bitsiz, bitoff;
+   union type targ = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, idx);
    struct initcur *next = iniadvance(ip, ip->cur, span);
+   assert(!bitsiz);
 
    if (isagg(ip->sub->ty) && targ.t == TYARRAY && !typearrlen(targ))
       error(span, "cannot initialize flexible array member");
@@ -1247,12 +1279,13 @@ inistrlit(struct comp *cm, struct expr *ex, union type *ty)
 static void
 ininext(struct initparser *ip, struct comp *cm)
 {
-   uint off;
+   uint off, bitsiz, bitoff;
    union type targ;
    struct expr ex = expr(cm);
 
 Retry:
-   targ = membertype(&off, ip->sub->ty, ip->sub->idx);
+   targ = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, ip->sub->idx);
+   assert(!bitsiz);
 
    if (isagg(ip->sub->ty) && targ.t == TYARRAY && !typearrlen(targ)) {
       error(&ex.span, "cannot initialize flexible array member");
@@ -1262,7 +1295,7 @@ Retry:
    if (ex.t == ESTRLIT && chararrayp(targ)) {
       assert(!isincomplete(targ));
       inistrlit(cm, &ex, &targ);
-      iniwrite(ip, ip->sub->off + off, targ, &ex);
+      iniwrite(cm, ip, ip->sub->off + off, targ, &ex);
       ++ip->sub->idx;
       return;
    } else if (ip->sub->idx >= nmemb(ip->sub->ty) && ip->sub != ip->cur) {
@@ -1283,12 +1316,22 @@ Retry:
       if (!assigncheck(targ, &ex))
          error(&ex.span, "cannot initialize '%ty' with expression of type '%ty'", targ, ex.ty);
       else {
-         if (ip->ev && !eval(&ex, ip->ev))
+         if (ip->ev && !eval(&ex, ip->ev) && ip->ev != EVFOLD)
             error(&ex.span, "cannot evaluate expression statically");
-         else
-            iniwrite(ip, ip->sub->off + off, targ, &ex);
+         else {
+            struct expr *pex = &ex;
+            if (ip->ev != EVSTATICINI) {
+               if (ex.ty.bits != targ.bits)
+                  ex = mkexpr(ECAST, ex.span, targ, .sub = exprdup(cm, &ex));
+               pex = exprdup(cm, &ex);
+            }
+            iniwrite(cm, ip, ip->sub->off + off, targ, pex);
+         }
       }
    }
+   if (ip->sub == ip->buf && ip->arrlen < ip->sub->idx+1)
+      ip->arrlen = ip->sub->idx+1;
+
    if (++ip->sub->idx == 0) {
       error(&ex.span, "element makes object too large");
       --ip->sub->idx;
@@ -1331,6 +1374,7 @@ designators(struct initparser *ip, struct comp *cm)
    bool some = 0;
 
    for (;;) {
+            uint off, bitsiz, bitoff;
       uvlong idx = ~0ull;
       if (match(cm, &tk, '[')) {
          struct expr ex = commaexpr(cm);
@@ -1338,9 +1382,9 @@ designators(struct initparser *ip, struct comp *cm)
          joinspan(&span.ex, ex.span.ex);
          peek(cm, &tk);
          if (some) {
-            uint off;
-            union type ty = membertype(&off, ip->sub->ty, ip->sub->idx++);
+            union type ty = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, ip->sub->idx++);
             struct initcur *next = iniadvance(ip, ip->sub, &tk.span);
+            assert(!bitsiz);
             *next = (struct initcur) { ty, .off = ip->sub->off + off };
             ip->sub = next;
             dumpini(ip);
@@ -1366,8 +1410,7 @@ designators(struct initparser *ip, struct comp *cm)
          span = tk.span;
          peek(cm, &tk);
          if (some) {
-            uint off;
-            union type ty = membertype(&off, ip->sub->ty, ip->sub->idx++);
+            union type ty = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, ip->sub->idx++);
             struct initcur *next = iniadvance(ip, ip->sub, &tk.span);
             *next = (struct initcur) { ty, .off = ip->sub->off + off };
             ip->sub = next;
@@ -1411,25 +1454,31 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
       }
    } else {
       ip->init = &res;
+      res.tail = &res.vals;
    }
 
    if (!match(cm, &tk, '{')) {
       struct expr ex = expr(cm);
       if (ex.t == ESTRLIT && chararrayp(*ty)) {
          inistrlit(cm, &ex, ty);
-         iniwrite(ip, 0, *ty, &ex);
+         iniwrite(cm, ip, 0, *ty, &ex);
          if (ip->dyn)
             goto Dynfix;
       }
-      if (!assigncheck(*ty, &ex))
+      if (!initcheck(*ty, &ex))
          error(&ex.span, "cannot initialize '%ty' with expression of type '%ty'", *ty, ex.ty);
       else {
          if (ev && !eval(&ex, ev) && ev != EVFOLD)
             error(&ex.span, "cannot evaluate expression statically");
          else
-            iniwrite(ip, 0, *ty, &ex);
+            iniwrite(cm, ip, 0, *ty, &ex);
       }
       return ex;
+   }
+
+   if (ev != EVSTATICINI) {
+      res.zero = alloc(&cm->exarena, sizeof *res.zero * BSSIZE(isincomplete(*ty) ? 1 : typesize(*ty)), 0);
+      memset(res.zero, 0xFF, sizeof *res.zero * BSSIZE(typesize(*ty)));
    }
 
    span = tk.span;
@@ -1493,6 +1542,11 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
    if (ev == EVSTATICINI) {
       return (struct expr){0};
    } else {
+      if (isincomplete(*ty)) {
+         if (!ip->arrlen)
+            error(&span, "initializer creates a zero-sized array");
+         *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, ip->arrlen > 0 ? ip->arrlen : 1);
+      }
       return mkexpr(EINIT, span, *ty, .init = alloccopy(&cm->exarena, &res, sizeof res, 0));
    }
 }
@@ -1636,8 +1690,8 @@ static inline void
 inttyminmax(vlong *min, uvlong *max, enum typetag tt)
 {
    uint bits = 8*targ_primsizes[tt];
-   *min = isunsignedt(tt) ? 0 : -(1ll << (bits - 1));
-   *max = isunsignedt(tt) ? ~0ull >> (64 - bits) : (1ll << (bits - 1)) - 1;
+   *min = isunsignedt(tt) ? 0 : bits == 64 ? ~0ull : -(1ll << (bits - 1));
+   *max = isunsignedt(tt) ? ~0ull >> (64 - bits) : bits == 64 ? ~0ull>>1 : (1ll << (bits - 1)) - 1;
 }
 
 /* the backing type of enum (without a C23 fixed backing type) is int or the
@@ -2444,6 +2498,34 @@ genstore(struct function *fn, union type t, union ref ptr, union ref val)
    ins.l = ptr;
    ins.r = val;
    return addinstr(fn, ins);
+}
+
+static void
+geninit(struct function *fn, union type t, union ref dst, const struct expr *src)
+{
+   union ref adr;
+   if (src->t == EINIT) {
+      const struct init *ini = src->init;
+      uint siz = typesize(t);
+      for (uint i = 0; bsiter(&i, ini->zero, ini->nzero) && i < siz; ++i) {
+         /* TODO coalesce into multibyte zero writes */
+         adr = i == 0 ? dst : addinstr(fn, mkinstr(Oadd, KPTR, dst, mkref(RICON, i)));
+         genstore(fn, mktype(TYCHAR), adr, ZEROREF);
+      }
+      for (struct initval *val = ini->vals; val; val = val->next) {
+         uint off = val->off;
+         struct expr *ex = &val->ex;
+         adr = off == 0 ? dst : addinstr(fn, mkinstr(Oadd, KPTR, dst, mkref(RICON, off))); 
+         genstore(fn, ex->ty, adr, exprvalue(fn, ex));
+      }
+   } else if (src->t == ESTRLIT) {
+      adr = dst;
+      for (uint i = 0; i < src->s.n; ++i) {
+         genstore(fn, mktype(TYCHAR), adr, mkref(RICON, src->s.p[i]));
+         adr = addinstr(fn, mkinstr(Oadd, KPTR, dst, mkref(RICON, i+1)));
+      }
+      genstore(fn, mktype(TYCHAR), adr, ZEROREF);
+   } else assert(0);
 }
 
 static union ref
@@ -3522,6 +3604,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
       if (decl.name) {
          static int staticid;
          bool put = 0;
+         bool dynarr = 0;
 
          switch (decl.scls) {
          case SCSTATIC:
@@ -3538,11 +3621,10 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
             /* fallthru */
          case SCAUTO:
          case SCREGISTER:
-            if (isincomplete(decl.ty) || decl.ty.t == TYFUNC) {
-               error(&decl.span,
-                     "declaring variable '%s' with %s type '%ty'",
-                     decl.name, decl.ty.t == TYFUNC ? "function" : "incomplete",
-                     decl.ty);
+            if (decl.ty.t == TYFUNC) {
+               error(&decl.span, "declaring variable '%s' with function type '%ty'", decl.name, decl.ty);
+            } else if (isincomplete(decl.ty) && !(dynarr = (decl.ty.t == TYARRAY && st.varini))) {
+               error(&decl.span, "declaring variable '%s' with incomplete type '%ty'", decl.name, decl.ty);
                goto Err;
             }
             EMITS {
@@ -3560,15 +3642,19 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                                  /* globl? */ decl.scls == SCEXTERN, decl.qual, name);
                pdecl(&st, cm);
                if (!statik) {
-                  if (!assigncheck(d->ty, &ini)) {
+                  /* fix alloca for actual size, for implicitly sized arrays */
+                  assert(!isincomplete(d->ty));
+                  instrtab[decl.id].l.i = typesize(d->ty);
+
+                  if (!initcheck(d->ty, &ini)) {
                      struct span span = decl.span;
                      joinspan(&span.ex, ini.span.ex);
                      error(&span, "cannot initialize '%ty' variable with '%ty'",
                            d->ty, ini.ty);
                   }
                   EMITS {
-                     if (isagg(d->ty))
-                        structcopy(fn, d->ty, mkref(RTMP, decl.id), expraddr(fn, &ini));
+                     if (isagg(d->ty) || d->ty.t == TYARRAY)
+                        geninit(fn, d->ty, mkref(RTMP, decl.id), &ini);
                      else
                         genstore(fn, d->ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
                   }
