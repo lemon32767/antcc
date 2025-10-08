@@ -1690,7 +1690,7 @@ static inline void
 inttyminmax(vlong *min, uvlong *max, enum typetag tt)
 {
    uint bits = 8*targ_primsizes[tt];
-   *min = isunsignedt(tt) ? 0 : bits == 64 ? ~0ull : -(1ll << (bits - 1));
+   *min = isunsignedt(tt) ? 0 : -(1ull << (bits - 1));
    *max = isunsignedt(tt) ? ~0ull >> (64 - bits) : bits == 64 ? ~0ull>>1 : (1ll << (bits - 1)) - 1;
 }
 
