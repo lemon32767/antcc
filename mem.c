@@ -140,7 +140,8 @@ freearena(struct arena **par)
       if ((*par)->dyn)
          free(*par);
       else {
-         assert(!prev);
+         if (prev) freearena(&prev);
+         (*par)->prev = NULL;
          (*par)->n = 0;
          return;
       }

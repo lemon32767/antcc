@@ -104,6 +104,7 @@ int main() {
    str[1]&=~0x20;
    extern int printf(char *, ...);
    printf("%s %d,%d\n",str, arr[0],arr[5]);
+   int bleh[500]={};
    return sizeof arr;
 }
 //

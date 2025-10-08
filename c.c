@@ -1477,7 +1477,8 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
    }
 
    if (ev != EVSTATICINI) {
-      res.zero = alloc(&cm->exarena, sizeof *res.zero * BSSIZE(isincomplete(*ty) ? 1 : typesize(*ty)), 0);
+      res.nzero = BSSIZE(isincomplete(*ty) ? 1 : typesize(*ty));
+      res.zero = alloc(&cm->exarena, sizeof *res.zero * res.nzero, 0);
       memset(res.zero, 0xFF, sizeof *res.zero * BSSIZE(typesize(*ty)));
    }
 
