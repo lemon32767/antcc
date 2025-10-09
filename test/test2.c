@@ -14,6 +14,11 @@ v2d add(v2d a, v2d b)
     return a;
 }
 
+v2d addx(v2d a, v2d b)
+{
+    return (v2d){a.x+b.x, a.y+b.y};
+}
+
 short s(int a, int b) {
     extern h();
     h(a +a * a);
@@ -25,7 +30,7 @@ int i() {
     return s(1,2);
 }
 
-double v2v2() {
+v2d v2v2() {
    v2d x = add((v2d){1,2}, (v2d){3,4});
-   return x.x+x.y;
+   return x;
 }
