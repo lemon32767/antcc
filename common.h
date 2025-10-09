@@ -484,6 +484,14 @@ bsunion(struct bitset dst[/*siz*/], const struct bitset src[/*siz*/], uint siz)
    while (siz--) dst++->u |= src++->u;
 }
 
+static inline uint
+bscount(struct bitset bs[/*siz*/], uint siz)
+{
+   uint n = 0;
+   while (siz--) n += popcnt(bs++->u);
+   return n;
+}
+
 static inline bool
 bsiter(uint *i, struct bitset bs[/*siz*/], uint siz)
 {

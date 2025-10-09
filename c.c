@@ -1220,16 +1220,10 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, union type ty, struct
       }, *new = alloccopy(&cm->exarena, &val, sizeof val, 0);
       *init->tail = new;
       init->tail = &new->next;
-      if (BSSIZE(off+typesize(ex->ty)) > init->nzero) {
-         uint oldn = init->nzero;
-         struct bitset *old = init->zero;
-         init->nzero = BSSIZE(off+typesize(ex->ty));
-         init->zero = alloc(&cm->exarena, sizeof *init->zero * init->nzero, 0);
-         if (old) memcpy(init->zero, old, oldn * sizeof *old);
-         memset(init->zero+oldn, 0xFF, sizeof *init->zero * (init->nzero - oldn));
-      }
-      for (uint i = off, end = i + typesize(ex->ty); i < end; ++i)
+      for (uint i = off, end = i + typesize(ex->ty); i < end; ++i) {
+         if (BSSIZE(end) > arraylength(init->zero)) break;
          bsclr(init->zero, i);
+      }
    }
 }
 
@@ -1476,10 +1470,9 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
       return ex;
    }
 
+   assert(arraylength(res.zero) == 1);
    if (ev != EVSTATICINI) {
-      res.nzero = BSSIZE(isincomplete(*ty) ? 1 : typesize(*ty));
-      res.zero = alloc(&cm->exarena, sizeof *res.zero * res.nzero, 0);
-      memset(res.zero, 0xFF, sizeof *res.zero * BSSIZE(typesize(*ty)));
+      memset(res.zero, 0xFF, sizeof res.zero);
    }
 
    span = tk.span;
@@ -1543,11 +1536,19 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
    if (ev == EVSTATICINI) {
       return (struct expr){0};
    } else {
+      uint siz;
       if (isincomplete(*ty)) {
          if (!ip->arrlen)
             error(&span, "initializer creates a zero-sized array");
          *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, ip->arrlen > 0 ? ip->arrlen : 1);
       }
+
+      assert(arraylength(res.zero) == 1);
+      siz = typesize(*ty);
+      memset(res.zero, 0xFF, sizeof res.zero);
+      if (siz && siz <= 64)
+         res.zero->u &= ~0ull >> (64 - siz);
+
       return mkexpr(EINIT, span, *ty, .init = alloccopy(&cm->exarena, &res, sizeof res, 0));
    }
 }
@@ -2506,12 +2507,25 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
 {
    union ref adr;
    if (src->t == EINIT) {
-      const struct init *ini = src->init;
+      struct init *ini = src->init;
       uint siz = typesize(t);
-      for (uint i = 0; bsiter(&i, ini->zero, ini->nzero) && i < siz; ++i) {
-         /* TODO coalesce into multibyte zero writes */
-         adr = i == 0 ? dst : addinstr(fn, mkinstr(Oadd, KPTR, dst, mkref(RICON, i)));
-         genstore(fn, mktype(TYCHAR), adr, ZEROREF);
+      if (BSSIZE(siz) <= arraylength(ini->zero) && bscount(ini->zero, arraylength(ini->zero)) < 32) {
+         /* write individual zeros at non initialized gaps */
+         for (uint i = 0; bsiter(&i, ini->zero, arraylength(ini->zero)) && i < siz; ++i) {
+            /* TODO coalesce into multibyte zero writes */
+            adr = i == 0 ? dst : addinstr(fn, mkinstr(Oadd, KPTR, dst, mkref(RICON, i)));
+            genstore(fn, mktype(TYCHAR), adr, ZEROREF);
+         }
+      } else {
+         /* memset(dst,0,siz) */
+         /* TODO make it into an intrinsic */
+         struct instr call = { Ocall, KPTR };
+         addinstr(fn, mkarginstr(cls2type(KPTR), dst));
+         addinstr(fn, mkarginstr(cls2type(KI4), ZEROREF));
+         addinstr(fn, mkarginstr(cls2type(type2cls[targ_sizetype]), mkintcon(type2cls[targ_sizetype], siz)));
+         call.l = mksymref("memset");
+         call.r = mkcallarg(cls2type(KPTR), 3, -1);
+         addinstr(fn, call);
       }
       for (struct initval *val = ini->vals; val; val = val->next) {
          uint off = val->off;
@@ -2525,7 +2539,7 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
          genstore(fn, mktype(TYCHAR), adr, mkref(RICON, src->s.p[i]));
          adr = addinstr(fn, mkinstr(Oadd, KPTR, dst, mkref(RICON, i+1)));
       }
-      genstore(fn, mktype(TYCHAR), adr, ZEROREF);
+      genstore(fn, mktype(TYCHAR), adr, ZEROREF); /* null term */
    } else assert(0);
 }
 

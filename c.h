@@ -43,8 +43,7 @@ struct expr {
 };
 
 struct init {
-   uint nzero;
-   struct bitset *zero; /* bytes to zero out */
+   struct bitset zero[1]; /* bytes to zero out up to 64 */
    struct initval {
       struct initval *next;
       uint off;
