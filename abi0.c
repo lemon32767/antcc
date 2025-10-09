@@ -171,7 +171,7 @@ patcharg(struct block *blk, int *icall, struct call *call,
             temp = insertinstr(blk, arginst++, ins);
             insertinstr(blk, arginst++, mkarginstr(abi[i].ty, temp));
          }
-         *icall += arginst - (call->narg - argidx);
+         *icall = arginst + (call->narg - argidx - 1);
          return nabi;
       }
    } else /* normal scalar argument */
@@ -196,13 +196,11 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    nret = abiret(call->abiret, &abiargs, &ni, call->ret);
    if (call->ret.isagg) { /* adjust struct return */
       union irtype retty = call->ret;
-      struct instr alloca = { .cls = KPTR };
       struct typedata *td = &typedata[retty.dat];
-      int ialloca ;
+      struct instr alloca = mkalloca(td->siz, td->align);
+      int ialloca;
 
       sretarghidden = ni == 0;
-      alloca.op = Oalloca8 + (td->align == 16);
-      alloca.l = mkref(RICON, td->align == 16 ? 1 : td->siz / 8);
       /* swap alloca and call temps so users of original call point to alloca */
       retmem = insertinstr(blk, ialloca = (*curi)++ - call->narg, *ins);
       *ins = alloca;
@@ -218,7 +216,9 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 
    /* adjust args */
    for (int i = 0, i2 = ni + sretarghidden; i < call->narg; ++i) {
-      union irtype pty = ref2type(instrtab[blk->ins.p[*curi - call->narg + i]].l);
+      int arginst = *curi - (call->narg - i);
+      struct instr *arg = &instrtab[blk->ins.p[arginst]];
+      union irtype pty = ref2type(arg->l);
       int first = abiargs.n;
       int ret = abiarg(&abiargs, &ni, &nf, &ns, pty);
       ret = patcharg(blk, curi, call, i, ret, &abiargs.p[first]);

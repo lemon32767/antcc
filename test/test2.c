@@ -24,3 +24,8 @@ short s(int a, int b) {
 int i() {
     return s(1,2);
 }
+
+double v2v2() {
+   v2d x = add((v2d){1,2}, (v2d){3,4});
+   return x.x+x.y;
+}

@@ -677,6 +677,9 @@ tkprec(int tt)
    return ((uint)tt < arraylength(bintab)) ?  bintab[tt].prec : 0;
 }
 
+static struct expr initializer(struct comp *cm, union type *ty, enum evalmode ev,
+                               bool globl, enum qualifier qual, const char *name);
+
 /* parse an expression with the given operator precedence */
 /* param ident is a kludge to support block labels without backtracking or extra lookahead
  * see stmt() */
@@ -767,6 +770,13 @@ Unary:
          struct decl decl = pdecl(&st, cm);
          expect(cm, ')', NULL);
          assert(decl.ty.t);
+         if ((isagg(decl.ty) || decl.ty.t == TYARRAY) && peek(cm, NULL) == '{') {
+            if (ccopt.cstd < STDC99)
+               warn(&tk.span, "compound literals are a c99 feature");
+            ex = initializer(cm, &decl.ty, (decl.scls & SCSTATIC) ? EVSTATICINI : EVFOLD,
+                                 /* globl */ 0, decl.qual, NULL);
+            break;
+         }
          unops[nunop].span = tk.span;
          unops[nunop].ty = decl.ty;
          if (++nunop >= arraylength(unops)) {
@@ -1545,7 +1555,6 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
 
       assert(arraylength(res.zero) == 1);
       siz = typesize(*ty);
-      memset(res.zero, 0xFF, sizeof res.zero);
       if (siz && siz <= 64)
          res.zero->u &= ~0ull >> (64 - siz);
 
@@ -2411,6 +2420,8 @@ mkhiddensym(const char *fnname, const char *name, int id)
    return intern(buf);
 }
 
+static void geninit(struct function *fn, union type t, union ref dst, const struct expr *src);
+
 static union ref
 expraddr(struct function *fn, const struct expr *ex)
 {
@@ -2460,6 +2471,11 @@ expraddr(struct function *fn, const struct expr *ex)
    case ECALL:
       assert(isagg(ex->ty));
       return compilecall(fn, ex);
+   case EINIT:
+      /* compound literal, allocate temp */
+      r = addinstr(fn, mkalloca(typesize(ex->ty), typealign(ex->ty)));
+      geninit(fn, ex->ty, r, ex);
+      return r;
    default:
       assert(!"lvalue?>");
    }
@@ -3643,7 +3659,8 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                goto Err;
             }
             EMITS {
-               decl.id = addinstr(fn, mkalloca(typesize(decl.ty), typealign(decl.ty))).i;
+               /*actual alloca filled in later (for inferred array size decls)*/
+               decl.id = addinstr(fn, mkinstr(Oalloca1, KPTR, mkref(RICON, -1))).i;
             }
          Initz:
             if (st.varini) {
@@ -3659,7 +3676,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                if (!statik) {
                   /* fix alloca for actual size, for implicitly sized arrays */
                   assert(!isincomplete(d->ty));
-                  instrtab[decl.id].l.i = typesize(d->ty);
+                  instrtab[decl.id] = mkalloca(typesize(d->ty), typealign(d->ty));
 
                   if (!initcheck(d->ty, &ini)) {
                      struct span span = decl.span;
@@ -3668,8 +3685,10 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                            d->ty, ini.ty);
                   }
                   EMITS {
-                     if (isagg(d->ty) || d->ty.t == TYARRAY)
+                     if (ini.t == EINIT || ini.t == ESTRLIT)
                         geninit(fn, d->ty, mkref(RTMP, decl.id), &ini);
+                     else if (isagg(d->ty))
+                        structcopy(fn, d->ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
                      else
                         genstore(fn, d->ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
                   }

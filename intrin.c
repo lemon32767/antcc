@@ -69,8 +69,9 @@ lowerintrin(struct function *fn)
             else
                abi0_call(fn, ins, blk, &i);
             vinit(&args, argsbuf, arraylength(argsbuf));
-         } else if (ins->op != Omove) assert(args.n == 0);
+         }
       }
+      assert(args.n == 0);
    } while ((blk = blk->lnext) != fn->entry);
 }
 
