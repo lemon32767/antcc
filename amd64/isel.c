@@ -271,6 +271,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Onop: break;
    case Oalloca1: case Oalloca2: case Oalloca4: case Oalloca8: case Oalloca16:
       alignlog2 = ins->op - Oalloca1;
+      assert(ins->l.i > 0);
       siz = ins->l.i << alignlog2;
       fn->stksiz += siz;
       fn->stksiz = alignup(fn->stksiz, 1 << alignlog2);

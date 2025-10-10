@@ -439,62 +439,13 @@ intervaloverlap(struct interval *a, struct interval *b)
 }
 
 static void
-addrange0(struct interval *it, struct range new)
+intervalbegin(struct interval *it, ushort from)
 {
-   int dst = it->nrange;
-
-   if (dst == 0) { Push: pushrange(it, new); return; }
-   /* start from the end, find place by order */
-   for (int i = dst - 1; i >= 0; --i) {
-      struct range range = itrange(it, i);
-
-      /* fully contained? */
-      if (range.from <= new.from && new.to <= range.to)
-         return;
-      if (range.from > new.from)
-         dst = i;
-   }
-   if (dst == it->nrange) goto Push;
-   if (rangeoverlap(new, itrange(it, dst)) || rangeadj(new, itrange(it, dst))) {
-      struct range old = itrange(it, dst),
-                   *merge = &itrange(it, dst);
-      if (new.from < old.from) merge->from = new.from;
-      if (new.to > old.to) merge->to = new.to;
-   } else {
-      /* insert at dst */
-      pushrange(it, new);
-      for (int j = it->nrange-1; j > dst; --j)
-         itrange(it, j) = itrange(it, j-1);
-      itrange(it, dst) = new;
-   }
-   /* more merges? */
-   for (struct range *last = &itrange(it, it->nrange-2);
-        it->nrange > 1 && (rangeoverlap(last[0], last[1]) || rangeadj(last[0], last[1]));
-        --last)
-   {
-      if (last[1].from < last[0].from)
-         last[0].from = last[1].from;
-      if (last[1].to > last[0].to)
-         last[0].to = last[1].to;
-
-      if (--it->nrange == 2) {
-         struct range *tmp = it->_dyn;
-         memcpy(it->_inl, tmp, 2*sizeof*tmp);
-         xbfree(it->_dyn);
-      }
-   }
-}
-
-static void
-addrange(struct intervals *intervals, int t, struct range range, int reghint)
-{
-   struct interval *it = &intervals->temps[t];
    if (!it->nrange) {
-      ++intervals->count;
-      it->rhint = reghint;
-      it->fpr = kisflt(insrescls(instrtab[t]));
+      pushrange(it, (struct range){from,from});
+   } else {
+      itrange(it, 0).from = from;
    }
-   addrange0(it, range);
 }
 
 static bool
@@ -502,14 +453,63 @@ intervaldef(struct intervals *intervals, int t, struct block *blk, int pos, int 
 {
    struct interval *it = &intervals->temps[t];
    if (it->nrange) {
-      if (itrange(it, 0).from <= pos) /* shorten */
-         itrange(it, 0).from = pos;
-      else
-         addrange0(it, (struct range){pos, blk->inumstart + blk->ins.n+1});
-      if (it->rhint < 0) it->rhint = reghint;
+      assert(itrange(it, 0).from <= pos);
+      itrange(it, 0).from = pos;
       return 1;
    }
    return 0;
+}
+
+static void
+addrange(struct intervals *intervals, int t, struct range new, int reghint)
+{
+   struct interval *it = &intervals->temps[t];
+   struct range *fst;
+   int n;
+
+   if (!it->nrange) {
+      ++intervals->count;
+      it->rhint = reghint;
+      it->fpr = kisflt(insrescls(instrtab[t]));
+      pushrange(it, new);
+      return;
+   }
+
+   fst = &itrange(it, 0);
+   /* fully covered by first range? */
+   if (fst->from <= new.from && fst->to >= new.to) return;
+   /* overlaps with first range ? */
+   if (fst->from <= new.to && new.to < fst->to) {
+      fst->from = new.from;
+   } else {
+      /* put new range at the start */
+      pushrange(it, new);
+      memmove(&itrange(it, 1), &itrange(it, 0), sizeof(struct range) * (it->nrange - 1));
+      itrange(it, 0) = new;
+   }
+
+   /* new range might cover existing ranges (loop header lives),
+    * check and succesively merge */
+   fst = &itrange(it, 0);
+   n = 0;
+   for (int i = 1; i < it->nrange; ++i) {
+      struct range other = itrange(it, i);
+      if (fst->to >= other.from) {
+         fst->to = fst->to > other.to ? fst->to : other.to;
+         ++n;
+      } else break;
+   }
+
+   if (n > 0) {
+      for (int i = 1; i + n < it->nrange; ++i)
+         itrange(it, i) = itrange(it, i+n);
+      if (it->nrange > 2 && it->nrange - n <= 2) {
+         struct range *dyn = it->_dyn;
+         memcpy(it->_inl, dyn, (it->nrange - n) * sizeof *dyn);
+         xbfree(dyn);
+      }
+      it->nrange -= n;
+   }
 }
 
 static void

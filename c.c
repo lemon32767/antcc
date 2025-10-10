@@ -3659,8 +3659,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                goto Err;
             }
             EMITS {
-               /*actual alloca filled in later (for inferred array size decls)*/
-               decl.id = addinstr(fn, mkinstr(Oalloca1, KPTR, mkref(RICON, -1))).i;
+               decl.id = addinstr(fn, mkalloca(typesize(decl.ty), typealign(decl.ty))).i;
             }
          Initz:
             if (st.varini) {
@@ -3685,7 +3684,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                            d->ty, ini.ty);
                   }
                   EMITS {
-                     if (ini.t == EINIT || ini.t == ESTRLIT)
+                     if (ini.t == EINIT || (d->ty.t == TYARRAY && ini.t == ESTRLIT))
                         geninit(fn, d->ty, mkref(RTMP, decl.id), &ini);
                      else if (isagg(d->ty))
                         structcopy(fn, d->ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));

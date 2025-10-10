@@ -4,7 +4,7 @@ void bf(const char *p)
 {
    extern int putchar(int);
    extern int getchar(void);
-   static unsigned char *const Mend = M + sizeof M;
+   unsigned char *Mend = M + sizeof M;
    int b;
    unsigned char *m = M;
 
