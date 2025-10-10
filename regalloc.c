@@ -405,12 +405,6 @@ rangeoverlap(struct range a, struct range b)
    return a.from < b.to && b.from < a.to;
 }
 
-static bool
-rangeadj(struct range a, struct range b)
-{
-   return a.to+1 >= b.from;
-}
-
 static void
 pushrange(struct interval *lv, struct range r)
 {
@@ -436,16 +430,6 @@ intervaloverlap(struct interval *a, struct interval *b)
       else ++j;
    }
    return 0;
-}
-
-static void
-intervalbegin(struct interval *it, ushort from)
-{
-   if (!it->nrange) {
-      pushrange(it, (struct range){from,from});
-   } else {
-      itrange(it, 0).from = from;
-   }
 }
 
 static bool
@@ -513,19 +497,6 @@ addrange(struct intervals *intervals, int t, struct range new, int reghint)
 }
 
 static void
-priliveset(struct bitset *s, size_t siz)
-{
-   int k = 0;
-   DBG("{");
-   for (uint i = 0; bsiter(&i, s, siz); ++i) {
-      if (k++) DBG(",");
-      DBG("%%%d",i);
-   }
-   DBG("}\n");
-}
-
-
-static void
 usereg(struct rega *ra, int reg, struct block *blk, int pos)
 {
    struct fixinterval *fxit;
@@ -575,7 +546,6 @@ buildintervals(struct rega *ra)
       /* live = union of successor.liveIn for each successor of b */
       if (blk->s1) bsunion(live, livein[blk->s1->id], bssize);
       if (blk->s2) bsunion(live, livein[blk->s2->id], bssize);
-      // DBG("live in: "), priliveset(live, bssize);
 
       /* for each phi function phi of successors of b do
        *    live.add(phi.inputOf(b))
@@ -713,7 +683,6 @@ buildintervals(struct rega *ra)
             } */
          }
       }
-      // DBG("live out: "), priliveset(live, bssize);
    } while ((blk = blk->lprev) != last);
 
    for (int var = 0; var < ninstr; ++var) {
