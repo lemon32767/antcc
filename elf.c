@@ -55,7 +55,7 @@ elfinit(void)
       hdr.h32.shentsize = sizeof(struct elf32shdr);
    }
    vpush(&symtab, ((struct sym) { 0 }));
-   vpush(&symtab, ((struct sym) { .type = STT_FILE }));
+   vpush(&symtab, ((struct sym) { .type = STT_FILE, .shndx = SHN_ABS }));
 }
 
 uint
@@ -320,7 +320,7 @@ putreloc(struct wbuf *out, const struct reloc *rel, bool userela)
 
 /* ensure .symtab entries are ordered like this:
  * (0. zero entry: NOTYPE LOCAL UND)
- * (1. file: FILE LOCAL UND "...")
+ * (1. file: FILE LOCAL ABS "...")
  * 2. locals
  * 3. defined globals
  * 4. undefined globals
