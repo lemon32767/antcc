@@ -424,7 +424,7 @@ static bool
 intervaloverlap(struct interval *a, struct interval *b)
 {
    for (int i = 0, j = 0; i < a->nrange && j < b->nrange; ) {
-      struct range r1 = itrange(a, i), r2 = itrange(b, 2);
+      struct range r1 = itrange(a, i), r2 = itrange(b, j);
       if (rangeoverlap(r1, r2)) return 1;
       if (r1.to <= r2.from) ++i;
       else ++j;
