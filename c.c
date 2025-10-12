@@ -102,6 +102,7 @@ isdecltok(struct comp *cm)
    case TKWextern: case TKWstatic: case TKWinline: case TKW_Noreturn:
    case TKWconst: case TKWvolatile: case TKWvoid: case TKWfloat:
    case TKWdouble: case TKWregister: case TKW_Static_assert:
+   case TKW__typeof__: case TKWtypeof: case TKWtypeof_unqual:
       return 1;
    case TKIDENT:
       return (decl = finddecl(cm, tk.s)) && decl->scls == SCTYPEDEF;
@@ -1837,6 +1838,21 @@ tagtype(struct comp *cm, enum toktag kind)
    return t;
 }
 
+static union type
+ptypeof(struct comp *cm)
+{
+   union type ty;
+   expect(cm, '(', NULL);
+   if (isdecltok(cm)) { /* typeof (type) */
+      struct declstate st = { DCASTEXPR };
+      ty = pdecl(&st, cm).ty;
+   } else { /* typeof (expr) */
+      ty = commaexpr(cm).ty;
+   }
+   expect(cm, ')', NULL);
+   return ty;
+}
+
 static void
 declspec(struct declstate *st, struct comp *cm)
 {
@@ -1921,6 +1937,12 @@ declspec(struct declstate *st, struct comp *cm)
          lex(cm, &tk);
          st->base = tagtype(cm, tk.t);
          st->tagdecl = 1;
+         if (!span.ex.len) span.ex = tk.span.ex;
+         joinspan(&span.ex, tk.span.ex);
+         goto End;
+      case TKW__typeof__: case TKWtypeof:
+         lex(cm, &tk);
+         st->base = ptypeof(cm);
          if (!span.ex.len) span.ex = tk.span.ex;
          joinspan(&span.ex, tk.span.ex);
          goto End;
