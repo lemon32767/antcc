@@ -615,18 +615,18 @@ DEFINSTR2(Xtest,
 )
 
 DEFINSTR2(Ximul2,
-   {4|8, PGPR, PGPR, "\x0F\xAF", EN_RR}, /* MUL r32/64, r32/64 */
-   {4|8, PGPR, PMEM, "\x0F\xAF", EN_RM}, /* MUL r32/64, m32/64 */
+   {4|8, PGPR, PGPR, "\x0F\xAF", EN_RR}, /* IMUL r32/64, r32/64 */
+   {4|8, PGPR, PMEM, "\x0F\xAF", EN_RM}, /* IMUL r32/64, m32/64 */
 )
 static void
-Xmul(uchar **pcode, enum irclass k, struct oper dst, struct oper s1, struct oper s2)
+Ximul(uchar **pcode, enum irclass k, struct oper dst, struct oper s1, struct oper s2)
 {
    static const struct desc imm8tab[] = {
-      {4|8, PGPR, PGPR, "\x6B", EN_RR}, /* MUL r32/64, r32/64, (imm8) */
-      {4|8, PGPR, PMEM, "\x6B", EN_RM}, /* MUL r32/64, m32/64, (imm8) */
+      {4|8, PGPR, PGPR, "\x6B", EN_RR}, /* IMUL r32/64, r32/64, (imm8) */
+      {4|8, PGPR, PMEM, "\x6B", EN_RM}, /* IMUL r32/64, m32/64, (imm8) */
    }, imm32tab[] = {
-      {4|8, PGPR, PGPR, "\x69", EN_RR}, /* MUL r32/64, r32/64, (imm32) */
-      {4|8, PGPR, PMEM, "\x69", EN_RM}, /* MUL r32/64, m32/64, (imm32) */
+      {4|8, PGPR, PGPR, "\x69", EN_RR}, /* IMUL r32/64, r32/64, (imm32) */
+      {4|8, PGPR, PMEM, "\x69", EN_RM}, /* IMUL r32/64, m32/64, (imm32) */
    };
    if (!memcmp(&dst, &s1, sizeof dst) && s2.t != OIMM) {
       Ximul2(pcode, k, dst, s2);
@@ -930,7 +930,8 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       break;
    case Omul: 
       if (kisint(cls))
-         Xmul(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r));
+   case Oumul:
+         Ximul(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r));
       else
          Xmulf(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->r));
       break;
