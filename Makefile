@@ -1,5 +1,6 @@
 SRC=main.c io.c mem.c c.c lex.c type.c targ.c eval.c ir.c irdump.c ssa.c cfg.c \
-	intrin.c abi0.c optmem.c regalloc.c amd64/sysv.c amd64/isel.c amd64/emit.c obj.c elf.c
+	intrin.c abi0.c optmem.c regalloc.c amd64/sysv.c amd64/isel.c amd64/emit.c obj.c elf.c\
+	embedfilesdir.c
 CFLAGS=-Wall -std=c11 -pedantic
 OBJ=$(patsubst %.c,obj/%.o,$(SRC))
 DEP=$(OBJ:.o=.d)

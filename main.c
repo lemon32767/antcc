@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 struct option ccopt;
+struct inclpaths *cinclpaths;
 
 static void
 flushstd(void)
@@ -348,6 +349,21 @@ detectcolor(void)
       ccopt.nocolor = 1;
 }
 
+static void
+sysinclpaths(void)
+{
+   static const char *paths[] = {
+      "/usr/local/include",
+      "/usr/include"
+   };
+   for (int i = 0; i < arraylength(paths); ++i) {
+      struct inclpaths *p = alloc(&globarena, sizeof *cinclpaths, 0);
+      p->next = cinclpaths;
+      p->path = paths[i];
+      cinclpaths = p;
+   }
+}
+
 int
 main(int argc, char **argv)
 {
@@ -356,6 +372,7 @@ main(int argc, char **argv)
 
    /* setup defaults */
    detectcolor();
+   sysinclpaths();
    ccopt.cstd = STDC99;
    ccopt.pie = 1;
 

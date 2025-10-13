@@ -4,23 +4,23 @@
 const char *
 intern(const char *s)
 {
-   static vec_of(char) mem;
-   static uint ht[1<<10];
+   static const char *ht[1<<10];
+   static struct { char m[sizeof(struct arena) + (1<<10)]; struct arena *_a; } amem;
+   static struct arena *arena;
    uint h, i, n = arraylength(ht);
 
-   if (!mem.p) vinit(&mem, NULL, 1<<10);
-   
+   if (!arena) arena = (void *)amem.m, arena->cap = 1<<10;
+
    i = h = hashs(0, s);
    for (;; ++i) {
       i &= arraylength(ht) - 1;
       if (!ht[i]) {
-         ht[i] = mem.n+1;
-         return vpushn(&mem, s, strlen(s)+1);
-      } else if (!strcmp(s, &mem.p[ht[i]-1])) {
-         return &mem.p[ht[i]-1];
+         return ht[i] = alloccopy(&arena, s, strlen(s)+1, 1);
+      } else if (!strcmp(s, ht[i])) {
+         return ht[i];
       }
       assert(--n > 0 && "intern full");
-   }   
+   }
 }
 
 static bool
@@ -50,6 +50,7 @@ identkeyword(struct token *tk, const char *s, int len)
 ident:
    tk->t = TKIDENT;
    tk->s = intern(s);
+   tk->len = len;
    return 1;
 }
 
@@ -544,6 +545,7 @@ Begin:
                   "%'tk in %M is an extension", tk);
          goto End;
       }
+   case 0: if (lx->idx >= lx->ndat) RET(TKEOF);
    }
    fatal(&(struct span) {{ idx, lx->chridx - idx, lx->fileid }},
          "unexpected character %'c at %d", c, idx);
@@ -561,15 +563,21 @@ End:
 /****************/
 
 struct macro {
-   const char *name; /* interned */
+   const char *name; /* interned. NULL for tombstone */
    const char **param;
    struct span0 span;
    uchar nparam;
-   bool fnlike, variadic;
-   struct rlist {
-     const struct token *tk;
-     int n;
-   } rlist;
+   bool predefined,
+        special,
+        fnlike,
+        variadic;
+   union {
+      void (*handler)(struct lexer *, struct token *);
+      struct rlist {
+        const struct token *tk;
+        int n;
+      } rlist;
+   };
 };
 
 #define isppident(tk) (in_range((tk).t, TKIDENT, TKWEND_))
@@ -581,7 +589,7 @@ static struct macro *
 findmac(const char *name)
 {
    uint h, i, n = arraylength(macroht);
-   
+
    i = h = ptrhash(name);
    for (; n--; ++i) {
       i &= arraylength(macroht) - 1;
@@ -597,6 +605,7 @@ findmac(const char *name)
 static void
 freemac(struct macro *mac)
 {
+   if (mac->special) return;
    free(mac->param);
    free((void *)mac->rlist.tk);
 }
@@ -626,6 +635,7 @@ macroequ(const struct macro *a, const struct macro *b)
 {
    int i;
    if (a->name != b->name) return 0;
+   if (a->special != b->special) return 0;
    if (a->fnlike != b->fnlike || a->variadic != b->variadic) return 0;
    if (a->fnlike) {
       if (a->nparam != b->nparam) return 0;
@@ -633,6 +643,7 @@ macroequ(const struct macro *a, const struct macro *b)
          if (a->param[i] != b->param[i])
             return 0;
    }
+   if (a->special) return a->handler == b->handler;
    if (a->rlist.n != b->rlist.n) return 0;
    for (i = 0; i < a->rlist.n; ++i) {
       const struct token *tka = a->rlist.tk, *tkb = b->rlist.tk;
@@ -649,7 +660,7 @@ putmac(struct macro *mac)
 {
    uint h, i, n = arraylength(macroht);
    struct macro *slot;
-   
+
    i = h = ptrhash(mac->name);
    for (;; ++i) {
       i &= arraylength(macroht) - 1;
@@ -659,22 +670,51 @@ putmac(struct macro *mac)
          return &macros.p[macros.n - 1];
       } else if ((slot = &macros.p[macroht[i]-1])->name == mac->name) {
          if (!macroequ(slot, mac)) {
-            warn(&(struct span){mac->span}, "redefining macro");
-            note(&(struct span){slot->span}, "previous definition:");
+            if (slot->predefined)
+               warn(&(struct span){mac->span}, "redefining builtin macro");
+            else {
+               warn(&(struct span){mac->span}, "redefining macro");
+               note(&(struct span){slot->span}, "previous definition:");
+            }
             freemac(slot);
             *slot = *mac;
          } else {
             freemac(mac);
          }
          return slot;
+      } else if (!slot->name) { /* was tomb */
+         *slot = *mac;
       }
       assert(--n && "macro limit");
    }
 }
 
 static void
+delmac(const char *name)
+{
+   uint h, i;
+
+   i = h = ptrhash(name);
+   for (;; ++i) {
+      struct macro *slot;
+
+      i &= arraylength(macroht) - 1;
+      if (!macroht[i]) {
+         return;
+      } else if ((slot = &macros.p[macroht[i]-1])->name == name) {
+         freemac(slot);
+         slot->name = NULL;
+         return;
+      }
+   }
+}
+
+static void popmac(struct lexer *);
+
+static void
 ppskipline(struct lexer *lx)
 {
+   while (lx->macstk) popmac(lx);
    while (peek(lx, 0) != '\n' && peek(lx, 0) != TKEOF)
       next(lx);
 }
@@ -696,10 +736,17 @@ ppdefine(struct lexer *lx)
    }
    mac.name = tk0.s;
    mac.span = tk0.span.sl;
-   
+
    if (match(lx, '(')) {
+      //efmt("FUNCLIKE %s\n", mac.name);
       mac.fnlike = 1;
       while (lex0(lx, &tk0) != ')') {
+         if (mac.variadic) {
+            error(&tk0.span, "expected `)' after `...'");
+            if (tk0.t == TKEOF)
+               return;
+            else break;
+         }
          if (params.n > 0) {
             if (tk0.t != ',')
                error(&tk0.span, "expected `,' or `)'");
@@ -708,7 +755,10 @@ ppdefine(struct lexer *lx)
          }
          if (isppident(tk0))
             vpush(&params, tk0.s);
-         else {
+         else if (tk0.t == TKDOTS) {
+            mac.variadic = 1;
+            vpush(&params, intern("__VA_ARGS__"));
+         } else {
             error(&tk0.span, "expected parameter name or `)'");
             if (tk0.t == TKEOF)
                return;
@@ -722,19 +772,19 @@ ppdefine(struct lexer *lx)
    while (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
       if (!wsseparated(&tk0, &tk))
          warn(&tk.span, "no whitespace after macro name");
-      if (mac.fnlike && isppident(tk)) for (int i = 0; i < mac.nparam; ++i) {
-         if (tk.s == mac.param[i]) {
-            if (rlist.n > 0 && rlist.p[rlist.n - 1].t == '#') {
-               tk.t = TKPPMACSTR;
+      if (mac.fnlike && isppident(tk)) {
+         for (int i = 0; i < mac.nparam; ++i) {
+            if (tk.s == mac.param[i]) {
                tk.argidx = i;
                tk.macidx = newmacidx;
-               rlist.p[rlist.n - 1] = tk;
-               goto Next;
-            } else {
-               tk.t = TKPPMACARG;
-               tk.argidx = i;
-               tk.macidx = newmacidx;
-               break;
+               if (rlist.n > 0 && rlist.p[rlist.n - 1].t == '#') {
+                  tk.t = TKPPMACSTR;
+                  rlist.p[rlist.n - 1] = tk;
+                  goto Next;
+               } else {
+                  tk.t = TKPPMACARG;
+                  break;
+               }
             }
          }
       }
@@ -744,6 +794,367 @@ ppdefine(struct lexer *lx)
    mac.rlist.tk = rlist.p;
    mac.rlist.n = rlist.n;
    putmac(&mac);
+}
+
+static void
+ppundef(struct lexer *lx)
+{
+   struct token tk;
+
+   lex0(lx, &tk);
+   if (!isppident(tk)) {
+      error(&tk.span, "macro name missing");
+      ppskipline(lx);
+      return;
+   }
+   delmac(tk.s);
+}
+
+/* kludge for proper expansion in the face of nested macros with arguments,
+ * stringifying, etc */
+static bool noexpandmac;
+
+static struct macrostack {
+   struct macrostack *link;
+   struct rlist rlist;
+   struct span0 exspan;
+   int idx;
+   int macno:30;
+   int prevnoexpandmac:1;
+   bool stop;
+} mstk[64], *mfreelist;
+
+static void
+pushmacstk(struct lexer *lx, const struct span *span, const struct macrostack *m)
+{
+   struct macrostack *l;
+   if (!(l = mfreelist)) fatal(span, "macro depth limit reached");
+   l = mfreelist;
+   mfreelist = l->link;
+   l->link = lx->macstk;
+   l->rlist = m->rlist;
+   l->macno = m->macno;
+   l->idx = 0;
+   l->stop = m->stop;
+   l->exspan = span->ex;
+   l->prevnoexpandmac = noexpandmac;
+   lx->macstk = l;
+   //efmt("PUSH %s %p\n", m->macno >= 0 ? macros.p[m->macno].name : "?", l);
+}
+
+static void
+popmac(struct lexer *lx)
+{
+   struct macrostack *stk;
+
+   assert(stk = lx->macstk);
+   do {
+      noexpandmac = stk->prevnoexpandmac;
+      //if(stk->macno>=0)efmt("POP %s <<\n", macros.p[stk->macno].name, noexpandmac);
+      if (stk->macno >= 0 && !macros.p[stk->macno].special
+       && stk->rlist.tk != macros.p[stk->macno].rlist.tk) {
+         free((void *)stk->rlist.tk);
+      }
+      lx->macstk = stk->link;
+      stk->link = mfreelist;
+      mfreelist = stk;
+   } while ((stk = lx->macstk) && stk->idx >= stk->rlist.n && !stk->stop);
+}
+
+static bool
+tokpaste(struct lexer *lx, struct token *dst, const struct token *l, const struct token *r)
+{
+   char *s;
+   dst->span = l->span;
+   if (dst->span.ex.file == r->span.ex.file && dst->span.ex.off < r->span.ex.off)
+      joinspan(&dst->span.ex, r->span.ex);
+   if (isppident(*l) && (isppident(*r) || r->t == TKNUMLIT)) {
+      /* foo ## bar  ;   foo ## 123 */
+      dst->t = TKIDENT;
+   } else if (l->t == TKNUMLIT && (isppident(*r) || r->t == TKNUMLIT)) {
+      /* 0x ## abc   ;   213 ## 456 */
+      dst->t = TKNUMLIT;
+   } else if (l->t && !r->t) {
+      *dst = *l;
+      return 1;
+   } else if (!l->t && r->t) {
+      *dst = *r;
+      return 1;
+   } else {
+      static const struct { char s[2]; char t; } tab[] = {
+         {"==", TKEQU}, {"!=", TKNEQ}, {"<=", TKLTE}, {">=", TKGTE},
+         {">>", TKSHR}, {"<<", TKSHL}, {"++", TKINC}, {"--", TKDEC},
+         {"->", TKARROW}, {"##", TKPPCAT}, {"&&", TKLOGAND}, {"||", TKLOGIOR},
+         {"+=", TKSETADD}, {"-=", TKSETSUB}, {"*=", TKSETMUL}, {"/=", TKSETDIV},
+         {"%=", TKSETREM}, {"|=", TKSETIOR}, {"^=", TKSETXOR}, {"&=", TKSETAND},
+         {{TKSHL,'='}, TKSETSHL}, {{TKSHR,'='}, TKSETSHR}
+      };
+      for (int i = 0; i < arraylength(tab); ++i)
+         if (tab[i].s[0] == l->t && tab[i].s[1] == r->t)
+            return dst->t = tab[i].t, 1;
+      return 0;
+   }
+
+   /* shared for ident,keyword,numlit */
+   dst->len = l->len + r->len;
+   s = alloc(lx->tmparena, dst->len + 1, 1);
+   memcpy(s, l->s, l->len);
+   memcpy(s + l->len, r->s, r->len);
+   s[l->len + r->len] = 0;
+   if (dst->t == TKIDENT) identkeyword(dst, s, dst->len);
+   else dst->s = s;
+   return 1;
+}
+
+
+static bool
+tryexpand(struct lexer *lx, struct token *tk)
+{
+   static bool inimstk;
+   int macidx, i;
+   struct span span = tk->span;
+   struct macrostack *l;
+   struct macro *mac = NULL;
+
+   if (!inimstk) {
+      inimstk = 1;
+      for (i = 0; i < arraylength(mstk); ++i) {
+         mstk[i].link = mfreelist;
+         mfreelist = &mstk[i];
+      }
+   }
+
+   if (noexpandmac || !isppident(*tk) || !(mac = findmac(tk->s)))
+      return 0;
+
+   macidx = mac - macros.p;
+   /* prevent infinite recursion */
+   for (l = lx->macstk; l; l = l->link)
+      if (l->macno == macidx)
+         return 0;
+
+   if (mac->special) {
+      mac->handler(lx, tk);
+      pushmacstk(lx, &span, &(struct macrostack){
+         .rlist = { alloccopy(lx->tmparena, tk, sizeof *tk, 0), 1 },
+         .macno = -1,
+         .idx = 0,
+      });
+      return 1;
+   }
+
+   if (mac->fnlike) {
+      vec_of(struct token) argsbuf = {0}, rlist2 = {0};
+      struct argtks { int idx, n; } args[100];
+      struct span excessspan;
+      int cur, len, i, bal, narg;
+      struct token tk;
+      bool toomany = 0;
+
+      noexpandmac = 1;
+      //efmt(">>HI %s\n", mac->name);
+      if (lexpeek(lx, &tk) != '(') {
+         noexpandmac = 0;
+         return 0;
+      }
+      lex(lx, &tk);
+
+      /* we push all arg tokens to buffer, each of args[i] is a slice (idx..idx+n) of the vector;
+       * while we're building the list, args[i].tk points to &tk + idx, because rlist.p can move,
+       * then we fix them up in the end to point to rlist.p + idx */
+
+      cur = i = bal = len = narg = 0;
+      while ((lex(lx, &tk) != ')' || bal != 0) && tk.t != TKEOF) {
+         if (tk.t == ',' && bal == 0) {
+            ++narg;
+            if (i == mac->nparam-1 && !mac->variadic) {
+               excessspan = tk.span;
+               toomany = 1;
+            } else if (i < mac->nparam - mac->variadic) {
+               args[i].idx = cur;
+               args[i].n = len;
+               cur = argsbuf.n;
+               len = 0;
+               ++i;
+            } else if (mac->variadic) {
+               vpush(&argsbuf, tk);
+               ++len;
+            }
+         } else if (!toomany) {
+            if (tk.t == '(' || tk.t == '[') ++bal;
+            else if (tk.t == ')' || tk.t == ']') --bal;
+            vpush(&argsbuf, tk);
+            ++len;
+         }
+      }
+      noexpandmac = 0;
+      if (tk.t == TKEOF)
+         error(&span, "unterminated function-like macro invocation");
+      else if (i < mac->nparam) {
+         ++narg;
+         args[i].idx = cur;
+         args[i].n = len;
+         cur = argsbuf.n;
+         len = 0;
+         ++i;
+      }
+      joinspan(&span.ex, tk.span.ex);
+      if (narg < mac->nparam)
+         error(&span, "macro `%s' passed %d arguments, but takes %d", mac->name, narg, mac->nparam);
+      else if (toomany) {
+         joinspan(&excessspan.ex, tk.span.ex);
+         error(&excessspan, "macro `%s' passed %d arguments, but takes just %d", mac->name, narg, mac->nparam);
+      }
+
+      /* make new rlist with args replaced */
+      if (mac->nparam) {
+         //efmt("invoke %s\n", mac->name);
+         struct token lhsargforpaste;
+         bool lhsargpaste = 0, rhsargpaste = 0;
+         for (int i = 0; i < mac->rlist.n; ++i) {
+            struct argtks *arg, *arg2;
+            tk = mac->rlist.tk[i];
+            if (tk.t == TKPPCAT) {
+               if (i > 0 && i < mac->rlist.n-1) {
+                  const struct token *lhs = &mac->rlist.tk[i-1], *rhs = &mac->rlist.tk[i+1];
+                  struct token new;
+                  if (lhs->t != TKPPMACARG && rhs->t != TKPPMACARG) {
+                     /* trivial case */
+                     if (tokpaste(lx, &new, lhs, rhs)) {
+                        rlist2.p[rlist2.n - 1] = new;
+                        ++i;
+                        continue;
+                     }
+                  } else if (rhs->t != TKPPMACARG) {
+                     assert(lhsargpaste);
+                     if (tokpaste(lx, &new, &lhsargforpaste, rhs)) {
+                        vpush(&rlist2, new);
+                        ++i;
+                        continue;
+                     }
+                     lhsargpaste = 0;
+                  } else {
+                     if (lhs->t != TKPPMACARG) {
+                        --rlist2.n;
+                        lhsargforpaste = *lhs;
+                     }
+                     rhsargpaste = 1;
+                     continue;
+                  }
+               }
+            } else if (tk.t != TKPPMACARG && tk.t != TKPPMACSTR) {
+               //efmt(" [%tk]\n", &tk);
+               vpush(&rlist2, tk);
+               continue;
+            }
+
+            arg = &args[tk.argidx];
+            if (tk.t == TKPPMACARG) {
+               struct macrostack *l;
+               /*efmt("replcing arg %d { ", tk.argidx);
+               for (int i = 0; i < arg->n; ++i)
+                  efmt("%tk ", &arg->tk[i]);
+               efmt("}: {\n");*/
+               lhsargpaste = i < mac->rlist.n-1 && mac->rlist.tk[i+1].t == TKPPCAT;
+               if (arg->n == 0) {
+                  if (rhsargpaste) {
+                     rhsargpaste = 0;
+                     vpush(&rlist2, lhsargforpaste);
+                  }
+                  continue;
+               }
+               pushmacstk(lx, &tk.span, &(struct macrostack) {
+                  .rlist = {argsbuf.p + arg->idx, arg->n - lhsargpaste},
+                  .macno = -1,
+                  .idx = 0,
+                  .stop = 1,
+               });
+               l = lx->macstk;
+               if (rhsargpaste) {
+                  struct token new;
+                  rhsargpaste = 0;
+                  if (tokpaste(lx, &new, &lhsargforpaste, &l->rlist.tk[0])) {
+                     l->idx = 1;
+                     vpush(&rlist2, new);
+                  }
+               }
+               //efmt("saved %p\n", l);
+               while (l->idx < l->rlist.n) {
+                  tk = l->rlist.tk[l->idx++];
+                  /* expand argument only once */
+                  if (tk.s != mac->name && tryexpand(lx, &tk)) {
+                     assert(l != lx->macstk);
+                     while (lx->macstk->idx < lx->macstk->rlist.n) {
+                        //efmt(" [%tk]\n", &lx->macstk->rlist.tk[lx->macstk->idx]);
+                        vpush(&rlist2, lx->macstk->rlist.tk[lx->macstk->idx++]);
+                     }
+                     popmac(lx);
+                  } else {
+                     //efmt(" [%tk]\n", &tk);
+                     vpush(&rlist2, tk);
+                  }
+               //efmt("now %p\n", lx->macstk);
+                  assert(lx->macstk == l);
+               }
+               popmac(lx);
+               if (lhsargpaste)
+                  lhsargforpaste = argsbuf.p[arg->idx + arg->n-1];
+               //efmt("} /%s\n", mac->name);
+            } else { /* PPMACSTR */
+               char tmp[100];
+               struct wbuf buf = MEMBUF(tmp, sizeof tmp);
+               int n = 0;
+
+               // XXX this is wrong bc the string literal produced should be re-parsed later
+               // i.e. stringifying the token sequence '\n' should ultimately produce a
+               // string with an actual newline, not {'\\','n'}
+            Redo:
+               for (int i = 0; i < arg->n; ++i) {
+                  struct token *tk = &argsbuf.p[arg->idx + i];
+                  //efmt("strify ++ (%d) %'tk\n", tk->t,tk);
+                  if (i > 0 && wsseparated(tk-1, tk))
+                     n += bfmt(&buf, " ");
+                  n += bfmt(&buf, "%tk", tk);
+               }
+               ioputc(&buf, 0);
+               if (buf.err) {
+                  struct wbuf new = MEMBUF(alloc(lx->tmparena, n+1, 1), n+1);
+                  assert(buf.buf == tmp);
+                  memcpy(&buf, &new, sizeof buf);
+                  goto Redo;
+               }
+               tk.t = TKSTRLIT;
+               tk.s = buf.buf != tmp ? buf.buf : alloccopy(lx->tmparena, buf.buf, buf.len, 1);
+               tk.len = buf.len-1;
+               vpush(&rlist2, tk);
+            }
+         }
+         /*efmt("invoked %s has: ", mac->name);
+         for (int i = 0; i < rlist2.n; ++i)
+            efmt("%'tk ", &rlist2.p[i]);
+         efmt("\n");*/
+
+         vfree(&argsbuf);
+         if (rlist2.n) {
+            pushmacstk(lx, &span, &(struct macrostack){
+               .rlist = { rlist2.p, rlist2.n },
+               .macno = macidx,
+               .idx = 0,
+            });
+         }
+         return 1;
+      }
+      vfree(&argsbuf);
+   }
+
+   if (mac->rlist.n) {
+      pushmacstk(lx, &span, &(struct macrostack){
+         .rlist = mac->rlist,
+         .macno = macidx,
+         .idx = 0,
+      });
+   }
+   return 1;
 }
 
 static struct token epeektk;
@@ -756,7 +1167,22 @@ elex(struct lexer *lx, struct token *tk)
       epeektk.t = 0;
       return tt;
    }
-   return lex0(lx, tk);
+   if (lx->macstk) {
+      const struct rlist rl = lx->macstk->rlist;
+      if (lx->macstk->idx == rl.n) {
+         popmac(lx);
+         return elex(lx, tk);
+      }
+      *tk = rl.tk[lx->macstk->idx++];
+      assert(tk->t);
+      tk->span.ex = lx->macstk->exspan;
+      if (tryexpand(lx, tk))
+         return elex(lx, tk);
+      return tk->t;
+   }
+
+   lex0(lx, tk);
+   return tk->t;
 }
 
 static int
@@ -829,10 +1255,30 @@ Unary:
       xu = isunsignedt(ty);
       break;
    default:
-      if (in_range(tk.t, TKWBEGIN_, TKWEND_)) {
-      case TKIDENT:
-         x = 0;
+      if (isppident(tk)) {
+         //efmt("in expr>> %s\n", tk.s);
          xu = 0;
+         if (!strcmp(tk.s, "defined")) {
+            /* 'defined' ppident */
+            bool paren = 0;
+            lex0(lx, &tk);
+            if ((paren = tk.t == '(')) lex0(lx, &tk);
+            if (tk.t != TKIDENT && !in_range(tk.t, TKWBEGIN_, TKWEND_)) {
+               error(&tk.span, "expected macro name");
+               goto Err;
+            }
+            if (paren && lex0(lx, &tk) != ')') {
+               error(&tk.span, "expected `)'");
+               goto Err;
+            }
+            x = findmac(tk.s) != NULL;
+         } else {
+            if (tryexpand(lx, &tk)){
+               goto Unary;}
+            //efmt(" << NOT defined %d>> %s %p\n", noexpandmac, tk.s, findmac(tk.s));
+            /* non defined pp name -> 0 */
+            x = 0;
+         }
          break;
       }
       error(&tk.span, "expected preprocessor integer expression");
@@ -917,10 +1363,13 @@ enum {
 };
 static struct ppcnd {
    struct span0 ifspan;
+   int filedepth;
    uchar cnd;
    bool elsep;
 } ppcndstk[32];
 static int nppcnd;
+
+static int includedepth;
 
 static void
 ppif(struct lexer *lx, const struct span *span)
@@ -928,6 +1377,7 @@ ppif(struct lexer *lx, const struct span *span)
    vlong v = expr(lx, NULL, 0);
    assert(nppcnd < arraylength(ppcndstk) && "too many nested #if");
    ppcndstk[nppcnd].ifspan = span->sl;
+   ppcndstk[nppcnd].filedepth = includedepth;
    ppcndstk[nppcnd].cnd = v ? PPCNDTRUE : PPCNDFALSE;
    ppcndstk[nppcnd++].elsep = 0;
 }
@@ -945,6 +1395,7 @@ ppifxdef(struct lexer *lx, bool defp, const struct span *span)
    }
    assert(nppcnd < arraylength(ppcndstk) && "too many nested #if");
    ppcndstk[nppcnd].ifspan = span->sl;
+   ppcndstk[nppcnd].filedepth = includedepth;
    ppcndstk[nppcnd].cnd = (findmac(tk.s) == NULL) ^ defp ? PPCNDTRUE : PPCNDFALSE;
    ppcndstk[nppcnd++].elsep = 0;
 }
@@ -969,7 +1420,6 @@ ppelif(struct lexer *lx, const struct span *span)
    switch (cnd->cnd) {
    case PPCNDTRUE: cnd->cnd = PPCNDTAKEN; break;
    case PPCNDFALSE: cnd->cnd = v ? PPCNDTRUE : PPCNDFALSE; break;
-   case PPCNDTAKEN: assert(0);
    }
 }
 static void
@@ -1000,8 +1450,6 @@ ppelifxdef(struct lexer *lx, bool defp, const struct span *span)
    case PPCNDTAKEN: assert(0);
    }
 }
-
-
 
 static void
 ppendif(struct lexer *lx, const struct span *span)
@@ -1041,242 +1489,66 @@ ppelse(struct lexer *lx, const struct span *span)
    cnd->elsep = 1;
 }
 
-static int includedepth;
 enum { MAXINCLUDE = 200 };
-
-static void
-ppinclude(struct lexer *lx, const struct span *span0)
+static bool
+tryinclude(struct lexer *lx, const struct span *span, const char *path)
 {
-   char *path;
    struct lexer new;
-   struct token tk;
-   struct span span = *span0;
-
-   lexingheadername = 1;
-   if (in_range(lex0(lx, &tk), TKPPHDRH, TKPPHDRQ)) {
-      const char *base, *end;
-
-      /* build relative path */
-      base = getfilename(lx->fileid);
-      for (end = base; *end != 0; ++end) {}
-      for (--end; *end != '/' && end != base; --end) {}
-      if (*end == '/') ++end;
-      path = alloc(&globarena, end - base + tk.len + 1, 1);
-      memcpy(path, base, end - base);
-      memcpy(path + (end - base), tk.s, tk.len);
-      path[end - base + tk.len] = 0;
-   } else {
-      error(&tk.span, "garbage after #include");
-      ppskipline(lx);
-      return;
-   }
-   //efmt(">include %'s\n", path);
-   joinspan(&span.ex, tk.span.ex);
-   initlexer(&new, &span, path, lx->tmparena);
+   const char *err = initlexer(&new, span, path);
+   if (err) return 0;
    new.save = xmalloc(sizeof *new.save);
    memcpy(new.save, lx, sizeof *lx);
    *lx = new;
 
    if (++includedepth == MAXINCLUDE)
-      fatal(&span, "Maximum nested include depth of %d reached", includedepth);
-}
+      fatal(span, "Maximum nested include depth of %d reached", includedepth);
 
-/* horrible kludge for proper expansion in the face of nested macros with arguments,
- * stringifying, etc */
-static bool noexpandmac;
-
-static struct macrostack {
-   struct macrostack *link;
-   struct rlist *args;
-   const struct rlist *rlist;
-   struct span0 exspan;
-   int idx;
-   int macno:30;
-   int prevnoexpandmac:1;
-} mstk[64], *mfreelist;
-
-static void
-pushmacstk(struct lexer *lx, const struct span *span, const struct macrostack *m)
-{
-   struct macrostack *l;
-   if (!(l = mfreelist)) fatal(span, "macro depth limit reached");
-   l = mfreelist;
-   mfreelist = l->link;
-   l->link = lx->macstk;
-   assert(m->rlist);
-   l->rlist = m->rlist;
-   l->macno = m->macno;
-   l->args = m->args;
-   l->idx = 0;
-   l->exspan = span->ex;
-   l->prevnoexpandmac = noexpandmac;
-   lx->macstk = l;
-}
-
-static bool
-tryexpand(struct lexer *lx, struct token *tk)
-{
-   static bool inimstk;
-   int macidx, i;
-   struct span span = tk->span;
-   struct macrostack *l;
-   struct macro *mac = NULL;
-   struct rlist *args = NULL;
-
-   if (!inimstk) {
-      inimstk = 1;
-      for (i = 0; i < arraylength(mstk); ++i) {
-         mstk[i].link = mfreelist;
-         mfreelist = &mstk[i];
-      }
-   }
-
-   if (tk->t == TKPPMACARG || tk->t == TKPPMACSTR) {
-      struct rlist *arg;
-
-      ioflush(&bstderr);
-      for (l = lx->macstk; l->macno != tk->macidx; l = l->link) ;
-      arg = &l->args[tk->argidx];
-      if (tk->t == TKPPMACARG && arg->n) {
-         noexpandmac = 0;
-         pushmacstk(lx, &span, &(struct macrostack){
-            .idx = 0,
-            .rlist = arg,
-            .macno = -1,
-         });
-         return 1;
-      } else {
-         char tmp[100];
-         struct wbuf buf = MEMBUF(tmp, sizeof tmp);
-         int n = 0;
-
-         // XXX this is wrong bc the string literal produced should be re-parsed later
-         // i.e. stringifying the token sequence '\n' should ultimately produce a
-         // string with an actual newline, not {'\\','n'}
-      Redo:
-         for (const struct token *tk = arg->tk, *end = tk + arg->n; tk != end; ++tk) {
-            //efmt("strify ++ (%d) %'tk\n", tk->t,tk);
-            if (tk != arg->tk && wsseparated(tk-1, tk))
-               n += bfmt(&buf, " ");
-            n += bfmt(&buf, "%tk", tk);
-         }
-         ioputc(&buf, 0);
-         if (buf.err) {
-            struct wbuf new = MEMBUF(alloc(lx->tmparena, n+1, 1), n+1);
-            assert(buf.buf == tmp);
-            memcpy(&buf, &new, sizeof buf);
-            goto Redo;
-         }
-         tk->t = TKSTRLIT;
-         tk->s = buf.buf != tmp ? buf.buf : alloccopy(lx->tmparena, buf.buf, buf.len, 1);
-         tk->len = buf.len;
-         return 0;
-      }
-   } else if (noexpandmac || !isppident(*tk) || !(mac = findmac(tk->s)))
-      return 0;
-
-   macidx = mac - macros.p;
-   /* prevent infinite recursion */
-   for (l = lx->macstk; l; l = l->link)
-      if (l->macno == macidx)
-         return 0;
-
-
-   if (mac->fnlike) {
-      vec_of(struct token) rlist = {0};
-      bool toomany = 0;
-      struct span excessspan;
-      int cur, len, i, bal, narg;
-      struct token tk;
-
-      noexpandmac = 1;
-      if (lexpeek(lx, &tk) != '(') {
-         noexpandmac = 0;
-         return 0;
-      }
-      lex(lx, &tk);
-      args = xcalloc((mac->nparam + mac->variadic) * sizeof *args);
-
-      /* we push all arg tokens to rlist, each of args[i] is a slice (idx..idx+n) of the rlist vector;
-       * while we're building the list, args[i].tk points to &tk + idx, because rlist.p can move,
-       * then we fix them up in the end to point to rlist.p + idx */
-
-      cur = i = bal = len = narg = 0;
-      while ((lex(lx, &tk) != ')' || bal != 0) && tk.t != TKEOF) {
-         if (tk.t == ',' && bal == 0) {
-            ++narg;
-            if (i == mac->nparam-1) {
-               if (!mac->variadic) {
-                  excessspan = tk.span;
-                  toomany = 1;
-               }
-            } else if (i < mac->nparam) {
-               args[i].tk = &tk + cur;
-               args[i].n = len;
-               cur = rlist.n;
-               len = 0;
-               ++i;
-            }
-         } else if (!toomany) {
-            if (tk.t == '(' || tk.t == '[') ++bal;
-            else if (tk.t == ')' || tk.t == ']') --bal;
-            vpush(&rlist, tk);
-            ++len;
-         }
-      }
-      noexpandmac = 0;
-      if (tk.t == TKEOF)
-         error(&span, "unterminated function-like macro invocation");
-      else if (i < mac->nparam) {
-         ++narg;
-         args[i].tk = &tk + cur;
-         args[i].n = len;
-         cur = rlist.n;
-         len = 0;
-         ++i;
-      }
-      joinspan(&span.ex, tk.span.ex);
-      if (narg < mac->nparam)
-         error(&excessspan, "macro `%s' passed %d arguments, but takes %d", mac->name, narg, mac->nparam);
-      else if (toomany) {
-         joinspan(&excessspan.ex, tk.span.ex);
-         error(&excessspan, "macro `%s' passed %d arguments, but takes just %d", mac->name, narg, mac->nparam);
-      }
-      /* fix up args slice pointers */
-      for (int i = 0; i < mac->nparam + mac->variadic; ++i) {
-         int idx = args[i].tk - &tk;
-         ioflush(&bstderr);
-         args[i].tk = rlist.p + idx;
-      }
-   }
-
-   if (mac->rlist.n) {
-      pushmacstk(lx, &span, &(struct macrostack){
-         .rlist = &mac->rlist,
-         .macno = macidx,
-         .args = args,
-         .idx = 0,
-      });
-   }
    return 1;
 }
 
 static void
-popmac(struct lexer *lx)
+ppinclude(struct lexer *lx, const struct span *span0)
 {
-   struct macrostack *stk;
-   
-   assert(stk = lx->macstk);
-   do {
-      noexpandmac = stk->prevnoexpandmac;
-      if (stk->args) {
-         free((void *)stk->args[0].tk);
-         free(stk->args);
+   struct token tk;
+   struct span span = *span0;
+
+   lexingheadername = 1;
+   if (in_range(lex0(lx, &tk), TKPPHDRH, TKPPHDRQ)) {
+      char *path = NULL;
+      const char *base, *end;
+      joinspan(&span.ex, tk.span.ex);
+      if (tk.t == TKPPHDRQ) {
+         /* build relative path */
+         base = getfilename(lx->fileid);
+         for (end = base; *end != 0; ++end) {}
+         for (--end; *end != '/' && end != base; --end) {}
+         if (*end == '/') ++end;
+         xbgrow(&path, end - base + tk.len + 1);
+         memcpy(path, base, end - base);
+         memcpy(path + (end - base), tk.s, tk.len);
+         path[end - base + tk.len] = 0;
+         if (tryinclude(lx, &span, path)) return;
       }
-      lx->macstk = stk->link;
-      stk->link = mfreelist;
-      mfreelist = stk;
-   } while ((stk = lx->macstk) && stk->idx >= stk->rlist->n);
+      /* try system paths */
+      for (struct inclpaths *p = cinclpaths; p; p = p->next) {
+         int ndir = strlen(p->path);
+         xbgrow(&path, ndir + tk.len + 2);
+         memcpy(path, p->path, ndir);
+         path[ndir++] = '/';
+         memcpy(path + ndir, tk.s, tk.len);
+         path[ndir + tk.len] = 0;
+         if (tryinclude(lx, &span, path)) return;
+      }
+      /* try embedded files pseudo-path */
+      path[0] = '@', path[1] = ':';
+      memcpy(path+2, tk.s, tk.len);
+      path[tk.len+2] = 0;
+      if (tryinclude(lx, &span, path)) return;
+      fatal(&tk.span, "file not found: %'S", tk.s, tk.len);
+   } else {
+      error(&tk.span, "garbage after #include");
+      ppskipline(lx);
+   }
 }
 
 enum directive {
@@ -1352,12 +1624,13 @@ lex(struct lexer *lx, struct token *tk_)
    }
 
    if (lx->macstk) {
-      const struct rlist *rl = lx->macstk->rlist;
-      if (lx->macstk->idx == rl->n) {
+      const struct rlist rl = lx->macstk->rlist;
+      if (lx->macstk->idx == rl.n) {
+         if (lx->macstk->stop) return tk->t = TKEOF;
          popmac(lx);
          return lex(lx, tk_);
       }
-      *tk = rl->tk[lx->macstk->idx++];
+      *tk = rl.tk[lx->macstk->idx++];
       assert(tk->t);
       tk->span.ex = lx->macstk->exspan;
       if (tryexpand(lx, tk))
@@ -1365,16 +1638,17 @@ lex(struct lexer *lx, struct token *tk_)
       return tk->t;
    }
 
-   skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
+   skip = !noexpandmac && nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
    for (linebegin = 1;;) {
       while ((t = lex0(lx, tk)) == '\n') linebegin = 1;
-      if (t == '#' && linebegin) {
+      if (t == '#' && linebegin && !noexpandmac) {
          if (lex0(lx, tk) == '\n') { }
          else if (isppident(*tk)) {
             if (!skip) {
                switch (findppcmd(tk)) {
                case PPXXX: goto BadPP;
                case PPDEFINE:   ppdefine(lx); break;
+               case PPUNDEF:    ppundef(lx); break;
                case PPIF:       ppif(lx, &tk->span); break;
                case PPIFDEF:    ppifxdef(lx, 1, &tk->span); break;
                case PPIFNDEF:   ppifxdef(lx, 0, &tk->span); break;
@@ -1384,6 +1658,10 @@ lex(struct lexer *lx, struct token *tk_)
                case PPELSE:     ppelse(lx, &tk->span); break;
                case PPENDIF:    ppendif(lx, &tk->span); break;
                case PPINCLUDE:  ppinclude(lx, &tk->span); break;
+               case PPLINE: break;
+               case PPPRAGMA: break;
+               case PPWARNING: break;
+               case PPERROR: break;
                default: assert(0&&"nyi");
                }
             } else {
@@ -1418,7 +1696,7 @@ lex(struct lexer *lx, struct token *tk_)
          if (skip && tk->t != TKEOF) continue;
          if (tryexpand(lx, tk))
             return lex(lx, tk_);
-         if (t == TKEOF && nppcnd) {
+         if (t == TKEOF && nppcnd && ppcndstk[nppcnd-1].filedepth == includedepth) {
             struct span span = { ppcndstk[nppcnd-1].ifspan };
             error(&span, "#if is not matched by #endif");
          }
@@ -1452,19 +1730,127 @@ lexpeek(struct lexer *lx, struct token *tk_)
    return t;
 }
 
-void
-initlexer(struct lexer *lx, const struct span *span, const char *file, struct arena **tmparena)
+static void
+mac__file__handler(struct lexer *lx, struct token *tk)
 {
-   const char *error;
+   tk->t = TKSTRLIT;
+   tk->s = getfilename(lx->fileid);
+   tk->len = strlen(tk->s);
+}
+
+static void
+mac__line__handler(struct lexer *lx, struct token *tk)
+{
+   char buf[40];
+   int line;
+   struct wbuf wbuf = MEMBUF(buf, sizeof buf);
+   getfilepos(&line, NULL, lx->fileid, lx->chridx);
+   bfmt(&wbuf, "%d", line), buf[wbuf.len++] = 0;
+   tk->t = TKNUMLIT;
+   tk->s = alloccopy(lx->tmparena, buf, wbuf.len, 1);
+   tk->len = strlen(tk->s);
+}
+
+#include <time.h>
+
+static void
+mac__date__handler(struct lexer *lx, struct token *tk)
+{
+   char buf[20];
+   struct wbuf wbuf = MEMBUF(buf, sizeof buf);
+   time_t tm = time(NULL);
+   struct tm *ts = localtime(&tm);
+   tk->t = TKSTRLIT;
+   tk->len = 11;
+   if (ts) {
+      bfmt(&wbuf, "%S %2d %4d%c",
+           &"JanFebMarAprMayJunJulAugSepOctNovDec"[ts->tm_mon*3], 3,
+           ts->tm_mday, 1900+ts->tm_year, 0);
+      assert(wbuf.len == 11+1);
+      tk->s = alloccopy(lx->tmparena, buf, wbuf.len, 1);
+   } else {
+      tk->s = "\?\?\? \?\? \?\?\?\?";
+   }
+}
+
+
+static void
+mac__time__handler(struct lexer *lx, struct token *tk)
+{
+   char buf[20];
+   struct wbuf wbuf = MEMBUF(buf, sizeof buf);
+   time_t tm = time(NULL);
+   struct tm *ts = localtime(&tm);
+   tk->t = TKSTRLIT;
+   tk->len = 8;
+   if (ts) {
+      bfmt(&wbuf, "%.2d:%.2d:%.2d%c", ts->tm_hour, ts->tm_min, ts->tm_sec, 0);
+      tk->s = alloccopy(lx->tmparena, buf, wbuf.len, 1);
+      assert(wbuf.len == 8+1);
+   } else {
+      tk->s = "\?\?:\?\?:\?\?";
+   }
+}
+
+static void
+addpredefmacros(void)
+{
+   static const struct token tok_1 = { TKNUMLIT, .s = "1", .len = 1 };
+   static struct token tok_ver = { TKNUMLIT };
+   static struct macro macs[] = {
+      { "__FILE__", .predefined = 1, .special = 1, .handler = mac__file__handler },
+      { "__LINE__", .predefined = 1, .special = 1, .handler = mac__line__handler },
+      { "__DATE__", .predefined = 1, .special = 1, .handler = mac__date__handler },
+      { "__TIME__", .predefined = 1, .special = 1, .handler = mac__time__handler },
+      { "__STDC__", .predefined = 1, .rlist = { &tok_1, 1 } },
+      { "__STDC_VERSION__", .predefined = 1, .rlist = { &tok_ver, 1 } },
+      { "__STDC_HOSTED__", .predefined = 1, .rlist = { &tok_1, 1 } },
+   };
+   switch (ccopt.cstd) {
+   default: assert(0);
+   case STDC89: tok_ver.s = "199409L"; break;
+   case STDC99: tok_ver.s = "199901L"; break;
+   case STDC11: tok_ver.s = "201112L"; break;
+   case STDC23: tok_ver.s = "202311L"; break;
+   }
+   tok_ver.len = 7;
+   for (int i = 0; i < arraylength(macs); ++i) {
+      macs[i].name = intern(macs[i].name);
+      putmac(&macs[i]);
+   }
+}
+
+const char *
+initlexer(struct lexer *lx, const struct span *span, const char *file)
+{
+   enum { NARENA = 1<<12 };
+   static union { char m[sizeof(struct arena) + NARENA]; struct arena *_align; } amem;
+   static struct arena *tmparena = (void *)amem.m;
+
+   const char *err;
    struct memfile *f;
 
+   if (!macros.n) addpredefmacros();
+   if (!tmparena->cap) tmparena->cap = NARENA;
+
    memset(lx, 0, sizeof *lx);
-   lx->fileid = openfile(&error, &f, file);
+   lx->fileid = openfile(&err, &f, file);
    if (lx->fileid < 0)
-      fatal(span, "Cannot open %'s: %s", file, error);
+      return err;
    lx->dat = f->p;
    lx->ndat = f->n;
-   lx->tmparena = tmparena;
+   lx->tmparena = &tmparena;
+   return NULL;
+}
+
+/* callback to let lexer release temp memory for arena allocated token data */
+void
+lexerfreetemps(struct lexer *lx)
+{
+   if (!lx->macstk) {
+      /* some of the tokens could be somewhere in the macro stack */
+      freearena(lx->tmparena);
+   }
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

@@ -17,7 +17,7 @@ void hi(int x) {
 #define STR(h) #h 
 
 #define xstr(s1) str(s1)
-#define str(s) #s
+#define str(...) #__VA_ARGS__
 
 #endif
 

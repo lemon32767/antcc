@@ -1878,6 +1878,10 @@ declspec(struct declstate *st, struct comp *cm)
       case TKWconst:
          st->qual |= QCONST;
          break;
+      case TKWrestrict:
+         /* unimplemented */
+         /*st->qual |= QRESTRICT;*/
+         break;
       case TKWvolatile:
          st->qual |= QVOLATILE;
          break;
@@ -1981,8 +1985,9 @@ End:
       else if (arith == KDOUBLE)
          t = TYDOUBLE;
       else if (arith == (KLONG | KDOUBLE)) {
-         t = TYLDOUBLE;
-         error(&span, "`long double' is unsupported");
+         /* t = TYLDOUBLE; */
+         warn(&span, "`long double' is unsupported");
+         t = TYDOUBLE;
       } else if (arith == KBOOL)
          t = TYBOOL;
       else if (arith == KCHAR)
@@ -2081,8 +2086,8 @@ cvqual(struct comp *cm)
 {
    struct token tk;
    int q = 0;
-   while (match(cm, &tk, TKWconst) || match(cm, &tk, TKWvolatile))
-      q |= tk.t == TKWconst ? QCONST : QVOLATILE;
+   while (match(cm, &tk, TKWconst) || match(cm, &tk, TKWvolatile) || match(cm, &tk, TKWrestrict))
+      q |= tk.t == TKWconst ? QCONST : tk.t == TKWvolatile ? QVOLATILE : 0;
    return q;
 }
 
@@ -2568,7 +2573,7 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
       for (struct initval *val = ini->vals; val; val = val->next) {
          uint off = val->off;
          struct expr *ex = &val->ex;
-         adr = off == 0 ? dst : addinstr(fn, mkinstr(Oadd, KPTR, dst, mkref(RICON, off))); 
+         adr = off == 0 ? dst : addinstr(fn, mkinstr(Oadd, KPTR, dst, mkref(RICON, off)));
          genstore(fn, ex->ty, adr, exprvalue(fn, ex));
       }
    } else if (src->t == ESTRLIT) {
@@ -3264,7 +3269,7 @@ loopbody(struct comp *cm, struct function *fn, struct block *brk, struct block *
 
 struct swcase {
    vlong val;
-   struct block *blk;   
+   struct block *blk;
 };
 struct switchstmt {
    struct block *bdefault;
@@ -3307,7 +3312,7 @@ genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
     *       4. jump tables? (harder)
     */
    for (int i = 0; i < st.cases.n; ++i) {
-      struct swcase c = st.cases.p[i]; 
+      struct swcase c = st.cases.p[i];
       EMITS {
          struct block *next = i < st.cases.n - 1 ? newblk(fn) : st.bdefault;
          putcondbranch(fn, addinstr(fn, mkinstr(Oequ, k, .l = sel, .r = mkintcon(k, c.val))), c.blk, next);
@@ -3631,6 +3636,7 @@ stmt(struct comp *cm, struct function *fn)
       break;
    }
    freearena(&cm->exarena);
+   lexerfreetemps(&cm->lx);
    return fn->curblk == NULL;
 }
 
@@ -3833,7 +3839,7 @@ docomp(struct comp *cm)
    while (peek(cm, tk) != TKEOF) {
       struct declstate st = { DTOPLEVEL };
       do {
-         bool noscls;
+         bool noscls = 0;
          int nerr = nerror;
          struct decl decl = pdecl(&st, cm);
 
@@ -3866,7 +3872,7 @@ docomp(struct comp *cm)
             if (st.varini) {
                (void) initializer(cm, &d->ty, EVSTATICINI, decl.scls != SCSTATIC, decl.qual, decl.name);
                pdecl(&st, cm);
-            } else if (decl.ty.t != TYFUNC && (decl.scls != SCEXTERN || noscls)) {
+            } else if (decl.ty.t != TYFUNC && decl.scls != SCTYPEDEF && (decl.scls != SCEXTERN || noscls)) {
                objnewdat(d->name, Sbss, decl.scls == SCEXTERN, typesize(d->ty), typealign(d->ty));
             }
             if (ccopt.dbg.p) efmt("var %s : %tq\n", d->name, d->ty, d->qual);
@@ -3875,6 +3881,7 @@ docomp(struct comp *cm)
          }
          freearena(&cm->fnarena);
          freearena(&cm->exarena);
+         lexerfreetemps(&cm->lx);
       } while (st.more);
    }
 }
@@ -3885,8 +3892,9 @@ ccomp(const char *file)
    enum { N = 1<<12 };
    static union { char m[sizeof(struct arena) + N]; struct arena *_align; } amem[2];
    struct comp cm = {0};
-
-   initlexer(&cm.lx, NULL, file, &cm.exarena);
+   const char *err = initlexer(&cm.lx, NULL, file);
+   if (err)
+      fatal(NULL, "Cannot open %'s: %s", file, err);
    cm.fnarena = (void *)amem[0].m;
    cm.fnarena->cap = N;
    cm.exarena = (void *)amem[1].m;

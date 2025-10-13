@@ -137,6 +137,10 @@ struct option {
    } dbg;
 };
 extern struct option ccopt;
+extern struct inclpaths {
+   struct inclpaths *next;
+   const char *path;
+} *cinclpaths;
 
 /*************************/
 /** TYPE REPRESENTATION **/
@@ -531,6 +535,13 @@ struct wbuf {
 struct memfile {
    const uchar *p;
    uint n;
+   bool statik;
+};
+
+struct embedfile {
+   const char *name;
+   const char *s;
+   size_t len;
 };
 
 #define MEMBUF(buf, cap) { (buf), (cap), .fd = -1 }

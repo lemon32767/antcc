@@ -627,6 +627,8 @@ bfmt(struct wbuf *buf, const char *fmt, ...)
 
 static uint pagesiz;
 
+extern struct embedfile embedfilesdir[];
+
 struct memfile
 mapopen(const char **err, const char *path)
 {
@@ -640,6 +642,14 @@ mapopen(const char **err, const char *path)
  
    if (!pagesiz) pagesiz = sysconf(_SC_PAGESIZE);
    *err = NULL;
+
+   if (*path == '@' && path[1] == ':') {
+      for (struct embedfile *e = embedfilesdir; e->name; ++e) {
+         if (!strcmp(e->name, path+2)) {
+            return (struct memfile) { (const uchar *)e->s, e->len, .statik = 1 };
+         }
+      }
+   }
 
    if ((fd = open(path, O_RDONLY)) < 0)
       goto Err;
@@ -707,7 +717,8 @@ void
 mapclose(struct memfile *f)
 {
    assert(f->p);
-   munmap((void *)f->p, alignup(f->n, pagesiz) + pagesiz);
+   if (!f->statik)
+      munmap((void *)f->p, alignup(f->n, pagesiz) + pagesiz);
    memset(f, 0, sizeof *f);
 }
 
@@ -793,8 +804,8 @@ getfilepos(int *line, int *col, int id, uint off)
       else break;
    }
    i -= offs[i] > off;
-   *line = i + 1;
-   *col = off - offs[i] + 1;
+   if (line) *line = i + 1;
+   if (col) *col = off - offs[i] + 1;
 }
 
 void
