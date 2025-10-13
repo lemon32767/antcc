@@ -719,6 +719,56 @@ ppskipline(struct lexer *lx)
       next(lx);
 }
 
+static bool
+tokpaste(struct lexer *lx, struct token *dst, const struct token *l, const struct token *r)
+{
+   char *s;
+   dst->span = l->span;
+   if (dst->span.ex.file == r->span.ex.file && dst->span.ex.off < r->span.ex.off)
+      joinspan(&dst->span.ex, r->span.ex);
+   if (isppident(*l) && (isppident(*r) || r->t == TKNUMLIT)) {
+      /* foo ## bar  ;   foo ## 123 */
+      dst->t = TKIDENT;
+   } else if (l->t == TKNUMLIT && (isppident(*r) || r->t == TKNUMLIT)) {
+      /* 0x ## abc   ;   213 ## 456 */
+      dst->t = TKNUMLIT;
+   } else if (l->t && !r->t) {
+      *dst = *l;
+      return 1;
+   } else if (!l->t && r->t) {
+      *dst = *r;
+      return 1;
+   } else {
+      static const struct { char s[2]; char t; } tab[] = {
+         {"==", TKEQU}, {"!=", TKNEQ}, {"<=", TKLTE}, {">=", TKGTE},
+         {">>", TKSHR}, {"<<", TKSHL}, {"++", TKINC}, {"--", TKDEC},
+         {"->", TKARROW}, {"##", TKPPCAT}, {"&&", TKLOGAND}, {"||", TKLOGIOR},
+         {"+=", TKSETADD}, {"-=", TKSETSUB}, {"*=", TKSETMUL}, {"/=", TKSETDIV},
+         {"%=", TKSETREM}, {"|=", TKSETIOR}, {"^=", TKSETXOR}, {"&=", TKSETAND},
+         {{TKSHL,'='}, TKSETSHL}, {{TKSHR,'='}, TKSETSHR}
+      };
+      struct span span = l->span;
+
+      for (int i = 0; i < arraylength(tab); ++i)
+         if (tab[i].s[0] == l->t && tab[i].s[1] == r->t)
+            return dst->t = tab[i].t, 1;
+
+      joinspan(&span.ex, r->span.ex);
+      error(&span, "pasting %'tk and %'tk does not form a valid preprocessing token", l, r);
+      return 0;
+   }
+
+   /* shared for ident,keyword,numlit */
+   dst->len = l->len + r->len;
+   s = alloc(lx->tmparena, dst->len + 1, 1);
+   memcpy(s, l->s, l->len);
+   memcpy(s + l->len, r->s, r->len);
+   s[l->len + r->len] = 0;
+   if (dst->t == TKIDENT) identkeyword(dst, s, dst->len);
+   else dst->s = s;
+   return 1;
+}
+
 static void
 ppdefine(struct lexer *lx)
 {
@@ -786,6 +836,13 @@ ppdefine(struct lexer *lx)
                   break;
                }
             }
+         }
+      } else if (!mac.fnlike && rlist.n > 1 && rlist.p[rlist.n-1].t == TKPPCAT) {
+         struct token new;
+         if (tokpaste(lx, &new, &rlist.p[rlist.n-2], &tk)) {
+            rlist.p[rlist.n-2] = new;
+            --rlist.n;
+            continue;
          }
       }
       vpush(&rlist, tk);
@@ -860,52 +917,6 @@ popmac(struct lexer *lx)
       mfreelist = stk;
    } while ((stk = lx->macstk) && stk->idx >= stk->rlist.n && !stk->stop);
 }
-
-static bool
-tokpaste(struct lexer *lx, struct token *dst, const struct token *l, const struct token *r)
-{
-   char *s;
-   dst->span = l->span;
-   if (dst->span.ex.file == r->span.ex.file && dst->span.ex.off < r->span.ex.off)
-      joinspan(&dst->span.ex, r->span.ex);
-   if (isppident(*l) && (isppident(*r) || r->t == TKNUMLIT)) {
-      /* foo ## bar  ;   foo ## 123 */
-      dst->t = TKIDENT;
-   } else if (l->t == TKNUMLIT && (isppident(*r) || r->t == TKNUMLIT)) {
-      /* 0x ## abc   ;   213 ## 456 */
-      dst->t = TKNUMLIT;
-   } else if (l->t && !r->t) {
-      *dst = *l;
-      return 1;
-   } else if (!l->t && r->t) {
-      *dst = *r;
-      return 1;
-   } else {
-      static const struct { char s[2]; char t; } tab[] = {
-         {"==", TKEQU}, {"!=", TKNEQ}, {"<=", TKLTE}, {">=", TKGTE},
-         {">>", TKSHR}, {"<<", TKSHL}, {"++", TKINC}, {"--", TKDEC},
-         {"->", TKARROW}, {"##", TKPPCAT}, {"&&", TKLOGAND}, {"||", TKLOGIOR},
-         {"+=", TKSETADD}, {"-=", TKSETSUB}, {"*=", TKSETMUL}, {"/=", TKSETDIV},
-         {"%=", TKSETREM}, {"|=", TKSETIOR}, {"^=", TKSETXOR}, {"&=", TKSETAND},
-         {{TKSHL,'='}, TKSETSHL}, {{TKSHR,'='}, TKSETSHR}
-      };
-      for (int i = 0; i < arraylength(tab); ++i)
-         if (tab[i].s[0] == l->t && tab[i].s[1] == r->t)
-            return dst->t = tab[i].t, 1;
-      return 0;
-   }
-
-   /* shared for ident,keyword,numlit */
-   dst->len = l->len + r->len;
-   s = alloc(lx->tmparena, dst->len + 1, 1);
-   memcpy(s, l->s, l->len);
-   memcpy(s + l->len, r->s, r->len);
-   s[l->len + r->len] = 0;
-   if (dst->t == TKIDENT) identkeyword(dst, s, dst->len);
-   else dst->s = s;
-   return 1;
-}
-
 
 static bool
 tryexpand(struct lexer *lx, struct token *tk)
