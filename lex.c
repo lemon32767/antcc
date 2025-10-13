@@ -627,7 +627,7 @@ static bool /* whitespace separating tokens? */
 wsseparated(const struct token *l, const struct token *r)
 {
    assert(l->span.sl.file == r->span.sl.file);
-   return l->span.sl.off + l->span.sl.len < r->span.sl.off;
+   return l->span.sl.off + l->span.sl.len != r->span.sl.off;
 }
 
 static bool
