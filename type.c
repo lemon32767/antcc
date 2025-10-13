@@ -304,11 +304,11 @@ cvtarith(union type a, union type b)
    if (issigned(a)) {
       if (targ_primsizes[a.t] <= targ_primsizes[b.t])
          a.t += 1; /* make unsigned */
-      return a;
+      return a.t > b.t ? a : b;
    } else {
       if (targ_primsizes[b.t] <= targ_primsizes[a.t])
          b.t += 1; /* make unsigned */
-      return b;
+      return b.t > a.t ? b : a;
    }
 }
 
