@@ -22,11 +22,15 @@ sortrpo(struct function *fn)
 
    startbbvisit();
    fn->entry->id = 0;
-   markvisited(fn->entry);
-   if (fn->entry->s1) porec(&rpo, fn->entry->s1);
-   if (fn->entry->s2) porec(&rpo, fn->entry->s2);
-   *--rpo = fn->entry;
+   porec(&rpo, fn->entry);
    ndead = rpo - rpobuf;
+   for (struct block *blk = fn->entry; ndead > 0; blk = blk->lnext) {
+      if (!wasvisited(blk)) {
+         blk->lnext = blk->lprev = NULL;
+         freeblk(fn, blk);
+         --ndead;
+      }
+   }
    for (i = 1, ++rpo; rpo < rpoend; ++rpo, ++i) {
       rpo[-1]->lnext = rpo[0];
       rpo[0]->lprev = rpo[-1];
@@ -34,10 +38,6 @@ sortrpo(struct function *fn)
    }
    fn->entry->lprev = rpo[-1];
    rpo[-1]->lnext = fn->entry;
-   for (rpo = rpobuf; ndead > 0; --ndead) {
-      (*rpo)->lnext = (*rpo)->lprev = NULL;
-      freeblk(fn, *rpo);
-   }
 }
 
 /* vim:set ts=3 sw=3 expandtab: */
