@@ -584,9 +584,16 @@ DEFINSTR1(Xdec,
 DEFINSTR1(Xneg,
    {4|8, PGPR, 0, "\xF7", EN_R, .ext=3} /* NEG r32/64 */
 )
+DEFINSTR1(Xnot,
+   {4|8, PGPR, 0, "\xF7", EN_R, .ext=2} /* NEG r32/64 */
+)
 DEFINSTR1(Xidiv,
    {4|8, PGPR, 0, "\xF7", EN_R, .ext=7}, /* IDIV r32/64 */
    {4|8, PMEM, 0, "\xF7", EN_M, .ext=7}, /* IDIV m32/64 */
+)
+DEFINSTR1(Xdiv,
+   {4|8, PGPR, 0, "\xF7", EN_R, .ext=6}, /* DIV r32/64 */
+   {4|8, PMEM, 0, "\xF7", EN_M, .ext=6}, /* DIV m32/64 */
 )
 DEFINSTR1(Xcall,
    {-1, PSYM, 0, "\xE8", EN_R32, .norexw=1}, /* CALL rel32 */
@@ -923,6 +930,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
    case Oxinc: X1 = Xinc; goto ALU1;
    case Oxdec: X1 = Xdec; goto ALU1;
    case Oneg: X1 = Xneg; goto ALU1;
+   case Onot: X1 = Xnot; goto ALU1;
    ALU1:
       dst = mkregoper(ins->l);
       assert(ins->reg-1 == dst.reg);
@@ -948,6 +956,11 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
                 Xdivf(pcode, cls, reg2oper(ins->reg-1), mkdatregoper(ins->r));
                 break;
       }
+      break;
+   case Oudiv:
+      DS("\x31\xD2"); /* XOR EDX,EDX */
+      assert(mkregoper(ins->l).reg == RAX);
+      Xdiv(pcode, cls, mkdatregoper(ins->r));
       break;
    case Oequ: case Oneq:
    case Olth: case Ogth: case Olte: case Ogte:
