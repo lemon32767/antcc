@@ -4,7 +4,7 @@
 const char *
 intern(const char *s)
 {
-   static const char *ht[1<<10];
+   static const char *ht[1<<12];
    static struct { char m[sizeof(struct arena) + (1<<10)]; struct arena *_a; } amem;
    static struct arena *arena;
    uint h, i, n = arraylength(ht);
@@ -583,7 +583,7 @@ struct macro {
 #define isppident(tk) (in_range((tk).t, TKIDENT, TKWEND_))
 
 static vec_of(struct macro) macros;
-static ushort macroht[1<<10];
+static ushort macroht[1<<12];
 
 static struct macro *
 findmac(const char *name)
@@ -617,8 +617,10 @@ tokequ(const struct token *a, const struct token *b)
    if (a->t == TKNUMLIT || a->t == TKSTRLIT || a->t == TKCHRLIT) {
       if (a->len != b->len) return 0;
       return !memcmp(a->s, b->s, a->len);
-   } else if (a->t == TKIDENT || a->t == TKPPMACARG || a->t == TKPPMACSTR) {
+   } else if (a->t == TKIDENT) {
       return a->s == b->s;
+   } else if (a->t == TKPPMACARG || a->t == TKPPMACSTR) {
+      return a->argidx == b->argidx;
    }
    return 1;
 }
@@ -837,9 +839,12 @@ ppdefine(struct lexer *lx)
                }
             }
          }
-      } else if (!mac.fnlike && rlist.n > 1 && rlist.p[rlist.n-1].t == TKPPCAT) {
+      }
+      if (rlist.n > 1 && rlist.p[rlist.n-1].t == TKPPCAT) {
          struct token new;
-         if (tokpaste(lx, &new, &rlist.p[rlist.n-2], &tk)) {
+         if (rlist.p[rlist.n-2].t != TKPPMACARG && tk.t != TKPPMACARG
+          && tokpaste(lx, &new, &rlist.p[rlist.n-2], &tk))
+         {
             rlist.p[rlist.n-2] = new;
             --rlist.n;
             continue;
@@ -959,16 +964,24 @@ tryexpand(struct lexer *lx, struct token *tk)
       struct argtks { int idx, n; } args[100];
       struct span excessspan;
       int cur, len, i, bal, narg;
+      struct token *tk_ = tk;
       struct token tk;
       bool toomany = 0;
 
       noexpandmac = 1;
       //efmt(">>HI %s\n", mac->name);
-      if (lexpeek(lx, &tk) != '(') {
+      if (lex(lx, &tk) != '(') {
+         /* cannot backtrack here, so this is a kludge to reexpand <ident> <token> */
+         struct token *tk2 = xmalloc(sizeof *tk2 * 2);
+         tk2[0] = *tk_, tk2[1] = tk;
          noexpandmac = 0;
-         return 0;
+         pushmacstk(lx, &span, &(struct macrostack) {
+            .rlist = { tk2, 2 },
+            .exspan = span.ex,
+            .macno = macidx,
+         });
+         return 1;
       }
-      lex(lx, &tk);
 
       /* we push all arg tokens to buffer, each of args[i] is a slice (idx..idx+n) of the vector;
        * while we're building the list, args[i].tk points to &tk + idx, because rlist.p can move,
@@ -1030,12 +1043,8 @@ tryexpand(struct lexer *lx, struct token *tk)
                   const struct token *lhs = &mac->rlist.tk[i-1], *rhs = &mac->rlist.tk[i+1];
                   struct token new;
                   if (lhs->t != TKPPMACARG && rhs->t != TKPPMACARG) {
-                     /* trivial case */
-                     if (tokpaste(lx, &new, lhs, rhs)) {
-                        rlist2.p[rlist2.n - 1] = new;
-                        ++i;
-                        continue;
-                     }
+                     /* trivial case should have been handled when defining */
+                     assert(0 && "## ?");
                   } else if (rhs->t != TKPPMACARG) {
                      assert(lhsargpaste);
                      if (tokpaste(lx, &new, &lhsargforpaste, rhs)) {
@@ -1068,6 +1077,10 @@ tryexpand(struct lexer *lx, struct token *tk)
                efmt("}: {\n");*/
                lhsargpaste = i < mac->rlist.n-1 && mac->rlist.tk[i+1].t == TKPPCAT;
                if (arg->n == 0) {
+                  if (lhsargpaste) {
+                     lhsargforpaste.t = 0;
+                     lhsargforpaste.span = tk.span;
+                  }
                   if (rhsargpaste) {
                      rhsargpaste = 0;
                      vpush(&rlist2, lhsargforpaste);
