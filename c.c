@@ -1170,6 +1170,9 @@ expr2reloc(union ref *psym, vlong *paddend, const struct expr *ex)
 {
    if (ex->t == EADDROF && globsym(psym, ex)) {
       *paddend = 0;
+   } else if (ex->t == EADDROF && (ex->sub->t == EGETF && globsym(psym, ex->sub->sub))) {
+      *paddend = ex->sub->fld.off;
+   } else if (globsym(psym, ex) && in_range(ex->ty.t, TYARRAY, TYFUNC)) {
    } else if (globsym(psym, ex) && in_range(ex->ty.t, TYARRAY, TYFUNC)) {
       *paddend = 0;
    } else if (ex->t == ESUB && globsym(psym, &ex->sub[0]) && isint(ex->sub[1].ty) && ex->sub[1].t == ENUMLIT) {
@@ -2041,7 +2044,6 @@ End:
       st->base = mktype(TYINT);
    } else if (!st->base.t && arith) {
       enum typetag t;
-      ioflush(&bstderr);
       if (arith == KFLOAT)
          t = TYFLOAT;
       else if (arith == KDOUBLE)
@@ -2578,7 +2580,8 @@ genload(struct function *fn, union type t, union ref ref)
    struct instr ins = {0};
 
    assert(isscalar(t));
-   ins.cls = type2cls[t.t];
+   ins.cls = type2cls[scalartypet(t)];
+   assert(ins.cls);
    switch (typesize(t)) {
    case 1: ins.op = issigned(t) ? Oloads1 : Oloadu1; break;
    case 2: ins.op = issigned(t) ? Oloads2 : Oloadu2; break;
@@ -2650,11 +2653,12 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
 }
 
 static union ref
-cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
+cvt(struct function *fn, union type to, union type from, union ref ref)
 {
-   enum irclass kto = type2cls[to], kfrom = type2cls[from];
+   enum irclass kto = type2cls[scalartypet(to)], kfrom = type2cls[scalartypet(from)];
    struct instr ins = {0};
-   if (kto == kfrom && to != TYBOOL) return ref;
+   assert(kto && kfrom);
+   if (kto == kfrom && to.t != TYBOOL) return ref;
    if (ref.t == RICON && kto < KF4) return ref;
 
    ins.cls = kto;
@@ -2664,37 +2668,38 @@ cvt(struct function *fn, enum typetag to, enum typetag from, union ref ref)
          assert(kisflt(kto) && kisint(kfrom));
          return mkfltcon(kto, kto == KF4 ? (float)ref.i : (double)ref.i);
       }
-      if (kisflt(kto) && kfrom == KI4) ins.op = issignedt(from) ? Ocvts4f : Ocvtu4f;
-      else if (to == TYBOOL && kisflt(kfrom)) ins.op = Oneq, ins.r = mkfltcon(kfrom, 0.0);
-      else if (kisflt(kto) && kfrom == KI8) ins.op = issignedt(from) ? Ocvts8f : Ocvtu8f;
+      if (kisflt(kto) && kfrom == KI4) ins.op = issigned(from) ? Ocvts4f : Ocvtu4f;
+      else if (to.t == TYBOOL && kisflt(kfrom)) ins.op = Oneq, ins.r = mkfltcon(kfrom, 0.0);
+      else if (kisflt(kto) && kfrom == KI8) ins.op = issigned(from) ? Ocvts8f : Ocvtu8f;
       else if (kto == KF8 && kfrom == KF4) ins.op = Ocvtf4f8;
       else if (kto == KF4 && kfrom == KF8) ins.op = Ocvtf8f4;
-      else if (kfrom == KF4) ins.op = issignedt(to) ? Ocvtf4s : Ocvtf4u;
-      else if (kfrom == KF8) ins.op = issignedt(to) ? Ocvtf8s : Ocvtf8u;
+      else if (kfrom == KF4) ins.op = issigned(to) ? Ocvtf4s : Ocvtf4u;
+      else if (kfrom == KF8) ins.op = issigned(to) ? Ocvtf8s : Ocvtf8u;
       else assert(0);
    } else {
-      if (to == TYBOOL) {
-         if (from == TYBOOL) return ref;
+      if (to.t == TYBOOL) {
+         if (from.t == TYBOOL) return ref;
          if (ref.t == RTMP)
             /* these instrs already have output range of [0,1] */
             if (oiscmp(instrtab[ref.i].op))
                return ref;
          ins.op = Oneq, ins.r = ZEROREF;
       }
-      else if (kfrom == KI4 && issignedt(from)) ins.op = Oexts4;
+      else if (kfrom == KI4 && issigned(from)) ins.op = Oexts4;
       else if (kfrom == KI4) ins.op = Oextu4;
       else if (kto == KI4 && isintcon(ref))
-         return issignedt(to) ? mkintcon(kto, (int)intconval(ref)) : mkintcon(kto, (uint)intconval(ref));
+         return issigned(to) ? mkintcon(kto, (int)intconval(ref)) : mkintcon(kto, (uint)intconval(ref));
       else ins.op = Ocopy;
    }
    return addinstr(fn, ins);
 }
 
 static union ref
-narrow(struct function *fn, enum irclass to, enum typetag tt, union ref ref, uint bitsiz)
+narrow(struct function *fn, enum irclass to, union type t, union ref ref, uint bitsiz)
 {
    struct instr ins = {0};
-   assert(isscalart(tt));
+   enum typetag tt = scalartypet(t);
+   assert(isscalar(t));
    if (targ_primsizes[tt] < cls2siz[to]) {
       ins.cls = to;
       if (isfltt(tt)) {
@@ -2724,13 +2729,13 @@ narrow(struct function *fn, enum irclass to, enum typetag tt, union ref ref, uin
 
 union ref
 genptroff(struct function *fn, enum op op, uint siz, union ref ptr,
-          enum typetag tt, union ref idx)
+          union type t, union ref idx)
 {
    uint cls = type2cls[targ_sizetype];
    union ref off;
    assert(siz);
 
-   idx = cvt(fn, targ_sizetype, tt, idx);
+   idx = cvt(fn, mktype(targ_sizetype), t, idx);
    if (siz == 1) off = idx;
    else if (idx.t == RICON) {
       if (op == Osub) op = Oadd, idx.i = -idx.i;
@@ -2846,7 +2851,7 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
          if (boolcon >= 0) {
             if (!next || next == end) {
                boolcon = -1;
-               val = cvt(fn, TYBOOL, ex->ty.t, r);
+               val = cvt(fn, mktype(TYBOOL), ex->ty, r);
             } else {
                val = mkref(RICON, boolcon);
             }
@@ -2872,10 +2877,13 @@ condexprvalue(struct function *fn, const struct expr *ex, bool discard)
    struct condphis phis = { VINIT(refbuf, arraylength(refbuf)) };
    struct block *dst = newblk(fn);
    union ref r;
+   enum irclass k;
    condexprrec(fn, ex, discard ? NULL : &phis, -1, NULL, dst);
    useblk(fn, dst);
    if (discard) return NOREF;
-   r = addphi(fn, type2cls[ex->ty.t], phis.ref.p);
+   k = type2cls[scalartypet(ex->ty)];
+   assert(k);
+   r = addphi(fn, k, phis.ref.p);
    vfree(&phis.ref);
    return r;
 }
@@ -2894,13 +2902,14 @@ compilecall(struct function *fn, const struct expr *ex)
       ins.cls = KPTR;
    } else {
       assert(isscalar(ex->ty) || ex->ty.t == TYVOID);
-      ins.cls = type2cls[ex->ty.t];
+      ins.cls = type2cls[scalartypet(ex->ty)];
+      assert(ins.cls || ex->ty.t == TYVOID);
    }
    ins.l = exprvalue(fn, &sub[0]);
    for (int i = 0; i < ex->narg; ++i) {
       struct expr *arg = &sub[i+1];
       union type ty = i < td->nmemb ? td->param[i] : argpromote(arg->ty);
-      union ref r = cvt(fn, ty.t, arg->ty.t, exprvalue(fn, arg));
+      union ref r = cvt(fn, ty, arg->ty, exprvalue(fn, arg));
       vpush(&insns, mkarginstr(mkirtype(ty), r));
    }
    for (int i = 0; i < insns.n; ++i)
@@ -2913,11 +2922,12 @@ compilecall(struct function *fn, const struct expr *ex)
 static union ref
 genbitfload(struct function *fn, const union type ty, union ref *addr, const struct exgetfld *fld)
 {
-   enum irclass k = type2cls[ty.t];
+   enum irclass k = type2cls[scalartypet(ty)];
    uint off = fld->off, bitsiz = fld->bitsiz, bitoff = fld->bitoff;
    union ref tmp;
    uvlong mask;
 
+   assert(k);
    if (off > 0)
       *addr = addinstr(fn, mkinstr(Oadd, KPTR, .l = *addr, .r = mkintcon(KI4, off)));
    tmp = genload(fn, ty, *addr);
@@ -2945,11 +2955,12 @@ static void
 genbitfstore(struct function *fn, const union type ty, union ref addr,
              const struct exgetfld *fld, union ref tmp, union ref val)
 {
-   enum irclass k = type2cls[ty.t];
+   enum irclass k = type2cls[scalartypet(ty)];
    uint off = fld->off, bitsiz = fld->bitsiz, bitoff = fld->bitoff;
    uint bittypesize = 8*typesize(ty);
    uvlong mask;
 
+   assert(k);
    if (!tmp.bits) {
       if (off > 0)
          addr = addinstr(fn, mkinstr(Oadd, KPTR, .l = addr, .r = mkintcon(KI4, off)));
@@ -2981,7 +2992,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    union type ty;
    union ref r, q;
    uint bitsiz;
-   enum irclass cls = type2cls[ex->ty.t];
+   enum irclass cls = type2cls[scalartypet(ex->ty)];
    struct instr ins = {0};
    int swp = 0;
    struct expr *sub;
@@ -3019,7 +3030,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    case EPLUS:
       r = compileexpr(fn, sub, discard);
       if (discard) return NOREF;
-      return cvt(fn, ex->ty.t, sub->ty.t, r);
+      return cvt(fn, ex->ty, sub->ty, r);
    case ENEG:
       ins.op = Oneg;
       goto Unary;
@@ -3028,7 +3039,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    Unary:
       ins.l = compileexpr(fn, sub, discard);
       if (discard) return NOREF;
-      ins.l = cvt(fn, ex->ty.t, sub->ty.t, ins.l);
+      ins.l = cvt(fn, ex->ty, sub->ty, ins.l);
       ins.cls = cls;
       return addinstr(fn, ins);
    case ELOGNOT:
@@ -3037,7 +3048,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       ins.op = Oequ + swp;
       ins.l = compileexpr(fn, sub, discard);
       if (discard) return NOREF;
-      ins.l = cvt(fn, ex->ty.t, sub->ty.t, ins.l);
+      ins.l = cvt(fn, ex->ty, sub->ty, ins.l);
       ins.r = mkintcon(cls, 0);
       ins.cls = cls;
       return addinstr(fn, ins);
@@ -3086,12 +3097,12 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          return genptrdiff(fn, typesize(typechild(sub[0].ty)), ins.l, ins.r);
       } else if ((ins.op != Oadd && ins.op != Osub) || cls != KPTR) {
          /* num OP num */
-         ins.l = cvt(fn, ex->ty.t, sub[0].ty.t, ins.l);
-         ins.r = cvt(fn, ex->ty.t, sub[1].ty.t, ins.r);
+         ins.l = cvt(fn, ex->ty, sub[0].ty, ins.l);
+         ins.r = cvt(fn, ex->ty, sub[1].ty, ins.r);
       } else {
          assert(isptrcvt(sub[0].ty));
          /* ptr +/- num */
-         return genptroff(fn, ins.op, typesize(typechild(sub[0].ty)), ins.l, sub[1].ty.t, ins.r);
+         return genptroff(fn, ins.op, typesize(typechild(sub[0].ty)), ins.l, sub[1].ty, ins.r);
       }
       ins.cls = cls;
       return addinstr(fn, ins);
@@ -3120,7 +3131,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       q = addinstr(fn, ins);
       genstore(fn, sub->ty, r, q);
       if (discard) return NOREF;
-      return narrow(fn, cls, ex->ty.t, q, 0);
+      return narrow(fn, cls, ex->ty, q, 0);
    case EEQU:
       ins.op = Oequ;
       goto Cmp;
@@ -3146,13 +3157,13 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       ins.l = compileexpr(fn, &sub[0], discard);
       ins.r = compileexpr(fn, &sub[1], discard);
       if (discard) return NOREF;
-      ins.l = cvt(fn, ty.t, sub[0].ty.t, ins.l);
-      ins.r = cvt(fn, ty.t, sub[1].ty.t, ins.r);
+      ins.l = cvt(fn, ty, sub[0].ty, ins.l);
+      ins.r = cvt(fn, ty, sub[1].ty, ins.r);
       ins.cls = type2cls[ty.t];
       return addinstr(fn, ins);
    case ESET:
       assert(isscalar(ex->ty));
-      q = cvt(fn, sub[0].ty.t, sub[1].ty.t, exprvalue(fn, &sub[1]));
+      q = cvt(fn, sub[0].ty, sub[1].ty, exprvalue(fn, &sub[1]));
       if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
          /* bit-field */
          r = expraddr(fn, &sub[0].sub[0]);
@@ -3163,7 +3174,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          genstore(fn, ex->ty, r, q);
       }
       if (discard) return NOREF;
-      return narrow(fn, cls, sub[0].ty.t, q, bitsiz);
+      return narrow(fn, cls, sub[0].ty, q, bitsiz);
    case ESETMUL:
       ins.op = isunsigned(ex->ty) ? Oumul : Omul;
       goto Compound;
@@ -3209,20 +3220,20 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          r = expraddr(fn, &sub[0]);
          ins.l = genload(fn, ex->ty, r);
          if ((ins.op != Oadd && ins.op != Osub) || cls != KPTR) {
-            ins.l = cvt(fn, ty.t, sub[0].ty.t, ins.l);
-            ins.r = cvt(fn, ex->ty.t, sub[1].ty.t, ins.r);
+            ins.l = cvt(fn, ty, sub[0].ty, ins.l);
+            ins.r = cvt(fn, ex->ty, sub[1].ty, ins.r);
             q = addinstr(fn, ins);
          } else {
-            q = genptroff(fn, ins.op, typesize(typechild(ex->ty)), ins.l, sub[1].ty.t, ins.r);
+            q = genptroff(fn, ins.op, typesize(typechild(ex->ty)), ins.l, sub[1].ty, ins.r);
          }
          genstore(fn, ex->ty, r, q);
       }
       if (discard) return NOREF;
-      return narrow(fn, cls, ex->ty.t, q, bitsiz);
+      return narrow(fn, cls, ex->ty, q, bitsiz);
    case ECALL:
       r = compilecall(fn, ex);
       if (isint(ex->ty))
-         return narrow(fn, cls, ex->ty.t, r, 0);
+         return narrow(fn, cls, ex->ty, r, 0);
       return r;
    case ECOND:
       if (ex->ty.t == TYVOID || discard) {
@@ -3353,10 +3364,11 @@ genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
    bool doemit = fn->curblk;
    struct block *begin = NULL, *end = NULL, *breaksave = cm->breakto;
    struct switchstmt *stsave = cm->switchstmt, st = {0};
-   enum irclass k = type2cls[ex->ty.t];
+   enum irclass k = type2cls[scalartypet(ex->ty)];
    struct swcase casebuf[8];
    vinit(&st.cases, casebuf, arraylength(casebuf));
 
+   assert(k);
    end = newblk(fn);
    EMITS {
       sel = exprvalue(fn, ex);
@@ -3695,7 +3707,7 @@ stmt(struct comp *cm, struct function *fn)
          }
          EMITS {
             if (isscalar(fn->retty))
-               r = cvt(fn, fn->retty.t, ex.ty.t, exprvalue(fn, &ex));
+               r = cvt(fn, fn->retty, ex.ty, exprvalue(fn, &ex));
             else
                r = structreturn(fn, &ex);
             putreturn(fn, r, NOREF);
@@ -3795,7 +3807,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                      else {
                         assert(isscalar(d->ty) && isscalar(ini.ty));
                         genstore(fn, d->ty, mkref(RTMP, decl.id),
-                              cvt(fn, d->ty.t, ini.ty.t, exprvalue(fn, &ini)));
+                              cvt(fn, d->ty, ini.ty, exprvalue(fn, &ini)));
                      }
                   }
                } else if (decl.scls == SCEXTERN) {

@@ -203,8 +203,8 @@ union type {
 #define isaggt(t)      in_range((t), TYSTRUCT, TYUNION)
 #define isprim(ty)     isprimt((ty).t)
 #define isint(ty)      isintt((ty).t)
-#define issigned(ty)   issignedt((ty).t)
-#define isunsigned(ty) isunsignedt((ty).t)
+#define issigned(ty)   issignedt(scalartypet(ty))
+#define isunsigned(ty) isunsignedt(scalartypet(ty))
 #define isflt(ty)      isfltt((ty).t)
 #define isarith(ty)    isaritht((ty).t)
 #define isscalar(ty)   isscalart((ty).t)
@@ -316,6 +316,11 @@ typechild(union type t)
       return chld;
    }
    return typedata[t.dat].child;
+}
+static inline enum typetag
+scalartypet(union type t)
+{
+   return t.t == TYENUM ? t.backing : t.t;
 }
 static inline uint
 typearrlen(union type t)

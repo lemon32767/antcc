@@ -137,7 +137,7 @@ isaddrconst(struct expr *ex)
 {
    if (ex->t == ECAST)
       return isaddrconst(ex->sub) || (eval(ex->sub, EVSTATICINI) && ex->sub->t == ENUMLIT);
-   if (ex->t == EADDROF && isglobsym(ex->sub))
+   if (ex->t == EADDROF && (isglobsym(ex->sub) || (ex->sub->t == EGETF && isglobsym(ex->sub->sub))))
       return 1;
    if (isglobsym(ex) && in_range(ex->ty.t, TYARRAY, TYFUNC))
       return 1;

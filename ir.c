@@ -110,7 +110,8 @@ addcon(const struct xcon *con)
 union irtype
 mkirtype(union type t)
 {
-   if (t.t == TYVOID || isscalar(t)) return (union irtype) { .cls = type2cls[t.t] };
+   if (t.t == TYVOID || isscalar(t))
+      return (union irtype) { .cls = type2cls[scalartypet(t)] };
    assert(isagg(t));
    return (union irtype) { .isagg = 1, .dat = t.dat };
 }
