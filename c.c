@@ -3851,6 +3851,7 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
    const struct typedata *td = &typedata[fn->fnty.dat];
    const bool doemit = fn->curblk;
    struct env e;
+   struct token tk;
    envdown(cm, &e);
 
    /* emit Oparam instructions */
@@ -3880,12 +3881,29 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
          warn(&pspans[i], "missing name of parameter #%d", i+1);
       }
    }
+
+   /* __func__ */
+   {
+      static const char *ifunc;
+      if (!ifunc) ifunc = intern("__func__");
+      union type ty = mkarrtype(mktype(TYCHAR), QCONST, strlen(fn->name) + 1);
+      const char *sym = mkhiddensym(fn->name, ifunc, 1);
+      uint off = objnewdat(sym, Srodata, 0, typesize(ty), typealign(ty));
+      uchar *p = objout.rodata.p + off;
+      memcpy(p, fn->name, typearrlen(ty)-1);
+      putdecl(cm, &(struct decl) {
+         .ty = ty, .qual = QCONST,
+         .name = ifunc, .scls = SCSTATIC, .span = (peek(cm, &tk), tk.span),
+         .id = 1,
+      });
+   }
    /* end prologue */
    EMITS {
       struct block *blk;
       putbranch(fn, blk = newblk(fn));
       useblk(fn, blk);
    }
+   cm->labels = NULL;
    block(cm, fn);
    envup(cm);
    for (struct label *l = cm->labels; l; l = l->link) {
