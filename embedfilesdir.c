@@ -15,7 +15,7 @@ typedef __typeof__(sizeof 0) size_t;\n\
 /*typedef __typeof__(L'a') wchar_t;*/\n\
 typedef int wchar_t;\n\
 #define NULL ((void *)0)\n\
-#define offsetof(_Type, _Memb) ((size_t)(&((_Type *)0)->_Memb - (_Type *)0))\n\
+#define offsetof(type, memb) ((size_t)((char *)&((type *)0)->memb - (char *)0))\n\
 ")},
 
 {"stdarg.h", S("\
