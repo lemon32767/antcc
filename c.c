@@ -582,7 +582,7 @@ bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct e
       ty = mktype(TYINT);
       break;
    case BCLOG: /* 6.5.13-14 Logical AND/OR operator */
-      if (!isscalar(ty) || !isscalar(rhs->ty))
+      if (!isscalar(typedecay(ty)) || !isscalar(typedecay(rhs->ty)))
          goto Error;
       ty = mktype(TYINT);
       break;
