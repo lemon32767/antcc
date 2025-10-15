@@ -1157,7 +1157,7 @@ static union ref expraddr(struct function *, const struct expr *);
 static bool
 globsym(union ref *psym, const struct expr *ex)
 {
-   if (ex->t == ESTRLIT || (ex->t == ESYM && (ex->sym->scls & (SCSTATIC | SCEXTERN)))) {
+   if (ex->t == EINIT || ex->t == ESTRLIT || (ex->t == ESYM && (ex->sym->scls & (SCSTATIC | SCEXTERN)))) {
       *psym = expraddr(NULL, ex);
       return 1;
    }
@@ -1203,7 +1203,9 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, union type ty, struct
       uint siz = typesize(ty);
       if (ip->dyn) {
          if (ip->ddat.n < off + siz) {
+            uint old = ip->ddat.n;
             vresize(&ip->ddat, off + siz);
+            memset(ip->ddat.p + old, 0, ip->ddat.n - old);
             assert(off + siz == ip->ddat.n);
          }
          p = ip->ddat.p + off;
@@ -1231,10 +1233,11 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, union type ty, struct
       } else if (ty.t == TYARRAY && ex->t == ESTRLIT) {
          uint n = siz < ex->s.n ? siz : ex->s.n;
          //efmt("%s wrs %'S at %u\n", dat->name, ex->s.p, n, off);
-         memcpy(p , ex->s.p, n);
+         memcpy(p, ex->s.p, n);
       } else {
          union ref sym;
          vlong addend;
+         efmt("<<> %ty <- %ty\n", ty, ex->ty);
          expr2reloc(&sym, &addend, ex);
          assert(sym.t == RXCON);
          if (!ip->dyn) {
@@ -1262,6 +1265,16 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, union type ty, struct
          bsclr(init->zero, i);
       }
    }
+}
+
+static bool
+iniwriterec(struct comp *cm, struct initparser *ip, uint off, struct expr *ex)
+{
+   for (struct initval *v = ex->init->vals; v; v = v->next) {
+      if (v->ex.t == EINIT) iniwriterec(cm, ip, off + v->off, &v->ex);
+      else if (ip->ev && !eval(&v->ex, ip->ev) && ip->ev != EVFOLD) return 0;
+   }
+   return 1;
 }
 
 static struct initcur *
@@ -1329,6 +1342,17 @@ Retry:
       iniwrite(cm, ip, ip->sub->off + off, targ, &ex);
       ++ip->sub->idx;
       return;
+   } else if (ex.t == ESTRLIT && ip->sub->idx == 0 && chararrayp(ip->sub->ty)) {
+      /* handle e.g. (char []){"foo"} */
+      assert(in_range(targ.t, TYCHAR, TYUCHAR));
+      assert(off == 0);
+      targ = ip->sub->ty;
+      inistrlit(cm, &ex, &targ);
+      iniwrite(cm, ip, ip->sub->off, targ, &ex);
+      if (ip->sub == ip->buf && ip->arrlen < ex.s.n+1)
+         ip->arrlen = ex.s.n+1;
+      --ip->sub;
+      return;
    } else if (ip->sub->idx >= nmemb(ip->sub->ty) && ip->sub != ip->cur) {
       --ip->sub;
       goto Retry;
@@ -1344,12 +1368,16 @@ Retry:
    excesscheck(ip, &ex.span);
 
    if (targ.t) {
-      if (!assigncheck(targ, &ex))
+      if (!initcheck(targ, &ex))
          error(&ex.span, "cannot initialize '%ty' with expression of type '%ty'", targ, ex.ty);
       else {
-         if (ip->ev && !eval(&ex, ip->ev) && ip->ev != EVFOLD)
+         if (targ.bits == ex.ty.bits && ex.t == EINIT) {
+            if (!iniwriterec(cm, ip, ip->sub->off + off, &ex))
+               goto CannotEval;
+         } else if (ip->ev && !eval(&ex, ip->ev) && ip->ev != EVFOLD) {
+         CannotEval:
             error(&ex.span, "cannot evaluate expression statically");
-         else {
+         } else {
             struct expr *pex = &ex;
             if (ip->ev != EVSTATICINI) {
                if (ex.ty.bits != targ.bits)
@@ -1392,8 +1420,6 @@ aggdesignator(struct initparser *ip, union type ty, const char *name, const stru
          else return sub;
       }
    }
-   if (span)
-      error(span, "%ty has no such field: '%s'", ty, name);
    return -1;
 }
 
@@ -1451,8 +1477,18 @@ designators(struct initparser *ip, struct comp *cm)
          if (!isagg(ip->sub->ty))
             error(&span, "member designator used with non-aggregate type '%ty'", ip->sub->ty);
          else if (tk.t == TKIDENT) {
-            idx = aggdesignator(ip, ip->sub->ty, tk.s, &span);
+            do {
+               idx = aggdesignator(ip, ip->sub->ty, tk.s, &span);
+               if (idx >= 0) break;
+               if (ip->sub != ip->cur && !ttypenames[typedata[ip->sub->ty.dat].id]) {
+                  /* if in anonymous aggregate, go up and look again */
+                  --ip->sub;
+                  continue;
+               }
+            } while (0);
             ip->sub->idx = idx;
+            if (idx < 0)
+               error(&span, "%ty has no such field: '%s'", ip->cur->ty, tk.s);
             dumpini(ip);
          }
          some = 1;
@@ -1691,7 +1727,7 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
             td.anyconst |= decl.qual & QCONST;
             if (isagg(decl.ty)) {
                td.anyconst |= typedata[decl.ty.dat].anyconst;
-               if (typedata[decl.ty.dat].flexi)
+               if (typedata[decl.ty.dat].flexi && !isunion)
                   error(&decl.span, "nested aggregate has flexible array member");
             }
             if (isunion)
@@ -3742,8 +3778,11 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                         geninit(fn, d->ty, mkref(RTMP, decl.id), &ini);
                      else if (isagg(d->ty))
                         structcopy(fn, d->ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
-                     else
-                        genstore(fn, d->ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
+                     else {
+                        assert(isscalar(d->ty) && isscalar(ini.ty));
+                        genstore(fn, d->ty, mkref(RTMP, decl.id),
+                              cvt(fn, d->ty.t, ini.ty.t, exprvalue(fn, &ini)));
+                     }
                   }
                } else if (decl.scls == SCEXTERN) {
                   struct span span = decl.span;

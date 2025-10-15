@@ -135,6 +135,8 @@ isglobsym(const struct expr *ex)
 static bool
 isaddrconst(struct expr *ex)
 {
+   if (ex->t == ECAST)
+      return isaddrconst(ex->sub) || (eval(ex->sub, EVSTATICINI) && ex->sub->t == ENUMLIT);
    if (ex->t == EADDROF && isglobsym(ex->sub))
       return 1;
    if (isglobsym(ex) && in_range(ex->ty.t, TYARRAY, TYFUNC))
@@ -253,8 +255,16 @@ eval(struct expr *ex, enum evalmode mode)
       if (mode <= EVINTCONST) return isint(ex->ty);
       return 1;
    }
-   if (mode == EVSTATICINI && isaddrconst(ex))
+   if (ex->t == ESTRLIT) return 1;
+   if (mode == EVSTATICINI && isaddrconst(ex)) {
+      struct expr *e = ex;
+      while (e->t == ECAST) e = e->sub;
+      if (e != ex) {
+         e->ty = ex->ty;
+         *ex = *e;
+      }
       return 1;
+   }
    if (isunop(ex->t)) return unop(ex, mode) && eval(ex, mode);
    if (isbinop(ex->t)) return binop(ex, mode) && eval(ex, mode);
    if (ex->t == ESEQ) {
@@ -263,11 +273,17 @@ eval(struct expr *ex, enum evalmode mode)
       return eval(ex, mode);
    }
    if (ex->t == ECOND) {
-      if (!eval(&ex->sub[0], mode)) return 0;
+      if (!eval(&ex->sub[0], mode) || ex->sub[0].t != ENUMLIT) return 0;
       if (!eval(&ex->sub[1], mode)) return 0;
       if (!eval(&ex->sub[2], mode)) return 0;
       *ex = ex->sub[!ex->sub[0].u + 1];
       return eval(ex, mode);
+   }
+   if (ex->t == EINIT) {
+      for (struct initval *v = ex->init->vals; v; v = v->next) {
+         if (!eval(&v->ex, mode)) return 0;
+      }
+      return 1;
    }
    return 0;
 }
