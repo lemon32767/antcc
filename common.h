@@ -96,7 +96,8 @@ lowestsetbit(uvlong x)
    int i = 0;
    for (uvlong mask = 1;; ++i, mask <<= 1)
       if (x & mask)
-         return i;
+         break;
+   return i;
 #endif
 }
 
