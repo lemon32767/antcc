@@ -522,3 +522,5 @@ elffini(struct wbuf *out)
            .entsize = relxsiz,
            .info = DATA_SHNDX );
 }
+
+/* vim:set ts=3 sw=3 expandtab: */
