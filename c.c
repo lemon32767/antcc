@@ -3810,7 +3810,6 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                      else if (isagg(d->ty))
                         structcopy(fn, d->ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
                      else {
-                        assert(isscalar(d->ty) && isscalar(ini.ty));
                         genstore(fn, d->ty, mkref(RTMP, decl.id),
                               cvt(fn, d->ty, ini.ty, exprvalue(fn, &ini)));
                      }
