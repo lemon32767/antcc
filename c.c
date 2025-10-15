@@ -18,7 +18,27 @@ struct comp {
 
 /** Parsing helper functions **/
 #define peek(Cm,Tk) lexpeek(&(Cm)->lx,Tk)
-#define lex(Cm,Tk) lex(&(Cm)->lx,Tk)
+static int
+lexc(struct comp *cm, struct token *tk)
+{
+   int t = lex(&cm->lx, tk);
+   if (t == TKSTRLIT && peek(cm, NULL) == TKSTRLIT) {
+      /* 5.1.1.2 Translation phase 6: concatenate adjacent string literal tokens */
+      static char buf[200];
+      struct token tk2;
+      vec_of(char) rest = VINIT(buf, sizeof buf);
+      do {
+         lex(&cm->lx, &tk2);
+         vpushn(&rest, tk2.s, tk2.len);
+      } while (peek(cm, NULL) == TKSTRLIT);
+      tk->s = memcpy(alloc(&cm->exarena, tk->len + rest.n, 0), tk->s, tk->len);
+      memcpy((char *)tk->s + tk->len, rest.p, rest.n);
+      tk->len += rest.n;
+      vfree(&rest);
+   }
+   return t;
+}
+#define lex(Cm,Tk) lexc(Cm,Tk)
 static bool
 match(struct comp *cm, struct token *tk, enum toktag t)
 {
@@ -744,8 +764,7 @@ Unary:
       ex.ty.t = ty.t ? ty.t : TYINT;
       break;
    case TKSTRLIT:
-      ex = mkexpr(ESTRLIT, tk.span,
-                  mkarrtype(mktype(TYCHAR), 0, tk.len+1), .s = { (uchar *)tk.s, tk.len });
+      ex = mkexpr(ESTRLIT, tk.span, mkarrtype(mktype(TYCHAR), 0, tk.len+1), .s = { (uchar *)tk.s, tk.len });
       break;
    case TKIDENT:
    Ident:
