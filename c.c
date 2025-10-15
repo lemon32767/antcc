@@ -2559,10 +2559,13 @@ expraddr(struct function *fn, const struct expr *ex)
       assert(isagg(ex->ty));
       return compilecall(fn, ex);
    case EINIT:
-      /* compound literal, allocate temp */
-      r = addinstr(fn, mkalloca(typesize(ex->ty), typealign(ex->ty)));
-      geninit(fn, ex->ty, r, ex);
-      return r;
+      if (fn) {
+         /* compound literal, allocate temp */
+         r = addinstr(fn, mkalloca(typesize(ex->ty), typealign(ex->ty)));
+         geninit(fn, ex->ty, r, ex);
+         return r;
+      } else {
+      }
    default:
       assert(!"lvalue?>");
    }
@@ -2835,16 +2838,22 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
       useblk(fn, fl);
       condexprrec(fn, &ex->sub[2], phis, -1, end, end);
    } else {
-      union ref r = exprvalue(fn, ex), val = r;
-      if (boolcon >= 0) {
-         if (!next || next == end) {
-            boolcon = -1;
-            val = cvt(fn, TYBOOL, ex->ty.t, r);
-         } else {
-            val = mkref(RICON, boolcon);
+      union ref r, val;
+      if (!phis && (!next || next == end)) {
+         expreffects(fn, ex);
+      } else {
+         val = r = exprvalue(fn, ex);
+         if (boolcon >= 0) {
+            if (!next || next == end) {
+               boolcon = -1;
+               val = cvt(fn, TYBOOL, ex->ty.t, r);
+            } else {
+               val = mkref(RICON, boolcon);
+            }
          }
       }
-      vpush(&phis->ref, val);
+      if (phis)
+         vpush(&phis->ref, val);
       if (next && next != end) {
          putcondbranch(fn, r, next, end);
       } else {
@@ -2857,14 +2866,15 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
 /* the naive way to generate something like a ? b : c ? d : e, uses multiple phis,
  * this code reduces such nested conditional expressions into one phi */
 static union ref
-condexprvalue(struct function *fn, const struct expr *ex)
+condexprvalue(struct function *fn, const struct expr *ex, bool discard)
 {
    union ref refbuf[8];
    struct condphis phis = { VINIT(refbuf, arraylength(refbuf)) };
    struct block *dst = newblk(fn);
    union ref r;
-   condexprrec(fn, ex, &phis, -1, NULL, dst);
+   condexprrec(fn, ex, discard ? NULL : &phis, -1, NULL, dst);
    useblk(fn, dst);
+   if (discard) return NOREF;
    r = addphi(fn, type2cls[ex->ty.t], phis.ref.p);
    vfree(&phis.ref);
    return r;
@@ -3215,7 +3225,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          return narrow(fn, cls, ex->ty.t, r, 0);
       return r;
    case ECOND:
-      if (ex->ty.t == TYVOID) {
+      if (ex->ty.t == TYVOID || discard) {
          struct block *tr, *fl, *end;
          condjump(fn, &sub[0], tr = newblk(fn), fl = newblk(fn));
          useblk(fn, tr);
@@ -3231,7 +3241,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       /* fallthru */
    case ELOGAND:
    case ELOGIOR:
-      return condexprvalue(fn, ex);
+      return condexprvalue(fn, ex, discard);
    case ESEQ:
       expreffects(fn, &sub[0]);
       return compileexpr(fn, &sub[1], discard);
@@ -3356,7 +3366,9 @@ genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
    cm->breakto = end;
    begin = fn->curblk;
    fn->curblk = NULL;
+   ++cm->switchdepth;
    stmt(cm, fn);
+   --cm->switchdepth;
    doemit = fn->curblk;
    cm->switchstmt = stsave;
    cm->breakto = breaksave;
@@ -3658,12 +3670,16 @@ stmt(struct comp *cm, struct function *fn)
          } else if (label && label->usespan.ex.len != 0) {
             /* append to relocs list */
             struct block *next = label->blk;
-            fn->curblk->s1 = next;
             label->blk = fn->curblk;
-            fn->curblk = NULL;
+            EMITS {
+               fn->curblk->s1 = next;
+               fn->curblk = NULL;
+            }
          } else {
-            assert(label->blk);
-            EMITS putbranch(fn, label->blk);
+            EMITS {
+               assert(label->blk);
+               putbranch(fn, label->blk);
+            }
          }
       }
       stmtterm(cm);
