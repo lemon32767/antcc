@@ -1,5 +1,4 @@
 #include "common.h"
-#include <string.h>
 
 struct typedata typedata[1<<13];
 const char *ttypenames[1<<10];

@@ -178,6 +178,9 @@ parsenumlit(uvlong *outi, double *outf, const struct token *tk, bool ispp)
       } else if ((suffix[0]|0x20) == 'f' && !suffix[1]) {
          if (outf) *outf = f;
          return TYFLOAT;
+      } else if ((suffix[0]|0x20) == 'l' && !suffix[1]) {
+         if (outf) *outf = f;
+         return TYLDOUBLE;
       }
       return 0;
    } else { /* int literal */

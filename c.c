@@ -2047,9 +2047,7 @@ End:
       else if (arith == KDOUBLE)
          t = TYDOUBLE;
       else if (arith == (KLONG | KDOUBLE)) {
-         /* t = TYLDOUBLE; */
-         warn(&span, "`long double' is unsupported");
-         t = TYDOUBLE;
+         t = TYLDOUBLE;
       } else if (arith == KBOOL)
          t = TYBOOL;
       else if (arith == KCHAR)
@@ -2697,7 +2695,7 @@ narrow(struct function *fn, enum irclass to, enum typetag tt, union ref ref, uin
    if (targ_primsizes[tt] < cls2siz[to]) {
       ins.cls = to;
       if (isfltt(tt)) {
-         assert(to == KF4 && tt == TYDOUBLE);
+         assert(to == KF4 && tt >= TYDOUBLE);
          ins.op = Ocvtf8f4;
       } else {
          static const enum op ext[5][2] = {

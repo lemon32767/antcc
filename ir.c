@@ -58,6 +58,7 @@ irinit(struct function *fn)
       }
       type2cls[TYFLOAT] = KF4;
       type2cls[TYDOUBLE] = KF8;
+      type2cls[TYLDOUBLE] = KF8;
       type2cls[TYPTR] = KPTR;
       type2cls[TYARRAY] = KPTR;
       cls2siz[KI4] = cls2siz[KF4] = 4;
