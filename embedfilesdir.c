@@ -29,6 +29,14 @@ typedef __builtin_va_list __gnuc_va_list;\n\
 #define va_copy(dst,src) (void)((dst)=(src))\n\
 #define va_end(ap)       __builtin_va_end(ap)\n\
 ")},
+
+{"stdbool.h", S("\
+#define bool _Bool \n\
+#define true 1\n\
+#define false 0\n\
+#define __bool_true_false_are_defined 1\n\
+")},
+
    {NULL}
 };
 
