@@ -448,7 +448,7 @@ condtype(const struct expr *a, const struct expr *b)
 static void
 bintypeerr(const struct span *span, enum toktag tt, union type lhs, union type rhs)
 {
-   error(span, "bad operands to %tt: %'ty', '%ty'", tt, lhs, rhs);
+   error(span, "bad operands to %tt: '%ty', '%ty'", tt, lhs, rhs);
 }
 
 enum binopclass { /* binary operator type-checking classes */
