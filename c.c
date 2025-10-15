@@ -797,7 +797,7 @@ Unary:
          struct decl decl = pdecl(&st, cm);
          expect(cm, ')', NULL);
          assert(decl.ty.t);
-         if ((isagg(decl.ty) || decl.ty.t == TYARRAY) && peek(cm, NULL) == '{') {
+         if (peek(cm, NULL) == '{') {
             if (ccopt.cstd < STDC99)
                warn(&tk.span, "compound literals are a c99 feature");
             ex = initializer(cm, &decl.ty, (decl.scls & SCSTATIC) ? EVSTATICINI : EVFOLD,
