@@ -306,7 +306,7 @@ static bool
 islvalue(const struct expr *ex)
 {
    if (ex->t == EGETF) return islvalue(ex->sub);
-   return ex->t == ESYM || ex->t == EDEREF;
+   return ex->t == ESYM || ex->t == EDEREF || ex->t == EINIT;
 }
 
 static union type /* 6.5.2.6 default argument promotions */
