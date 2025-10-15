@@ -247,6 +247,7 @@ irdump(struct function *fn)
    blk = fn->entry;
    do {
       dumpblk(fn, blk);
+      assert(blk->lnext != NULL);
    } while ((blk = blk->lnext) != fn->entry);
    efmt("\n");
 }

@@ -4,7 +4,7 @@ static inline bool
 joinspan(struct span0 *dst, struct span0 snd)
 {
    if (dst->file != snd.file) return 0;
-   assert(dst->off <= snd.off);
+   if (dst->off > snd.off) return 0;
    dst->len = snd.off + snd.len - dst->off;
    return 1;
 }
