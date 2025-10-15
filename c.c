@@ -29,11 +29,16 @@ lexc(struct comp *cm, struct token *tk)
       vec_of(char) rest = VINIT(buf, sizeof buf);
       do {
          lex(&cm->lx, &tk2);
-         vpushn(&rest, tk2.s, tk2.len);
+         if (tk) {
+            joinspan(&tk->span.ex, tk2.span.ex);
+            vpushn(&rest, tk2.s, tk2.len);
+         }
       } while (peek(cm, NULL) == TKSTRLIT);
-      tk->s = memcpy(alloc(&cm->exarena, tk->len + rest.n, 0), tk->s, tk->len);
-      memcpy((char *)tk->s + tk->len, rest.p, rest.n);
-      tk->len += rest.n;
+      if (tk) {
+         tk->s = memcpy(alloc(&cm->exarena, tk->len + rest.n, 0), tk->s, tk->len);
+         memcpy((char *)tk->s + tk->len, rest.p, rest.n);
+         tk->len += rest.n;
+      }
       vfree(&rest);
    }
    return t;

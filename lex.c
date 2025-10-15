@@ -647,6 +647,7 @@ putmac(struct macro *mac)
    uint h, i, n = arraylength(macroht);
    struct macro *slot;
 
+   assert(mac->name);
    i = h = ptrhash(mac->name);
    for (;; ++i) {
       i &= arraylength(macroht) - 1;
