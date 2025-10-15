@@ -207,6 +207,13 @@ redeclarationok(const struct decl *old, const struct decl *new)
          break;
       /*fallthru*/
    case SCEXTERN:
+      if (old->ty.t == TYARRAY && new->ty.t == TYARRAY
+       && typechild(old->ty).bits == typechild(new->ty).bits
+       && isincomplete(old->ty))
+      {
+         return 1;
+      }
+      /*fallthru*/
    case SCTYPEDEF:
       return old->ty.bits == new->ty.bits;
    }
