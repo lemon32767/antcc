@@ -1245,7 +1245,7 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, union type ty, struct
       } else {
          union ref sym;
          vlong addend;
-         efmt("<<> %ty <- %ty\n", ty, ex->ty);
+         //efmt("<<> %ty <- %ty\n", ty, ex->ty);
          expr2reloc(&sym, &addend, ex);
          assert(sym.t == RXCON);
          if (!ip->dyn) {
@@ -3179,7 +3179,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          genstore(fn, ex->ty, r, q);
       }
       if (discard) return NOREF;
-      return narrow(fn, cls, sub[0].ty, q, bitsiz);
+      return bitsiz ? narrow(fn, cls, sub[0].ty, q, bitsiz) : q;
    case ESETMUL:
       ins.op = isunsigned(ex->ty) ? Oumul : Omul;
       goto Compound;
@@ -3234,7 +3234,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          genstore(fn, ex->ty, r, q);
       }
       if (discard) return NOREF;
-      return narrow(fn, cls, ex->ty, q, bitsiz);
+      return bitsiz ? narrow(fn, cls, ex->ty, q, bitsiz) : q;
    case ECALL:
       r = compilecall(fn, ex);
       if (isint(ex->ty))

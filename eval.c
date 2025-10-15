@@ -3,6 +3,7 @@
 static int
 targ2hosttype(enum typetag t)
 {
+   if (t == TYPTR) t = targ_64bit ? TYUVLONG : TYUINT;
    if (isintt(t)) {
       int siz = targ_primsizes[t];
       int sgn = issignedt(t);
@@ -23,10 +24,10 @@ targ2hosttype(enum typetag t)
 }
 
 static bool
-numcast(enum typetag t, struct expr *dst, const struct expr *src)
+numcast(union type ty, struct expr *dst, const struct expr *src)
 {
    struct expr tmp;
-   enum typetag td = targ2hosttype(t);
+   enum typetag td = targ2hosttype(ty.t);
    enum typetag ts = targ2hosttype(src->ty.t == TYENUM ? src->ty.backing : src->ty.t);
    if (src == dst) tmp = *src, src = &tmp;
 
@@ -68,7 +69,7 @@ numcast(enum typetag t, struct expr *dst, const struct expr *src)
 #undef TF
 
    dst->t = ENUMLIT;
-   dst->ty = mktype(t);
+   dst->ty = ty;
    return 1;
 }
 
@@ -101,9 +102,25 @@ unop(struct expr *ex, enum evalmode mode)
       ex->u = off == s.n ? 0 : s.p[off];
       return 1;
    }
+   if (ex->t == EADDROF) {
+      assert(ex->ty.t == TYPTR);
+      /* oh boy */
+      /* match &(*(T *)12345).fld */
+      if (sub->t == EGETF && sub->sub->t == EDEREF && eval(sub->sub->sub, EVFOLD) && sub->sub->sub->t == ENUMLIT) {
+         ex->t = ENUMLIT;
+         ex->u = sub->sub->sub->u + sub->fld.off;
+         return 1;
+      }
+   }
    if (sub->t != ENUMLIT && !eval(sub, mode)) return 0;
    switch (ex->t) {
    case ECAST:
+      if (ex->ty.t == TYPTR) {
+         ex->t = ENUMLIT;
+         ex->u = sub->u;
+         return 1;
+      }
+      break;
    case EPLUS:
       break;
    case ENEG:
@@ -121,7 +138,7 @@ unop(struct expr *ex, enum evalmode mode)
    default:
       return 0;
    }
-   if (!numcast(ex->ty.t, ex, sub)) return 0;
+   if (!numcast(ex->ty, ex, sub)) return 0;
    return 1;
 }
 
@@ -160,14 +177,15 @@ binop(struct expr *ex, enum evalmode mode)
    int t;
    struct expr *lhs = &ex->sub[0], *rhs = &ex->sub[1];
 
+   if (ex->ty.t == TYPTR) mode = EVFOLD;
    if (!eval(lhs, mode)) return 0;
    if (!eval(rhs, mode)) return 0;
    if (in_range(ex->t, EADD, ESHR))
       oty = ex->ty;
    else
       oty = cvtarith(lhs->ty, rhs->ty);
-   if (!numcast(oty.t, lhs, lhs)) return 0;
-   if (!numcast(oty.t, rhs, rhs)) return 0;
+   if (!numcast(oty, lhs, lhs)) return 0;
+   if (!numcast(oty, rhs, rhs)) return 0;
    flt = isflt(oty);
    sgn = issigned(oty);
    switch (ex->t) {
@@ -175,7 +193,12 @@ binop(struct expr *ex, enum evalmode mode)
    case EADD: if (flt) lhs->f += rhs->f;
               else     lhs->u += rhs->u;
               break;
-   case ESUB: if (flt) lhs->f -= rhs->f;
+   case ESUB: if (oty.t == TYPTR) {
+                 assert(lhs->t == ENUMLIT && rhs->t == ENUMLIT);
+                 assert(!isincomplete(typechild(ex->ty)));
+                 lhs->u = (lhs->u - rhs->u) / typesize(typechild(ex->ty));
+              }
+              ef (flt) lhs->f -= rhs->f;
               else     lhs->u -= rhs->u;
               break;
    case EMUL: if (flt) lhs->f *= rhs->f;
@@ -245,7 +268,7 @@ binop(struct expr *ex, enum evalmode mode)
 #undef ef
    }
 
-   return numcast(ex->ty.t, ex, lhs);
+   return numcast(ex->ty, ex, lhs);
 }
 
 bool
@@ -255,7 +278,7 @@ eval(struct expr *ex, enum evalmode mode)
       if (mode <= EVINTCONST) return isint(ex->ty);
       return 1;
    }
-   if (ex->t == ESTRLIT) return 1;
+   if (ex->t == ESTRLIT && mode > EVINTCONST) return 1;
    if (mode == EVSTATICINI && isaddrconst(ex)) {
       struct expr *e = ex;
       while (e->t == ECAST) e = e->sub;
@@ -265,6 +288,7 @@ eval(struct expr *ex, enum evalmode mode)
       }
       return 1;
    }
+   mode += mode == EVINTCONST;
    if (isunop(ex->t)) return unop(ex, mode) && eval(ex, mode);
    if (isbinop(ex->t)) return binop(ex, mode) && eval(ex, mode);
    if (ex->t == ESEQ) {
