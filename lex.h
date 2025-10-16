@@ -51,12 +51,17 @@ enum toktag { /* single-character tokens' tag value is the character itself */
 struct token {
    short t; /* toktag */
    bool litlit;
+   uchar wide : 2; /* for CHRLIT & STRLIT; 1 -> 16bit, 2 -> 32bit */
    union {
       uint len;
       struct { ushort macidx, argidx; };
    };
    struct span span;
-   const char *s; 
+   union {
+      const char *s;
+      const ushort *ws16;
+      const uint   *ws32;
+   };
    /* for (multi-)character tokens s & len are unused
     * for keywords, s is constant cstring, len = strlen(s)
     * for idents, s is interned cstring, len = strlen(s)
@@ -64,6 +69,7 @@ struct token {
     *  when litlit : s points to start of string within file buffer (after the ")
     *                len == span.sl.len - 2 (string data appears literally in source code)
     *  otherwise s is heap allocated buffer of len bytes
+    *  when wide, litlit = 0 and use ws16/ws32
     * for numlit:
     *  when litlit : s points to start of token within file buffer (normal case)
     *                len == span.sl.len (number literal appears literally in source code)

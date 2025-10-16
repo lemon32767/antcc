@@ -3,8 +3,8 @@
 #include "pp.h"
 #include <stddef.h>
 #include <stdio.h>
-#include <assert.h>
-#include <limits.h>
+#include <wchar.h>
+#include <locale.h>
 //
 #define CATl(a) a##bar
 #define CATr(a) foo##a
@@ -39,6 +39,10 @@ main(void)
          "%s %g\n", str(Foo,5), xstr(Foo), CAT(1.5,e3f) + CAT(7,)-CAT(,1));
    printf("join: \"%s\"\n", p);
 
+   setlocale(LC_ALL, "en_US.utf8");
+
+   printf("wide\t L\"%ls\",  U+%x\n", L"abc123 猫,€á💫", L'🦋');
+
    PUT\
 S\
 ("Output ends here\\
@@ -46,7 +50,6 @@ S\
                * escapes the 0, ending the string early.
                */
 );
-
 
    CAT(ret,urn) 0;
 }

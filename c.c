@@ -21,23 +21,38 @@ struct comp {
 static int
 lexc(struct comp *cm, struct token *tk)
 {
+   struct token tk2;
    int t = lex(&cm->lx, tk);
-   if (t == TKSTRLIT && peek(cm, NULL) == TKSTRLIT) {
+   if (t == TKSTRLIT && peek(cm, &tk2) == TKSTRLIT && tk2.wide == tk->wide) {
       /* 5.1.1.2 Translation phase 6: concatenate adjacent string literal tokens */
       static char buf[200];
-      struct token tk2;
       vec_of(char) rest = VINIT(buf, sizeof buf);
       do {
-         lex(&cm->lx, &tk2);
+         lex(&cm->lx, NULL);
          if (tk) {
             joinspan(&tk->span.ex, tk2.span.ex);
-            vpushn(&rest, tk2.s, tk2.len);
+            if (!tk->wide)
+               vpushn(&rest, tk2.s, tk2.len);
+            else if (tk->wide && targ_primsizes[targ_wchartype] == 2)
+               vpushn(&rest, tk2.ws16, tk2.len*2);
+            else
+               vpushn(&rest, tk2.ws32, tk2.len*4);
          }
-      } while (peek(cm, NULL) == TKSTRLIT);
+      } while (peek(cm, &tk2) == TKSTRLIT && tk2.wide == tk->wide);
       if (tk) {
-         tk->s = memcpy(alloc(&cm->exarena, tk->len + rest.n, 0), tk->s, tk->len);
-         memcpy((char *)tk->s + tk->len, rest.p, rest.n);
-         tk->len += rest.n;
+         if (!tk->wide) {
+            tk->s = memcpy(alloc(&cm->exarena, tk->len + rest.n, 1), tk->s, tk->len);
+            memcpy((char *)tk->s + tk->len, rest.p, rest.n);
+            tk->len += rest.n;
+         } else if (tk->wide && targ_primsizes[targ_wchartype] == 2) {
+            tk->ws16 = memcpy(alloc(&cm->exarena, tk->len + rest.n*2, 2), tk->ws16, tk->len*2);
+            memcpy((short *)tk->s + tk->len, rest.p, rest.n);
+            tk->len += rest.n * 2;
+         } else {
+            tk->ws32 = memcpy(alloc(&cm->exarena, tk->len + rest.n*4, 4), tk->ws32, tk->len*4);
+            memcpy((int *)tk->s + tk->len, rest.p, rest.n);
+            tk->len += rest.n * 4;
+         }
       }
       vfree(&rest);
    }
@@ -769,7 +784,8 @@ Unary:
       ex.ty.t = ty.t ? ty.t : TYINT;
       break;
    case TKSTRLIT:
-      ex = mkexpr(ESTRLIT, tk.span, mkarrtype(mktype(TYCHAR), 0, tk.len+1), .s = { (uchar *)tk.s, tk.len });
+      ty = mktype(((const char []){TYCHAR, TYSHORT, TYINT})[tk.wide]);
+      ex = mkexpr(ESTRLIT, tk.span, mkarrtype(ty, 0, tk.len+1), .s = { (void *)tk.s, tk.len });
       break;
    case TKIDENT:
    Ident:
@@ -1069,9 +1085,10 @@ objectp(union type ty)
 }
 
 static bool
-chararrayp(union type ty)
+chrarrayof(union type ty, union type chld)
 {
-   return ty.t == TYARRAY && in_range(typechild(ty).t, TYCHAR, TYUCHAR);
+   assert(isint(chld));
+   return ty.t == TYARRAY && isint(typechild(ty)) && typesize(typechild(ty)) == typesize(chld);
 }
 
 static union type
@@ -1239,8 +1256,9 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, union type ty, struct
          case 8: isint(ty) ? wr64targ(p, e->u) : wrf64targ(p, e->f); break;
          }
       } else if (ty.t == TYARRAY && ex->t == ESTRLIT) {
-         uint n = siz < ex->s.n ? siz : ex->s.n;
-         //efmt("%s wrs %'S at %u\n", dat->name, ex->s.p, n, off);
+         uint n = ex->s.n * typesize(typechild(ty));
+         if (siz < n) n = siz;
+         /* XXX endian for wide strs */
          memcpy(p, ex->s.p, n);
       } else {
          union ref sym;
@@ -1320,9 +1338,9 @@ inistrlit(struct comp *cm, struct expr *ex, union type *ty)
 {
    if (isincomplete(*ty)) {
       *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, ex->s.n + 1);
-   } else if (typesize(*ty) < ex->s.n) {
+   } else if (typearrlen(*ty) < ex->s.n) {
       warn(&ex->span, "string literal in initializer is truncated from %u to %u bytes",
-            ex->s.n+1, typesize(*ty));
+            (ex->s.n+1)*typesize(typechild(*ty)), typesize(*ty));
    }
    ex->ty = *ty;
 }
@@ -1344,15 +1362,14 @@ Retry:
       ++ip->sub->idx;
       return;
    }
-   if (ex.t == ESTRLIT && chararrayp(targ)) {
+   if (ex.t == ESTRLIT && chrarrayof(targ, typechild(ex.ty))) {
       assert(!isincomplete(targ));
       inistrlit(cm, &ex, &targ);
       iniwrite(cm, ip, ip->sub->off + off, targ, &ex);
       ++ip->sub->idx;
       return;
-   } else if (ex.t == ESTRLIT && ip->sub->idx == 0 && chararrayp(ip->sub->ty)) {
+   } else if (ex.t == ESTRLIT && ip->sub->idx == 0 && chrarrayof(ip->sub->ty, typechild(ex.ty))) {
       /* handle e.g. (char []){"foo"} */
-      assert(in_range(targ.t, TYCHAR, TYUCHAR));
       assert(off == 0);
       targ = ip->sub->ty;
       inistrlit(cm, &ex, &targ);
@@ -1534,7 +1551,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
 
    if (!match(cm, &tk, '{')) {
       struct expr ex = expr(cm);
-      if (ex.t == ESTRLIT && chararrayp(*ty)) {
+      if (ex.t == ESTRLIT && chrarrayof(*ty, typechild(ex.ty))) {
          inistrlit(cm, &ex, ty);
          iniwrite(cm, ip, 0, *ty, &ex);
          if (ip->dyn)
@@ -2542,7 +2559,8 @@ expraddr(struct function *fn, const struct expr *ex)
       }
       break;
    case ESTRLIT:
-      return mkdatref(NULL, ex->s.n+1, /*align*/ 1, ex->s.p, ex->s.n, /*deref*/0);
+      /* XXX endian for wide strs */
+      return mkdatref(NULL, typesize(ex->ty), typealign(ex->ty), ex->s.p, ex->s.n * typesize(typechild(ex->ty)), /*deref*/0);
    case EDEREF:
       return exprvalue(fn, ex->sub);
    case EGETF:

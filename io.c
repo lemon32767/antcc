@@ -919,4 +919,64 @@ note(const struct span *span, const char *fmt, ...)
    va_end(ap);
 }
 
+/*** UTF util ***/
+
+ushort *
+utf8to16(uint *ulen, struct arena **arena, const uchar *s, size_t len)
+{
+   assert(0 && "nyi");
+}
+
+uint *
+utf8to32(uint *ulen, struct arena **arena, const uchar *s, size_t len)
+{
+   uint *ret, *w;
+   const uchar *p, *end;
+   size_t n = 0;
+   bool istrunc;
+
+   if (!len) return NULL;
+
+   for (p = s; p < s + len; ++n) {
+      end = p;
+      if ((*p & 0xF8) == 0xF0) /* 11110xxx */
+         p += 4;
+      else if ((*p & 0xF0) == 0xE0) /* 1110xxxx */
+         p += 3;
+      else if ((*p & 0xE0) == 0xC0) /* 110xxxxx */
+         p += 2;
+      else p += 1;
+   }
+   istrunc = p > s+len;
+   if (!istrunc) end += 1;
+
+   ret = allocz(arena, n * sizeof *ret, sizeof *ret);
+   for (w = ret, p = s; p < end; ++w) {
+      if ((*p & 0xF8) == 0xF0) { /* 11110xxx */
+         *w = (uint)(p[0] & 0x07) << 18
+            | (uint)(p[1] & 0x3F) << 12
+            | (uint)(p[2] & 0x3F) << 6
+            | (uint)(p[3] & 0x3F);
+         p += 4;
+      } else if ((*p & 0xF0) == 0xE0) { /* 1110xxxx */
+         *w = (uint)(p[0] & 0x07) << 12
+            | (uint)(p[1] & 0x3F) << 6
+            | (uint)(p[2] & 0x3F);
+         p += 3;
+      } else if ((*p & 0xE0) == 0xC0) { /* 110xxxxx */
+         *w = (uint)(p[0] & 0x07) << 6
+            | (uint)(p[1] & 0x3F);
+         p += 2;
+      } else {
+         *w = *p;
+         p += 1;
+      }
+   }
+   if (istrunc) *w++ = 0xFFFD;
+   *ulen = n;
+
+   return ret;
+}
+
+
 /* vim:set ts=3 sw=3 expandtab: */

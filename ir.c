@@ -492,7 +492,8 @@ fillblkids(struct function *fn)
 void
 useblk(struct function *fn, struct block *blk)
 {
-   if (fn->curblk) assert(fn->curblk->jmp.t && "never finished block");
+   extern int nerror;
+   if (fn->curblk && nerror == 0) assert(fn->curblk->jmp.t && "never finished block");
    if (blk) assert(!blk->jmp.t && "reusing built block");
    if (!blk->lprev) { /* initialize */
       blk->lnext = fn->entry;

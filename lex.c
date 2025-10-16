@@ -157,8 +157,15 @@ parsenumlit(uvlong *outi, double *outf, const struct token *tk, bool ispp)
 {
    if (tk->t == TKCHRLIT) {
       uvlong n = 0;
-      for (int i = 0; i < tk->len; ++i)
-         n = n << 8 | (uchar)tk->s[i];
+      if (!tk->wide) {
+         for (int i = 0; i < tk->len; ++i)
+            n = n << 8 | (uchar)tk->s[i];
+      } else if (tk->wide == 1) {
+         n = tk->ws16[0];
+      } else {
+         assert(tk->wide == 2);
+         n = tk->ws32[0];
+      }
       if (outi) *outi = n;
       return TYINT;
    } else if (memchr(tk->s, '.', tk->len)) {
@@ -267,7 +274,7 @@ parsenumlit(uvlong *outi, double *outf, const struct token *tk, bool ispp)
 }
 
 static void
-readstrchrlit(struct lexer *lx, struct token *tk, char delim)
+readstrchrlit(struct lexer *lx, struct token *tk, char delim, int wide)
 {
    int c, i;
    uchar tmp[80];
@@ -337,7 +344,13 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim)
    if (delim == '"') {
       tk->t = TKSTRLIT;
       tk->len = b.n;
-      if (lx->chridx - beginoff == tk->len + 1) {
+      if ((tk->wide = wide)) {
+         tk->litlit = 0;
+         if (wide == 1)
+            tk->ws16 = utf8to16(&tk->len, lx->tmparena, b.p, b.n);
+         else
+            tk->ws32 = utf8to32(&tk->len, lx->tmparena, b.p, b.n);
+      } else if (lx->chridx - beginoff == tk->len + 1) {
          tk->litlit = 1;
          tk->s = (char *)&lx->dat[beginoff];
       } else {
@@ -355,7 +368,13 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim)
       }
       tk->t = TKCHRLIT;
       tk->len = b.n;
-      if (lx->chridx - beginoff == tk->len + 1) {
+      if ((tk->wide = wide)) {
+         tk->litlit = 0;
+         if (wide == 1)
+            tk->ws16 = utf8to16(&tk->len, lx->tmparena, b.p, b.n);
+         else
+            tk->ws32 = utf8to32(&tk->len, lx->tmparena, b.p, b.n);
+      } else if (lx->chridx - beginoff == tk->len + 1) {
          tk->litlit = 1;
          tk->s = (char *)&lx->dat[beginoff];
       } else {
@@ -416,7 +435,7 @@ static bool lexingheadername = 0;
 static int
 lex0(struct lexer *lx, struct token *tk)
 {
-   int idx, c;
+   int idx, c, q;
 
 #define RET(t_) do { tk->t = (t_); goto End; } while (0)
 
@@ -505,7 +524,7 @@ Begin:
          lexingheadername = 0;
       } else {
    case '\'':
-         readstrchrlit(lx, tk, c);
+         readstrchrlit(lx, tk, c, 0);
       }
       goto End;
    case '.':
@@ -516,6 +535,12 @@ Begin:
          goto Numlit;
       }
       RET(c);
+   case 'L':
+      if (match(lx, (q = '\'')) || match(lx, (q = '"'))) {
+         readstrchrlit(lx, tk, q, /* wide */ targ_primsizes[targ_wchartype] == 2 ? 1 : 2);
+         goto End;
+      }
+      /* fallthru */
    default:
       if (aisdigit(c)) Numlit: {
          char tmp[70];
@@ -671,6 +696,7 @@ putmac(struct macro *mac)
          return slot;
       } else if (!slot->name) { /* was tomb */
          *slot = *mac;
+         return slot;
       }
       assert(--n && "macro limit");
    }
@@ -690,7 +716,7 @@ delmac(const char *name)
          return;
       } else if ((slot = &macros.p[macroht[i]-1])->name == name) {
          freemac(slot);
-         slot->name = NULL;
+         memset(slot, 0, sizeof *slot);
          return;
       }
    }
@@ -1113,20 +1139,9 @@ expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac)
                   vpush(&rlist2, new);
                }
             }
-            while (l->idx < l->rlist.n) {
-               tk = l->rlist.tk[l->idx++];
-               /* expand argument only once */
-               if (tk.s != mac->name && tryexpand(lx, &tk)) {
-                  assert(l != lx->macstk);
-                  while (lx->macstk->idx < lx->macstk->rlist.n) {
-                     vpush(&rlist2, lx->macstk->rlist.tk[lx->macstk->idx++]);
-                  }
-                  popmac(lx);
-               } else {
-                  vpush(&rlist2, tk);
-               }
-               assert(lx->macstk == l);
-            }
+            while (lex(lx, &tk) != TKEOF)
+               vpush(&rlist2, tk);
+            assert(lx->macstk == l);
             popmac(lx);
             if (lhsargpaste)
                lhsargforpaste = argsbuf.p[arg->idx + arg->n-1];
@@ -1174,10 +1189,30 @@ expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac)
    vfree(&argsbuf);
 }
 
+static bool
+advancemacro(struct lexer *lx, struct token *tk)
+{
+   struct rlist rl;
+   assert(lx->macstk);
+   rl = lx->macstk->rlist;
+   if (lx->macstk->idx == rl.n) {
+      if (lx->macstk->stop) return tk->t = TKEOF;
+      popmac(lx);
+      return 0;
+   }
+   *tk = rl.tk[lx->macstk->idx++];
+   assert(tk->t);
+   tk->span.ex = lx->macstk->exspan;
+   if (tryexpand(lx, tk))
+      return 0;
+   return tk->t;
+}
+
 static struct token epeektk;
 static int
 elex(struct lexer *lx, struct token *tk)
 {
+   assert(tk);
    if (epeektk.t) {
       int tt = epeektk.t;
       if (tk) *tk = epeektk;
@@ -1185,15 +1220,7 @@ elex(struct lexer *lx, struct token *tk)
       return tt;
    }
    if (lx->macstk) {
-      const struct rlist rl = lx->macstk->rlist;
-      if (lx->macstk->idx == rl.n) {
-         popmac(lx);
-         return elex(lx, tk);
-      }
-      *tk = rl.tk[lx->macstk->idx++];
-      assert(tk->t);
-      tk->span.ex = lx->macstk->exspan;
-      if (tryexpand(lx, tk))
+      if (!advancemacro(lx, tk))
          return elex(lx, tk);
       return tk->t;
    }
@@ -1557,6 +1584,7 @@ ppinclude(struct lexer *lx, const struct span *span0)
          if (tryinclude(lx, &span, path)) return;
       }
       /* try embedded files pseudo-path */
+      xbgrow(&path, tk.len + 3);
       path[0] = '@', path[1] = ':';
       memcpy(path+2, tk.s, tk.len);
       path[tk.len+2] = 0;
@@ -1641,16 +1669,7 @@ lex(struct lexer *lx, struct token *tk_)
    }
 
    if (lx->macstk) {
-      const struct rlist rl = lx->macstk->rlist;
-      if (lx->macstk->idx == rl.n) {
-         if (lx->macstk->stop) return tk->t = TKEOF;
-         popmac(lx);
-         return lex(lx, tk_);
-      }
-      *tk = rl.tk[lx->macstk->idx++];
-      assert(tk->t);
-      tk->span.ex = lx->macstk->exspan;
-      if (tryexpand(lx, tk))
+      if (!advancemacro(lx, tk))
          return lex(lx, tk_);
       return tk->t;
    }

@@ -321,7 +321,9 @@ typechild(union type t)
 static inline enum typetag
 scalartypet(union type t)
 {
-   return t.t == TYENUM ? t.backing : t.t;
+   if (t.t == TYENUM) return t.backing;
+   if (isptrcvt(t)) return TYPTR;
+   return t.t;
 }
 static inline uint
 typearrlen(union type t)
@@ -335,7 +337,7 @@ typearrlen(union type t)
 
 extern uchar targ_primsizes[];
 extern uchar targ_primalign[];
-extern enum typetag targ_sizetype, targ_ptrdifftype;
+extern enum typetag targ_sizetype, targ_ptrdifftype, targ_wchartype;
 extern bool targ_charsigned, targ_bigendian, targ_64bit;
 extern const struct mctarg *mctarg;
 void targ_init(const char *);
@@ -574,6 +576,8 @@ void fatal(const struct span *, const char *, ...);
 void error(const struct span *, const char *, ...);
 void warn(const struct span *, const char *, ...);
 void note(const struct span *, const char *, ...);
+ushort *utf8to16(uint *ulen, struct arena **, const uchar *s, size_t len);
+uint *utf8to32(uint *ulen, struct arena **, const uchar *s, size_t len);
 
 #endif /* COMMON_H_ */
 

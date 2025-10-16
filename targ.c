@@ -9,8 +9,8 @@ static const struct targ {
    uchar sizetype, ptrdifftype, wchartype;
    const struct mctarg *mctarg;
 } targs[] = {
-   { "amd64-sysv", {8, 8, 8, 24}, {8, 8, 8, 8}, 1, TYULONG, TYLONG, TYUINT, &t_amd64_sysv },
-   { "i686-sysv",  {4, 8, 4,  8}, {4, 4, 4, 4}, 1, TYUINT,  TYINT,  TYUINT }
+   { "amd64-sysv", {8, 8, 8, 24}, {8, 8, 8, 8}, 1, TYULONG, TYLONG, TYINT, &t_amd64_sysv },
+   { "i686-sysv",  {4, 8, 4,  8}, {4, 4, 4, 4}, 1, TYUINT,  TYINT,  TYINT }
 };
 
 uchar targ_primsizes[TYPTR+1];
