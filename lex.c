@@ -1168,6 +1168,7 @@ expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac)
                goto Redo;
             }
             tk.t = TKSTRLIT;
+            tk.wide = 0;
             tk.s = buf.buf != tmp ? buf.buf : alloccopy(lx->tmparena, buf.buf, buf.len, 1);
             tk.len = buf.len-1;
             vpush(&rlist2, tk);
@@ -1771,6 +1772,7 @@ mac__file__handler(struct lexer *lx, struct token *tk)
 {
    tk->t = TKSTRLIT;
    tk->s = getfilename(lx->fileid);
+   tk->wide = 0;
    tk->len = strlen(tk->s);
 }
 
@@ -1797,6 +1799,7 @@ mac__date__handler(struct lexer *lx, struct token *tk)
    time_t tm = time(NULL);
    struct tm *ts = localtime(&tm);
    tk->t = TKSTRLIT;
+   tk->wide = 0;
    tk->len = 11;
    if (ts) {
       bfmt(&wbuf, "%S %2d %4d%c",
@@ -1818,6 +1821,7 @@ mac__time__handler(struct lexer *lx, struct token *tk)
    time_t tm = time(NULL);
    struct tm *ts = localtime(&tm);
    tk->t = TKSTRLIT;
+   tk->wide = 0;
    tk->len = 8;
    if (ts) {
       bfmt(&wbuf, "%.2d:%.2d:%.2d%c", ts->tm_hour, ts->tm_min, ts->tm_sec, 0);

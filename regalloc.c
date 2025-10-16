@@ -82,7 +82,7 @@ fixlive(struct function *fn)
    struct bitset definedbuf[4] = {0};
    struct bitset *defined = definedbuf;
 
-   if (BSSIZE(ninstr) >= sizeof(definedbuf))
+   if (BSSIZE(ninstr) >= arraylength(definedbuf))
       defined = xcalloc(sizeof *defined * BSSIZE(ninstr));
    npendingphi = 0;
 
@@ -1010,7 +1010,7 @@ devirt(struct rega *ra, struct block *blk)
       if (nspill > 0) assert(ins->op != Ocall);
 
       /* devirtualize destination */
-      alloc = (it = &ra->intervals.temps[temp]) && it->nrange ? &it->alloc : NULL;
+      alloc = temp < ra->intervals.count && (it = &ra->intervals.temps[temp]) && it->nrange ? &it->alloc : NULL;
       if (alloc && alloc->t == ASTACK) {
          int store = Ostore1 + ilog2(cls2siz[insrescls(*ins)]);
          /* t was spilled, gen store */

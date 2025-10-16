@@ -3423,12 +3423,12 @@ genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
       EMITS {
          struct block *next = i < st.cases.n - 1 ? newblk(fn) : st.bdefault;
          putcondbranch(fn, addinstr(fn, mkinstr(Oequ, k, .l = sel, .r = mkintcon(k, c.val))), c.blk, next);
-         useblk(fn, next);
+         if (next != st.bdefault) useblk(fn, next);
       }
    }
    vfree(&st.cases);
    if (fn->curblk != end) {
-      EMITS putbranch(fn, end);
+      if (fn->curblk) EMITS putbranch(fn, end);
       useblk(fn, end);
    }
 }
@@ -3517,7 +3517,8 @@ stmt(struct comp *cm, struct function *fn)
          terminates = 0;
       } else {
          EMITS {
-            if (!terminates) putbranch(fn, end = newblk(fn));
+            end = newblk(fn);
+            if (!terminates) putbranch(fn, end);
             useblk(fn, fl);
          }
          terminates &= stmt(cm, fn);
