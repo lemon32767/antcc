@@ -84,7 +84,7 @@ withext(const char *path, const char *ext)
 }
 
 static struct task {
-   enum outft { OFTexe, OFTdll, OFTobj, OFTasm } outft;
+   enum outft { OFTexe, OFTdll, OFTobj, OFTasm, OFTc } outft;
    const char *out;
    const char *targ;
    const char *inf[64];
@@ -153,6 +153,8 @@ optparse(char **args)
          task.verbose = 1;
       } else if (!strcmp(arg, "c")) {
          task.outft = OFTobj;
+      } else if (!strcmp(arg, "E")) {
+         task.outft = OFTc;
       } else Bad: warn(NULL, "invalid option: %'s", arg-1);
    }
 
@@ -164,9 +166,10 @@ optparse(char **args)
       case OFTexe: task.out = "a.out"; break;
       case OFTasm: task.out = withext(*task.inf, "s"); break;
       case OFTobj: task.out = withext(*task.inf, "o"); break;
+      case OFTc: break;
       }
    }
-   if (!in_range(task.outft, OFTexe, OFTdll) && task.ninf > 1)
+   if (!in_range(task.outft, OFTexe, OFTdll) && task.outft != OFTc && task.ninf > 1)
       fatal(NULL, "too many input files");
 }
 
@@ -309,15 +312,49 @@ prihelp(void)
    );
 }
 
+#include <fcntl.h> /* open */
+
 static int
 driver(void)
 {
+   void cpp(struct wbuf *, const char *);
    if (task.verbose)
       efmt("# Target: %s\n", task.targ);
    if (task.outft == OFTobj) {
       assert(task.ninf == 1);
       assert(*task.inft == IFTc && "nyi");
       return cc1(task.out, *task.inf);
+   } else if (task.outft == OFTc) {
+      static char tmp[1<<12];
+      struct wbuf _buf = FDBUF(tmp, sizeof tmp, 1),
+                  *buf = &_buf;
+      bool ok = 1;
+      if (task.out) {
+         buf->fd = open(task.out, O_CREAT | O_TRUNC | O_WRONLY, 0777);
+         if (buf->fd < 0) {
+            error(NULL, "open(%'s): %s", task.out, strerror(errno));
+            return 1;
+         }
+      }
+      for (int i = 0; i < task.ninf; ++i) {
+         pid_t p;
+         int wstat;
+
+         if ((p = fork()) < 0) {
+            error(NULL, "fork(): %s\n", strerror(errno));
+            ok = 0;
+         } else if (p == 0) {
+            cpp(buf, task.inf[i]);
+            exit(0);
+         }
+         waitpid(p, &wstat, 0);
+         if (!WIFEXITED(wstat)) ok = 0;
+         ok = ok && WEXITSTATUS(wstat) == 0;
+      }
+      if (task.out) {
+         close(buf->fd);
+      }
+      return ok ? 0 : 1;
    } else if (task.outft == OFTexe || task.outft == OFTdll) {
       compileobjs();
       if (ccopt.dbg.any) return 0;

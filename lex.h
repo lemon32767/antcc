@@ -52,6 +52,7 @@ struct token {
    short t; /* toktag */
    bool litlit;
    uchar wide : 2; /* for CHRLIT & STRLIT; 1 -> 16bit, 2 -> 32bit */
+   uchar wideuni : 1; /* ditto, 0 -> 'L', 1 -> 'u'/'U' (C11) */
    union {
       uint len;
       struct { ushort macidx, argidx; };
@@ -102,6 +103,7 @@ int lex(struct lexer *, struct token *);
 int lexpeek(struct lexer *, struct token *);
 enum typetag parsenumlit(uvlong *, double *, const struct token *, bool ispp);
 const char *initlexer(struct lexer *, const struct span *span, const char *file);
+void lexerdump(struct lexer *, struct wbuf *out);
 void lexerfreetemps(struct lexer *);
 
 /* vim:set ts=3 sw=3 expandtab: */

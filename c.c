@@ -4017,20 +4017,34 @@ docomp(struct comp *cm)
    }
 }
 
-void
-ccomp(const char *file)
+static void
+initcm(struct comp *cm, const char *file)
 {
    enum { N = 1<<12 };
    static union { char m[sizeof(struct arena) + N]; struct arena *_align; } amem[2];
-   struct comp cm = {0};
-   const char *err = initlexer(&cm.lx, NULL, file);
+   const char *err = initlexer(&cm->lx, NULL, file);
    if (err)
       fatal(NULL, "Cannot open %'s: %s", file, err);
-   cm.fnarena = (void *)amem[0].m;
-   cm.fnarena->cap = N;
-   cm.exarena = (void *)amem[1].m;
-   cm.exarena->cap = N;
+   cm->fnarena = (void *)amem[0].m;
+   cm->fnarena->cap = N;
+   cm->exarena = (void *)amem[1].m;
+   cm->exarena->cap = N;
+}
+
+void
+ccomp(const char *file)
+{
+   struct comp cm = {0};
+   initcm(&cm, file);
    docomp(&cm);
+}
+
+void
+cpp(struct wbuf *out, const char *file)
+{
+   struct comp cm = {0};
+   initcm(&cm, file);
+   lexerdump(&cm.lx, out);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

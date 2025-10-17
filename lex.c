@@ -524,6 +524,7 @@ Begin:
          lexingheadername = 0;
       } else {
    case '\'':
+         tk->wideuni = 0;
          readstrchrlit(lx, tk, c, 0);
       }
       goto End;
@@ -537,6 +538,7 @@ Begin:
       RET(c);
    case 'L':
       if (match(lx, (q = '\'')) || match(lx, (q = '"'))) {
+         tk->wideuni = 0;
          readstrchrlit(lx, tk, q, /* wide */ targ_primsizes[targ_wchartype] == 2 ? 1 : 2);
          goto End;
       }
@@ -629,7 +631,7 @@ tokequ(const struct token *a, const struct token *b)
 static bool /* whitespace separating tokens? */
 wsseparated(const struct token *l, const struct token *r)
 {
-   assert(l->span.sl.file == r->span.sl.file);
+   if (l->span.sl.file != r->span.sl.file) return 1;
    return l->span.sl.off + l->span.sl.len != r->span.sl.off;
 }
 
@@ -1891,6 +1893,44 @@ lexerfreetemps(struct lexer *lx)
       /* some of the tokens could be somewhere in the macro stack */
       freearena(lx->tmparena);
    }
+}
+
+void
+lexerdump(struct lexer *lx, struct wbuf *out)
+{
+   struct token prev = {0}, tok;
+   int file = lx->fileid, line = 1, col = 1;
+   bfmt(out, "# %d %'s\n", 1, getfilename(file));
+   while (lex(lx, &tok) != TKEOF) {
+      int tkline, tkcol;
+      getfilepos(&tkline, &tkcol, tok.span.ex.file, tok.span.ex.off);
+      if (tok.span.ex.file != file) {
+         file = tok.span.ex.file;
+         bfmt(out, "\n# %d %'s\n", tkline, getfilename(file));
+         col = 1;
+      } else if (line < tkline && tkline - line < 5) {
+         do
+            ioputc(out, '\n');
+         while (++line != tkline);
+         col = 1;
+      } else if (line != tkline) {
+         bfmt(out, "\n# %d\n", tkline);
+         line = tkline;
+         col = 1;
+      } else if (prev.t && wsseparated(&prev, &tok)) {
+         ioputc(out, ' ');
+         ++col;
+      }
+      if (col == 1)
+         for (; col < tkcol; ++col)
+            ioputc(out, ' ');
+      line = tkline;
+      bfmt(out, "%tk", &tok);
+      col += tok.span.ex.len;
+      prev = tok;
+   }
+   bfmt(out, "\n");
+   ioflush(out);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

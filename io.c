@@ -96,14 +96,14 @@ putquoted(struct wbuf *buf, uchar c, uchar qchar, int next)
       case '\v': cseq = 'v'; goto Charseq;
       case '\n': cseq = 'n'; goto Charseq;
       default:
-          if (in_range(next, '0', '7'))
+          if (!next || in_range(next, '0', '7'))
               n += bfmt(buf, "%.3o", c);
           else
               n += bfmt(buf, "%o", c);
       }
       return n;
    }
-   if (c == '?' && next == '?') {
+   if (c == '?' && (!next || next == '?')) {
       return ioputc(buf, c), ioputc(buf, '\\'), 2;
    }
    return ioputc(buf, c), 1;
@@ -473,13 +473,39 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
                if (quote) n += bputc(buf, '\'');
                break;
             case TKCHRLIT:
+               if (tok->wide) n += bputc(buf, tok->wideuni ? tok->wide == 1 ? 'u' : 'U' : 'L');
                n += bputc(buf, '\'');
-               for (int i = 0; i < tok->len; ++i)
-                  n += putquoted(buf, tok->s[i], '\'', i < tok->len - 1 ? tok->s[i+1] : -1);
+               if (tok->wide == 0)
+                  for (int i = 0; i < tok->len; ++i)
+                     n += putquoted(buf, tok->s[i], '\'', i < tok->len - 1 ? tok->s[i+1] : -1);
+               else {
+                  char p[4];
+                  uint c = tok->wide == 1 ? tok->ws16[0] : tok->ws32[0];
+                  int l = utf8enc(p, c);
+                  if (l == 1)
+                     n += putquoted(buf, *p, '\'', -1);
+                  else
+                     n += (iowrite(buf, p, l), l);
+               }
                n += bputc(buf, '\'');
                break;
             case TKSTRLIT:
-               n += bfmt(buf, "%'S", tok->s, tok->len);
+               if (tok->wide == 0)
+                  n += bfmt(buf, "%'S", tok->s, tok->len);
+               else {
+                  n += bputc(buf, tok->wideuni ? tok->wide == 1 ? 'u' : 'U' : 'L');
+                  n += bputc(buf, '\"');
+                  for (int i = 0; i < tok->len; ++i) {
+                     char p[4];
+                     uint c = tok->wide == 1 ? tok->ws16[i] : tok->ws32[i];
+                     int l = utf8enc(p, c);
+                     if (l == 1)
+                        n += putquoted(buf, *p, '\"', 0);
+                     else
+                        n += (iowrite(buf, p, l), l);
+                  }
+                  n += bputc(buf, '\"');
+               }
                break;
             case TKPPMACSTR:
                if (quote) n += bputc(buf, '`');
@@ -937,7 +963,7 @@ utf8to32(uint *ulen, struct arena **arena, const uchar *s, size_t len)
 
    if (!len) return NULL;
 
-   for (p = s; p < s + len; ++n) {
+   for (p = end = s; p < s + len; ++n) {
       end = p;
       if ((*p & 0xF8) == 0xF0) /* 11110xxx */
          p += 4;
@@ -978,5 +1004,28 @@ utf8to32(uint *ulen, struct arena **arena, const uchar *s, size_t len)
    return ret;
 }
 
+int
+utf8enc(char p[4], uint cp)
+{
+   if ((cp & 0xffffff80) == 0) {
+      p[0] = cp;
+      return 1;
+   } else if ((cp & 0xfffff800) == 0) {
+      p[0] = 0xC0 | (cp >> 6 & 0x1F);
+      p[1] = 0x80 | (cp & 0x3F);
+      return 2;
+   } else if ((cp & 0xffff0000) == 0) {
+      p[0] = 0xE0 | (cp >> 12 & 0x0F);
+      p[1] = 0x80 | (cp >>  6 & 0x3F);
+      p[2] = 0x80 | (cp & 0x3F);
+      return 3;
+   } else {
+      p[0] = 0xF0 | (cp >> 18 & 0x07);
+      p[1] = 0x80 | (cp >> 12 & 0x3F);
+      p[2] = 0x80 | (cp >>  6 & 0x3F);
+      p[3] = 0x80 | (cp & 0x3F);
+      return 4;
+   }
+}
 
 /* vim:set ts=3 sw=3 expandtab: */

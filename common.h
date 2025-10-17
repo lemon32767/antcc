@@ -534,7 +534,7 @@ struct wbuf {
    char *buf;
    const uint cap;
    uint len;
-   const int fd;
+   int fd;
    bool err;
 };
 
@@ -578,6 +578,7 @@ void warn(const struct span *, const char *, ...);
 void note(const struct span *, const char *, ...);
 ushort *utf8to16(uint *ulen, struct arena **, const uchar *s, size_t len);
 uint *utf8to32(uint *ulen, struct arena **, const uchar *s, size_t len);
+int utf8enc(char out[4], uint cp);
 
 #endif /* COMMON_H_ */
 
