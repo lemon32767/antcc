@@ -1195,7 +1195,6 @@ expr2reloc(union ref *psym, vlong *paddend, const struct expr *ex)
    } else if (ex->t == EADDROF && (ex->sub->t == EGETF && globsym(psym, ex->sub->sub))) {
       *paddend = ex->sub->fld.off;
    } else if (globsym(psym, ex) && in_range(ex->ty.t, TYARRAY, TYFUNC)) {
-   } else if (globsym(psym, ex) && in_range(ex->ty.t, TYARRAY, TYFUNC)) {
       *paddend = 0;
    } else if (ex->t == ESUB && globsym(psym, &ex->sub[0]) && isint(ex->sub[1].ty) && ex->sub[1].t == ENUMLIT) {
       *paddend = ex->sub[1].i * typesize(ex->sub[0].ty);

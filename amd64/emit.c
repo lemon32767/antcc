@@ -113,6 +113,8 @@ mkimmdatregoper(union ref r)
    return ref2oper(r);
 }
 
+static int rbpoff;
+
 static struct oper
 mkmemoper(union ref r)
 {
@@ -124,6 +126,7 @@ mkmemoper(union ref r)
    } else if (r.t == RADDR) {
       const struct addr *addr = &addrht[r.i];
       struct oper mem;
+
       if (addr->base.t == RTMP && ioper(addr->base.i).t == OMEM) {
          mem = ioper(addr->base.i);
          if (addr->index.bits) addmemoper(&mem, mkregoper(addr->index));
@@ -337,11 +340,15 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
          }
          I32(0);
       } else {
-         if (!usebp && mem.base == RBP) {
-            /* if RBP isn't being set up (leaf functions with no stack allocations),
-             * access thru RSP (function arguments in the stack) */
-            mem.base = RSP;
-            mem.disp -= 8;
+         if (mem.base == RBP) {
+            if (!usebp) {
+               /* if RBP isn't being set up (leaf functions with no stack allocations),
+                * access thru RSP (function arguments in the stack) */
+               mem.base = RSP;
+               mem.disp -= 8;
+            } else {
+               mem.disp += rbpoff;
+            }
          }
 
          if (mem.index == NOINDEX && mem.shift == 0) sib = 0;
@@ -1150,6 +1157,7 @@ emitbin(struct function *fn)
       ++npush;
    }
    saverestore = calleesave(&npush, pcode, fn);
+   if (usebp) rbpoff = -(npush - 1)*8;
 
    /* ensure stack is 16-byte aligned for function calls */
    if (!fn->isleaf && ((fn->stksiz + npush*8) & 0xF) != 0x8) {
