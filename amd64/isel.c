@@ -405,7 +405,20 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       else
          fixarg(&ins->r, ins, blk, curi);
       break;
+   case Ocvtu4f:
+      fixarg(&ins->l, ins, blk, curi);
+      ins->l = insertinstr(blk, (*curi)++, mkinstr(Oextu4, KI8, ins->l));
+      ins->op = Ocvts8f;
+      break;
+   case Ocvtf4u: case Ocvtf8u:
+      fixarg(&ins->l, ins, blk, curi);
+      if (ins->cls == KI4) {
+         ins->l = insertinstr(blk, (*curi)++, mkinstr(ins->op == Ocvtf4u ? Ocvtf4s : Ocvtf8s, KI8, ins->l));
+         ins->op = Oextu4;
+     } else assert(!"nyi flt -> u64");
+      break;
    case Ocvtf4f8: case Ocvtf8f4: case Ocvtf4s: case Ocvtf8s: case Ocvts4f: case Ocvts8f:
+   case Ocvtu8f:
    case Oexts1: case Oextu1: case Oexts2: case Oextu2: case Oexts4: case Oextu4:
    case Ocopy:
       fixarg(&ins->l, ins, blk, curi);

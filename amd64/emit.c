@@ -580,7 +580,27 @@ DEFINSTR2(Xshr,
 )
 DEFINSTR2(Xcvtss2sd,
    {-1,  PFPR, PFPR, "\xF3\x0F\x5A", EN_RR}, /* CVTSS2SD xmm, xmm */
-   {-1,  PFPR, PMEM, "\xF3\x0F\x5A", EN_RM}, /* CVTSS2SD xmm, xmm */
+   {-1,  PFPR, PMEM, "\xF3\x0F\x5A", EN_RM}, /* CVTSS2SD xmm, m32/64 */
+)
+DEFINSTR2(Xcvtsd2ss,
+   {-1,  PFPR, PFPR, "\xF2\x0F\x5A", EN_RR}, /* CVTSD2SS xmm, xmm */
+   {-1,  PFPR, PMEM, "\xF2\x0F\x5A", EN_RM}, /* CVTSD2SS xmm, m32/64 */
+)
+DEFINSTR2(Xcvtsi2ss,
+   {-1,  PFPR, PGPR, "\xF3\x0F\x2A", EN_RR}, /* CVTSI2SS xmm, r32/64 */
+   {-1,  PFPR, PMEM, "\xF3\x0F\x2A", EN_RM}, /* CVTSI2SS xmm, m32/64 */
+)
+DEFINSTR2(Xcvtsi2sd,
+   {-1,  PFPR, PGPR, "\xF2\x0F\x2A", EN_RR}, /* CVTSI2SD xmm, r32/64 */
+   {-1,  PFPR, PMEM, "\xF2\x0F\x2A", EN_RM}, /* CVTSI2SD xmm, m32/64 */
+)
+DEFINSTR2(Xcvttss2si,
+   {-1,  PGPR, PFPR, "\xF3\x0F\x2C", EN_RR}, /* CVTTSS2SI r32/64, xmm */
+   {-1,  PGPR, PMEM, "\xF3\x0F\x2C", EN_RM}, /* CVTTSS2SI r32/64, m32 */
+)
+DEFINSTR2(Xcvttsd2si,
+   {-1,  PGPR, PFPR, "\xF2\x0F\x2C", EN_RR}, /* CVTTSD2SI r32/64, xmm */
+   {-1,  PGPR, PMEM, "\xF2\x0F\x2C", EN_RM}, /* CVTTSD2SI r32/64, m32 */
 )
 DEFINSTR1(Xinc,
    {4|8, PGPR, 0, "\xFF", EN_R, .ext=0} /* INC r32/64 */
@@ -887,7 +907,15 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
    case Oloadu4: src = mkmemoper(ins->l); Movzxl: Xmov(pcode, KI4, reg2oper(ins->reg-1), src); break;
    case Oloadf4: case Oloadf8: Xmov(pcode, cls, reg2oper(ins->reg-1), mkmemoper(ins->l)); break;
    case Oloadi8: Xmov(pcode, KI8, reg2oper(ins->reg-1), mkmemoper(ins->l)); break;
-   case Ocvtf4f8: Xcvtss2sd(pcode, KF4, reg2oper(ins->reg-1), mkdatregoper(ins->l)); break;
+   case Ocvtf4f8: X = Xcvtss2sd; goto FloatsCvt;
+   case Ocvtf8f4: X = Xcvtsd2ss; goto FloatsCvt;
+   case Ocvtf4s: X = Xcvttss2si; goto FloatsCvt;
+   case Ocvtf8s: X = Xcvttsd2si; goto FloatsCvt;
+   case Ocvts4f: X = cls == KF4 ? Xcvtsi2ss : Xcvtsi2sd; cls = KI4; goto FloatsCvt;
+   case Ocvts8f: X = cls == KF4 ? Xcvtsi2ss : Xcvtsi2sd; cls = KI8; goto FloatsCvt;
+   FloatsCvt:
+      X(pcode, cls, reg2oper(ins->reg-1), mkdatregoper(ins->l));
+      break;
    case Oadd:
       dst = mkregoper(ins->l);
       if (kisflt(cls)) {
