@@ -405,7 +405,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       else
          fixarg(&ins->r, ins, blk, curi);
       break;
-   case Ocvtf4f8: case Ocvtf8f4: case Ocvtf4s: case Ocvtf8s:
+   case Ocvtf4f8: case Ocvtf8f4: case Ocvtf4s: case Ocvtf8s: case Ocvts4f: case Ocvts8f:
    case Oexts1: case Oextu1: case Oexts2: case Oextu2: case Oexts4: case Oextu4:
    case Ocopy:
       fixarg(&ins->l, ins, blk, curi);

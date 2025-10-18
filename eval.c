@@ -113,6 +113,7 @@ unop(struct expr *ex, enum evalmode mode)
       }
    }
    if (sub->t != ENUMLIT && !eval(sub, mode)) return 0;
+   if (sub->t != ENUMLIT) return 0;
    switch (ex->t) {
    case ECAST:
       if (ex->ty.t == TYPTR) {
@@ -132,7 +133,7 @@ unop(struct expr *ex, enum evalmode mode)
       sub->u = ~sub->u;
       break;
    case ELOGNOT:
-      if (isint(sub->ty)) sub->u = !sub->u;
+      if (isint(sub->ty) || isptrcvt(sub->ty)) sub->u = !sub->u;
       else assert(isflt(sub->ty)), sub->u = !sub->f;
       break;
    default:
