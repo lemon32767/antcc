@@ -763,41 +763,75 @@ _assertfmt(const char *file, int line, const char *func, const char *expr)
    ioflush(&bstderr);
 }
 
+struct fileuid {
+   long dev, ino;
+};
+
 static struct file {
+   struct fileuid uid;
    const char *path;
    struct memfile f;
    vec_of(uint) lineoffs;
-} files[256];
+   bool once;
+   bool seen;
+} *fileht[1<<SPANFILEBITS];
 static int nfiles;
 
 int
 openfile(const char **err, struct memfile **pf, const char *path)
 {
+   struct stat st;
    struct file *f;
+   struct fileuid uid;
+   uint h, id, n = arraylength(fileht);
 
-   assert(nfiles + 1 < arraylength(files) && "too many files");
-   f = &files[nfiles];
-   f->path = path;
-   f->f = mapopen(err, path);
-   if (*err) return -1;
-   vinit(&f->lineoffs, NULL, 50);
-   vpush(&f->lineoffs, 0);
+   if (*path == '@' && path[1] == ':') {
+      uid.dev = -1;
+      uid.ino = hashs(0, path+2);
+   } else {
+      if (stat(path, &st) != 0) {
+         *err = strerror(errno);
+         return -1;
+      }
+      uid.dev = st.st_dev, uid.ino = st.st_ino;
+   }
+   for (id = h = uid.dev ^ uid.ino;; ++id) {
+      id &= arraylength(fileht) - 1;
+      f = fileht[id];
+      if (f && f->uid.dev == uid.dev && f->uid.ino == uid.ino) {
+         break;
+      } else if (!f) {
+         struct memfile m;
+         m = mapopen(err, path);
+         if (*err) return -1;
+         f = allocz(&globarena, sizeof *f, 0);
+         f->uid = uid;
+         f->path = path;
+         f->f = m;
+         fileht[id] = f;
+         vinit(&f->lineoffs, NULL, 50);
+         vpush(&f->lineoffs, 0);
+         ++nfiles;
+         break;
+      }
+      assert(--n > 0 && "fileht full");
+   }
    *pf = &f->f;
-   return nfiles++;
+   return id;
 }
 
 const char *
 getfilename(int id)
 {
-   assert(id < nfiles);
-   return files[id].path;
+   assert(id < arraylength(fileht) && fileht[id]);
+   return fileht[id]->path;
 }
 
 struct memfile *
 getfile(int id)
 {
-   assert(id < nfiles);
-   return &files[id].f;
+   assert(id < arraylength(fileht) && fileht[id]);
+   return &fileht[id]->f;
 }
 
 void
@@ -805,10 +839,10 @@ addfileline(int id, uint off)
 {
    vec_of(uint) *lineoffs;
 
-   assert(id < nfiles);
-   lineoffs = (void *)&files[id].lineoffs;
-   if (lineoffs->n) assert(off > lineoffs->p[lineoffs->n-1]);
-   vpush(lineoffs, off);
+   assert(id < arraylength(fileht) && fileht[id]);
+   lineoffs = (void *)&fileht[id]->lineoffs;
+   if (lineoffs->n && off > lineoffs->p[lineoffs->n-1])
+      vpush(lineoffs, off);
 }
 
 void
@@ -817,9 +851,9 @@ getfilepos(int *line, int *col, int id, uint off)
    uint *offs, n;
    int l = 0, h, i = 0;
 
-   assert(id < nfiles);
-   offs = files[id].lineoffs.p;
-   n = files[id].lineoffs.n;
+   assert(id < arraylength(fileht) && fileht[id]);
+   offs = fileht[id]->lineoffs.p;
+   n = fileht[id]->lineoffs.n;
    h = n - 1;
    
    /* binary search over offsets array */
@@ -834,11 +868,39 @@ getfilepos(int *line, int *col, int id, uint off)
    if (col) *col = off - offs[i] + 1;
 }
 
+bool
+isoncefile(int id)
+{
+   assert(id < arraylength(fileht) && fileht[id]);
+   return fileht[id]->once;
+}
+void
+markfileonce(int id)
+{
+   assert(id < arraylength(fileht) && fileht[id]);
+   fileht[id]->once = 1;
+}
+
+
+void
+markfileseen(int id)
+{
+   assert(id < arraylength(fileht) && fileht[id]);
+   fileht[id]->seen = 1;
+}
+
+bool
+isfileseen(int id)
+{
+   assert(id < arraylength(fileht) && fileht[id]);
+   return fileht[id]->seen;
+}
+
 void
 closefile(int id)
 {
-   assert(id >= 0 && id < nfiles);
-   mapclose(&files[id].f);
+   assert(id < arraylength(fileht) && fileht[id]);
+   mapclose(&fileht[id]->f);
 }
 
 enum diagkind { DGERROR, DGWARN, DGNOTE, };

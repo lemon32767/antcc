@@ -98,11 +98,17 @@ struct lexer {
    struct arena **tmparena;
 };
 
+enum initlexer {
+   LXOK,
+   LXFILESEEN,
+   LXERR,
+};
+
 const char *intern(const char *);
 int lex(struct lexer *, struct token *);
 int lexpeek(struct lexer *, struct token *);
 enum typetag parsenumlit(uvlong *, double *, const struct token *, bool ispp);
-const char *initlexer(struct lexer *, const struct span *span, const char *file);
+enum initlexer initlexer(struct lexer *, const char **err, const char *file);
 void lexerdump(struct lexer *, struct wbuf *out);
 void lexerfreetemps(struct lexer *);
 

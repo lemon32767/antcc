@@ -362,7 +362,7 @@ elffini(struct wbuf *out)
       memcpy(shstrs + shnam_reldata + 4, ".data\0", 6);
    }
 
-   symtab.p[1].name = str2idx(getfilename(0));
+   symtab.p[1].name = str2idx(objout.infile);
    qsort(symtab.p+2, symtab.n-2, sizeof *symtab.p, symcmp);
    /* fixup relocs */
    for (int i = 0; i < relocs.n; ++i) {

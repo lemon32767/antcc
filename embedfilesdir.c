@@ -10,6 +10,7 @@ struct embedfile {
 
 struct embedfile embedfilesdir[] = {
 {"stddef.h", S("\
+#pragma once\n\
 typedef __typeof__((char*)0 - (char*)0) ptrdiff_t;\n\
 typedef __typeof__(sizeof 0) size_t;\n\
 typedef __typeof__(L'a') wchar_t;\n\
@@ -18,6 +19,7 @@ typedef __typeof__(L'a') wchar_t;\n\
 ")},
 
 {"stdarg.h", S("\
+#pragma once\n\
 typedef __builtin_va_list va_list;\n\
 #ifndef __GNUC_VA_LIST\n\
 #define __GNUC_VA_LIST\n\
@@ -30,6 +32,7 @@ typedef __builtin_va_list __gnuc_va_list;\n\
 ")},
 
 {"stdbool.h", S("\
+#pragma once\n\
 #define bool _Bool \n\
 #define true 1\n\
 #define false 0\n\
@@ -37,6 +40,7 @@ typedef __builtin_va_list __gnuc_va_list;\n\
 ")},
 
 {"float.h", S("\
+#pragma once\n\
 #define FLT_ROUNDS       (-1)\n\
 #define FLT_EVAL_METHOD  (-1)\n\
 #define FLT_HAS_SUBNORM  (-1)\n\

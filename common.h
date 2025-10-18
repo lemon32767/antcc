@@ -29,11 +29,12 @@ typedef unsigned uint;
 #define arraylength(a) (sizeof(a) / sizeof 0[a])
 struct bytes { uchar *p; uint n; };
 
+enum { SPANFILEBITS = 10 };
 struct span {
    struct span0 {
       uint off;
-      uint len : 24,
-           file :  8;
+      uint len  : 32-SPANFILEBITS,
+           file : SPANFILEBITS;
    } sl, /* original source location */
      ex; /* the location after #include/macro expansion */
 };
@@ -571,6 +572,10 @@ const char *getfilename(int id);
 struct memfile *getfile(int id);
 void addfileline(int id, uint off);
 void getfilepos(int *line, int *col, int id, uint off);
+bool isoncefile(int id);
+void markfileonce(int id);
+void markfileseen(int id);
+bool isfileseen(int id);
 void closefile(int id);
 void fatal(const struct span *, const char *, ...);
 void error(const struct span *, const char *, ...);

@@ -336,7 +336,9 @@ driver(void)
             return 1;
          }
       }
-      for (int i = 0; i < task.ninf; ++i) {
+      if (!task.out && task.ninf == 1)
+         cpp(buf, task.inf[0]);
+      else for (int i = 0; i < task.ninf; ++i) {
          pid_t p;
          int wstat;
 
@@ -370,7 +372,7 @@ cc1(const char *out, const char *in)
    extern int nerror;
 
    if (task.verbose) efmt("cc1(/*out*/ %'s, /*in*/ %'s)\n", out, in);
-   if (!ccopt.dbg.any) objini(out);
+   if (!ccopt.dbg.any) objini(in, out);
    ccomp(in);
    if (!ccopt.dbg.any && !nerror) objfini();
    return !!nerror;

@@ -44,7 +44,7 @@ lexc(struct comp *cm, struct token *tk)
             tk->s = memcpy(alloc(&cm->exarena, tk->len + rest.n, 1), tk->s, tk->len);
             memcpy((char *)tk->s + tk->len, rest.p, rest.n);
             tk->len += rest.n;
-         } else if (tk->wide && targ_primsizes[targ_wchartype] == 2) {
+         } else if (tk->wide == 1) {
             tk->ws16 = memcpy(alloc(&cm->exarena, tk->len + rest.n*2, 2), tk->ws16, tk->len*2);
             memcpy((short *)tk->s + tk->len, rest.p, rest.n);
             tk->len += rest.n * 2;
@@ -4022,13 +4022,17 @@ initcm(struct comp *cm, const char *file)
 {
    enum { N = 1<<12 };
    static union { char m[sizeof(struct arena) + N]; struct arena *_align; } amem[2];
-   const char *err = initlexer(&cm->lx, NULL, file);
-   if (err)
+   const char *err;
+   switch (initlexer(&cm->lx, &err, file)) {
+   default: assert(0);
+   case LXERR:
       fatal(NULL, "Cannot open %'s: %s", file, err);
-   cm->fnarena = (void *)amem[0].m;
-   cm->fnarena->cap = N;
-   cm->exarena = (void *)amem[1].m;
-   cm->exarena->cap = N;
+   case LXOK:
+      cm->fnarena = (void *)amem[0].m;
+      cm->fnarena->cap = N;
+      cm->exarena = (void *)amem[1].m;
+      cm->exarena->cap = N;
+   }
 }
 
 void

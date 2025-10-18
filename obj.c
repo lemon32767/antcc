@@ -16,10 +16,11 @@ struct objfile objout;
 enum { NTEXT = 4<<20 /* 4MiB */ };
 
 void
-objini(const char *file)
+objini(const char *infile, const char *outfile)
 {
-   assert(!objout.file);
-   objout.file = file;
+   assert(!objout.outfile);
+   objout.infile = infile;
+   objout.outfile = outfile;
    objout.code = objout.textbegin = mapzeros(NTEXT);
    objout.textend = objout.textbegin + NTEXT;
 
@@ -90,8 +91,8 @@ void
 objfini(void)
 {
    static char buf[1<<12];
-   struct wbuf out = FDBUF(buf, sizeof buf, open(objout.file, O_WRONLY | O_CREAT | O_TRUNC, 0666));
-   if (out.fd < 0) fatal(NULL, "could not open %'s for writing: %s", objout.file, strerror(errno));
+   struct wbuf out = FDBUF(buf, sizeof buf, open(objout.outfile, O_WRONLY | O_CREAT | O_TRUNC, 0666));
+   if (out.fd < 0) fatal(NULL, "could not open %'s for writing: %s", objout.outfile, strerror(errno));
 
    switch (mctarg->objkind) {
    case OBJELF: elffini(&out); break;

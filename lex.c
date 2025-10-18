@@ -1541,15 +1541,21 @@ static bool
 tryinclude(struct lexer *lx, const struct span *span, const char *path)
 {
    struct lexer new;
-   const char *err = initlexer(&new, span, path);
-   if (err) return 0;
-   new.save = xmalloc(sizeof *new.save);
-   memcpy(new.save, lx, sizeof *lx);
-   *lx = new;
+   const char *err;
+   switch (initlexer(&new, &err, path)) {
+   default: assert(0);
+   case LXERR: return 0;
+   case LXOK:
+      new.save = xmalloc(sizeof *new.save);
+      memcpy(new.save, lx, sizeof *lx);
+      *lx = new;
 
-   if (++includedepth == MAXINCLUDE)
-      fatal(span, "Maximum nested include depth of %d reached", includedepth);
-
+      if (++includedepth == MAXINCLUDE)
+         fatal(span, "Maximum nested include depth of %d reached", includedepth);
+      break;
+   case LXFILESEEN:
+      break;
+   }
    return 1;
 }
 
@@ -1565,16 +1571,25 @@ ppinclude(struct lexer *lx, const struct span *span0)
       const char *base, *end;
       joinspan(&span.ex, tk.span.ex);
       if (tk.t == TKPPHDRQ) {
-         /* build relative path */
-         base = getfilename(lx->fileid);
-         for (end = base; *end != 0; ++end) {}
-         for (--end; *end != '/' && end != base; --end) {}
-         if (*end == '/') ++end;
-         xbgrow(&path, end - base + tk.len + 1);
-         memcpy(path, base, end - base);
-         memcpy(path + (end - base), tk.s, tk.len);
-         path[end - base + tk.len] = 0;
-         if (tryinclude(lx, &span, path)) return;
+         if (tk.s[0] == '/') {
+            /* absolute path */
+            xbgrow(&path, tk.len + 1);
+            memcpy(path, tk.s, tk.len);
+            path[tk.len] = 0;
+            if (tryinclude(lx, &span, path)) return;
+            goto NotFound;
+         } else {
+            /* build relative path */
+            base = getfilename(lx->fileid);
+            for (end = base; *end != 0; ++end) {}
+            for (--end; *end != '/' && end != base; --end) {}
+            if (*end == '/') ++end;
+            xbgrow(&path, end - base + tk.len + 1);
+            memcpy(path, base, end - base);
+            memcpy(path + (end - base), tk.s, tk.len);
+            path[end - base + tk.len] = 0;
+            if (tryinclude(lx, &span, path)) return;
+         }
       }
       /* try system paths */
       for (struct inclpaths *p = cinclpaths; p; p = p->next) {
@@ -1592,9 +1607,29 @@ ppinclude(struct lexer *lx, const struct span *span0)
       memcpy(path+2, tk.s, tk.len);
       path[tk.len+2] = 0;
       if (tryinclude(lx, &span, path)) return;
+   NotFound:
       fatal(&tk.span, "file not found: %'S", tk.s, tk.len);
    } else {
       error(&tk.span, "garbage after #include");
+      ppskipline(lx);
+   }
+}
+
+static void
+pppragma(struct lexer *lx, const struct span *span0)
+{
+   struct token tk;
+   struct span span = *span0;
+   if (lex0(lx, &tk) == TKIDENT && !strcmp(tk.s, "once")) {
+      markfileonce(lx->fileid);
+   } else {
+      joinspan(&span.ex, tk.span.ex);
+      warn(&span, "unknown pragma ignored");
+      ppskipline(lx);
+      return;
+   }
+   if (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
+      warn(&tk.span, "garbage after pragma ignored");
       ppskipline(lx);
    }
 }
@@ -1697,8 +1732,8 @@ lex(struct lexer *lx, struct token *tk_)
                case PPELSE:     ppelse(lx, &tk->span); break;
                case PPENDIF:    ppendif(lx, &tk->span); break;
                case PPINCLUDE:  ppinclude(lx, &tk->span); break;
-               case PPLINE: break;
-               case PPPRAGMA: break;
+               case PPLINE:     break;
+               case PPPRAGMA:   pppragma(lx, &tk->span); break;
                case PPWARNING: break;
                case PPERROR: break;
                default: assert(0&&"nyi");
@@ -1862,27 +1897,31 @@ addpredefmacros(void)
    }
 }
 
-const char *
-initlexer(struct lexer *lx, const struct span *span, const char *file)
+enum initlexer
+initlexer(struct lexer *lx, const char **err, const char *file)
 {
    enum { NARENA = 1<<12 };
    static union { char m[sizeof(struct arena) + NARENA]; struct arena *_align; } amem;
    static struct arena *tmparena = (void *)amem.m;
+   int fileid;
 
-   const char *err;
    struct memfile *f;
 
    if (!macros.n) addpredefmacros();
    if (!tmparena->cap) tmparena->cap = NARENA;
 
+   fileid = openfile(err, &f, file);
+   if (fileid < 0)
+      return LXERR;
+   if (isoncefile(fileid) && isfileseen(fileid))
+      return LXFILESEEN;
    memset(lx, 0, sizeof *lx);
-   lx->fileid = openfile(&err, &f, file);
-   if (lx->fileid < 0)
-      return err;
+   lx->fileid = fileid;
+   markfileseen(fileid);
    lx->dat = f->p;
    lx->ndat = f->n;
    lx->tmparena = &tmparena;
-   return NULL;
+   return LXOK;
 }
 
 /* callback to let lexer release temp memory for arena allocated token data */
@@ -1908,6 +1947,7 @@ lexerdump(struct lexer *lx, struct wbuf *out)
          file = tok.span.ex.file;
          bfmt(out, "\n# %d %'s\n", tkline, getfilename(file));
          col = 1;
+         lexerfreetemps(lx);
       } else if (line < tkline && tkline - line < 5) {
          do
             ioputc(out, '\n');
@@ -1917,6 +1957,7 @@ lexerdump(struct lexer *lx, struct wbuf *out)
          bfmt(out, "\n# %d\n", tkline);
          line = tkline;
          col = 1;
+         lexerfreetemps(lx);
       } else if (prev.t && wsseparated(&prev, &tok)) {
          ioputc(out, ' ');
          ++col;
