@@ -1026,7 +1026,8 @@ devirt(struct rega *ra, struct block *blk)
                   insertinstr(blk, ++curi, mkinstr(store, 0, .r = mkref(RREG, reg))).i,
                   alloc->a*8);
          }
-      } else if (!ins->reg && insrescls(*ins) && ins->op != Omove && !ins->keep) {
+      }
+      if (!ins->reg && insrescls(*ins) && ins->op != Omove && !ins->keep) {
          /* dead */
       Nop:
         ins->op = Onop;
@@ -1036,12 +1037,15 @@ devirt(struct rega *ra, struct block *blk)
       } else if (ins->op == Ocopy && ins->l.t == RREG && ins->reg-1 == ins->l.i) {
          /* r1 = copy r2  /  r1=r2 */
          goto Nop;
-      } else if (ins->inplace && ins->l.t == RREG && ins->reg && ins->reg-1 != ins->l.i) {
+      } else if (ins->op != Onop) {
+         allnops = 0;
+      }
+      if (ins->inplace && ins->l.t == RREG && ins->reg && ins->reg-1 != ins->l.i) {
          /* fixup in-place (two-address) instructions */
          allnops = 0;
          insertinstr(blk, curi++, mkmove(ins->cls, ins->reg-1, ins->l.i));
          ins->l.i = ins->reg-1;
-      } else if (ins->op != Onop) allnops = 0;
+      }
    }
 
    return allnops;

@@ -249,6 +249,7 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          }
          for (int i = 0; i < nret; ++i) {
             struct instr store = {0};
+            int iref;
             /* XXX this can generate unaligned stores */
             switch (call->abiret[i].ty.cls) {
             default: assert(0);
@@ -264,6 +265,14 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
             }
             store.r = r[i];
             insertinstr(blk, ++*curi, store);
+            iref = retmem.i;
+            if (instrnuse[iref] > 1) {
+               /* make store the first use */
+               struct use tmp = instruse[iref][instrnuse[iref - 1]];
+               for (int i = instrnuse[iref] - 1; i > 0; --i)
+                  instruse[iref][i] = instruse[iref][i-1];
+               instruse[iref][0] = tmp;
+            }
          }
       }
    }
