@@ -27,7 +27,6 @@ typedef unsigned uint;
 #define in_range(x, Lo, Hi) ((uint) (x) - (Lo) <= (Hi) - (Lo)) /* lo <= x <= hi; lo > 0, hi > 0 */
 #define alignup(x, A) (((x) + ((A) - 1)) & -(A))
 #define arraylength(a) (sizeof(a) / sizeof 0[a])
-struct bytes { uchar *p; uint n; };
 
 enum { SPANFILEBITS = 10 };
 struct span {

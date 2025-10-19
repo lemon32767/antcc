@@ -80,26 +80,34 @@ unop(struct expr *ex, enum evalmode mode)
 
    if (mode >= EVSTATICINI && ex->t == EDEREF) {
       uvlong off;
-      struct bytes s;
+      uchar *p;
+      uint len;
+      uint csiz;
       if (sub->t == ESTRLIT) {
          /*  *"s"  */
          off = 0;
-         s = sub->s;
+         p = sub->s.p, len = sub->s.n;
+         csiz = typesize(sub->ty);
       } else if (sub->t == EADD && sub->sub[0].t == ESTRLIT && eval(&sub->sub[1], EVINTCONST)) {
          /*  "s"[0]  */
          assert(sub->sub[1].t == ENUMLIT && isint(sub->sub[1].ty));
          off = sub->sub[1].u;
-         s = sub->sub[0].s;
+         p = sub->sub[0].s.p, len = sub->sub[0].s.n;
+         csiz = typesize(sub->sub[0].ty);
       } else if (sub->t == EADD && sub->sub[1].t == ESTRLIT && eval(&sub->sub[0], EVINTCONST)) {
          /*  0["s"]  */
          assert(sub->sub[0].t == ENUMLIT && isint(sub->sub[0].ty));
          off = sub->sub[0].u;
-         s = sub->sub[1].s;
+         p = sub->sub[1].s.p, len = sub->sub[1].s.n;
+         csiz = typesize(sub->sub[1].ty);
       } else return 0;
-      if (off > s.n) return 0;
+      if (off > len) return 0;
       ex->t = ENUMLIT;
       ex->ty = mktype(TYINT);
-      ex->u = off == s.n ? 0 : s.p[off];
+      if (off == len) ex->u = 0;
+      else if (csiz == 1) ex->u = p[off];
+      else if (csiz == 2) ex->u = ((short *)p)[off];
+      else if (csiz == 4) ex->u = ((int *)p)[off];
       return 1;
    }
    if (ex->t == EADDROF) {

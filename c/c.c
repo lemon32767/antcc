@@ -1440,8 +1440,7 @@ aggdesignator(struct initparser *ip, union type ty, const char *name, const stru
          if (sub == -1) {
             --ip->sub;
             ip->sub->idx = save;
-         }
-         else return sub;
+         } else return sub;
       }
    }
    return -1;
@@ -1501,7 +1500,8 @@ designators(struct initparser *ip, struct comp *cm)
          if (!isagg(ip->sub->ty))
             error(&span, "member designator used with non-aggregate type '%ty'", ip->sub->ty);
          else if (tk.t == TKIDENT) {
-            do {
+            int idx;
+            for (;;) {
                idx = aggdesignator(ip, ip->sub->ty, tk.s, &span);
                if (idx >= 0) break;
                if (ip->sub != ip->cur && !ttypenames[typedata[ip->sub->ty.dat].id]) {
@@ -1509,7 +1509,7 @@ designators(struct initparser *ip, struct comp *cm)
                   --ip->sub;
                   continue;
                }
-            } while (0);
+            }
             ip->sub->idx = idx;
             if (idx < 0)
                error(&span, "%ty has no such field: '%s'", ip->cur->ty, tk.s);
@@ -2531,6 +2531,7 @@ mkhiddensym(const char *fnname, const char *name, int id)
 }
 
 static void geninit(struct function *fn, union type t, union ref dst, const struct expr *src);
+static union ref condexprvalue(struct function *fn, const struct expr *ex, bool discard);
 
 static union ref
 expraddr(struct function *fn, const struct expr *ex)
@@ -2576,9 +2577,6 @@ expraddr(struct function *fn, const struct expr *ex)
       r = expraddr(fn, &ex->sub[1]);
       structcopy(fn, ex->ty, expraddr(fn, &ex->sub[0]), r);
       return r;
-   case ESEQ:
-      expreffects(fn, &ex->sub[0]);
-      return expraddr(fn, &ex->sub[1]);
    case ECALL:
       assert(isagg(ex->ty));
       return compilecall(fn, ex);
@@ -2589,7 +2587,14 @@ expraddr(struct function *fn, const struct expr *ex)
          geninit(fn, ex->ty, r, ex);
          return r;
       } else {
+         assert(!"nyi");
       }
+   case ESEQ:
+      expreffects(fn, &ex->sub[0]);
+      return expraddr(fn, &ex->sub[1]);
+   case ECOND:
+      assert(isagg(ex->ty));
+      return condexprvalue(fn, ex, 0);
    default:
       assert(!"lvalue?>");
    }
@@ -2662,15 +2667,28 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
          uint off = val->off;
          struct expr *ex = &val->ex;
          adr = off == 0 ? dst : addinstr(fn, mkinstr(Oadd, KPTR, dst, mkref(RICON, off)));
-         genstore(fn, ex->ty, adr, exprvalue(fn, ex));
+         if (ex->t == EINIT || ex->t == ESTRLIT) {
+            geninit(fn, ex->ty, adr, ex);
+         } else if (isagg(ex->ty)) {
+            structcopy(fn, ex->ty, dst, expraddr(fn, ex));
+         } else {
+            genstore(fn, ex->ty, adr, exprvalue(fn, ex));
+         }
       }
    } else if (src->t == ESTRLIT) {
+      union type ctyp = typechild(src->ty);
+      uint csiz = typesize(ctyp);
       adr = dst;
       for (uint i = 0; i < src->s.n; ++i) {
-         genstore(fn, mktype(TYCHAR), adr, mkref(RICON, src->s.p[i]));
-         adr = addinstr(fn, mkinstr(Oadd, KPTR, dst, mkref(RICON, i+1)));
+         if (csiz == 1)
+            genstore(fn, ctyp, adr, mkref(RICON, src->s.p[i]));
+         else if (csiz == 2)
+            genstore(fn, ctyp, adr, mkref(RICON, src->s.w16[i]));
+         else
+            genstore(fn, ctyp, adr, mkintcon(KI4, src->s.w32[i]));
+         adr = addinstr(fn, mkinstr(Oadd, KPTR, dst, mkref(RICON, (i+1)*csiz)));
       }
-      genstore(fn, mktype(TYCHAR), adr, ZEROREF); /* null term */
+      genstore(fn, ctyp, adr, ZEROREF); /* null term */
    } else assert(0);
 }
 
@@ -2679,6 +2697,7 @@ cvt(struct function *fn, union type to, union type from, union ref ref)
 {
    enum irclass kto = type2cls[scalartypet(to)], kfrom = type2cls[scalartypet(from)];
    struct instr ins = {0};
+   if (to.bits == from.bits) return ref;
    assert(kto && kfrom);
    if (kto == kfrom && to.t != TYBOOL) return ref;
    if (ref.t == RICON && kto < KF4) return ref;
@@ -2903,8 +2922,13 @@ condexprvalue(struct function *fn, const struct expr *ex, bool discard)
    condexprrec(fn, ex, discard ? NULL : &phis, -1, NULL, dst);
    useblk(fn, dst);
    if (discard) return NOREF;
-   k = type2cls[scalartypet(ex->ty)];
-   assert(k);
+   if (isscalar(ex->ty)) {
+      k = type2cls[scalartypet(ex->ty)];
+      assert(k);
+   } else {
+      assert(isagg(ex->ty) || isptrcvt(ex->ty));
+      k = KPTR;
+   }
    r = addphi(fn, k, phis.ref.p);
    vfree(&phis.ref);
    return r;
@@ -2931,7 +2955,7 @@ compilecall(struct function *fn, const struct expr *ex)
    for (int i = 0; i < ex->narg; ++i) {
       struct expr *arg = &sub[i+1];
       union type ty = i < td->nmemb ? td->param[i] : argpromote(arg->ty);
-      union ref r = cvt(fn, ty, arg->ty, exprvalue(fn, arg));
+      union ref r = cvt(fn, ty, typedecay(arg->ty), exprvalue(fn, arg));
       vpush(&insns, mkarginstr(mkirtype(ty), r));
    }
    for (int i = 0; i < insns.n; ++i)

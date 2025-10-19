@@ -651,6 +651,13 @@ bfmt(struct wbuf *buf, const char *fmt, ...)
    return ret;
 }
 
+void
+gpritype(union type ty)
+{
+   efmt("%ty\n", ty);
+   ioflush(&bstderr);
+}
+
 static uint pagesiz;
 
 extern struct embedfile embedfilesdir[];

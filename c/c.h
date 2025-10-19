@@ -36,7 +36,14 @@ struct expr {
         } fld; /* EGETF */
      };
      uvlong u; vlong i; double f; /* ENUMLIT */
-     struct bytes s; /* ESTRLIT */
+     struct {
+        union {
+           uchar *p;
+           ushort *w16;
+           uint *w32;
+        };
+        uint n;
+     } s; /* ESTRLIT */
      struct decl *sym; /* ESYM */
      struct init *init; /* EINIT */
    };
