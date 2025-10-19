@@ -1,5 +1,5 @@
 #include "all.h"
-#include "../obj.h"
+#include "../obj/obj.h"
 #include "../endian.h"
 
 /** Instruction operands **

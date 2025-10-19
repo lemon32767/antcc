@@ -1,5 +1,5 @@
 #include "common.h"
-#include "obj.h"
+#include "obj/obj.h"
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/types.h>

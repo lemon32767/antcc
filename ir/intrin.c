@@ -1,4 +1,3 @@
-#include "common.h"
 #include "ir.h"
 
 struct arg { union ref *arg, *ty; };

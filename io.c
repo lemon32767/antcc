@@ -1,4 +1,4 @@
-#include "lex.h"
+#include "c/lex.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -576,7 +576,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
                if (tok->t >= TKWBEGIN_ && tok->t <= TKWEND_) {
                   static const char *tab[] = {
                   #define _(kw, c) #kw,
-                  #include "keywords.def"
+                  #include "c/keywords.def"
                   #undef _
                   };
                   n += bfmt(buf, "%s", tab[tok->t - TKWBEGIN_]);

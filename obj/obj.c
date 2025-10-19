@@ -1,6 +1,5 @@
 #include "obj.h"
-#include "common.h"
-#include "ir.h"
+#include "../ir/ir.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>

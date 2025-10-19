@@ -1,8 +1,8 @@
-SRC=main.c io.c mem.c c.c lex.c type.c targ.c eval.c ir.c irdump.c ssa.c cfg.c \
-	intrin.c abi0.c optmem.c regalloc.c amd64/sysv.c amd64/isel.c amd64/emit.c obj.c elf.c\
+SRC=main.c io.c mem.c c/c.c c/lex.c c/eval.c type.c targ.c ir/ir.c ir/dump.c ir/ssa.c ir/cfg.c \
+	ir/intrin.c ir/abi0.c ir/optmem.c ir/regalloc.c amd64/sysv.c amd64/isel.c amd64/emit.c obj/obj.c obj/elf.c \
 	embedfilesdir.c
 CFLAGS=-Wall -std=c11 -pedantic
-OBJ=$(patsubst %.c,obj/%.o,$(SRC))
+OBJ=$(patsubst %.c,build/%.o,$(SRC))
 DEP=$(OBJ:.o=.d)
 OUT=antcc
 
@@ -18,12 +18,12 @@ dbg: $(OUT)
 $(OUT): $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ)
 
-obj/%.o: %.c common.h
+build/%.o: %.c common.h
 	@mkdir -p `dirname $@`
-	$(CC) $(CFLAGS) -MMD -MP -MT $@ -MF obj/$*.d -c -o $@ $<
+	$(CC) $(CFLAGS) -MMD -MP -MT $@ -MF build/$*.d -c -o $@ $<
 
 clean:
-	$(RM) -r obj/ $(OUT) *.o a.out
+	$(RM) -r build// $(OUT) *.o a.out
 
 .PHONY: clean
 

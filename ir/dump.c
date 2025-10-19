@@ -1,5 +1,5 @@
 #include "ir.h"
-#include "obj.h"
+#include "../obj/obj.h"
 
 static int nextdat;
 

@@ -1,5 +1,5 @@
 #include "ir.h"
-#include "obj.h"
+#include "../obj/obj.h"
 
 uchar type2cls[NTYPETAG];
 uchar cls2siz[KF8+1];

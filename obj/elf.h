@@ -1,4 +1,4 @@
-#include "common.h"
+#include "../common.h"
 
 #define ELFMAG "\177ELF"
 enum {

@@ -1,8 +1,8 @@
 #include "c.h"
 #include "lex.h"
-#include "ir.h"
-#include "endian.h"
-#include "obj.h"
+#include "../endian.h"
+#include "../ir/ir.h"
+#include "../obj/obj.h"
 
 /** C compiler state **/
 struct comp {

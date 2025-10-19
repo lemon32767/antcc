@@ -1,4 +1,4 @@
-#include "../ir.h"
+#include "../ir/ir.h"
 
 #define LIST_REGS(_)                                               \
    _(RAX) _(RCX) _(RDX) _(RBX) _(RSP) _(RBP) _(RSI) _(RDI)         \
