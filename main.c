@@ -89,6 +89,7 @@ static struct task {
    const char *targ;
    const char *inf[64];
    enum inft inft[64];
+   vec_of(const char *) linkargs;
    int ninf;
    bool verbose;
 } task;
@@ -149,6 +150,8 @@ optparse(char **args)
          if (!strcmp(flag, "pie") || !strcmp(flag, "PIE")) ccopt.pie = set;
          else if (!strcmp(flag, "pic") || !strcmp(flag, "PIC")) ccopt.pic = set;
          else goto Bad;
+      } else if (*arg == 'l') {
+         vpush(&task.linkargs, arg-1);
       } else if (!strcmp(arg, "v") || !strcmp(arg, "-verbose")) {
          task.verbose = 1;
       } else if (!strcmp(arg, "c")) {
@@ -267,6 +270,7 @@ dolink(void)
    } else if (task.outft == OFTexe) {
       vpush(&cmd, ccopt.pie ? "-pie" : "-no-pie");
    }
+   vpushn(&cmd, task.linkargs.p, task.linkargs.n);
    vpush(&cmd, "-o");
    vpush(&cmd, task.out);
    assert(task.ninf > 0);
