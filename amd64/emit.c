@@ -612,7 +612,7 @@ DEFINSTR1(Xneg,
    {4|8, PGPR, 0, "\xF7", EN_R, .ext=3} /* NEG r32/64 */
 )
 DEFINSTR1(Xnot,
-   {4|8, PGPR, 0, "\xF7", EN_R, .ext=2} /* NEG r32/64 */
+   {4|8, PGPR, 0, "\xF7", EN_R, .ext=2} /* NOT r32/64 */
 )
 DEFINSTR1(Xidiv,
    {4|8, PGPR, 0, "\xF7", EN_R, .ext=7}, /* IDIV r32/64 */
