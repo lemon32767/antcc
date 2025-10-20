@@ -689,7 +689,23 @@ mapopen(const char **err, const char *path)
    if (fstat(fd, &stat) != 0)
       goto Err;
 
-   if (!S_ISREG(stat.st_mode)) {
+   if (S_ISREG(stat.st_mode)) {
+      if (stat.st_size > UINT_MAX) {
+      Big:
+         errno = EFBIG;
+         goto Err;
+      }
+      mapsiz = alignup(stat.st_size, pagesiz);
+      if ((p = mmap(NULL, mapsiz + pagesiz, PROT_READ, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0)) == MAP_FAILED)
+         goto Err;
+      if (mapsiz > 0 && mmap(p, mapsiz, PROT_READ, MAP_FIXED|MAP_PRIVATE, fd, 0) == MAP_FAILED)
+         goto Err;
+
+      close(fd);
+      f.p = p;
+      f.n = stat.st_size;
+      return f;
+   } else if (S_ISFIFO(stat.st_mode) || S_ISCHR(stat.st_mode)) {
       uint cap = 0;
       int ret;
 
@@ -723,23 +739,10 @@ mapopen(const char **err, const char *path)
       free(p);
       mprotect((void *)f.p, mapsiz + pagesiz, PROT_READ);
       return f;
+   } else {
+      *err = "Not a file";
    }
 
-   if (stat.st_size > UINT_MAX) {
-   Big:
-      errno = EFBIG;
-      goto Err;
-   }
-   mapsiz = alignup(stat.st_size, pagesiz);
-   if ((p = mmap(NULL, mapsiz + pagesiz, PROT_READ, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0)) == MAP_FAILED)
-      goto Err;
-   if (mapsiz > 0 && mmap(p, mapsiz, PROT_READ, MAP_FIXED|MAP_PRIVATE, fd, 0) == MAP_FAILED)
-      goto Err;
-
-   close(fd);
-   f.p = p;
-   f.n = stat.st_size;
-   return f;
 Err:
    if (fd >= 0) close(fd);
    if (!*err) *err = strerror(errno);

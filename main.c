@@ -105,7 +105,7 @@ optparse(char **args)
    while ((arg = *++args)) {
       if (*arg++ != '-' || !*arg) {
          assert(task.ninf < arraylength(task.inf) && "too many infiles");
-         task.inf[task.ninf] = *arg ? arg-1 : "/dev/stdin";
+         task.inf[task.ninf] = arg[-1] != '-' ? arg-1 : "/dev/stdin";
          task.inft[task.ninf] = ft ? ft : ftdetect(arg-1);
          ++task.ninf;
          ft = IFTauto;
