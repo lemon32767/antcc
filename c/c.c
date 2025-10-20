@@ -1501,14 +1501,11 @@ designators(struct initparser *ip, struct comp *cm)
             error(&span, "member designator used with non-aggregate type '%ty'", ip->sub->ty);
          else if (tk.t == TKIDENT) {
             int idx;
+               //if (!strcmp(tk.s, "_vb")) __asm__("int3;nop");
             for (;;) {
                idx = aggdesignator(ip, ip->sub->ty, tk.s, &span);
-               if (idx >= 0) break;
-               if (ip->sub != ip->cur && !ttypenames[typedata[ip->sub->ty.dat].id]) {
-                  /* if in anonymous aggregate, go up and look again */
-                  --ip->sub;
-                  continue;
-               }
+               if (idx >= 0 || ip->sub == ip->cur) break;
+               --ip->sub;
             }
             ip->sub->idx = idx;
             if (idx < 0)
