@@ -9,7 +9,7 @@ OUT=antcc
 all: CFLAGS += -g
 all: $(OUT)
 
-opt: CFLAGS += -O2
+opt: CFLAGS += -g -O2
 opt: $(OUT)
 
 dbg: CFLAGS += -g -fsanitize=address -fsanitize=undefined
