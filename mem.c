@@ -3,18 +3,20 @@
 #include <errno.h>
 #include <stdint.h>
 
-#define ALLOCERR(f) do {                  \
-   efmt("%s: %s\n", f, strerror(errno)); \
-   ioflush(&bstdout);                    \
-   ioflush(&bstderr);                    \
-   abort();                              \
-} while (0)
+static void
+allocerr(const char *f)
+{
+   efmt("%s: %s\n", f, strerror(errno));
+   ioflush(&bstdout);
+   ioflush(&bstderr);
+   abort();
+}
 
 void *
 (xmalloc)(size_t n, const char *f)
 {
    void *p = malloc(n);
-   if (!p) ALLOCERR(f);
+   if (!p) allocerr(f);
    return p;
 }
 
@@ -22,7 +24,7 @@ void *
 (xcalloc)(size_t n, const char *f)
 {
    void *p = calloc(n, 1);
-   if (!p) ALLOCERR(f);
+   if (!p) allocerr(f);
    return p;
 }
 
@@ -30,63 +32,68 @@ void *
 (xrealloc)(void *p, size_t n, const char *f)
 {
    p = p ? realloc(p, n) : malloc(n);
-   if (!p) ALLOCERR(f);
+   if (!p) allocerr(f);
    return p;
 }
 
 /* vec: when _cap < 0, buf is dynamic allocated, otherwise an user provided buf */
 
 void
-vinit_(void **p, int *pcap, void *inlbuf, int cap, uint siz)
+vinit_(struct vecbase *v, void *inlbuf, uint cap, uint siz)
 {
-   assert(!*p);
-   *pcap = cap;
+   assert(!v->p);
+   v->cap = cap;
    if (inlbuf) {
-      *p = inlbuf; 
+      v->p = inlbuf;
+      v->dyn = 0;
    } else if (cap) {
-      *p = xrealloc(0, cap*siz);
-      *pcap = -cap;
+      v->p = xmalloc(cap*siz);
+      v->dyn = 1;
    }
 }
 
 void
-vpush_(void **p, int *pcap, uint *pn, uint siz)
+vpush_(struct vecbase *v, uint siz)
 {
-   if (*pcap >= 0 && *pn >= *pcap) { /* empty or inline buffer */
-      int cap = *pcap ? *pcap * 2 : 8;
-      void *old = *p;
-      *p = xrealloc(NULL, cap * siz);
-      if (old) memcpy(*p, old, *pcap * siz);
-      *pcap = -cap;
-   } else if (*pcap < 0 && *pn >= -*pcap) { /* dyn buf */
-      *p = xrealloc(*p, -(*pcap *= 2) * siz);
-   } else return;
-   while (*pn >= -*pcap)
-      *p = xrealloc(*p, -(*pcap *= 2) * siz);
-   assert(-(volatile int)*pcap > *pn && "overflow");
+   if (v->n < v->cap) return;
+   if (!v->dyn && v->n >= v->cap) { /* empty or inline buffer */
+      int cap = v->cap ? v->cap * 2 : 8;
+      void *old = v->p;
+      v->p = xmalloc(cap * siz);
+      if (old) memcpy(v->p, old, v->cap * siz);
+      v->cap = cap;
+      v->dyn = 1;
+   } else if (v->dyn && v->n >= v->cap) { /* dyn buf */
+      v->p = xrealloc(v->p, (v->cap *= 2) * siz);
+   }
+   while (v->n >= v->cap)
+      v->p = xrealloc(v->p, (v->cap *= 2) * siz);
+   assert(v->cap > v->n && "overflow");
 }
 
 void *
-vpushn_(void **p, int *pcap, uint *pn, uint siz, const void *dat, uint ndat)
+vpushn_(struct vecbase *v, uint siz, const void *dat, uint ndat)
 {
    void *beg;
 
-   *pn += ndat;
-   while (*pn >= (*pcap < 0 ? -*pcap : *pcap))
-      vpush_(p, pcap, pn, siz);
-   beg = (char *)*p + (*pn - ndat) * siz;
+   if (!ndat) return v->p;
+   v->n += ndat;
+   while (v->n >= v->cap)
+      vpush_(v, siz);
+   beg = (char *)v->p + (v->n - ndat) * siz;
+   assert(dat);
    memcpy(beg, dat, ndat * siz);
    return beg;
 }
 
 void
-vresize_(void **p, int *pcap, uint *pn, uint siz, uint N)
+vresize_(struct vecbase *v, uint siz, uint N)
 {
-   while ((*pcap < 0 ? -*pcap : *pcap) < N) {
-      vpush_(p, pcap, pn, siz);
-      *pn = *pcap < 0 ? -*pcap : *pcap;
+   while (v->cap < N) {
+      vpush_(v, siz);
+      v->n = v->cap;
    }
-   *pn = N;
+   v->n = N;
 }
 
 struct arena *

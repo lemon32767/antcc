@@ -346,18 +346,6 @@ void targ_init(const char *);
 /** MEM **/
 /*********/
 
-struct arena {
-   uint cap : 31,
-        dyn : 1;
-   uint n;
-   struct arena *prev;
-   uchar mem[];
-};
-
-extern struct arena *globarena;
-
-#define vec_of(T) struct { T *p; int _cap; uint n; }
-
 /* libc *alloc wrappers */
 void *xmalloc(size_t n, const char *);
 void *xcalloc(size_t n, const char *);
@@ -393,6 +381,18 @@ xbgrow_(void **p, size_t n)
    memset((char*)*(p)+tmp, 0, xbcap_(*(p))-tmp); \
 } while (0)
 
+
+/** arenas **/
+struct arena {
+   uint cap : 31,
+        dyn : 1;
+   uint n;
+   struct arena *prev;
+   uchar mem[];
+};
+
+extern struct arena *globarena;
+
 struct arena *newarena(uint chunksiz);
 void *alloc(struct arena **, uint siz, uint align);
 void *allocz(struct arena **, uint siz, uint align);
@@ -403,25 +403,27 @@ alloccopy(struct arena **arena, const void *src, uint siz, uint align)
 }
 void freearena(struct arena **);
 
-void vinit_(void **p, int *pcap, void *inlbuf, int cap, uint siz);
-void vpush_(void **p, int *pcap, uint *pn, uint siz);
-void *vpushn_(void **p, int *pcap, uint *pn, uint siz, const void *dat, uint ndat);
-void vresize_(void **p, int *pcap, uint *pn, uint siz, uint N);
-#define VINIT(inlbuf, Cap) { (inlbuf), (Cap) }
-#define vfree(v) ((v)->_cap < 0 ? free((v)->p) : (void)0, memset((v), 0, sizeof*(v)))
-#define vinit(v, inlbuf, Cap) (vfree(v), vinit_((void **)&(v)->p, &(v)->_cap, inlbuf, (Cap), sizeof *(v)->p))
-#define vpush(v, x) (vpush_((void **)&(v)->p, &(v)->_cap, &(v)->n, sizeof *(v)->p), \
-                     (v)->p[(v)->n++] = (x))
-#define vpushn(v, xs, N) vpushn_((void **)&(v)->p, &(v)->_cap, &(v)->n, sizeof *(v)->p, xs, N)
-#define vresize(v, N) vresize_((void **)&(v)->p, &(v)->_cap, &(v)->n, sizeof *(v)->p, N)
+/** vec **/
+struct vecbase { void *p; uint n; uint cap : 31, dyn : 1; };
+#define vec_of(T) union {    \
+   struct { T *p; uint n; }; \
+   struct vecbase _vb;       \
+}
+void vinit_(struct vecbase *, void *inlbuf, uint cap, uint siz);
+void vpush_(struct vecbase *, uint siz);
+void *vpushn_(struct vecbase *, uint siz, const void *dat, uint ndat);
+void vresize_(struct vecbase *, uint siz, uint N);
+#define VINIT(inlbuf, Cap) { ._vb.p = (inlbuf), ._vb.cap = (Cap) }
+#define vfree(v) ((v)->_vb.dyn ? free((v)->p) : (void)0, memset((v), 0, sizeof*(v)))
+#define vinit(v, inlbuf, Cap) (vfree(v), vinit_(&(v)->_vb, inlbuf, (Cap), sizeof *(v)->p))
+#define vpush(v, x) (vpush_(&(v)->_vb, sizeof *(v)->p), (v)->p[(v)->n++] = (x))
+#define vpushn(v, xs, N) vpushn_(&(v)->_vb, sizeof *(v)->p, xs, N)
+#define vresize(v, N) vresize_(&(v)->_vb, sizeof *(v)->p, N)
 
-struct bitset { uvlong u; };
-enum { BSNBIT = 8 * sizeof(uvlong) };
-#define BSSIZE(nbit) ((nbit) / BSNBIT + ((nbit) % BSNBIT != 0))
-
-struct imapbase { short *k; struct bitset *bs; uint n, N; };
-/* map of short -> T */
+/** map of short -> T **/
 #define imap_of(T) struct { T *v; int tmp; struct imapbase mb; }
+struct imapbase { short *k; struct bitset *bs; uint n, N; };
+
 void imap_init_(struct imapbase *, void **v, uint vsiz, uint N);
 int imap_get_(struct imapbase *, short k);
 int imap_set_(struct imapbase *, void **v, uint vsiz, short k);
@@ -445,9 +447,10 @@ int imap_set_(struct imapbase *, void **v, uint vsiz, short k);
 } while (0)
 
 
-struct pmapbase { void **k; uint n, N; };
-/* map of non-null ptr -> T */
+/** map of non-null ptr -> T **/
 #define pmap_of(T) struct { T *v; int tmp; struct pmapbase mb; }
+struct pmapbase { void **k; uint n, N; };
+
 void pmap_init_(struct pmapbase *, void **v, uint vsiz, uint N);
 int pmap_get_(struct pmapbase *, const void *k);
 int pmap_set_(struct pmapbase *, void **v, uint vsiz, const void *k);
@@ -459,6 +462,12 @@ int pmap_set_(struct pmapbase *, void **v, uint vsiz, const void *k);
 #define pmap_each(m,kx,pvx) \
    for (int _i = 0; _i < (m)->mb.N && ((kx) = (m)->mb.k[_i], (pvx) = &(m)->v[_i], 1); ++_i) \
       if (kx)
+
+/** bitset **/
+struct bitset { uvlong u; };
+enum { BSNBIT = 8 * sizeof(uvlong) };
+#define BSSIZE(nbit) ((nbit) / BSNBIT + ((nbit) % BSNBIT != 0))
+
 
 static inline bool
 bstest(const struct bitset *bs, uint i)
@@ -513,6 +522,7 @@ bsiter(uint *i, struct bitset bs[/*siz*/], uint siz)
 }
 #define bs_each(T, var, bs, siz) for (T (var) = 0; bsiter(&(var), (bs), (siz)); ++(var))
 
+/** register set **/
 typedef uvlong regset;
 #define rsset(pS, r) (*(pS) |= 1ull << (r))
 #define rsclr(pS, r) (*(pS) &=~ (1ull << (r)))

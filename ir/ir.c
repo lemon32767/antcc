@@ -347,7 +347,7 @@ insertinstr(struct block *blk, int idx, struct instr ins)
    if (idx == blk->ins.n) vpush(&blk->ins, new);
    else {
       assert(idx >= 0 && idx < blk->ins.n);
-      vpush_((void **)&blk->ins.p, &blk->ins._cap, &blk->ins.n, sizeof *blk->ins.p);
+      vpush_(&blk->ins._vb, sizeof *blk->ins.p);
       vresize(&blk->ins, blk->ins.n);
       for (int i = blk->ins.n++; i > idx; --i)
          blk->ins.p[i] = blk->ins.p[i - 1];

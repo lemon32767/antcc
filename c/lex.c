@@ -1199,7 +1199,10 @@ advancemacro(struct lexer *lx, struct token *tk)
    assert(lx->macstk);
    rl = lx->macstk->rlist;
    if (lx->macstk->idx == rl.n) {
-      if (lx->macstk->stop) return tk->t = TKEOF;
+      if (lx->macstk->stop) {
+         tk->t = TKEOF;
+         return 1;
+      }
       popmac(lx);
       return 0;
    }
@@ -1208,7 +1211,7 @@ advancemacro(struct lexer *lx, struct token *tk)
    tk->span.ex = lx->macstk->exspan;
    if (tryexpand(lx, tk))
       return 0;
-   return tk->t;
+   return 1;
 }
 
 static struct token epeektk;
@@ -1538,13 +1541,16 @@ ppelse(struct lexer *lx, const struct span *span)
 
 enum { MAXINCLUDE = 200 };
 static bool
-tryinclude(struct lexer *lx, const struct span *span, const char *path)
+tryinclude(struct lexer *lx, const struct span *span, char *path)
 {
    struct lexer new;
    const char *err;
    switch (initlexer(&new, &err, path)) {
    default: assert(0);
    case LXERR: return 0;
+   case LXFILESEEN:
+      xbfree(path);
+      /* fallthru */
    case LXOK:
       new.save = xmalloc(sizeof *new.save);
       memcpy(new.save, lx, sizeof *lx);
@@ -1553,7 +1559,8 @@ tryinclude(struct lexer *lx, const struct span *span, const char *path)
       if (++includedepth == MAXINCLUDE)
          fatal(span, "Maximum nested include depth of %d reached", includedepth);
       break;
-   case LXFILESEEN:
+   case LXFILESKIP:
+      xbfree(path);
       break;
    }
    return 1;
@@ -1913,15 +1920,15 @@ initlexer(struct lexer *lx, const char **err, const char *file)
    fileid = openfile(err, &f, file);
    if (fileid < 0)
       return LXERR;
-   if (isoncefile(fileid) && isfileseen(fileid))
-      return LXFILESEEN;
+   if (isfileseen(fileid) && isoncefile(fileid))
+      return LXFILESKIP;
    memset(lx, 0, sizeof *lx);
    lx->fileid = fileid;
    markfileseen(fileid);
    lx->dat = f->p;
    lx->ndat = f->n;
    lx->tmparena = &tmparena;
-   return LXOK;
+   return getfilename(fileid) != file ? LXFILESEEN : LXOK;
 }
 
 /* callback to let lexer release temp memory for arena allocated token data */

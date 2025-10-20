@@ -101,6 +101,7 @@ struct lexer {
 enum initlexer {
    LXOK,
    LXFILESEEN,
+   LXFILESKIP,
    LXERR,
 };
 
