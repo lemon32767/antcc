@@ -1190,7 +1190,7 @@ globsym(union ref *psym, const struct expr *ex)
 static void
 expr2reloc(union ref *psym, vlong *paddend, const struct expr *ex)
 {
-   if (ex->t == EADDROF && globsym(psym, ex)) {
+   if (ex->t == EADDROF && globsym(psym, ex->sub)) {
       *paddend = 0;
    } else if (ex->t == EADDROF && (ex->sub->t == EGETF && globsym(psym, ex->sub->sub))) {
       *paddend = ex->sub->fld.off;
