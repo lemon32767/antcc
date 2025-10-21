@@ -442,7 +442,7 @@ lex0(struct lexer *lx, struct token *tk)
 Begin:
    idx = lx->chridx;
    switch (c = next(lx)) {
-   case ' ': case '\r': case '\t':
+   case ' ': case '\t': case '\f': case '\v': case '\r':
       goto Begin;
       break;
    case '(': case ')': case ',': case ':':
