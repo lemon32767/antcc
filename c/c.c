@@ -785,7 +785,7 @@ Unary:
       break;
    case TKSTRLIT:
       ty = mktype(((const char []){TYCHAR, TYSHORT, TYINT})[tk.wide]);
-      ex = mkexpr(ESTRLIT, tk.span, mkarrtype(ty, 0, tk.len+1), .s = { (void *)tk.s, tk.len });
+      ex = mkexpr(ESTRLIT, tk.span, mkarrtype(ty, 0, tk.len+1), { .s.p = (void *)tk.s, .s.n = tk.len });
       break;
    case TKIDENT:
    Ident:
@@ -2599,7 +2599,7 @@ expraddr(struct function *fn, const struct expr *ex)
 }
 
 static union ref
-genload(struct function *fn, union type t, union ref ref)
+genload(struct function *fn, union type t, union ref ref, bool volatyl)
 {
    struct instr ins = {0};
 
@@ -2614,6 +2614,7 @@ genload(struct function *fn, union type t, union ref ref)
    default: assert(0);
    }
    ins.l = ref;
+   ins.keep = volatyl;
    return addinstr(fn, ins);
 }
 
@@ -2963,7 +2964,7 @@ compilecall(struct function *fn, const struct expr *ex)
 }
 
 static union ref
-genbitfload(struct function *fn, const union type ty, union ref *addr, const struct exgetfld *fld)
+genbitfload(struct function *fn, const union type ty, union ref *addr, const struct exgetfld *fld, bool volatyl)
 {
    enum irclass k = type2cls[scalartypet(ty)];
    uint off = fld->off, bitsiz = fld->bitsiz, bitoff = fld->bitoff;
@@ -2973,7 +2974,7 @@ genbitfload(struct function *fn, const union type ty, union ref *addr, const str
    assert(k);
    if (off > 0)
       *addr = addinstr(fn, mkinstr(Oadd, KPTR, .l = *addr, .r = mkintcon(KI4, off)));
-   tmp = genload(fn, ty, *addr);
+   tmp = genload(fn, ty, *addr, volatyl);
    if (!issigned(ty)) {
       /* shift right and mask */
       if (bitoff > 0)
@@ -3007,7 +3008,7 @@ genbitfstore(struct function *fn, const union type ty, union ref addr,
    if (!tmp.bits) {
       if (off > 0)
          addr = addinstr(fn, mkinstr(Oadd, KPTR, .l = addr, .r = mkintcon(KI4, off)));
-      tmp = genload(fn, ty, addr);
+      tmp = genload(fn, ty, addr, 0);
    }
    mask = (bitsiz == 64 ? -1ull : (1ull << bitsiz) - 1) << bitoff;
 
@@ -3055,15 +3056,15 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       return mkintcon(cls, ex->i);
    case ESYM:
       if (discard && !(ex->qual & QVOLATILE)) return NOREF;
-      return genload(fn, ex->ty, expraddr(fn, ex));
+      return genload(fn, ex->ty, expraddr(fn, ex), ex->qual & QVOLATILE);
    case EGETF:
       if (discard && !(ex->qual & QVOLATILE)) return NOREF;
       if (ex->fld.bitsiz) {
          /* bit-field */
          r = expraddr(fn, ex->sub);
-         return genbitfload(fn, ex->ty, &r, &ex->fld);
+         return genbitfload(fn, ex->ty, &r, &ex->fld, ex->qual & QVOLATILE);
       }
-      return genload(fn, ex->ty, expraddr(fn, ex));
+      return genload(fn, ex->ty, expraddr(fn, ex), ex->qual & QVOLATILE);
    case ECAST:
       if (ex->ty.t == TYVOID) {
          expreffects(fn, sub);
@@ -3099,7 +3100,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       discard &= (ex->qual & QVOLATILE) == 0;
       r = compileexpr(fn, sub, discard);
       if (discard) return NOREF;
-      return genload(fn, ex->ty, r);
+      return genload(fn, ex->ty, r, ex->qual & QVOLATILE);
    case EADDROF:
       return expraddr(fn, sub);
    case EMUL:
@@ -3154,7 +3155,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       ins.op = ex->t == EPOSTINC ? Oadd : Osub;
       ins.cls = cls;
       r = expraddr(fn, sub);
-      ins.l = genload(fn, sub->ty, r);
+      ins.l = genload(fn, sub->ty, r, sub->qual & QVOLATILE);
       if (ex->ty.t == TYPTR)
          ins.r = mkintcon(KI4, typesize(typechild(ex->ty)));
       else
@@ -3166,7 +3167,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       ins.op = ex->t == EPREINC ? Oadd : Osub;
       ins.cls = cls;
       r = expraddr(fn, sub);
-      ins.l = genload(fn, sub->ty, r);
+      ins.l = genload(fn, sub->ty, r, sub->qual & QVOLATILE);
       if (ex->ty.t == TYPTR)
          ins.r = mkintcon(KI4, typesize(typechild(ex->ty)));
       else
@@ -3255,13 +3256,13 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
          /* bit-field */
          r = expraddr(fn, &sub[0].sub[0]);
-         ins.l = genbitfload(fn, sub[0].ty, &r, &sub[0].fld);
+         ins.l = genbitfload(fn, sub[0].ty, &r, &sub[0].fld, sub[0].qual & QVOLATILE);
          q = addinstr(fn, ins);
          genbitfstore(fn, sub[0].ty, r, &sub[0].fld, ins.l, q);
       } else {
          bitsiz = 0;
          r = expraddr(fn, &sub[0]);
-         ins.l = genload(fn, ex->ty, r);
+         ins.l = genload(fn, ex->ty, r, ex->qual & QVOLATILE);
          if ((ins.op != Oadd && ins.op != Osub) || cls != KPTR) {
             ins.l = cvt(fn, ty, sub[0].ty, ins.l);
             ins.r = cvt(fn, ex->ty, sub[1].ty, ins.r);

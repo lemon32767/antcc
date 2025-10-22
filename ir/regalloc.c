@@ -1048,6 +1048,10 @@ devirt(struct rega *ra, struct block *blk)
          insertinstr(blk, curi++, mkmove(ins->cls, ins->reg-1, ins->l.i));
          ins->l.i = ins->reg-1;
       }
+      if (!ins->reg && in_range(ins->op, Oloads1, Oloadf8)) {
+         assert(ins->keep);
+         ins->reg = kisint(ins->cls) ? mctarg->gprscratch+1 : mctarg->fprscratch+1;
+      }
    }
 
    return allnops;
