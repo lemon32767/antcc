@@ -1189,7 +1189,9 @@ emitbin(struct function *fn)
 
    /* ensure stack is 16-byte aligned for function calls */
    if (!fn->isleaf && ((fn->stksiz + npush*8) & 0xF) != 0x8) {
+      assert(usebp);
       fn->stksiz += 8;
+      rbpoff -= 4;
    }
 
    if (fn->stksiz != 0) {

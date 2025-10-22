@@ -938,7 +938,9 @@ devirt(struct rega *ra, struct block *blk)
       struct instr *ins = &instrtab[temp];
       struct interval *it;
       struct alloc *alloc;
+      struct addr newaddr;
       union ref *argref[4];
+      int naddr = 0;
       int nargref = 0;
       int nspill = 0;
 
@@ -946,16 +948,17 @@ devirt(struct rega *ra, struct block *blk)
       for (int i = 0; i < 2; ++i) {
          union ref *r = &i[&ins->l];
          if (r->t == RADDR) {
-            /* XXX mutating hashed addr.. should be fine though (because
-             * new RADDRs shouldn't be created after regalloc)
-             * maybe hashing them in the first place is unnecessary */
             struct addr *a = &addrht[r->i];
-            argref[nargref++] = &a->base;
-            argref[nargref++] = &a->index;
+            ++naddr;
+            newaddr = *a;
+            argref[nargref++] = &newaddr.base;
+            argref[nargref++] = &newaddr.index;
          } else {
             argref[nargref++] = r;
          }
       }
+      assert(naddr < 2);
+
       for (int i = 0; i < nargref; ++i) {
          static uchar cls2load[] = {
             [KI4] = Oloads4, [KI8] = Oloadi8, [KF4] = Oloadf4, [KF8] = Oloadf8, [KPTR] = 0
@@ -1010,6 +1013,10 @@ devirt(struct rega *ra, struct block *blk)
          }
       }
       if (nspill > 0) assert(ins->op != Ocall);
+      if (naddr) {
+         union ref *r = ins->l.t == RADDR ? &ins->l : &ins->r;
+         *r = mkaddr(newaddr);
+      }
 
       /* devirtualize destination */
       alloc = temp < ra->intervals.ntemps && (it = &ra->intervals.temps[temp]) && it->nrange ? &it->alloc : NULL;
@@ -1025,7 +1032,7 @@ devirt(struct rega *ra, struct block *blk)
             assert(nspill == 0);
             ins->reg = reg+1;
             addstkslotref(
-                  insertinstr(blk, ++curi, mkinstr(store, 0, .r = mkref(RREG, reg))).i,
+                  insertinstr(blk, curi+1, mkinstr(store, 0, .r = mkref(RREG, reg))).i,
                   alloc->a*8);
          }
       }
