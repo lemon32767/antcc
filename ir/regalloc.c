@@ -156,6 +156,7 @@ struct interval {
 
 struct intervals {
    int count; /* number of actual intervals */
+   int ntemps; /* size of temps */
    struct interval *temps; /* map of tmp -> interval */
    struct fixinterval {
       struct fixinterval *next;
@@ -533,6 +534,7 @@ buildintervals(struct rega *ra)
    for (int i = 0; i < ra->fn->nblk; ++i)
       livein[i] = allocz(ra->arena, bssize * sizeof *livein[i], 0);
    ra->intervals.temps = allocz(ra->arena, ninstr * sizeof *ra->intervals.temps, 0);
+   ra->intervals.ntemps = ninstr;
 
    numberinstrs(ra->fn);
    /* visit blocks in reverse, to build lifetime intervals */
@@ -1010,11 +1012,11 @@ devirt(struct rega *ra, struct block *blk)
       if (nspill > 0) assert(ins->op != Ocall);
 
       /* devirtualize destination */
-      alloc = temp < ra->intervals.count && (it = &ra->intervals.temps[temp]) && it->nrange ? &it->alloc : NULL;
+      alloc = temp < ra->intervals.ntemps && (it = &ra->intervals.temps[temp]) && it->nrange ? &it->alloc : NULL;
       if (alloc && alloc->t == ASTACK) {
          int store = Ostore1 + ilog2(cls2siz[insrescls(*ins)]);
          /* t was spilled, gen store */
-         if (ins->op == Ocopy) {
+         if (ins->op == Ocopy && ins->l.t != RADDR) {
             ins->op = store;
             ins->r = ins->l;
             addstkslotref(temp, alloc->a*8);
@@ -1027,7 +1029,7 @@ devirt(struct rega *ra, struct block *blk)
                   alloc->a*8);
          }
       }
-      if (!ins->reg && insrescls(*ins) && ins->op != Omove && !ins->keep) {
+      if (!ins->reg && insrescls(*ins) && ins->op != Omove && !ins->keep && !in_range(ins->op, Ostore1, Ostore8)) {
          /* dead */
       Nop:
         ins->op = Onop;
