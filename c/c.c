@@ -2668,7 +2668,7 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
          if (ex->t == EINIT || ex->t == ESTRLIT) {
             geninit(fn, ex->ty, adr, ex);
          } else if (isagg(ex->ty)) {
-            structcopy(fn, ex->ty, dst, expraddr(fn, ex));
+            structcopy(fn, ex->ty, adr, expraddr(fn, ex));
          } else {
             genstore(fn, ex->ty, adr, exprvalue(fn, ex));
          }
