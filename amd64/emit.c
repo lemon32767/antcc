@@ -225,7 +225,7 @@ opermatch(enum operpat pat, struct oper oper)
    case PGPR: return oper.t == OREG && oper.reg <= R15;
    case PFPR: return oper.t == OREG && oper.reg >= XMM0;
    case P1:   return oper.t == OIMM && oper.imm == 1;
-   case PI8:  return oper.t == OIMM && (uint)(oper.imm+128) < 256;
+   case PI8:  return oper.t == OIMM && (schar)oper.imm == oper.imm;
    case PI16: return oper.t == OIMM && (short)oper.imm == oper.imm;
    case PI32: return oper.t == OIMM;
    case PU32: return oper.t == OIMM && oper.imm >= 0;
