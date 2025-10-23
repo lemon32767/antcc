@@ -720,6 +720,96 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
    return ex;
 }
 
+static void
+ppostfixopers(struct comp *cm, struct expr *ex)
+{
+   struct expr tmp, rhs;
+   struct token tk, tk2;
+   struct span span;
+   union type ty;
+
+   for (;;) switch (peek(cm, &tk)) {
+   default: return;
+   case TKINC:
+   case TKDEC:
+      lex(cm, &tk);
+      span = ex->span;
+      if (!joinspan(&span.ex, tk.span.ex)) span = tk.span;
+      incdeccheck(tk.t, ex, &span);
+      *ex = mkexpr(tk.t == TKINC ? EPOSTINC : EPOSTDEC, span, ex->ty, .sub = exprdup(cm, ex));
+      continue;
+   case '[': /* a[subscript] */
+      lex(cm, NULL);
+      rhs = commaexpr(cm);
+      span = ex->span;
+      if (!joinspan(&span.ex, tk.span.ex) || !joinspan(&span.ex, ex->span.ex)
+       || (peek(cm, &tk2), !joinspan(&span.ex, tk.span.ex)))
+         span = tk.span;
+      expect(cm, ']', NULL);
+
+      if (isint(ex->ty) && isptrcvt(rhs.ty)) {
+         /* swap idx[ptr] -> ptr[idx] */
+         tmp = *ex;
+         *ex = rhs;
+         rhs = tmp;
+      }
+
+      ty = subscriptcheck(ex, &rhs, &span);
+      assert(ty.t);
+      if (!iszero(rhs)) {
+         tmp.sub = exprdup2(cm, ex, &rhs);
+         tmp.t = EADD;
+         tmp.span = span;
+         tmp.ty = typedecay(ex->ty);
+      }
+      tmp.sub = exprdup(cm, iszero(rhs) ? ex : &tmp);
+      tmp.span = span;
+      tmp.t = EDEREF;
+      tmp.qual = ex->ty.flag & TFCHLDQUAL;
+      tmp.ty = ty;
+      *ex = tmp;
+      continue;
+   case '(': /* call(args) */
+      lex(cm, &tk);
+      span = ex->span;
+      *ex = callexpr(cm, &span, ex);
+      continue;
+   case TKARROW:
+      if (ex->ty.t != TYPTR && ex->ty.t != TYARRAY)
+         error(&ex->span, "operand to -> is not a pointer: '%ty'", ex->ty);
+      else
+         *ex = mkexpr(EDEREF, ex->span, typechild(ex->ty), .qual = ex->ty.flag & TFCHLDQUAL,
+                     .sub = exprdup(cm, ex));
+      /* fallthru */
+   case '.':
+      lex(cm, &tk);
+      span = ex->span;
+      peek(cm, &tk2); /* field name */
+      if (!expect(cm, TKIDENT, NULL)) tk2.s = "";
+      if (!joinspan(&span.ex, tk.span.ex) || !joinspan(&span.ex, tk2.span.ex))
+         span = tk.span;
+      if (!isagg(ex->ty)) {
+         error(&span, "member access operand is not an aggregate: '%ty'%s", ex->ty,
+               ex->ty.t == TYPTR && isagg(typechild(ex->ty)) ? "; did you mean to use '->'?" : "");
+      } else {
+         struct fielddata fld = {.t = mktype(TYINT)};
+         if (*tk2.s && !getfield(&fld, ex->ty, tk2.s))
+            error(&span, "'%ty' has no such field: '%s'", ex->ty, tk2.s);
+         if (ex->t == EGETF && ex->qual == fld.qual) { /* accumulate */
+            ex->span = span;
+            ex->ty = fld.t;
+            ex->fld.off += fld.off;
+            ex->fld.bitoff = fld.bitoff;
+            ex->fld.bitsiz = fld.bitsiz;
+         } else {
+            *ex = mkexpr(EGETF, span, fld.t, .qual = ex->qual | fld.qual, .sub = exprdup(cm, ex),
+                        .fld = { fld.off, fld.bitsiz, fld.bitoff });
+         }
+      }
+      continue;
+   }
+}
+
 static inline int
 tkprec(int tt)
 {
@@ -735,7 +825,7 @@ static struct expr initializer(struct comp *cm, union type *ty, enum evalmode ev
 static struct expr
 exprparse(struct comp *cm, int prec, const struct token *ident, bool fromstmt)
 {
-   struct token tk, tk2;
+   struct token tk;
    struct span span;
    struct expr ex, rhs, tmp;
    struct decl *decl;
@@ -841,12 +931,17 @@ Unary:
       else if (isdecltok(cm)) { /* sizeof (type) */
          struct declstate st = { DCASTEXPR };
          ty = pdecl(&st, cm).ty;
-      } else { /* sizeof (expr) */
-         ty = commaexpr(cm).ty;
+         peek(cm, &tk);
+         if (expect(cm, ')', NULL))
+            joinspan(&span.ex, tk.span.ex);
+      } else { /* sizeof expr */
+         tmp = commaexpr(cm);
+         peek(cm, &tk);
+         if (expect(cm, ')', NULL))
+            joinspan(&span.ex, tk.span.ex);
+         ppostfixopers(cm, &tmp);
+         ty = tmp.ty;
       }
-      peek(cm, &tk);
-      if (expect(cm, ')', NULL))
-         joinspan(&span.ex, tk.span.ex);
       sizeofcheck(&span, ty);
       ex = mkexpr(ENUMLIT, span, mktype(targ_sizetype), .u = typesize(ty));
       break;
@@ -854,88 +949,7 @@ Unary:
       fatal(&tk.span, "expected %s (near %'tk)", fromstmt ? "statement" : "expression", &tk);
    }
 
-   /* postfix operators */
-Postfix:
-   switch (peek(cm, &tk)) {
-   default: break;
-   case TKINC:
-   case TKDEC:
-      lex(cm, &tk);
-      span = ex.span;
-      if (!joinspan(&span.ex, tk.span.ex)) span = tk.span;
-      incdeccheck(tk.t, &ex, &span);
-      ex = mkexpr(tk.t == TKINC ? EPOSTINC : EPOSTDEC, span, ex.ty, .sub = exprdup(cm, &ex));
-      goto Postfix;
-   case '[': /* a[subscript] */
-      lex(cm, NULL);
-      rhs = commaexpr(cm);
-      span = ex.span;
-      if (!joinspan(&span.ex, tk.span.ex) || !joinspan(&span.ex, ex.span.ex)
-       || (peek(cm, &tk2), !joinspan(&span.ex, tk.span.ex)))
-         span = tk.span;
-      expect(cm, ']', NULL);
-
-      if (isint(ex.ty) && isptrcvt(rhs.ty)) {
-         /* swap idx[ptr] -> ptr[idx] */
-         tmp = ex;
-         ex = rhs;
-         rhs = tmp;
-      }
-
-      ty = subscriptcheck(&ex, &rhs, &span);
-      assert(ty.t);
-      if (!iszero(rhs)) {
-         tmp.sub = exprdup2(cm, &ex, &rhs);
-         tmp.t = EADD;
-         tmp.span = span;
-         tmp.ty = typedecay(ex.ty);
-      }
-      tmp.sub = exprdup(cm, iszero(rhs) ? &ex : &tmp);
-      tmp.span = span;
-      tmp.t = EDEREF;
-      tmp.qual = ex.ty.flag & TFCHLDQUAL;
-      tmp.ty = ty;
-      ex = tmp;
-      goto Postfix;
-   case '(': /* call(args) */
-      lex(cm, &tk);
-      span = ex.span;
-      ex = callexpr(cm, &span, &ex);
-      goto Postfix;
-   case TKARROW:
-      if (ex.ty.t != TYPTR && ex.ty.t != TYARRAY)
-         error(&ex.span, "operand to -> is not a pointer: '%ty'", ex.ty);
-      else
-         ex = mkexpr(EDEREF, ex.span, typechild(ex.ty), .qual = ex.ty.flag & TFCHLDQUAL,
-                     .sub = exprdup(cm, &ex));
-      /* fallthru */
-   case '.':
-      lex(cm, &tk);
-      span = ex.span;
-      peek(cm, &tk2); /* field name */
-      if (!expect(cm, TKIDENT, NULL)) tk2.s = "";
-      if (!joinspan(&span.ex, tk.span.ex) || !joinspan(&span.ex, tk2.span.ex))
-         span = tk.span;
-      if (!isagg(ex.ty)) {
-         error(&span, "member access operand is not an aggregate: '%ty'%s", ex.ty,
-               ex.ty.t == TYPTR && isagg(typechild(ex.ty)) ? "; did you mean to use '->'?" : "");
-      } else {
-         struct fielddata fld = {.t = mktype(TYINT)};
-         if (*tk2.s && !getfield(&fld, ex.ty, tk2.s))
-            error(&span, "'%ty' has no such field: '%s'", ex.ty, tk2.s);
-         if (ex.t == EGETF && ex.qual == fld.qual) { /* accumulate */
-            ex.span = span;
-            ex.ty = fld.t;
-            ex.fld.off += fld.off;
-            ex.fld.bitoff = fld.bitoff;
-            ex.fld.bitsiz = fld.bitsiz;
-         } else {
-            ex = mkexpr(EGETF, span, fld.t, .qual = ex.qual | fld.qual, .sub = exprdup(cm, &ex),
-                        .fld = { fld.off, fld.bitsiz, fld.bitoff });
-         }
-      }
-      goto Postfix;
-   }
+   ppostfixopers(cm, &ex);
 
    /* unary operators (process) */
    while (nunop-- > 0) {
