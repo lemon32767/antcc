@@ -998,7 +998,7 @@ tryexpand(struct lexer *lx, struct token *tk)
          tk2[0] = *tk_, tk2[1] = tk;
          noexpandmac = 0;
          pushmacstk(lx, &span, &(struct macrostack) {
-            .rlist = { tk2, 2 },
+            .rlist = { tk2, 2 - (tk.t == TKEOF) },
             .exspan = span.ex,
             .macno = macidx,
          });
