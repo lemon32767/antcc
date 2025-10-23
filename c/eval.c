@@ -87,7 +87,7 @@ unop(struct expr *ex, enum evalmode mode)
          /*  *"s"  */
          off = 0;
          p = sub->s.p, len = sub->s.n;
-         csiz = typesize(sub->ty);
+         csiz = typesize(typechild(sub->ty));
       } else if (sub->t == EADD && sub->sub[0].t == ESTRLIT && eval(&sub->sub[1], EVINTCONST)) {
          /*  "s"[0]  */
          assert(sub->sub[1].t == ENUMLIT && isint(sub->sub[1].ty));

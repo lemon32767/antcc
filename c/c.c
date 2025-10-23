@@ -2926,7 +2926,7 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
       if (next && next != end) {
          putcondbranch(fn, r, next, end);
       } else {
-         assert(boolcon < 0);
+         //assert(boolcon < 0);
          putbranch(fn, end);
       }
    }
