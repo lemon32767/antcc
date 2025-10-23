@@ -71,12 +71,13 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
             *r = ZEROREF;
          else
             *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, con->cls, ZEROREF));
-      } else if (kisflt(con->cls) || con->cls == KI8) {
-         /* float immediates & >32b immediates are loaded from memory */
+      } else if (con->cls >= KI8) {
+         /* float immediates & 64bit immediates are loaded from memory */
          uchar data[8];
          uint siz = cls2siz[con->cls];
-         if (con->cls == KI4) wr32le(data, con->i);
-         else if (con->cls != KF4) wr64le(data, con->i);
+         if (con->cls <= KPTR && in_range(ins->op, Ocopy, Omove)) /* in this case we can use movabs */
+            return;
+         if (con->cls != KF4) wr64le(data, con->i);
          else {
             union { float f; int i; } pun = { con->f };
             wr32le(data, pun.i);
@@ -259,6 +260,18 @@ addarg4addrp(union ref r)
 }
 
 static void
+loadstoreaddr(struct block *blk, union ref *r, int *curi)
+{
+   if (isimm32(*r)) {
+      *r = mkaddr((struct addr){.base = *r});
+   } else if (!fuseaddr(r, blk, curi) && r->t != RTMP && r->t != RREG) {
+      *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, *r));
+   } else {
+      picfixsym(r, blk, curi);
+   }
+}
+
+static void
 sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 {
    uint siz, alignlog2;
@@ -392,14 +405,10 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       break;
    case Oloads1: case Oloadu1: case Oloads2: case Oloadu2:
    case Oloads4: case Oloadu4: case Oloadi8: case Oloadf4: case Oloadf8:
-      if (!fuseaddr(&ins->l, blk, curi) && ins->l.t != RTMP && ins->l.t != RREG)
-         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->l));
-      picfixsym(&ins->l, blk, curi);
+      loadstoreaddr(blk, &ins->l, curi);
       break;
    case Ostore1: case Ostore2: case Ostore4: case Ostore8:
-      if (!fuseaddr(&ins->l, blk, curi) && ins->l.t != RTMP && ins->l.t != RREG)
-         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->l));
-      picfixsym(&ins->l, blk, curi);
+      loadstoreaddr(blk, &ins->l, curi);
       if (isaddrcon(ins->r))
          ins->r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->r));
       else

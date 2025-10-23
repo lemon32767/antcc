@@ -140,6 +140,12 @@ mkmemoper(union ref r)
                              .cindex = addr->index.bits ? mkregoper(addr->index).reg : NOINDEX,
                              .cshift = addr->shift,
                              .disp = addr->disp);
+      } else if (isintcon(addr->base)) {
+         assert(!addr->disp);
+         return mkoper(OMEM, .base = NOBASE,
+                          .index = addr->index.bits ? mkregoper(addr->index).reg : NOINDEX,
+                          .disp = intconval(addr->base),
+                          .shift = addr->shift);
       } else if (isaddrcon(addr->index)) {
          assert(!addr->shift);
          return mkoper(OSYM, .con = addr->index.i,
@@ -351,13 +357,21 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
             }
          }
 
-         if (mem.index == NOINDEX && mem.shift == 0) sib = 0;
-         else sib = 1;
-         mod = !mem.disp ? 0                    /* disp = 0 -> mod = 00 */
-             : (uint)(mem.disp + 128) < 256 ? 1 /* disp8 -> mod = 01 */
-             : 2;                               /* disp32 -> mod = 10 */
-         if (mod == 0 && (mem.base == RBP || mem.base == R13)) mod = 1;
-         if (mem.base == RSP || mem.base == R12) sib = 1;
+         if (mem.base != NOBASE) {
+            if (mem.index == NOINDEX && mem.shift == 0) sib = 0;
+            else sib = 1;
+            mod = !mem.disp ? 0                    /* disp = 0 -> mod = 00 */
+                : (uint)(mem.disp + 128) < 256 ? 1 /* disp8 -> mod = 01 */
+                : 2;                               /* disp32 -> mod = 10 */
+            if (mod == 0 && (mem.base == RBP || mem.base == R13)) mod = 1;
+            if (mem.base == RSP || mem.base == R12) sib = 1;
+         } else {
+            /* [disp + (index*s)] */
+            sib = 1;
+            mem.base = RBP;
+            mod = 0;
+            assert(mem.index != RSP);
+         }
          D(opc, nopc);
          B(mod << 6 | (reg & 7) << 3 | (sib ? 4 : (mem.base & 7)));
          if (sib) {
@@ -365,7 +379,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
             B(mem.shift << 6 | (mem.index & 7) << 3 | (mem.base & 7));
          }
          if (mod == 1) B(mem.disp);
-         else if (mod == 2 || (mod == 0 && mem.base == RBP/*RIP-rel*/)) {
+         else if (mod == 2 || (mod == 0 && mem.base == RBP/*RIP-rel*/) || (mod == 0 && sib && mem.base == RSP/*absolute*/)) {
             I32(mem.disp);
          }
       }
@@ -842,11 +856,18 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       Xxor(pcode, kisint(cls) ? KI4 : cls, dst, dst);
    } else if (isaddrcon(val)) {
       if (ccopt.pic) GOTLoad:
-         /* for  mov reg, [rip(sym@GOTPCREL)] */ 
+         /* for  mov reg, [rip(sym@GOTPCREL)] */
          Xmov(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));
       else
-         /* for  lea reg, [rip(sym)] */ 
+         /* for  lea reg, [rip(sym)] */
          Xlea(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));
+   } else if (val.t == RXCON && in_range(concls(val), KI8, KPTR)) {
+      /* movabs */
+      assert(dst.t == OREG && in_range(dst.reg, RAX, R15));
+      B(0x48 | (dst.reg >> 3));       /* REX.W (+ REX.B)   */
+      B(0xB8 + (dst.reg & 0x7));      /* MOVABS r64,       */
+      wr64le(*pcode, intconval(val)); /*             imm64 */
+      *pcode += 8;
    } else {
       struct oper src = mkimmdatregoper(val);
       if (memcmp(&dst, &src, sizeof dst) != 0)
@@ -971,7 +992,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       assert(ins->reg-1 == dst.reg);
       X1(pcode, cls, dst);
       break;
-   case Omul: 
+   case Omul:
       if (kisint(cls))
    case Oumul:
          Ximul(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r));
