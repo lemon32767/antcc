@@ -121,7 +121,8 @@ struct declstate {
                     the declaration list is finished. */
         bitf, /* caller should parse a bitfield size and
                  call pdecl() to advance state before checking .more */
-        tagdecl;
+        tagdecl, /* declarator is a tagged type */
+        empty; /* nothing decl (';') */
    const char **pnames; /* param names for function definition */
    struct span *pspans; /* param spans ditto */
 };
@@ -1668,7 +1669,13 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
       struct declstate st = { DFIELD };
       do {
          struct decl decl = pdecl(&st, cm);
-         uint tysize = typesize(decl.ty);
+         uint tysize;
+         if (st.empty) {
+            if (ccopt.pedant)
+               warn(&decl.span, "extra semicolon in aggregate");
+            continue;
+         }
+         tysize = typesize(decl.ty);
          if (fld.n && td.flexi) {
             td.flexi = 0;
             error(&flexspan, "flexible array member is not at end of struct");
@@ -2422,9 +2429,13 @@ pdecl(struct declstate *st, struct comp *cm) {
    if (!st->base.t) {
       if (staticassertok && (match(cm, &tk, TKW_Static_assert) || match(cm, &tk, TKWstatic_assert))) {
          pstaticassert(cm, &tk.span);
-         return decl = (struct decl){0};
+         return (struct decl){0};
       }
       first = 1;
+      if (match(cm, &tk, ';')) {
+         st->empty = 1;
+         return (struct decl){.span = tk.span};
+      }
       st->scls = sclass(cm, &tk.span);
       if (popcnt(st->scls) > 1)
          error(&tk.span, "invalid combination of storage class specifiers");
@@ -3882,8 +3893,9 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
          }
       Err:
          if (!put) putdecl(cm, &decl);
-      } else if (forini)
+      } else if (forini) {
          error(&decl.span, "non-variable declaration in 'for' loop initializer");
+      }
    } while (st.more);
 }
 
@@ -4003,6 +4015,7 @@ docomp(struct comp *cm)
             }
             continue;
          }
+         if (st.empty) break;
          if (!decl.scls) {
             noscls = 1;
             decl.scls = SCEXTERN;
