@@ -235,7 +235,7 @@ fuseaddr(union ref *r, struct block *blk, int *curi)
    if (r->t != RTMP) return 0;
    if (!aadd(&addr, *r)) return 0;
 
-   if (ccopt.pic || (ccopt.pie && isaddrcon(addr.base) && addr.index.bits)) {
+   if (isaddrcon(addr.base) && (ccopt.pic || (ccopt.pie && addr.index.bits))) {
       /* pic needs to load from GOT */
       /* pie cannot encode RIP-relative address with index register */
       /*     first load symbol address into a temp register */
