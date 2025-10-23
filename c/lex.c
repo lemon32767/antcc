@@ -44,6 +44,7 @@ identkeyword(struct token *tk, const char *s, int len)
          /* allow future keywords but only if they begin with _ */
          tk->t = kwtab[i].t;
          tk->s = kwtab[i].s;
+         tk->len = strlen(tk->s);
          return kwtab[i].cstd <= ccopt.cstd;
       } else break;
    }
@@ -1082,7 +1083,8 @@ expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac)
          tk = mac->rlist.tk[i];
          if (tk.t == TKPPCAT) {
             if (i > 0 && i < mac->rlist.n-1) {
-               const struct token *lhs = &mac->rlist.tk[i-1], *rhs = &mac->rlist.tk[i+1];
+               const struct token *lhs = rlist2.n ? &rlist2.p[rlist2.n-1] : &mac->rlist.tk[i-1],
+                                  *rhs = &mac->rlist.tk[i+1];
                struct token new;
                if (lhs->t != TKPPMACARG && rhs->t != TKPPMACARG) {
                   /* trivial case should have been handled when defining */
@@ -1115,13 +1117,14 @@ expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac)
             struct macrostack *l;
             lhsargpaste = i < mac->rlist.n-1 && mac->rlist.tk[i+1].t == TKPPCAT;
             if (arg->n == 0) {
-               if (lhsargpaste) {
-                  lhsargforpaste.t = 0;
-                  lhsargforpaste.span = tk.span;
-               }
                if (rhsargpaste) {
                   rhsargpaste = 0;
-                  vpush(&rlist2, lhsargforpaste);
+                  if (!lhsargpaste && lhsargforpaste.t) {
+                     vpush(&rlist2, lhsargforpaste);
+                  }
+               } else if (lhsargpaste) {
+                  lhsargforpaste.t = 0;
+                  lhsargforpaste.span = tk.span;
                }
                continue;
             }
@@ -1197,7 +1200,7 @@ advancemacro(struct lexer *lx, struct token *tk)
    struct rlist rl;
    assert(lx->macstk);
    rl = lx->macstk->rlist;
-   if (lx->macstk->idx == rl.n) {
+   if (lx->macstk->idx >= rl.n) {
       if (lx->macstk->stop) {
          tk->t = TKEOF;
          return 1;
