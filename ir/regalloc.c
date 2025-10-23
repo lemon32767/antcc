@@ -975,9 +975,9 @@ devirt(struct rega *ra, struct block *blk)
                ins->op = cls2load[ins->cls];
                ins->r = NOREF;
                addstkslotref(temp, alloc->a*8);
-            } else if (alloc->t == ASTACK && ins->op == Ocopy) {
+            } else if (alloc->t == ASTACK && ins->op == Ocopy && r == &ins->l) {
                /* [reg] = copy [stk] -> [reg] = load [stk] */
-               assert(r == &ins->l && ins->reg);
+               assert(ins->reg);
                ins->op = cls2load[ins->cls];
                addstkslotref(temp, alloc->a*8);
             } else if (alloc->t == ASTACK) {
@@ -1021,19 +1021,35 @@ devirt(struct rega *ra, struct block *blk)
       /* devirtualize destination */
       alloc = temp < ra->intervals.ntemps && (it = &ra->intervals.temps[temp]) && it->nrange ? &it->alloc : NULL;
       if (alloc && alloc->t == ASTACK) {
-         int store = Ostore1 + ilog2(cls2siz[insrescls(*ins)]);
+         enum irclass cls = insrescls(*ins);
+         int store = Ostore1 + ilog2(cls2siz[cls]);
          /* t was spilled, gen store */
          if (ins->op == Ocopy && ins->l.t != RADDR) {
             ins->op = store;
             ins->r = ins->l;
             addstkslotref(temp, alloc->a*8);
          } else {
+            bool dosave = 0;
             int reg = kisint(insrescls(*ins)) ? mctarg->gprscratch : mctarg->fprscratch;
-            assert(nspill == 0);
+            assert(nspill < 2);
+            if (nspill > 0) {
+               for (reg = kisflt(cls) ? mctarg->fpr0 : mctarg->gpr0;; ++reg) {
+                  for (int j = 0; j < nargref; ++j)
+                     if (argref[j]->t == RREG && argref[j]->i == reg) continue;
+                  break;
+               }
+               /* if not the designated scratch register, we need to save+restore */
+               if ((dosave = rstest(fn->regusage, reg) || rstest(mctarg->rcallee, reg))) {
+                  insertinstr(blk, curi++, mkinstr(Oxsave, 0, .l = mkref(RREG, reg)));
+               }
+            }
             ins->reg = reg+1;
             addstkslotref(
-                  insertinstr(blk, curi+1, mkinstr(store, 0, .r = mkref(RREG, reg))).i,
+                  insertinstr(blk, ++curi, mkinstr(store, 0, .r = mkref(RREG, reg))).i,
                   alloc->a*8);
+            if (nspill > 0 && dosave) {
+               insertinstr(blk, ++curi, mkinstr(Oxrestore, 0, .l = mkref(RREG, reg)));
+            }
          }
       }
       if (!ins->reg && insrescls(*ins) && ins->op != Omove && !ins->keep && !in_range(ins->op, Ostore1, Ostore8)) {
