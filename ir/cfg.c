@@ -24,8 +24,11 @@ sortrpo(struct function *fn)
    fn->entry->id = 0;
    porec(&rpo, fn->entry);
    ndead = rpo - rpobuf;
-   for (struct block *blk = fn->entry; ndead > 0; blk = blk->lnext) {
+   for (struct block *blk = fn->entry->lprev, *next; ndead > 0; blk = next) {
+      next = blk->lprev;
       if (!wasvisited(blk)) {
+         for (int i = 0; i < blk->npred; ++i)
+            assert(!wasvisited(blkpred(blk, i)));
          blk->lnext = blk->lprev = NULL;
          freeblk(fn, blk);
          --ndead;

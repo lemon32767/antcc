@@ -236,6 +236,7 @@ void adduse(struct block *ublk, int ui, union ref r);
 union ref insertinstr(struct block *, int idx, struct instr);
 union ref insertphi(struct block *, enum irclass cls);
 void replcuses(union ref from, union ref to);
+bool deluse(struct block *ublk, int ui, union ref r);
 void deluses(int ins);
 void delinstr(struct block *, int idx);
 void delphi(struct block *, int idx);

@@ -1031,12 +1031,12 @@ devirt(struct rega *ra, struct block *blk)
          } else {
             bool dosave = 0;
             int reg = kisint(insrescls(*ins)) ? mctarg->gprscratch : mctarg->fprscratch;
-            assert(nspill < 2);
             if (nspill > 0) {
                for (reg = kisflt(cls) ? mctarg->fpr0 : mctarg->gpr0;; ++reg) {
                   for (int j = 0; j < nargref; ++j)
-                     if (argref[j]->t == RREG && argref[j]->i == reg) continue;
+                     if (argref[j]->t == RREG && argref[j]->i == reg) goto NotThis;
                   break;
+               NotThis:;
                }
                /* if not the designated scratch register, we need to save+restore */
                if ((dosave = rstest(fn->regusage, reg) || rstest(mctarg->rcallee, reg))) {

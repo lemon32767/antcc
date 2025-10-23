@@ -228,7 +228,7 @@ delpred(struct block *blk, struct block *p)
          return;
       }
    }
-   assert(0&&"blk not in p");
+   //assert(0&&"blk not in p");
 }
 
 struct block *
@@ -245,6 +245,25 @@ freeblk(struct function *fn, struct block *blk)
 {
    if (blk->npred > 1)
       xbfree(blk->_pred);
+
+   for (int i = 0; i < blk->phi.n; ++i) {
+      int ui = blk->phi.p[i];
+      union ref *r = phitab.p[instrtab[ui].l.i];
+      for (int j = 0; j < blk->npred; ++j) {
+         deluse(blk, ui, *r);
+      }
+   }
+   for (int i = 0; i < blk->ins.n; ++i) {
+      int ui = blk->ins.p[i];
+      struct instr *ins = &instrtab[ui];
+      if (ins->l.t == RTMP) deluse(blk, ui, ins->l);
+      if (ins->r.t == RTMP) deluse(blk, ui, ins->r);
+   }
+   for (int i = 0; i < 2; ++i) {
+      if (blk->jmp.arg[i].t == RTMP) deluse(blk, USERJUMP, blk->jmp.arg[i]);
+   }
+   if (blk->s1) delpred(blk->s1, blk);
+   if (blk->s2) delpred(blk->s2, blk);
    vfree(&blk->phi);
    vfree(&blk->ins);
    if (blk->lnext) blk->lnext->lprev = blk->lprev;
