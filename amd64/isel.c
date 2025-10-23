@@ -392,7 +392,15 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       /* commutative ops */
       if (iscon(ins->l))
          rswap(ins->l, ins->r);
-   case Oneg: case Onot:
+      goto ALU;
+   case Oneg:
+      if (kisflt(ins->cls)) {
+         ins->op = Osub;
+         ins->r = ins->l;
+         ins->l = ZEROREF;
+      }
+      /* fallthru */
+   case Onot:
    ALU:
       if (!(op == Oadd && kisint(ins->cls))) /* 3-address add is lea */
       if (!(in_range(op, Omul, Oumul) && kisint(ins->cls) && isimm32(ins->r))) /* for (I)MUL r,r/m,imm */
@@ -451,7 +459,7 @@ seljmp(struct function *fn, struct block *blk)
        && (oiscmp(instrtab[c.i].op) || instrtab[c.i].op == Oand || instrtab[c.i].op == Osub)) {
          instrtab[c.i].keep = 1;
       } else {
-         if (!(opflags[instrtab[c.i].op] & ZF) || c.i != blk->ins.p[blk->ins.n - 1]) {
+         if (!(opflags[instrtab[c.i].op] & ZF) || blk->ins.n == 0 || c.i != blk->ins.p[blk->ins.n - 1]) {
             blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, instrtab[c.i].cls, c, ZEROREF));
             instrtab[blk->jmp.arg[0].i].keep = 1;
          }

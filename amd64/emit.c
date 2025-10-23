@@ -658,6 +658,7 @@ DEFINSTR2(Xtest,
    {  8, PRAX, PU32, "\xA9", EN_I32}, /* TEST EAX, imm32 */
    {  8, PRAX, PI32, "\xA9", EN_I32}, /* TEST RAX, imm32 */
    {4|8, PGPR, PI8,  "\xF6", EN_RI8, .r8=1},  /* TEST r8, imm8 */
+   {4|8, PGPR, PI32, "\xF7", EN_RI32, .ext=0}, /* TEST r32/64, imm32 */
    {4|8, PGPR, PGPR, "\x85", EN_RR},   /* TEST r32/64, r32/64 */
    {4|8, PGPR, PMEM, "\x85", EN_RM},   /* TEST r32/64, m32/64 */
 )
@@ -851,7 +852,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
          goto GOTLoad;
       }
       Xlea(pcode, cls, dst, ref2oper(val));
-   } else if (val.bits == ZEROREF.bits && dst.t == OREG && !flagslivep(blk, curi)) {
+   } else if (val.bits == ZEROREF.bits && dst.t == OREG && (kisflt(cls) || !flagslivep(blk, curi))) {
       /* dst = 0 -> xor dst, dst; but only if it is ok to clobber flags */
       Xxor(pcode, kisint(cls) ? KI4 : cls, dst, dst);
    } else if (isaddrcon(val)) {
