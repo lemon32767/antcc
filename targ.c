@@ -15,6 +15,7 @@ static const struct targ {
 
 uchar targ_primsizes[TYPTR+1];
 uchar targ_primalign[TYPTR+1];
+uint targ_valistsize;
 enum typetag targ_sizetype, targ_ptrdifftype, targ_wchartype;
 bool targ_charsigned, targ_bigendian, targ_64bit;
 const struct mctarg *mctarg;
@@ -35,12 +36,12 @@ targ_init(const char *starg)
    sizes[TYULONG] = sizes[TYLONG] = t->longsize;
    sizes[TYUVLONG] = sizes[TYVLONG] = t->vlongsize;
    sizes[TYPTR] = t->ptrsize;
-   sizes[TYVALIST] = t->valistsize;
    align[TYULONG] = align[TYLONG] = t->longalign;
    align[TYUVLONG] = align[TYVLONG] = t->vlongalign;
    align[TYDOUBLE] = t->doublealign;
    align[TYLDOUBLE] = t->doublealign;
-   align[TYVALIST] = align[TYPTR] = t->ptralign;
+   align[TYPTR] = t->ptralign;
+   targ_valistsize = t->valistsize;
    targ_sizetype = t->sizetype;
    targ_ptrdifftype = t->ptrdifftype;
    targ_wchartype = t->wchartype;

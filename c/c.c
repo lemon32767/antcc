@@ -3995,11 +3995,19 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
 void
 docomp(struct comp *cm)
 {
+   static union type valistty;
    struct token tk[1];
 
    if (!cm->env) cm->env = &toplevel;
 
-   putdecl(cm, &(struct decl) { mktype(TYVALIST), SCTYPEDEF, .name = intern("__builtin_va_list") });
+   if (!valistty.t) {
+      struct typedata td = {
+         .t = TYSTRUCT, .siz = targ_valistsize, .align = targ_primalign[TYPTR], .nmemb = 1,
+         .fld = (struct namedfield [1]){{"?"}}
+      };
+      valistty = mktagtype(intern("__builtin_va_list"), &td);
+   }
+   putdecl(cm, &(struct decl) { valistty, SCTYPEDEF, .name = intern("__builtin_va_list") });
 
    while (peek(cm, tk) != TKEOF) {
       struct declstate st = { DTOPLEVEL };

@@ -160,7 +160,6 @@ enum typetag { /* ordering is important here! */
    TYBOOL, TYCHAR, TYSCHAR, TYUCHAR, TYSHORT, TYUSHORT, TYINT, TYUINT, TYLONG, TYULONG, TYVLONG, TYUVLONG,
    TYFLOAT, TYDOUBLE, TYLDOUBLE,
    TYVOID,
-   TYVALIST,
    TYPTR, TYARRAY, TYFUNC,
    TYSTRUCT, TYUNION,
    NTYPETAG,
@@ -193,7 +192,7 @@ union type {
    uint bits;
 };
 
-#define isprimt(t)     in_range((t), TYBOOL, TYVALIST)
+#define isprimt(t)     in_range((t), TYBOOL, TYVOID)
 #define isintt(t)      in_range((t), TYENUM, TYUVLONG)
 #define issignedt(t)   ((TYSIGNEDSET_ | targ_charsigned << TYCHAR) >> (t) & 1)
 #define isunsignedt(t) ((TYUNSIGNEDSET_ | !targ_charsigned << TYCHAR) >> (t) & 1)
@@ -335,6 +334,7 @@ typearrlen(union type t)
 /* TARGET */
 /**********/
 
+extern uint targ_valistsize;
 extern uchar targ_primsizes[];
 extern uchar targ_primalign[];
 extern enum typetag targ_sizetype, targ_ptrdifftype, targ_wchartype;

@@ -210,7 +210,6 @@ pritypebefore(struct wbuf *buf, union type ty, int qual)
    case TYFLOAT:  s = "float"; goto Prim;
    case TYDOUBLE: s = "double"; goto Prim;
    case TYLDOUBLE:s = "long double"; goto Prim;
-   case TYVALIST: s = "va_list"; goto Prim;
    case TYPTR:
       chld = typechild(ty);
       n = pritypebefore(buf, chld, ty.flag & TFCHLDQUAL);
