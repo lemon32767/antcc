@@ -4,7 +4,7 @@
 const char *
 intern(const char *s)
 {
-   static const char *ht[1<<12];
+   static const char *ht[1<<14];
    static struct { char m[sizeof(struct arena) + (1<<10)]; struct arena *_a; } amem;
    static struct arena *arena;
    uint h, i, n = arraylength(ht);
