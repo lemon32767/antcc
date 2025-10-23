@@ -212,11 +212,10 @@ parsenumlit(uvlong *outi, double *outf, const struct token *tk, bool ispp)
       for (; sx < tk->s + tk->len; ++sx) {
          if (base < 16) {
             if (!in_range(c = *sx, '0', '0'+base-1)) break;
-            n = n * base + c - '0';
+            n = n*base + c - '0';
          } else {
-            n *= base;
-            if (in_range(c = *sx, '0', '9')) n += c - '0';
-            else if (in_range(c|32, 'a', 'f')) n += 0xa + (c|32) - 'a';
+            if (in_range(c = *sx, '0', '9')) n = n*base + c - '0';
+            else if (in_range(c|32, 'a', 'f')) n = n*base + 0xa + (c|32) - 'a';
             else break;
          }
       }
