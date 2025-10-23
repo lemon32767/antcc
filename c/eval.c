@@ -93,13 +93,13 @@ unop(struct expr *ex, enum evalmode mode)
          assert(sub->sub[1].t == ENUMLIT && isint(sub->sub[1].ty));
          off = sub->sub[1].u;
          p = sub->sub[0].s.p, len = sub->sub[0].s.n;
-         csiz = typesize(sub->sub[0].ty);
+         csiz = typesize(typechild(sub->sub[0].ty));
       } else if (sub->t == EADD && sub->sub[1].t == ESTRLIT && eval(&sub->sub[0], EVINTCONST)) {
          /*  0["s"]  */
          assert(sub->sub[0].t == ENUMLIT && isint(sub->sub[0].ty));
          off = sub->sub[0].u;
          p = sub->sub[1].s.p, len = sub->sub[1].s.n;
-         csiz = typesize(sub->sub[1].ty);
+         csiz = typesize(typechild(sub->sub[1].ty));
       } else return 0;
       if (off > len) return 0;
       ex->t = ENUMLIT;
