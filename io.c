@@ -1,22 +1,35 @@
 #include "c/lex.h"
+#include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <errno.h>
 
-static char stdoutbuf[1024], stderrbuf[1024];
-struct wbuf bstdout = FDBUF(stdoutbuf, sizeof stdoutbuf, 1),
-            bstderr = FDBUF(stderrbuf, sizeof stderrbuf, 2);
+struct wbuf bstdout, bstderr;
+
+void
+ioinit(void)
+{
+   bstdout.fp = stdout;
+   bstdout.isfp = 1;
+   bstderr.fp = stderr;
+   bstderr.isfp = 1;
+}
 
 void
 iowrite(struct wbuf *buf, const void *Src, int n)
 {
    const uchar *src = Src;
 
+   if (buf->isfp) {
+      fwrite(Src, 1, n, buf->fp);
+      buf->err = ferror(buf->fp) != 0;
+      return;
+   }
    while (n > 0) {
       int avail = buf->cap - buf->len;
       int amt = avail < n ? avail : n;
@@ -40,6 +53,11 @@ ioflush(struct wbuf *buf)
 {
    int i, ret;
 
+   if (buf->isfp) {
+      fflush(buf->fp);
+      buf->err = ferror(buf->fp) != 0;
+      return;
+   }
    buf->err = 0;
    if (buf->fd < 0) {
       buf->len = 0;
@@ -63,6 +81,10 @@ ioflush(struct wbuf *buf)
 void
 ioputc(struct wbuf *buf, uchar c)
 {
+   if (buf->isfp) {
+      buf->err = fputc(c, buf->fp) != EOF;
+      return;
+   }
    if (buf->len == buf->cap) {
       if (buf->fd < 0) {
          buf->err = 1;
@@ -381,6 +403,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
       case 'S':  /* string ptr + len */
          s = va_arg(ap, const char *);
          i = va_arg(ap, uint);
+      PriS:
          assert(s && "%S null");
          if (quote) {
             n += bputc(buf, '"');
@@ -468,9 +491,16 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
                n += bwriteS(buf, "\?\?\?");
                break;
             case TKNUMLIT:
-               if (quote) n += bputc(buf, '`');
-               n += bfmt(buf, "%S", tok->s, tok->len);
-               if (quote) n += bputc(buf, '\'');
+               if (quote) {
+                  n += bputc(buf, '`');
+                  iowrite(buf, tok->s, tok->len);
+                  n += tok->len;
+                  n += bputc(buf, '\'');
+               } else {
+                  s = tok->s;
+                  i = tok->len;
+                  goto PriS;
+               }
                break;
             case TKCHRLIT:
                if (tok->wide) n += bputc(buf, tok->wideuni ? tok->wide == 1 ? 'u' : 'U' : 'L');
@@ -490,9 +520,12 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
                n += bputc(buf, '\'');
                break;
             case TKSTRLIT:
-               if (tok->wide == 0)
-                  n += bfmt(buf, "%'S", tok->s, tok->len);
-               else {
+               if (tok->wide == 0) {
+                  s = tok->s;
+                  i = tok->len;
+                  quote = 1;
+                  goto PriS;
+               } else {
                   n += bputc(buf, tok->wideuni ? tok->wide == 1 ? 'u' : 'U' : 'L');
                   n += bputc(buf, '\"');
                   for (int i = 0; i < tok->len; ++i) {
@@ -547,7 +580,8 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             default:
                if (quote) n += bputc(buf, '`');
                if (in_range(tok->t, TKWBEGIN_, TKWEND_)) {
-                  n += bfmt(buf, "%s", tok->s);
+                  iowrite(buf, tok->s, tok->len);
+                  n += tok->len;
                } else if (aisprint(tok->t)) {
                   n += bputc(buf, tok->t);
                } else {
@@ -561,16 +595,16 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             tok = &(struct token) { va_arg(ap, int) };
             switch (tok->t) {
             case TKNUMLIT:
-               n += bfmt(buf, "numeric literal");
+               n += bwriteS(buf, "numeric literal");
                break;
             case TKSTRLIT:
-               n += bfmt(buf, "string literal");
+               n += bwriteS(buf, "string literal");
                break;
             case TKIDENT:
-               n += bfmt(buf, "identifier");
+               n += bwriteS(buf, "identifier");
                break;
             case TKEOF:
-               n += bfmt(buf, "<end-of-file>");
+               n += bwriteS(buf, "<end-of-file>");
                break;
             default:
                if (tok->t >= TKWBEGIN_ && tok->t <= TKWEND_) {
@@ -628,6 +662,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
       if (pad > 0) { /* left pad */
          while (pad-- > buf->len)
             n += bputc(out, ' ');
+         assert(buf != out);
          iowrite(out, buf->buf, buf->len);
          out->err |= buf->err;
       } else if (pad < 0) { /* right pad */

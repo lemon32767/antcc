@@ -1206,7 +1206,7 @@ advancemacro(struct lexer *lx, struct token *tk)
       return 0;
    }
    *tk = rl.tk[lx->macstk->idx++];
-   assert(tk->t);
+   assert(tk->t && tk->t != TKEOF);
    tk->span.ex = lx->macstk->exspan;
    if (tryexpand(lx, tk))
       return 0;

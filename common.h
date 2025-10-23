@@ -541,11 +541,17 @@ rsiter(int *i, uvlong rs)
 /********/
 
 struct wbuf {
-   char *buf;
-   const uint cap;
-   uint len;
-   int fd;
+   union {
+      struct {
+         char *buf;
+         const uint cap;
+         uint len;
+         int fd;
+      };
+      void *fp;
+   };
    bool err;
+   bool isfp;
 };
 
 /* read-only file mapping that is at least 1 page larger than the real file
@@ -562,9 +568,10 @@ struct embedfile {
    size_t len;
 };
 
-#define MEMBUF(buf, cap) { (buf), (cap), .fd = -1 }
-#define FDBUF(buf, cap, fd_)  { (buf), (cap), .fd = (fd_) }
+#define MEMBUF(buf_, cap_) { .buf = (buf_), .cap = (cap_), .fd = -1 }
+#define FDBUF(buf_, cap_, fd_)  { .buf = (buf_), .cap = (cap_), .fd = (fd_) }
 extern struct wbuf bstdout, bstderr;
+void ioinit(void);
 void iowrite(struct wbuf *, const void *src, int n);
 void ioputc(struct wbuf *, uchar);
 void ioflush(struct wbuf *);

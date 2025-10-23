@@ -9,13 +9,6 @@
 struct option ccopt;
 struct inclpaths *cinclpaths;
 
-static void
-flushstd(void)
-{
-   ioflush(&bstdout);
-   ioflush(&bstderr);
-}
-
 /* parse an argument of the form 'opt=abcd'
  * e.g.  arg="foo=bar123"; opt="foo"; returns "bar123" */
 static const char *
@@ -236,7 +229,6 @@ compileobjs(void)
 
    if (!ccopt.dbg.any) mktemps();
    for (int i = 0; i < task.ninf; ++i) {
-      flushstd();
       if ((p = fork()) < 0) {
          error(NULL, "fork(): %s\n", strerror(errno));
          exit(1);
@@ -284,7 +276,6 @@ dolink(void)
       efmt("\n");
    }
    vpush(&cmd, NULL);
-   flushstd();
    if ((p = fork()) < 0) {
       error(NULL, "fork(): %s\n", strerror(errno));
       exit(1);
@@ -410,9 +401,9 @@ sysinclpaths(void)
 int
 main(int argc, char **argv)
 {
-   atexit(flushstd);
    globarena->cap = sizeof(_arenamem.mem) - sizeof(struct arena);
 
+   ioinit();
    /* setup defaults */
    detectcolor();
    sysinclpaths();
