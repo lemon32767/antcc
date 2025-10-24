@@ -62,7 +62,6 @@ tdequ(const struct typedata *a, const struct typedata *b)
             return 0;
       }
       return 1;
-      break;
    default:
       assert(0 && "bad typedata tag");
    }
