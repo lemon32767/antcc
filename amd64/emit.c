@@ -1213,7 +1213,7 @@ emitbin(struct function *fn)
    if (!fn->isleaf && ((fn->stksiz + npush*8) & 0xF) != 0x8) {
       assert(usebp);
       fn->stksiz += 8;
-      rbpoff -= 4;
+      rbpoff -= 8;
    }
 
    if (fn->stksiz != 0) {
