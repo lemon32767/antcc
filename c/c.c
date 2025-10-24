@@ -3426,7 +3426,7 @@ struct switchstmt {
    vec_of(struct swcase) cases;
 };
 
-static void
+static bool
 genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
 {
    union ref sel;
@@ -3475,8 +3475,15 @@ genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
    vfree(&st.cases);
    if (fn->curblk != end) {
       if (fn->curblk) EMITS putbranch(fn, end);
-      useblk(fn, end);
+      if (end->npred > 0) {
+         useblk(fn, end);
+      } else {
+         fn->curblk = NULL;
+         freeblk(fn, end);
+      }
    }
+
+   return fn->curblk == NULL;
 }
 
 static bool /* return 1 if stmt is terminating (ends with a jump) */
@@ -3728,7 +3735,7 @@ stmt(struct comp *cm, struct function *fn)
       expect(cm, ')', NULL);
       if (!isint(ex.ty))
          error(&ex.span, "'switch' value is not an integer: '%ty'", ex.ty);
-      genswitch(cm, fn, &ex);
+      terminates = genswitch(cm, fn, &ex);
       break;
    case TKWbreak:
       lex(cm, &tk);

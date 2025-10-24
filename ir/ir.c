@@ -297,7 +297,6 @@ insertblk(struct function *fn, struct block *pred, struct block *subst)
    assert(0);
 }
 
-
 static int
 newinstr(void)
 {
