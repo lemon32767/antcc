@@ -3712,7 +3712,12 @@ stmt(struct comp *cm, struct function *fn)
             putbranch(fn, begin);
             freearena(&atmpp);
          } else if (!terminates) putbranch(fn, begin);
-         useblk(fn, fl);
+         if (fl->npred > 0) {
+            useblk(fn, fl);
+         } else {
+            freeblk(fn, fl);
+            terminates = 1;
+         }
       }
       envup(cm);
       break;

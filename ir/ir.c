@@ -266,10 +266,11 @@ freeblk(struct function *fn, struct block *blk)
    if (blk->s2) delpred(blk->s2, blk);
    vfree(&blk->phi);
    vfree(&blk->ins);
+   if (blk->id != -1)
+      --fn->nblk;
    if (blk->lnext) blk->lnext->lprev = blk->lprev;
    if (blk->lprev) blk->lprev->lnext = blk->lnext;
    blk->id = 1u<<31;
-   --fn->nblk;
 }
 
 struct block *
