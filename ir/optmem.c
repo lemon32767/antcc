@@ -151,7 +151,7 @@ Recur:
    for (int i = 0; i < blk->npred; ++i) {
       struct block *p = blkpred(blk, i);
       if (wasvisited(p)) continue;
-      if (!trysealrec(sb, p)) return 0;
+      if (p->id > sb->lastvisit) return 0;
    }
 
    bsset(sb->sealed, blk->id);
