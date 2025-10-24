@@ -105,7 +105,48 @@ wr64be(uchar *p, uvlong x)
    memcpy(p, &x, sizeof x);
 }
 
-/** target-endian memory writes **/
+/** target-endian memory read/write **/
+
+static inline ushort
+rd16targ(uchar *p)
+{
+   ushort x;
+   memcpy(&x, p, sizeof x);
+   if (!hostntarg_sameendian()) x = bswap16(x);
+   return x;
+}
+
+static inline uint
+rd32targ(uchar *p)
+{
+   uint x;
+   memcpy(&x, p, sizeof x);
+   if (!hostntarg_sameendian()) x = bswap16(x);
+   return x;
+}
+
+static inline uvlong
+rd64targ(uchar *p)
+{
+   uvlong x;
+   memcpy(&x, p, sizeof x);
+   if (!hostntarg_sameendian()) x = bswap16(x);
+   return x;
+}
+
+static inline float
+rdf32targ(uchar *p)
+{
+   union { uint i; float f; } u = { rd32targ(p) };
+   return u.f;
+}
+
+static inline double
+rdf64targ(uchar *p)
+{
+   union { uvlong i; double f; } u = { rd64targ(p) };
+   return u.f;
+}
 
 static inline void
 wr16targ(uchar *p, ushort x)

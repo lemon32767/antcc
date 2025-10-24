@@ -1226,17 +1226,15 @@ expr2reloc(union ref *psym, vlong *paddend, const struct expr *ex)
 }
 
 static void
-iniwrite(struct comp *cm, struct initparser *ip, uint off, union type ty, struct expr *ex)
+iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bitoff, union type ty, struct expr *ex)
 {
    uchar *p;
-   uint bitsiz, bitoff;
    if (ex->ty.t == TYSTRUCT) {
       assert(ty.bits == ex->ty.bits);
       for (uint i = 0, n = nmemb(ex->ty); i < n; ++i) {
          uint suboff;
          union type sub = membertype(&suboff, &bitsiz, &bitoff, ex->ty, i);
-         assert(!bitsiz);
-         iniwrite(cm, ip, off + suboff, sub, &mkexpr(EGETF, ex->span, sub, .sub = ex));
+         iniwrite(cm, ip, off + suboff, bitsiz, bitoff, sub, exprdup(cm, &mkexpr(EGETF, ex->span, sub, .sub = ex)));
       }
    } else if (ip->ev == EVSTATICINI) {
       uint siz = typesize(ty);
@@ -1256,18 +1254,26 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, union type ty, struct
          struct expr *e = ex, tmp;
          if (ex->ty.bits != ty.bits && ty.t != TYPTR) {
             tmp = mkexpr(ECAST, ex->span, ty, .sub = ex);
-            e = &tmp;
+            e = exprdup(cm, &tmp);
             eval(e, EVSTATICINI);
             assert(e->t == ENUMLIT);
          }
-         // efmt("#%u' wr %lx at %u\n", ip->dyn?0:ip->off, e->u, off);
-         // ioflush(&bstderr);
-         switch (siz) {
+         if (!bitsiz) switch (siz) {
          default: assert(0);
          case 1: *p = e->u; break;
          case 2: wr16targ(p, e->u); break;
          case 4: isint(ty) ? wr32targ(p, e->u) : wrf32targ(p, e->f); break;
          case 8: isint(ty) ? wr64targ(p, e->u) : wrf64targ(p, e->f); break;
+         } else {
+            uvlong mask = (bitsiz == 64 ? -1ull : (1ull << bitsiz) - 1) << bitoff;
+            if (bitoff + bitsiz > siz*8) siz <<= 1; /* straddles an allocation boundary */
+            switch (siz) {
+            default: assert(0);
+            case 1: *p = (*p &~ mask) | (e->u << bitoff & mask); break;
+            case 2: wr16targ(p, (rd16targ(p) &~ mask) | (e->u << bitoff & mask)); break;
+            case 4: wr32targ(p, (rd32targ(p) &~ mask) | (e->u << bitoff & mask)); break;
+            case 8: wr64targ(p, (rd64targ(p) &~ mask) | (e->u << bitoff & mask)); break;
+            }
          }
       } else if (ty.t == TYARRAY && ex->t == ESTRLIT) {
          uint n = ex->s.n * typesize(typechild(ty));
@@ -1296,11 +1302,13 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, union type ty, struct
       struct init *init = ip->init;
       struct initval val = {
          .off = off,
+         .bitoff = bitoff,
+         .bitsiz = bitsiz,
          .ex = *ex
       }, *new = alloccopy(&cm->exarena, &val, sizeof val, 0);
       *init->tail = new;
       init->tail = &new->next;
-      for (uint i = off, end = i + typesize(ex->ty); i < end; ++i) {
+      if (!bitsiz) for (uint i = off, end = i + typesize(ex->ty); i < end; ++i) {
          if (BSSIZE(end) > arraylength(init->zero)) break;
          bsclr(init->zero, i);
       }
@@ -1369,7 +1377,6 @@ ininext(struct initparser *ip, struct comp *cm)
 
 Retry:
    targ = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, ip->sub->idx);
-   assert(!bitsiz);
 
    if (isagg(ip->sub->ty) && targ.t == TYARRAY && !typearrlen(targ)) {
       error(&ex.span, "cannot initialize flexible array member");
@@ -1379,7 +1386,7 @@ Retry:
    if (ex.t == ESTRLIT && chrarrayof(targ, typechild(ex.ty))) {
       assert(!isincomplete(targ));
       inistrlit(cm, &ex, &targ);
-      iniwrite(cm, ip, ip->sub->off + off, targ, &ex);
+      iniwrite(cm, ip, ip->sub->off + off, 0,0, targ, &ex);
       ++ip->sub->idx;
       return;
    } else if (ex.t == ESTRLIT && ip->sub->idx == 0 && chrarrayof(ip->sub->ty, typechild(ex.ty))) {
@@ -1387,7 +1394,7 @@ Retry:
       assert(off == 0);
       targ = ip->sub->ty;
       inistrlit(cm, &ex, &targ);
-      iniwrite(cm, ip, ip->sub->off, targ, &ex);
+      iniwrite(cm, ip, ip->sub->off, 0,0, targ, &ex);
       if (ip->sub == ip->buf && ip->arrlen < ex.s.n+1)
          ip->arrlen = ex.s.n+1;
       --ip->sub;
@@ -1423,7 +1430,7 @@ Retry:
                   ex = mkexpr(ECAST, ex.span, targ, .sub = exprdup(cm, &ex));
                pex = exprdup(cm, &ex);
             }
-            iniwrite(cm, ip, ip->sub->off + off, targ, pex);
+            iniwrite(cm, ip, ip->sub->off + off, bitsiz, bitoff, targ, pex);
          }
       }
    }
@@ -1564,7 +1571,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
       struct expr ex = expr(cm);
       if (ex.t == ESTRLIT && chrarrayof(*ty, typechild(ex.ty))) {
          inistrlit(cm, &ex, ty);
-         iniwrite(cm, ip, 0, *ty, &ex);
+         iniwrite(cm, ip, 0, 0, 0, *ty, &ex);
          if (ip->dyn)
             goto Dynfix;
       }
@@ -1574,7 +1581,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
          if (ev && !eval(&ex, ev) && ev != EVFOLD)
             error(&ex.span, "cannot evaluate expression statically");
          else
-            iniwrite(cm, ip, 0, *ty, &ex);
+            iniwrite(cm, ip, 0, 0, 0, *ty, &ex);
       }
       return ex;
    }
@@ -2661,6 +2668,9 @@ genstore(struct function *fn, union type t, union ref ptr, union ref val)
    return addinstr(fn, ins);
 }
 
+static void genbitfstore(struct function *fn, const union type ty, union ref addr,
+                         const struct exgetfld *fld, union ref tmp, union ref val);
+
 static void
 geninit(struct function *fn, union type t, union ref dst, const struct expr *src)
 {
@@ -2694,8 +2704,11 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
             geninit(fn, ex->ty, adr, ex);
          } else if (isagg(ex->ty)) {
             structcopy(fn, ex->ty, adr, expraddr(fn, ex));
-         } else {
+         } else if (!val->bitsiz) {
             genstore(fn, ex->ty, adr, exprvalue(fn, ex));
+         } else {
+            union ref q = exprvalue(fn, ex);
+            genbitfstore(fn, ex->ty, adr, &(struct exgetfld){0, val->bitsiz, val->bitoff}, NOREF, q);
          }
       }
    } else if (src->t == ESTRLIT) {
@@ -3383,7 +3396,7 @@ deflabel(struct comp *cm, struct function *fn, const struct span *span, const ch
          }
       }
       label->usespan = (struct span){0};
-      label->blk = fn->curblk;
+      label->blk = new;
       if (!nerror) useblk(fn, new);
    } else {
       struct label l = { cm->labels, name };
@@ -3759,6 +3772,7 @@ stmt(struct comp *cm, struct function *fn)
          if (!label) {
             /* create reloc list */
             struct label l = { cm->labels, tk.s, fn->curblk, tk.span };
+            assert(l.usespan.ex.len);
             cm->labels = alloccopy(fn->arena, &l, sizeof l, 0);
             fn->curblk = NULL;
          } else if (label && label->usespan.ex.len != 0) {
