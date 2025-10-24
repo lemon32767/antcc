@@ -940,6 +940,7 @@ devirt(struct rega *ra, struct block *blk)
       struct alloc *alloc;
       struct addr newaddr;
       union ref *argref[4];
+      int curi0;
       int naddr = 0;
       int nargref = 0;
       int nspill = 0;
@@ -1019,6 +1020,7 @@ devirt(struct rega *ra, struct block *blk)
       }
 
       /* devirtualize destination */
+      curi0 = curi;
       alloc = temp < ra->intervals.ntemps && (it = &ra->intervals.temps[temp]) && it->nrange ? &it->alloc : NULL;
       if (alloc && alloc->t == ASTACK) {
          enum irclass cls = insrescls(*ins);
@@ -1041,6 +1043,7 @@ devirt(struct rega *ra, struct block *blk)
                /* if not the designated scratch register, we need to save+restore */
                if ((dosave = rstest(fn->regusage, reg) || rstest(mctarg->rcallee, reg))) {
                   insertinstr(blk, curi++, mkinstr(Oxsave, 0, .l = mkref(RREG, reg)));
+                  curi0 = curi;
                }
             }
             ins->reg = reg+1;
@@ -1068,7 +1071,8 @@ devirt(struct rega *ra, struct block *blk)
       if (ins->inplace && ins->l.t == RREG && ins->reg && ins->reg-1 != ins->l.i) {
          /* fixup in-place (two-address) instructions */
          allnops = 0;
-         insertinstr(blk, curi++, mkmove(ins->cls, ins->reg-1, ins->l.i));
+         insertinstr(blk, curi0, mkmove(ins->cls, ins->reg-1, ins->l.i));
+         ++curi;
          ins->l.i = ins->reg-1;
       }
       if (!ins->reg && in_range(ins->op, Oloads1, Oloadf8)) {
