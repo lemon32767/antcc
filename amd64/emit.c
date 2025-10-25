@@ -186,7 +186,9 @@ enum operpat {
    PFPR,
    P1, /* imm = 1 */
    PI8,
+   PU8,
    PI16,
+   PU16,
    PI32,
    PU32,
    PMEM,
@@ -232,7 +234,9 @@ opermatch(enum operpat pat, struct oper oper)
    case PFPR: return oper.t == OREG && oper.reg >= XMM0;
    case P1:   return oper.t == OIMM && oper.imm == 1;
    case PI8:  return oper.t == OIMM && (schar)oper.imm == oper.imm;
+   case PU8:  return oper.t == OIMM && (uchar)oper.imm == oper.imm;
    case PI16: return oper.t == OIMM && (short)oper.imm == oper.imm;
+   case PU16: return oper.t == OIMM && (ushort)oper.imm == oper.imm;
    case PI32: return oper.t == OIMM;
    case PU32: return oper.t == OIMM && oper.imm >= 0;
    case PMEM: return in_range(oper.t, OMEM, OSYM);
@@ -454,10 +458,12 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
 DEFINSTR2(Xmovb,
    {-1, PMEM, PGPR, "\x88", EN_MR,  .r8=1}, /* MOV m8, r8 */
    {-1, PMEM, PI8,  "\xC6", EN_MI8, .r8=1}, /* MOV m8, imm8 */
+   {-1, PMEM, PU8,  "\xC6", EN_MI8, .r8=1}, /* MOV m8, imm8 */
 )
 DEFINSTR2(Xmovw,
    {-1, PMEM, PGPR, "\x66\x89", EN_MR},   /* MOV m16, r16 */
    {-1, PMEM, PI16, "\x66\xC7", EN_MI16}, /* MOV m16, imm16 */
+   {-1, PMEM, PU16, "\x66\xC7", EN_MI16}, /* MOV m16, imm16 */
 )
 static void Xmov(uchar **pcode, enum irclass k, struct oper dst, struct oper src)
 {
