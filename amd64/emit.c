@@ -337,7 +337,9 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
          if (mem.cindex == NOINDEX) {
             /* %rip(var) */
             static uchar offs[NOPERENC] = { [EN_MI8] = 1, [EN_MI16] = 2, [EN_MI32] = 4 };
-            enum relockind r = (!conht[mem.con].deref && ccopt.pic) ? (rex ? REL_GOTPCRELX : REL_GOTPCRELX_REX) : REL_PCREL32;
+            enum relockind r =
+               (!conht[mem.con].deref && ccopt.pic) ? (rex ? REL_GOTPCRELX : REL_GOTPCRELX_REX)
+                                                    : REL_PCREL32;
             int off = -4 - offs[en->operenc];
             B(/*mod 0*/ (reg & 7) << 3 | RBP);
             objreloc(xcon2sym(mem.con), r, Stext, *pcode - objout.textbegin, mem.disp + off);

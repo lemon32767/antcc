@@ -1,5 +1,7 @@
 
 
+const void *const relro = &relro;
+
 float get_value(unsigned x)
 {
    static const float values [] = {1.1f, 1.2f, 1.3f, 1.4f};

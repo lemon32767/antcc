@@ -1136,7 +1136,10 @@ struct initparser {
    struct arena **arena;
    uint arrlen;
    enum evalmode ev;
-   bool dyn; /* size is not known until parsing done (implicit array size) */
+   bool dyn; /* when set, data is written to a temporary buffer first, because either:
+                  - size is not known until parsing done (implicit array size)
+                  - data section is not known until parsing done (to avoid relocs in .rodata)
+                otherwise write to the corresponding object data section buffer directly */
    union {
       struct init *init; /* for initializer with automatic storage */
       struct {  /* for static storage (dyn = 0) */
@@ -1225,10 +1228,15 @@ expr2reloc(union ref *psym, vlong *paddend, const struct expr *ex)
    } else Fail: assert(0 && "non static reloc");
 }
 
+static bool
+rodatarelocok(void)
+{
+   return !(ccopt.pie | ccopt.pic);
+}
+
 static void
 iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bitoff, union type ty, struct expr *ex)
 {
-   uchar *p;
    if (ex->ty.t == TYSTRUCT) {
       assert(ty.bits == ex->ty.bits);
       for (uint i = 0, n = nmemb(ex->ty); i < n; ++i) {
@@ -1237,6 +1245,7 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
          iniwrite(cm, ip, off + suboff, bitsiz, bitoff, sub, exprdup(cm, &mkexpr(EGETF, ex->span, sub, .sub = ex)));
       }
    } else if (ip->ev == EVSTATICINI) {
+      uchar *p;
       uint siz = typesize(ty);
       if (ip->dyn) {
          if (ip->ddat.n < off + siz) {
@@ -1287,6 +1296,7 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
          expr2reloc(&sym, &addend, ex);
          assert(sym.t == RXCON);
          if (!ip->dyn) {
+            assert(ip->sec != Srodata || rodatarelocok());
             objreloc(xcon2sym(sym.i), targ_64bit ? REL_ABS64 : REL_ABS32,
                      ip->sec, ip->off + off, addend);
          } else {
@@ -1556,8 +1566,12 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
    ip->arena = &cm->exarena;
    ip->ev = ev;
    if (ev == EVSTATICINI) {
-      if (ty->t == TYARRAY && !typearrlen(*ty)) {
+      if (ty->t == TYARRAY && isincomplete(*ty)) {
          ip->dyn = 1;
+      } else if (qual & QCONST && !rodatarelocok()) {
+         ip->dyn = 1;
+         vresize(&ip->ddat, typesize(*ty));
+         memset(ip->ddat.p, 0, typesize(*ty));
       } else {
          ip->sec = qual & QCONST ? Srodata : Sdata;
          ip->off = objnewdat(name, ip->sec, globl, typesize(*ty), typealign(*ty));
@@ -1572,17 +1586,16 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
       if (ex.t == ESTRLIT && chrarrayof(*ty, typechild(ex.ty))) {
          inistrlit(cm, &ex, ty);
          iniwrite(cm, ip, 0, 0, 0, *ty, &ex);
-         if (ip->dyn)
-            goto Dynfix;
-      }
-      if (!initcheck(*ty, &ex))
+      } else if (!initcheck(*ty, &ex)) {
          error(&ex.span, "cannot initialize '%ty' with expression of type '%ty'", *ty, ex.ty);
-      else {
+      } else {
          if (ev && !eval(&ex, ev) && ev != EVFOLD)
             error(&ex.span, "cannot evaluate expression statically");
          else
             iniwrite(cm, ip, 0, 0, 0, *ty, &ex);
       }
+      if (ip->dyn)
+         goto Dynfix;
       return ex;
    }
 
@@ -1634,14 +1647,14 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
          error(&span, "array cannot have zero length");
       *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, len);
    Dynfix:
-      sec = qual & QCONST ? Srodata : Sdata;
+      if (qual & QCONST && (ip->drel == NULL || rodatarelocok()))
+         sec = Srodata;
+      else
+         sec = Sdata;
       off = objnewdat(name, sec, globl, siz = typesize(*ty), align = typealign(*ty));
       p = sec == Srodata ? objout.rodata.p : objout.data.p;
       memcpy(p + off, ip->ddat.p, ip->ddat.n);
       memset(p + off + ip->ddat.n, 0, typesize(*ty) - ip->ddat.n);
-      vpush(&dattab, ((struct irdat) {
-         align, globl, sec, siz, off, name
-      }));
       vfree(&ip->ddat);
       for (struct dreloc *rel = ip->drel; rel; rel = rel->link) {
          objreloc(rel->sym, targ_64bit ? REL_ABS64 : REL_ABS32, sec, off + rel->off, rel->addend);
