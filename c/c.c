@@ -3879,6 +3879,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
          case SCREGISTER:
             if (decl.ty.t == TYFUNC) {
                error(&decl.span, "declaring variable '%s' with function type '%ty'", decl.name, decl.ty);
+               goto Err;
             } else if (isincomplete(decl.ty) && !(dynarr = (decl.ty.t == TYARRAY && st.varini))) {
                error(&decl.span, "declaring variable '%s' with incomplete type '%ty'", decl.name, decl.ty);
                goto Err;
@@ -3889,7 +3890,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
          Initz:
             if (st.varini) {
                struct decl *d = putdecl(cm, &decl);
-               bool statik = st.scls & (SCSTATIC | SCEXTERN);
+               bool statik = decl.scls & (SCSTATIC | SCEXTERN);
                const char *name = decl.name;
                put = 1;
                if (decl.scls == SCSTATIC)
@@ -3900,7 +3901,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                if (!statik) {
                   /* fix alloca for actual size, for implicitly sized arrays */
                   assert(!isincomplete(d->ty));
-                  instrtab[decl.id] = mkalloca(typesize(d->ty), typealign(d->ty));
+                  EMITS instrtab[decl.id] = mkalloca(typesize(d->ty), typealign(d->ty));
 
                   if (!initcheck(d->ty, &ini)) {
                      struct span span = decl.span;
