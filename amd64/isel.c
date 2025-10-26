@@ -244,6 +244,13 @@ fuseaddr(union ref *r, struct block *blk, int *curi)
       if (!ccopt.pic) addr.disp = 0;
    }
 
+   if (!addr.base.bits) {
+      /* absolute int address in disp */
+      assert(!addr.index.bits);
+      addr.base = mkintcon(KPTR, addr.disp);
+      addr.disp = 0;
+   }
+
    *r = mkaddr(addr);
    return 1;
 }
