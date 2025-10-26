@@ -665,7 +665,7 @@ DEFINSTR2(Xtest,
    {4,   PRAX, PI32, "\xA9", EN_I32}, /* TEST EAX, imm32 */
    {  8, PRAX, PU32, "\xA9", EN_I32}, /* TEST EAX, imm32 */
    {  8, PRAX, PI32, "\xA9", EN_I32}, /* TEST RAX, imm32 */
-   {4|8, PGPR, PI8,  "\xF6", EN_RI8, .r8=1},  /* TEST r8, imm8 */
+   {4|8, PGPR, PI8,  "\xF6", EN_RI8, .r8=1,.norexw=1},  /* TEST r8, imm8 */
    {4|8, PGPR, PI32, "\xF7", EN_RI32, .ext=0}, /* TEST r32/64, imm32 */
    {4|8, PGPR, PGPR, "\x85", EN_RR},   /* TEST r32/64, r32/64 */
    {4|8, PGPR, PMEM, "\x85", EN_RM},   /* TEST r32/64, m32/64 */
