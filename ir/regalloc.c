@@ -2,7 +2,7 @@
 
 /** Implements linear scan register allocation **/
 
-#if 1
+#if 0
 #define DBG(...) if(ccopt.dbg.r) efmt(__VA_ARGS__)
 #else
 #define DBG(...) ((void)0)
@@ -976,9 +976,8 @@ devirt(struct rega *ra, struct block *blk)
                ins->op = cls2load[ins->cls];
                ins->r = NOREF;
                addstkslotref(temp, alloc->a*8);
-            } else if (alloc->t == ASTACK && ins->op == Ocopy && r == &ins->l) {
+            } else if (alloc->t == ASTACK && ins->op == Ocopy && r == &ins->l && ins->reg) {
                /* [reg] = copy [stk] -> [reg] = load [stk] */
-               assert(ins->reg);
                ins->op = cls2load[ins->cls];
                addstkslotref(temp, alloc->a*8);
             } else if (alloc->t == ASTACK) {
