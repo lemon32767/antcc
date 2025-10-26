@@ -1641,11 +1641,13 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
       enum section sec;
       uint off, siz, align;
       uchar *p;
-      uint len = ip->arrlen > ip->cur->idx ? ip->arrlen : ip->cur->idx;
 
-      if (len == 0)
-         error(&span, "array cannot have zero length");
-      *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, len);
+      if (isincomplete(*ty)) {
+         uint len = ip->arrlen > ip->cur->idx ? ip->arrlen : ip->cur->idx;
+         if (len == 0)
+            error(&span, "array cannot have zero length");
+         *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, len);
+      }
    Dynfix:
       if (qual & QCONST && (ip->drel == NULL || rodatarelocok()))
          sec = Srodata;
@@ -2343,6 +2345,7 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
             error(&node.span, "function parameter #1 has incomplete type (%tq)",
                   params.p[0], tdgetqual(qual.p, 0));
          }
+         if (anyqual) while (qual.n < tdqualsiz(params.n)) vpush(&qual, 0);
          node.t = TYFUNC;
          node.param = params.n ? params.p : NULL;
          node.pqual = anyqual ? qual.p : NULL;
@@ -2691,14 +2694,28 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
    if (src->t == EINIT) {
       struct init *ini = src->init;
       uint siz = typesize(t);
-      if (BSSIZE(siz) <= arraylength(ini->zero) && bscount(ini->zero, arraylength(ini->zero)) < 32) {
-         /* write individual zeros at non initialized gaps */
-         for (uint i = 0; bsiter(&i, ini->zero, arraylength(ini->zero)) && i < siz; ++i) {
-            /* TODO coalesce into multibyte zero writes */
-            adr = i == 0 ? dst : addinstr(fn, mkinstr(Oadd, KPTR, dst, mkref(RICON, i)));
-            genstore(fn, mktype(TYCHAR), adr, ZEROREF);
+      uint align = typealign(t);
+      struct bitset azero[1] = {0};
+
+      if (BSSIZE(siz) <= arraylength(ini->zero)) {
+         for (int i = 0; i < siz; i += align) {
+            for (int j = 0; j < align; ++j) {
+               if (bstest(ini->zero, i + j)) {
+                  bsset(azero, i);
+                  break;
+               }
+            }
          }
-      } else {
+         if (bscount(azero, arraylength(azero)) < 32) {
+            /* write individual zeros at non initialized gaps */
+            for (uint i = 0; bsiter(&i, azero, arraylength(azero)) && i < siz; i += align) {
+               adr = i == 0 ? dst : addinstr(fn, mkinstr(Oadd, KPTR, dst, mkref(RICON, i)));
+               addinstr(fn, mkinstr(Ostore1 + ilog2(align), 0, .l = adr, .r = ZEROREF));
+            }
+         } else {
+            goto Memset0;
+         }
+      } else Memset0: {
          /* memset(dst,0,siz) */
          /* TODO make it into an intrinsic */
          struct instr call = { Ocall, KPTR };
