@@ -91,7 +91,7 @@ struct lexer {
    uint idx, chridx;
    short chrbuf[1<<10];
    uint chridxbuf[1<<10];
-   ushort nchrbuf, chrbuf0;
+   ushort chrbuf0;
    struct macrostack *macstk;
    struct token peektok;
    bool eof, err;

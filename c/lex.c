@@ -63,17 +63,27 @@ fillchrbuf(struct lexer *lx)
    bool trigraph = ccopt.trigraph;
    const uchar *p = lx->dat + lx->idx;
    int i = lx->chrbuf0, idx = lx->idx, c;
+   int rem = arraylength(lx->chrbuf) - i;
+   assert(rem >= 0);
+   if (rem > 0) {
+      for (int j = 0; j < rem; ++j) {
+         lx->chrbuf[j] = lx->chrbuf[i+j];
+         lx->chridxbuf[j] = lx->chridxbuf[i+j];
+      }
+   }
+   lx->chrbuf0 = 0;
+   i = rem;
 
-   while (lx->nchrbuf < arraylength(lx->chrbuf)) {
+   for (; i < arraylength(lx->chrbuf); ++i) {
       int n;
       while (!memcmp(p, "\\\n", n = 2) || (trigraph && !memcmp(p, "\?\?/\n", n = 4))) {
          idx += n;
          p += n;
          addfileline(lx->fileid, idx);
       }
-      if (idx >= lx->ndat)
+      if (idx >= lx->ndat) {
          c = TKEOF;
-      else if (trigraph && ((p[0] == '?') & (p[1] == '?'))) {
+      } else if (trigraph && ((p[0] == '?') & (p[1] == '?'))) {
          switch (p[2]) {
          case '=':  c = '#'; break;
          case '(':  c = '['; break;
@@ -94,10 +104,8 @@ fillchrbuf(struct lexer *lx)
          if ((c = *p++) == '\n')
             addfileline(lx->fileid, idx);
       }
-      lx->chrbuf[i % arraylength(lx->chrbuf)] = c;
-      lx->chridxbuf[i % arraylength(lx->chrbuf)] = idx;
-      ++lx->nchrbuf;
-      ++i;
+      lx->chrbuf[i] = c;
+      lx->chridxbuf[i] = idx;
    }
    lx->idx = idx;
 }
@@ -107,13 +115,12 @@ next(struct lexer *lx)
 {
    int c;
 
-   if (lx->nchrbuf == 0)
+   if (lx->chrbuf0 >= arraylength(lx->chrbuf))
       fillchrbuf(lx);
    lx->chridx = lx->chridxbuf[lx->chrbuf0];
    c = lx->chrbuf[lx->chrbuf0];
    lx->eof = c == TKEOF;
-   lx->chrbuf0 = (lx->chrbuf0 + 1) % arraylength(lx->chrbuf);
-   --lx->nchrbuf;
+   ++lx->chrbuf0;
    return c;
 }
 
@@ -121,9 +128,9 @@ static int
 peek(struct lexer *lx, int off)
 {
    assert(off < arraylength(lx->chrbuf));
-   if (lx->nchrbuf < off+1)
+   if (lx->chrbuf0 + off >= arraylength(lx->chrbuf))
       fillchrbuf(lx);
-   return lx->chrbuf[(lx->chrbuf0 + off) % arraylength(lx->chrbuf)];
+   return lx->chrbuf[lx->chrbuf0 + off];
 }
 
 static bool
@@ -478,7 +485,7 @@ Begin:
       }
       if (match(lx, '*')) {
          /* comment */
-         while (peek(lx, 0) != '*' || peek(lx, 1) != '/') {
+         while (!(peek(lx, 0) == '*' && peek(lx, 1) == '/')) {
             if (next(lx) == TKEOF) {
                struct span span = {{ idx, lx->chridx - idx, lx->fileid }};
                fatal(&span, "unterminated multiline comment");
@@ -576,7 +583,7 @@ Begin:
    case 0: if (lx->idx >= lx->ndat) RET(TKEOF);
    }
    fatal(&(struct span) {{ idx, lx->chridx - idx, lx->fileid }},
-         "unexpected character %'c at %d", c, idx);
+         "unexpected character %'c at %d (%d)", c, idx, lx->idx);
 End:
    tk->span.sl.file = lx->fileid;
    tk->span.sl.off = idx;
@@ -1930,6 +1937,7 @@ initlexer(struct lexer *lx, const char **err, const char *file)
    lx->dat = f->p;
    lx->ndat = f->n;
    lx->tmparena = &tmparena;
+   lx->chrbuf0 = arraylength(lx->chrbuf);
    return getfilename(fileid) != file ? LXFILESEEN : LXOK;
 }
 
