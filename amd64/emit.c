@@ -1108,7 +1108,6 @@ emitbranch(uchar **pcode, struct block *blk)
       struct instr *ins;
       assert(arg.t == RTMP);
       ins = &instrtab[arg.i];
-      /* TODO handle float cmps */
       if ((oiscmp(ins->op) || ins->op == Oand || ins->op == Osub)) {
          if (ins->r.bits != ZEROREF.bits) {
             /* for CMP instr */

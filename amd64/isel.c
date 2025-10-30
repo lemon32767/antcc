@@ -74,7 +74,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
       } else if (con->cls >= KI8) {
          /* float immediates & 64bit immediates are loaded from memory */
          uchar data[8];
-         uint siz = cls2siz[con->cls];
+         uint ksiz = cls2siz[con->cls];
          if (con->cls <= KPTR && in_range(ins->op, Ocopy, Omove)) /* in this case we can use movabs */
             return;
          if (con->cls != KF4) wr64le(data, con->i);
@@ -82,11 +82,13 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
             union { float f; int i; } pun = { con->f };
             wr32le(data, pun.i);
          }
-         *r = mkdatref(NULL, siz, /*align*/siz, data, siz, /*deref*/1);
+         *r = mkdatref(NULL, ksiz, /*align*/ksiz, data, ksiz, /*deref*/1);
          if (&ins->l != r && ins->l.t == RADDR) {
             /* can't use memory arg in rhs if lhs is memory */
             *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, con->cls, *r));
          }
+      } else if (ins->op != Omove && con->issym && r == &ins->r) {
+         *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, mkaddr((struct addr){*r})));
       } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls))
          goto DivImm;
    } else if (r->t == RICON && in_range(op, Odiv, Ourem) && kisint(ins->cls)) {
@@ -467,8 +469,14 @@ seljmp(struct function *fn, struct block *blk)
          instrtab[c.i].keep = 1;
       } else {
          if (!(opflags[instrtab[c.i].op] & ZF) || blk->ins.n == 0 || c.i != blk->ins.p[blk->ins.n - 1]) {
+            struct instr *ins;
+            int curi = blk->ins.n;
             blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, instrtab[c.i].cls, c, ZEROREF));
-            instrtab[blk->jmp.arg[0].i].keep = 1;
+            ins = &instrtab[blk->jmp.arg[0].i];
+            if (kisflt(ins->cls)) {
+               ins->r = insertinstr(blk, curi, mkinstr(Ocopy, ins->cls, ZEROREF));
+            }
+            ins->keep = 1;
          }
       }
    } else if (blk->jmp.t == Jret) {
