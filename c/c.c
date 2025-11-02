@@ -537,7 +537,7 @@ bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct e
    assert(k);
    if (k & BCSET) {
       if (!islvalue(lhs))
-        error(&lhs->span, "left-hand-side of assignment is not an lvalue");
+         error(&lhs->span, "left-hand-side of assignment is not an lvalue");
       else if (lhs->qual & QCONST)
          error(&lhs->span, "cannot assign to const-qualified lvalue (%tq)", ty, lhs->qual);
       else if (isincomplete(ty))
@@ -1237,7 +1237,7 @@ rodatarelocok(void)
 static void
 iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bitoff, union type ty, struct expr *ex)
 {
-   if (ex->ty.t == TYSTRUCT) {
+   if (ex->ty.t == TYSTRUCT && ip->ev == EVSTATICINI) {
       assert(ty.bits == ex->ty.bits);
       for (uint i = 0, n = nmemb(ex->ty); i < n; ++i) {
          uint suboff;
@@ -1312,8 +1312,8 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
       struct init *init = ip->init;
       struct initval val = {
          .off = off,
-         .bitoff = bitoff,
          .bitsiz = bitsiz,
+         .bitoff = bitoff,
          .ex = *ex
       }, *new = alloccopy(&cm->exarena, &val, sizeof val, 0);
       *init->tail = new;
@@ -1326,11 +1326,12 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
 }
 
 static bool
-iniwriterec(struct comp *cm, struct initparser *ip, uint off, struct expr *ex)
+iniwriterec(struct comp *cm, struct initparser *ip, uint off, union type ty, struct expr *ex)
 {
    for (struct initval *v = ex->init->vals; v; v = v->next) {
-      if (v->ex.t == EINIT) iniwriterec(cm, ip, off + v->off, &v->ex);
+      if (v->ex.t == EINIT) iniwriterec(cm, ip, off + v->off, ty, &v->ex);
       else if (ip->ev && !eval(&v->ex, ip->ev) && ip->ev != EVFOLD) return 0;
+      else iniwrite(cm, ip, off + v->off, v->bitsiz, v->bitoff, ty, &v->ex);
    }
    return 1;
 }
@@ -1428,7 +1429,7 @@ Retry:
          error(&ex.span, "cannot initialize '%ty' with expression of type '%ty'", targ, ex.ty);
       else {
          if (targ.bits == ex.ty.bits && ex.t == EINIT) {
-            if (!iniwriterec(cm, ip, ip->sub->off + off, &ex))
+            if (!iniwriterec(cm, ip, ip->sub->off + off, targ, &ex))
                goto CannotEval;
          } else if (ip->ev && !eval(&ex, ip->ev) && ip->ev != EVFOLD) {
          CannotEval:
@@ -2591,6 +2592,7 @@ expraddr(struct function *fn, const struct expr *ex)
       assert(decl != NULL);
       switch (decl->scls) {
       case SCAUTO: case SCREGISTER:
+         assert(decl->id >= 0);
          return mkref(RTMP, decl->id);
       case SCEXTERN: case SCNONE:
          return mksymref(decl->name);
