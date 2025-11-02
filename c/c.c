@@ -2971,7 +2971,7 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
       if (next && next != end) {
          putcondbranch(fn, r, next, end);
       } else {
-         //assert(boolcon < 0);
+         if (phis) assert(boolcon < 0);
          putbranch(fn, end);
       }
    }
@@ -3647,8 +3647,11 @@ stmt(struct comp *cm, struct function *fn)
        * @end:
        *   <-
        */
+      doemit = 1;
       EMITS {
-         putbranch(fn, begin = newblk(fn));
+         begin = newblk(fn);
+         if (fn->curblk)
+            putbranch(fn, begin);
          useblk(fn, begin);
          condjump(fn, &ex, tr = newblk(fn), end = newblk(fn));
          useblk(fn, tr);
@@ -3671,8 +3674,11 @@ stmt(struct comp *cm, struct function *fn)
        * @end:
        *   <-
        */
+      doemit = 1;
       EMITS {
-         putbranch(fn, begin = newblk(fn));
+         begin = newblk(fn);
+         if (fn->curblk)
+            putbranch(fn, begin);
          useblk(fn, begin);
          tr = newblk(fn);
          end = newblk(fn);
@@ -3724,8 +3730,11 @@ stmt(struct comp *cm, struct function *fn)
             expect(cm, ';', NULL);
          }
       }
+      doemit = 1;
       EMITS {
-         putbranch(fn, end = tr = begin = newblk(fn));
+         end = tr = begin = newblk(fn);
+         if (fn->curblk)
+            putbranch(fn, begin);
          useblk(fn, begin);
          fl = newblk(fn);
       }
@@ -3881,6 +3890,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
          bool put = 0;
          bool dynarr = 0;
 
+         decl.id = -1;
          switch (decl.scls) {
          case SCSTATIC:
             if (forini)
@@ -3903,8 +3913,10 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                error(&decl.span, "declaring variable '%s' with incomplete type '%ty'", decl.name, decl.ty);
                goto Err;
             }
-            EMITS {
-               decl.id = addinstr(fn, mkalloca(typesize(decl.ty), typealign(decl.ty))).i;
+            if (!nerror) {
+               struct instr alloc = mkalloca(typesize(decl.ty), typealign(decl.ty));
+               if (fn->curblk) decl.id = addinstr(fn, alloc).i;
+               else decl.id = insertinstr(fn->entry, fn->entry->ins.n, alloc).i;
             }
          Initz:
             if (st.varini) {
