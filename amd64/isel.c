@@ -477,6 +477,9 @@ seljmp(struct function *fn, struct block *blk)
                ins->r = insertinstr(blk, curi, mkinstr(Ocopy, ins->cls, ZEROREF));
             }
             ins->keep = 1;
+         } else if (instrtab[c.i].op == Oadd) {
+            /* prevent a 3-address add whose flag results are used from becoming a LEA */
+            instrtab[c.i].inplace = 1;
          }
       }
    } else if (blk->jmp.t == Jret) {
