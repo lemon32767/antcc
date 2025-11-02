@@ -21,6 +21,17 @@ int bitf(struct foo *q) {
    return q->x + q->y - q->k + q->a;
 }
 
+struct s1 {
+   short x : 3, y : 12;
+};
+struct s2 {
+   struct s1 a;
+};
+
+struct s2 bitfcopy2(struct s2 x) {
+   return (struct s2){x.a};
+}
+
 int main(int p) {
    extern int printf(const char *, ...);
 

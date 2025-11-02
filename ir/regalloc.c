@@ -982,18 +982,18 @@ devirt(struct rega *ra, struct block *blk)
          int tr;
          if (r->t == RTMP) {
             alloc = (it = &ra->intervals.temps[r->i]) && it->nrange ? &it->alloc : NULL;
-            if (alloc->t == ASTACK && ins->op == Omove) {
+            if (alloc && alloc->t == ASTACK && ins->op == Omove) {
                /* move [reg], [stk] -> [reg] = load [stk] */
                assert(r == &ins->r && ins->l.t == RREG);
                ins->reg = ins->l.i+1;
                ins->op = cls2load[ins->cls];
                ins->r = NOREF;
                addstkslotref(temp, alloc->a*8);
-            } else if (alloc->t == ASTACK && ins->op == Ocopy && r == &ins->l && ins->reg) {
+            } else if (alloc && alloc->t == ASTACK && ins->op == Ocopy && r == &ins->l && ins->reg) {
                /* [reg] = copy [stk] -> [reg] = load [stk] */
                ins->op = cls2load[ins->cls];
                addstkslotref(temp, alloc->a*8);
-            } else if (alloc->t == ASTACK) {
+            } else if (alloc && alloc->t == ASTACK) {
                /* ref was spilled, gen load to scratch register and use it */
                struct instr ld = {.cls = insrescls(instrtab[r->i])};
                int reg = kisint(ld.cls) ? mctarg->gprscratch : mctarg->fprscratch;
