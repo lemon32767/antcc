@@ -243,12 +243,12 @@ static void
 emitmove(enum irclass k, struct alloc dst, struct alloc src, struct block *blk, int curi)
 {
    struct instr mv = {.keep = 1};
+   int reg;
    if (dst.t == AREG && src.t == AREG) {
       insertinstr(blk, curi, mkmove(k, dst.a, src.a));
-   } else if (dst.t == ASTACK && src.t == AREG) {
-      mv = mkinstr(Ostore1+ilog2(cls2siz[k]), 0, .r = mkref(RREG, src.a));
-      addstkslotref(insertinstr(blk, curi, mv).i, dst.a*8);
-   } else if (dst.t == AREG && src.t == ASTACK) {
+      return;
+   }
+   if (src.t == ASTACK) {
       switch (mv.cls = k) {
       default: assert(0);
       case KI4: mv.op = Oloads4; break;
@@ -257,9 +257,17 @@ emitmove(enum irclass k, struct alloc dst, struct alloc src, struct block *blk, 
       case KF4: mv.op = Oloadf4; break;
       case KF8: mv.op = Oloadf8; break;
       }
-      mv.reg = dst.a+1;
+      if (dst.t == AREG)
+         reg = dst.a;
+      else
+         reg = kisint(k) ? mctarg->gprscratch : mctarg->fprscratch;
+      mv.reg = reg+1;
       addstkslotref(insertinstr(blk, curi, mv).i, src.a*8);
-   } else assert(0);
+   } else reg = src.a;
+   if (dst.t == ASTACK) {
+      mv = mkinstr(Ostore1+ilog2(cls2siz[k]), 0, .r = mkref(RREG, reg));
+      addstkslotref(insertinstr(blk, curi, mv).i, dst.a*8);
+   }
 }
 
 static int
@@ -331,6 +339,11 @@ lowerphis(struct rega *ra, struct block *blk, struct block *suc)
    int predno;
    struct block *n = NULL;
 
+   if (!blk->npred && blk != ra->fn->entry) {
+      assert(!blk->phi.n);
+      blk->ins.n = 0;
+      return;
+   }
    if (!blk->s2) n = blk;
 
    for (predno = 0; predno < suc->npred; ++predno)
