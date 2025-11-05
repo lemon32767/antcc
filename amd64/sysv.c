@@ -1,6 +1,24 @@
 #include "all.h"
 
 static int classify(uchar cls[2], const struct typedata *td, uint off);
+
+static void
+clsscalar(uchar cls[2], uint off, union type ty)
+{
+   enum irclass k = type2cls[scalartypet(ty)];
+   uchar *fcls = &cls[off/8];
+   if (isflt(ty)) { /* SSE */
+      if (!*fcls || (*fcls == KF4 && k > *fcls))
+         *fcls = k;
+   } else { /* INTEGER */
+      assert(isint(ty) || ty.t == TYPTR);
+      if (cls2siz[*fcls] < cls2siz[k])
+         *fcls = k;
+   }
+   if (off % 8 >= 4 && cls2siz[*fcls] < 8)
+      *fcls = kisint(*fcls) ? KI8 : KF8;
+}
+
 static int
 classifyarr(uchar cls[2], union type ty, uint off)
 {
@@ -15,12 +33,8 @@ classifyarr(uchar cls[2], union type ty, uint off)
       } else if (chld.t == TYARRAY) {
          if (!classifyarr(cls, chld, offx))
             return cls[0] = cls[1] = 0;
-      } else if (isflt(chld)) { /* SSE */
-         if (!cls[offx/8])
-            cls[offx/8] = KF8;
-      } else { /* INTEGER */
-         assert(isint(chld) || chld.t == TYPTR);
-         cls[offx/8] = KI8;
+      } else {
+         clsscalar(cls, offx, chld);
       }
    }
    return !!cls[0] + !!cls[1];
@@ -28,7 +42,7 @@ classifyarr(uchar cls[2], union type ty, uint off)
 static int
 classify(uchar cls[2], const struct typedata *td, uint off)
 {
-   uint siz = alignup(td->siz, 8);
+   uint siz = alignup(td->siz, 4);
    if (siz > 16) /* MEMORY */
       return 0;
    for (int i = 0; i < td->nmemb; ++i) {
@@ -43,12 +57,8 @@ classify(uchar cls[2], const struct typedata *td, uint off)
          if (isincomplete(fld->t)) continue;
          if (!classifyarr(cls, fld->t, off + fld->off))
             return cls[0] = cls[1] = 0;
-      } else if (isflt(fld->t)) { /* SSE */
-         if (!cls[(fld->off + off)/8])
-            cls[(fld->off + off)/8] = KF8;
-      } else { /* INTEGER */
-         assert(isint(fld->t) || fld->t.t == TYPTR);
-         cls[(fld->off +  off)/8] = KI8;
+      } else {
+         clsscalar(cls, fld->off + off, fld->t);
       }
    }
    return !!cls[0] + !!cls[1];
@@ -84,9 +94,9 @@ abiarg(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype typ)
    ni_save = *ni, nf_save = *nf;
    for (int i = 0; i < ret; ++i) {
       assert(cls[i]);
-      if (cls[i] == KF8 && *nf < NFLT)
+      if (kisflt(cls[i]) && *nf < NFLT)
          r[i] = XMM0 + (*nf)++;
-      else if (cls[i] == KI8 && *ni < NINT)
+      else if (kisint(cls[i]) && *ni < NINT)
          r[i] = intregs[(*ni)++];
       else { /* MEMORY */
          *ni = ni_save, *nf = nf_save;
@@ -121,9 +131,9 @@ abiret(short r[2], uchar cls[2], int *ni, union irtype typ)
    assert(ret <= 2);
    for (int i = 0, ni = 0, nf = 0; i < ret; ++i) {
       assert(cls[i]);
-      if (cls[i] == KF8) /* SSE (XMM0, XMM1) */
+      if (kisflt(cls[i])) /* SSE (XMM0, XMM1) */
          r[i] = XMM0 + nf++;
-      else if (cls[i] == KI8) /* INTEGER (RAX, RDX) */
+      else if (kisint(cls[i])) /* INTEGER (RAX, RDX) */
          r[i] = ni++ == 0 ? RAX : RDX;
       else assert(0);
    }

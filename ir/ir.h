@@ -77,6 +77,7 @@ struct addr {
 #define mkref(t, x) ((union ref) {{ (t), (x) }})
 #define mktyperef(t) ((union ref) {{ RTYPE, (t).bits }})
 #define ref2type(r) ((union irtype) {.bits = (r).i})
+#define rswap(a,b) do { union ref _t = (a); (a) = (b); (b) = _t; } while (0)
 
 enum op {
    Oxxx,
@@ -86,6 +87,7 @@ enum op {
 };
 
 #define oiscmp(o) in_range(o, Oequ, Ougte)
+#define oisarith(o) in_range(o, Oneg, Ougte)
 #define oisalloca(o) in_range(o, Oalloca1, Oalloca16)
 #define oisstore(o) in_range(o, Ostore1, Ostore8)
 #define oisload(o) in_range(o, Oloads1, Oloadf8)
@@ -219,7 +221,7 @@ union ref mkfltcon(enum irclass, double);
 #define isnumcon(r) ((r).t == RICON || ((r).t == RXCON && conht[(r).i].cls))
 #define isaddrcon(r) ((r).t == RXCON && !conht[(r).i].cls && !conht[(r).i].deref)
 #define intconval(r) ((r).t == RICON ? (r).i : conht[(r).i].i)
-#define fltconval(r) (conht[(r).i].f)
+#define fltconval(r) ((r).t == RICON ? (r).i : conht[(r).i].f)
 union ref mksymref(const char *);
 union ref mkdatref(const char *name, uint siz, uint align, const void *, uint n, bool deref);
 const char *xcon2sym(int ref);
@@ -247,13 +249,19 @@ void fillblkids(struct function *);
 #define markvisited(blk) ((blk)->visit = visitmark)
 void numberinstrs(struct function *);
 
-/* IR builder functions */
+/** builder.c **/
+union ref irbinop(struct function *, enum op, enum irclass, union ref lhs, union ref rhs);
+union ref irunop(struct function *, enum op, enum irclass, union ref);
 union ref addinstr(struct function *, struct instr);
 union ref addphi(struct function *, enum irclass, union ref []);
 void useblk(struct function *, struct block *);
 void putbranch(struct function *, struct block *);
 void putcondbranch(struct function *, union ref arg, struct block *t, struct block *f);
 void putreturn(struct function *, union ref r0, union ref r1);
+
+/** fold.c **/
+bool foldbinop(union ref *to, enum op, enum irclass, union ref l, union ref r);
+bool foldunop(union ref *to, enum op, enum irclass, union ref);
 
 /** irdump.c **/
 void irdump(struct function *);

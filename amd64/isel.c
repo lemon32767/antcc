@@ -137,7 +137,6 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 }
 
 #define isimm32(r) (concls(r) == KI4)
-#define rswap(a,b) do { union ref _t = (a); (a) = (b); (b) = _t; } while (0)
 
 static bool
 acon(struct addr *addr, union ref r)
@@ -248,7 +247,7 @@ fuseaddr(union ref *r, struct block *blk, int *curi)
 
    if (!addr.base.bits) {
       /* absolute int address in disp */
-      assert(!addr.index.bits);
+      if (addr.index.bits) return 0;
       addr.base = mkintcon(KPTR, addr.disp);
       addr.disp = 0;
    }

@@ -29,6 +29,7 @@ numcast(union type ty, struct expr *dst, const struct expr *src)
    struct expr tmp;
    enum typetag td = targ2hosttype(ty.t);
    enum typetag ts = targ2hosttype(src->ty.t == TYENUM ? src->ty.backing : src->ty.t);
+   vlong isrc;
    if (src == dst) tmp = *src, src = &tmp;
 
    assert(src->t == ENUMLIT);
@@ -45,11 +46,12 @@ numcast(union type ty, struct expr *dst, const struct expr *src)
    else if (td == TYDOUBLE) dst->f = (double) src->i;
    else if (TF(TYUVLONG)) dst->u = src->f;
    else if (TF(TYBOOL)) dst->i = (bool) src->f;
-   else if (isfltt(ts)) { dst->i = src->f; goto Narrow; }
+   else if (isfltt(ts)) { isrc = src->f; goto Narrow; }
    else {
+      isrc = src->i;
    Narrow:
       switch (td) {
-#define I(Ty, Tag) case Tag: dst->i = (Ty) src->i; break;
+#define I(Ty, Tag) case Tag: dst->i = (Ty) isrc; break;
       I(bool, TYBOOL)
       I(signed   char, TYSCHAR)
       I(unsigned char, TYUCHAR)

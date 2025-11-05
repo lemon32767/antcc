@@ -2,7 +2,7 @@
 
 /** Implements linear scan register allocation **/
 
-#if 0
+#if 1
 #define DBG(...) if(ccopt.dbg.r) efmt(__VA_ARGS__)
 #else
 #define DBG(...) ((void)0)
@@ -1000,12 +1000,19 @@ devirt(struct rega *ra, struct block *blk)
                bool dosave;
                /* pick scratch register, or any register that doesn't conflict with this instr's srcs/dst */
                if (nspill > 0) {
-                  for (reg = kisflt(ld.cls) ? mctarg->fpr0 : mctarg->gpr0;; ++reg) {
-                     if (reg == ins->reg-1) continue;
-                     for (int j = 0; j < i; ++j)
-                        if (argref[j]->t == RREG && argref[j]->i == reg) continue;
-                     break;
+                  regset avail = kisflt(ld.cls) ? fpregset : gpregset;
+                  if (ins->reg) rsclr(&avail, ins->reg-1);
+                  for (int j = 0; j < nargref; ++j) {
+                     struct interval *it;
+                     if (argref[j]->t == RREG) rsclr(&avail, argref[j]->i);
+                     else if (argref[j]->t == RTMP) {
+                        it = &ra->intervals.temps[argref[j]->i];
+                        if (it->alloc.t == AREG) rsclr(&avail, it->alloc.a);
+                     }
                   }
+                  assert(avail != 0);
+                  if (reg &~ (fn->regusage | mctarg->rcallee)) reg &= ~(fn->regusage | mctarg->rcallee);
+                  reg = lowestsetbit(avail);
                   /* if not the designated scratch register, we need to save+restore */
                   if ((dosave = rstest(fn->regusage, reg) || rstest(mctarg->rcallee, reg))) {
                      insertinstr(blk, curi++, mkinstr(Oxsave, 0, .l = mkref(RREG, reg)));

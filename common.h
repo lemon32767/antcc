@@ -78,7 +78,7 @@ ispo2(uvlong x) {
    return (x != 0) & ((x & (x - 1)) == 0);
 }
 static inline uint
-ilog2(uint x) { /* assumes x is a power of 2 */
+ilog2(uvlong x) { /* assumes x is a power of 2 */
 #if HAS_BUILTIN(ctz)
    return __builtin_ctz(x);
 #else
@@ -280,12 +280,12 @@ extern const char *ttypenames[/*id*/];
 
 #define tdqualsiz(nmemb) ((nmemb)/4 + ((nmemb)%4 != 0))
 static inline int
-tdgetqual(const uchar *pqual, int idx)
+tdgetqual(const uchar *pqual, uint idx)
 {
    return pqual ? pqual[idx/4] >> 2*(idx%4) & 3 : 0;
 }
 static inline void
-tdsetqual(uchar *pqual, int idx, int qual)
+tdsetqual(uchar *pqual, uint idx, int qual)
 {
    assert(pqual);
    pqual[idx/4] &= ~(3 << (2*(idx%4)));

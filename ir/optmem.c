@@ -246,6 +246,20 @@ mem2reg(struct function *fn)
                                k, mkref(RREG, mctarg->bpr));
                } else {
                   adduse(use->blk, use->u, val);
+                  if (isintcon(val) && ext != Ocopy) {
+                     vlong x = intconval(val);
+                     switch (ext) {
+                     case Oexts1: x = (schar)x; break;
+                     case Oextu1: x = (uchar)x; break;
+                     case Oexts2: x = (short)x; break;
+                     case Oextu2: x = (ushort)x; break;
+                     case Oexts4: x = (int)x; break;
+                     case Oextu4: x = (uint)x; break;
+                     default: assert(0);
+                     }
+                     val = mkintcon(k, x);
+                     ext = Ocopy;
+                  }
                   *m = mkinstr(ext, k, val);
                }
             }

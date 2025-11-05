@@ -297,7 +297,7 @@ insertblk(struct function *fn, struct block *pred, struct block *subst)
    assert(0);
 }
 
-static int
+int
 newinstr(void)
 {
    int t;
@@ -383,8 +383,7 @@ insertphi(struct block *blk, enum irclass cls)
    int new = newinstr();
    union ref *refs = NULL;
    assert(blk->npred > 0);
-   xbgrow(&refs, blk->npred);
-   memset(refs, 0, blk->npred * sizeof *refs);
+   xbgrowz(&refs, blk->npred);
    vpush(&phitab, refs);
    instrtab[new] = mkinstr(Ophi, cls, mkref(RXXX, phitab.n - 1));
    vpush(&blk->phi, new);
@@ -505,96 +504,6 @@ fillblkids(struct function *fn)
    struct block *blk = fn->entry;
    do blk->id = i++; while ((blk = blk->lnext) != fn->entry);
 }
-
-/** IR builders **/
-
-void
-useblk(struct function *fn, struct block *blk)
-{
-   extern int nerror;
-   if (fn->curblk && nerror == 0) assert(fn->curblk->jmp.t && "never finished block");
-   if (blk) assert(!blk->jmp.t && "reusing built block");
-   if (!blk->lprev) { /* initialize */
-      blk->lnext = fn->entry;
-      blk->lprev = fn->entry->lprev;
-      blk->lprev->lnext = blk;
-      blk->id = blk->lprev->id + 1;
-      ++fn->nblk;
-      fn->entry->lprev = blk;
-   }
-   fn->curblk = blk;
-}
-
-union ref
-addinstr(struct function *fn, struct instr ins)
-{
-   int new = newinstr();
-   assert(fn->curblk != NULL);
-   instrtab[new] = ins;
-   adduse(fn->curblk, new, ins.l);
-   adduse(fn->curblk, new, ins.r);
-   vpush(&fn->curblk->ins, new);
-   return mkref(RTMP, new);
-}
-
-union ref
-addphi(struct function *fn, enum irclass cls, union ref *r)
-{
-   int new;
-   struct instr ins = { Ophi, cls };
-   union ref *refs = NULL;
-
-   xbgrow(&refs, fn->curblk->npred);
-   memcpy(refs, r, fn->curblk->npred * sizeof *r);
-   vpush(&phitab, refs);
-   ins.l = mkref(RXXX, phitab.n-1);
-
-   assert(fn->curblk != NULL);
-   assert(fn->curblk->ins.n == 0);
-   new = newinstr();
-   instrtab[new] = ins;
-   for (int i = 0; i < fn->curblk->npred; ++i) {
-      adduse(fn->curblk, new, r[i]);
-   }
-   vpush(&fn->curblk->phi, new);
-   return mkref(RTMP, new);
-}
-
-#define putjump(fn, j, arg0, arg1, T, F) \
-   fn->curblk->jmp.t = j;                \
-   fn->curblk->jmp.arg[0] = arg0;        \
-   fn->curblk->jmp.arg[1] = arg1;        \
-   fn->curblk->s1 = T;                   \
-   fn->curblk->s2 = F;                   \
-   fn->curblk = NULL;
-
-void
-putbranch(struct function *fn, struct block *blk)
-{
-   assert(fn->curblk && blk);
-   addpred(blk, fn->curblk);
-   putjump(fn, Jb, NOREF, NOREF, blk, NULL);
-}
-
-void
-putcondbranch(struct function *fn, union ref arg, struct block *t, struct block *f)
-{
-   assert(fn->curblk && t && f);
-   adduse(fn->curblk, USERJUMP, arg);
-   addpred(t, fn->curblk);
-   addpred(f, fn->curblk);
-   putjump(fn, Jb, arg, NOREF, t, f);
-}
-
-void
-putreturn(struct function *fn, union ref r0, union ref r1)
-{
-   adduse(fn->curblk, USERJUMP, r0);
-   adduse(fn->curblk, USERJUMP, r1);
-   putjump(fn, Jret, r0, r1, NULL, NULL);
-}
-
-#undef putjump
 
 /** Misc **/
 
