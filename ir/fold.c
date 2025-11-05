@@ -94,7 +94,6 @@ foldbinop(union ref *to, enum op op, enum irclass k, union ref l, union ref r)
       return 0;
    if (!oisarith(op))
       return 0;
-   to->t = oiscmp(op) ? KI4 : k;
    if (kisint(k))
       *to = foldint(op, k, l, r);
    else
@@ -108,7 +107,6 @@ foldunop(union ref *to, enum op op, enum irclass k, union ref a)
    if (!iscon(a)) return 0;
    if (op != Ocopy && !oisarith(op))
       return 0;
-   to->t = k;
    if (kisint(k))
       *to = foldint(op, k, a, ZEROREF);
    else
