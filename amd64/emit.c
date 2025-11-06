@@ -888,7 +888,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
 static const uchar icmpop2cc[] = {
    [Oequ]  = CCE, [Oneq]  = CCNE,
    [Olth]  = CCL, [Ogth]  = CCG, [Olte]  = CCLE, [Ogte]  = CCGE,
-   [Oulth] = CCB, [Ougth] = CCA, [Oulte] = CCBE, [Ougte] = CCGE,
+   [Oulth] = CCB, [Ougth] = CCA, [Oulte] = CCBE, [Ougte] = CCAE,
    [Oand] = CCNE, [Osub] = CCNE,
 };
 /* condition code for TEST reg,reg (compare with zero) */
