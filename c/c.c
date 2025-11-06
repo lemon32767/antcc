@@ -3376,6 +3376,14 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          return narrow(fn, cls, ex->ty, r, 0);
       return r;
    case ECOND:
+      if (eval(&ex->sub[0], EVFOLD)) {
+         bool k = isflt(ex->sub[0].ty) ? ex->sub[0].f != 0.0 : ex->sub[0].u != 0;
+         assert(ex->sub[0].t == ENUMLIT);
+         r = compileexpr(fn, &ex->sub[2-k], discard);
+         if (discard) return NOREF;
+         return cvt(fn, ex->ty, ex->sub[2-k].ty, r);
+      }
+
       if (ex->ty.t == TYVOID || discard) {
          struct block *tr, *fl, *end;
          condjump(fn, &sub[0], tr = newblk(fn), fl = newblk(fn));
@@ -3389,9 +3397,16 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          useblk(fn, end);
          return NOREF;
       }
-      /* fallthru */
+      return condexprvalue(fn, ex, discard);
    case ELOGAND:
    case ELOGIOR:
+      if (eval(&ex->sub[0], EVFOLD)) {
+         bool k = isflt(ex->sub[0].ty) ? ex->sub[0].f != 0.0 : ex->sub[0].u != 0;
+         assert(ex->sub[0].t == ENUMLIT);
+         r = compileexpr(fn, &ex->sub[k], discard);
+         if (discard) return NOREF;
+         return cvt(fn, mktype(TYBOOL), ex->sub[k].ty, r);
+      }
       return condexprvalue(fn, ex, discard);
    case ESEQ:
       expreffects(fn, &sub[0]);
