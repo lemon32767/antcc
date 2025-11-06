@@ -19,7 +19,7 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
       if (r.bits == ZEROREF.bits) return l; /* x +/- 0 ==> x */
       break;
    case Omul: case Oumul:
-      if (iscon(l)) rswap(l, r); /* put const in rhs */
+      if (isnumcon(l)) rswap(l, r); /* put const in rhs */
       if (r.bits == ZEROREF.bits) /* x * 0 ==> 0 */
          return ZEROREF;
       if (r.bits == ONE.bits) /* x * 1 ==> x */
@@ -49,16 +49,16 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
       }
       break;
    case Oand:
-      if (iscon(l)) rswap(l, r); /* put const in rhs */
+      if (isnumcon(l)) rswap(l, r); /* put const in rhs */
       if (r.bits == ZEROREF.bits) /* x & 0 ==> 0 */
          return ZEROREF;
       break;
    case Oior:
-      if (iscon(l)) rswap(l, r); /* put const in rhs */
+      if (isnumcon(l)) rswap(l, r); /* put const in rhs */
       if (r.bits == ZEROREF.bits) /* x | 0 ==> x */
          return l;
    case Oxor:
-      if (iscon(l)) rswap(l, r); /* put const in rhs */
+      if (isnumcon(l)) rswap(l, r); /* put const in rhs */
       if (r.bits == ZEROREF.bits) /* x ^ 0 ==> x */
          return l;
    case Oshl: case Osar: case Oslr:

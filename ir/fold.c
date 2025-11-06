@@ -89,7 +89,7 @@ foldflt(enum op op, enum irclass k, union ref lr, union ref rr)
 bool
 foldbinop(union ref *to, enum op op, enum irclass k, union ref l, union ref r)
 {
-   if (!iscon(l) || !iscon(r)) return 0;
+   if (!isnumcon(l) || !isnumcon(r)) return 0;
    if (in_range(op, Odiv, Ourem) && (kisint(k) ? intconval(r) == 0 : fltconval(r) == 0))
       return 0;
    if (!oisarith(op))
@@ -104,7 +104,7 @@ foldbinop(union ref *to, enum op op, enum irclass k, union ref l, union ref r)
 bool
 foldunop(union ref *to, enum op op, enum irclass k, union ref a)
 {
-   if (!iscon(a)) return 0;
+   if (!isnumcon(a)) return 0;
    if (op != Ocopy && !oisarith(op))
       return 0;
    if (kisint(k))
