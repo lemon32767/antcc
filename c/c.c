@@ -3255,7 +3255,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       r = expraddr(fn, sub);
       ins.l = genload(fn, sub->ty, r, sub->qual & QVOLATILE);
       if (ex->ty.t == TYPTR)
-         ins.r = mkintcon(KI4, typesize(typechild(ex->ty)));
+         ins.r = mkintcon(type2cls[targ_sizetype], typesize(typechild(ex->ty)));
       else
          ins.r = mkref(RICON, 1);
       genstore(fn, sub->ty, r, irbinop(fn, ins.op, ins.cls, ins.l, ins.r));
@@ -3267,7 +3267,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       r = expraddr(fn, sub);
       ins.l = genload(fn, sub->ty, r, sub->qual & QVOLATILE);
       if (ex->ty.t == TYPTR)
-         ins.r = mkintcon(KI4, typesize(typechild(ex->ty)));
+         ins.r = mkintcon(type2cls[targ_sizetype], typesize(typechild(ex->ty)));
       else
          ins.r = mkref(RICON, 1);
       q = irbinop(fn, ins.op, ins.cls, ins.l, ins.r);
