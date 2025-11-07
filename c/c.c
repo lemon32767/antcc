@@ -3066,7 +3066,8 @@ compilecall(struct function *fn, const struct expr *ex)
 }
 
 static union ref
-genbitfload(struct function *fn, const union type ty, union ref *addr, const struct exgetfld *fld, bool volatyl)
+genbitfload(struct function *fn, union ref *tmpval, const union type ty, union ref *addr,
+            const struct exgetfld *fld, bool volatyl)
 {
    enum irclass k = type2cls[scalartypet(ty)];
    uint off = fld->off, bitsiz = fld->bitsiz, bitoff = fld->bitoff;
@@ -3076,6 +3077,7 @@ genbitfload(struct function *fn, const union type ty, union ref *addr, const str
    assert(k);
    *addr = irbinop(fn, Oadd, KPTR, *addr, mkintcon(KI4, off));
    tmp = genload(fn, ty, *addr, volatyl);
+   if (tmpval) *tmpval = tmp;
    if (!issigned(ty)) {
       /* shift right and mask */
       tmp = irbinop(fn, Oslr, k, tmp, mkref(RICON, bitoff));
@@ -3158,7 +3160,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       if (ex->fld.bitsiz) {
          /* bit-field */
          r = expraddr(fn, ex->sub);
-         return genbitfload(fn, ex->ty, &r, &ex->fld, ex->qual & QVOLATILE);
+         return genbitfload(fn, NULL, ex->ty, &r, &ex->fld, ex->qual & QVOLATILE);
       }
       return genload(fn, ex->ty, expraddr(fn, ex), ex->qual & QVOLATILE);
    case ECAST:
@@ -3351,10 +3353,11 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       ins.r = exprvalue(fn, &sub[1]);
       if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
          /* bit-field */
+         union ref tmp;
          r = expraddr(fn, &sub[0].sub[0]);
-         ins.l = genbitfload(fn, sub[0].ty, &r, &sub[0].fld, sub[0].qual & QVOLATILE);
+         ins.l = genbitfload(fn, &tmp, sub[0].ty, &r, &sub[0].fld, sub[0].qual & QVOLATILE);
          q = irbinop(fn, ins.op, ins.cls, ins.l, ins.r);
-         genbitfstore(fn, sub[0].ty, r, &sub[0].fld, ins.l, q);
+         genbitfstore(fn, sub[0].ty, r, &sub[0].fld, tmp, q);
       } else {
          bitsiz = 0;
          r = expraddr(fn, &sub[0]);
