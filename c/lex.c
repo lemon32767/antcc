@@ -1650,6 +1650,17 @@ pppragma(struct lexer *lx, const struct span *span0)
    }
 }
 
+static void
+ppdiag(struct lexer *lx, const struct span *span0, bool err)
+{
+   const uchar *p = getfile(lx->fileid)->p;
+   uint off = lx->chridx, end;
+   ppskipline(lx);
+   end = lx->chridx;
+   while (off < end && aisspace(p[off])) ++off;
+   (err ? error : warn)(span0, "%S", p + off, end - off);
+}
+
 enum directive {
    PPXXX,
    /* !sorted */
@@ -1750,8 +1761,8 @@ lex(struct lexer *lx, struct token *tk_)
                case PPINCLUDE:  ppinclude(lx, &tk->span); break;
                case PPLINE:     break;
                case PPPRAGMA:   pppragma(lx, &tk->span); break;
-               case PPWARNING: break;
-               case PPERROR: break;
+               case PPWARNING:  ppdiag(lx, &tk->span, 0); break;
+               case PPERROR:    ppdiag(lx, &tk->span, 1); break;
                default: assert(0&&"nyi");
                }
             } else {
