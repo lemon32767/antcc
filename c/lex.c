@@ -479,7 +479,7 @@ Begin:
       if (match(lx, '=')) RET(TKSETDIV);
       if (match(lx, '/')) {
          /* // comment */
-         while (!lx->eof && !match(lx, '\n'))
+         while (!lx->eof && peek(lx, 0) != '\n')
             next(lx);
          goto Begin;
       }
