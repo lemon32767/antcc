@@ -9,6 +9,15 @@
 struct option ccopt;
 struct inclpaths *cinclpaths;
 
+static void
+addinclpath(const char *path)
+{
+   struct inclpaths *p = alloc(&globarena, sizeof *cinclpaths, 0);
+   p->next = cinclpaths;
+   p->path = path;
+   cinclpaths = p;
+}
+
 /* parse an argument of the form 'opt=abcd'
  * e.g.  arg="foo=bar123"; opt="foo"; returns "bar123" */
 static const char *
@@ -151,6 +160,10 @@ optparse(char **args)
          task.outft = OFTobj;
       } else if (!strcmp(arg, "E")) {
          task.outft = OFTc;
+      } else if (*arg == 'I') {
+         const char *p = arg[1] ? arg+1 : *++args;
+         if (!p) fatal(NULL, "missing path after `-I`");
+         else addinclpath(p);
       } else Bad: warn(NULL, "invalid option: %'s", arg-1);
    }
 
@@ -390,12 +403,8 @@ sysinclpaths(void)
       "/usr/local/include",
       "/usr/include"
    };
-   for (int i = 0; i < arraylength(paths); ++i) {
-      struct inclpaths *p = alloc(&globarena, sizeof *cinclpaths, 0);
-      p->next = cinclpaths;
-      p->path = paths[i];
-      cinclpaths = p;
-   }
+   for (int i = 0; i < arraylength(paths); ++i)
+      addinclpath(paths[i]);
 }
 
 int
