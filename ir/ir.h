@@ -84,6 +84,7 @@ enum op {
 #define _(o,...) O##o,
 #include "op.def"
 #undef _
+   NOPER,
 };
 
 #define oiscmp(o) in_range(o, Oequ, Ougte)

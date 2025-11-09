@@ -10,7 +10,7 @@ enum flag {
 };
 
 /* flags modified by each integer op */
-static const uchar opflags[] = {
+static const uchar opflags[NOPER] = {
    [Oneg]  = ZF|CLOBF,
    [Oadd]  = ZF|CLOBF,
    [Osub]  = ZF|CLOBF,
