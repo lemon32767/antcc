@@ -100,12 +100,14 @@ patchparam(struct function *fn, int *curi, int *param, int tydat, int nabi, stru
          struct instr st;
          const struct typedata *td;
          uint nalloc;
+         uint align;
 
          assert(tydat >= 0);
          td = &typedata[tydat];
          assert(td->siz <= 16 && td->align <= 16);
-         nalloc = td->align == 16 ? 1 : td->siz/8 + (td->siz%8 != 0);
-         *ins = mkinstr(Oalloca8 + (td->align==16), KPTR, mkref(RICON, nalloc));
+         align = td->siz <= 4 ? 4 : alignup(td->align, 8);
+         nalloc = td->siz/align + (td->siz%align != 0);
+         *ins = mkinstr(Oalloca1 + ilog2(align), KPTR, mkref(RICON, nalloc));
          alloc = mkref(RTMP, ins - instrtab);
          r[0] = insertinstr(blk, ++*curi, copyparam(fn, NULL, *param, abi[0]));
          if (nabi > 1)
@@ -131,6 +133,72 @@ patchparam(struct function *fn, int *curi, int *param, int tydat, int nabi, stru
    }
 }
 
+static void
+load2regs(union ref out[2], union irtype typ, union ref src, int nabi, struct abiarg abi[2], struct block *blk, int *curi)
+{
+   uint align = typedata[typ.dat].align;
+   uint siz = typedata[typ.dat].siz;
+   if (src.t == RTMP && oisalloca(instrtab[src.i].op)) {
+      /* use actual alignment as opposed to min required type alignment */
+      uint aalign = 1 << (instrtab[src.i].op - Oalloca1);
+      assert(aalign >= align);
+      align = aalign;
+   }
+   /* deconstruct into
+    * %a = load* %x
+    * (%b = load* %x + N)
+    */
+   /* XXX this generates pretty bad code for small-alignment structs even on platforms where unaligned loads are available.. */
+   if (align >= 4) {
+      for (int i = 0; i < nabi; ++i) {
+         struct instr ins = {0};
+         union ref temp;
+         switch (ins.cls = abi[i].ty.cls) {
+         default: assert(0);
+         case KI4: ins.op = Oloadu4; break;
+         case KI8: ins.op = Oloadi8; break;
+         case KF4: ins.op = Oloadf4; break;
+         case KF8: ins.op = Oloadf8; break;
+         }
+         if (i == 0)
+            ins.l = src;
+         else {
+            struct instr adr = mkinstr(Oadd, KPTR, src, mkref(RICON, cls2siz[abi[0].ty.cls]));
+            ins.l = insertinstr(blk, (*curi)++, adr);
+         }
+         temp = insertinstr(blk, (*curi)++, ins);
+         //insertinstr(blk, (*curi)++, mkarginstr(abi[i].ty, temp));
+         out[i] = temp;
+      }
+   } else {
+      for (int i = 0; i < nabi; ++i) {
+         struct instr ld = {0};
+         union ref reg, temp;
+         uint n = cls2siz[abi[i].ty.cls] / align;
+         assert(n > 0);
+         ld.op = Oloadu1 + ilog2(align)*2;
+         ld.cls = abi[i].ty.cls;
+         for (int o = 0; o < n && (i*cls2siz[ld.cls])+o*align < siz; ++o) {
+            if (i+o == 0)
+               ld.l = src;
+            else {
+               struct instr adr = mkinstr(Oadd, KPTR, src, mkref(RICON, (i == 0 ? 0 : cls2siz[ld.cls]) + o*align));
+               ld.l = insertinstr(blk, (*curi)++, adr);
+            }
+            temp = insertinstr(blk, (*curi)++, ld);
+            if (o > 0) {
+               union ref t = insertinstr(blk, (*curi)++, mkinstr(Oshl, ld.cls, temp, mkref(RICON, o*align*8)));
+               reg = insertinstr(blk, (*curi)++, mkinstr(Oior, ld.cls, reg, t));
+            } else {
+               reg = temp;
+            }
+         }
+         //insertinstr(blk, arginst++, mkarginstr(abi[i].ty, reg));
+         out[i] = reg;
+      }
+   }
+}
+
 static int
 patcharg(struct block *blk, int *icall, struct call *call,
          int argidx, int nabi, struct abiarg abi[2])
@@ -145,32 +213,11 @@ patcharg(struct block *blk, int *icall, struct call *call,
       {
          return 1;
       } else { /* aggregate in registers */
-         union ref src = arg->r;
-         /* deconstruct into
-          * %a = load* %x
-          * (%b = load* %x + N)
-          */
+         union ref r[2];
          delinstr(blk, arginst);
-         for (int i = 0; i < nabi; ++i) {
-            /* XXX this can generate unaligned loads */
-            struct instr ins = {0};
-            union ref temp;
-            switch (ins.cls = abi[i].ty.cls) {
-            default: assert(0);
-            case KI4: ins.op = Oloadu4; break;
-            case KI8: ins.op = Oloadi8; break;
-            case KF4: ins.op = Oloadf4; break;
-            case KF8: ins.op = Oloadf8; break;
-            }
-            if (i == 0)
-               ins.l = src;
-            else
-               ins.l = insertinstr(blk, arginst++,
-                                   mkinstr(Oadd, KPTR, src,
-                                           mkref(RICON, cls2siz[abi[0].ty.cls])));
-            temp = insertinstr(blk, arginst++, ins);
-            insertinstr(blk, arginst++, mkarginstr(abi[i].ty, temp));
-         }
+         load2regs(r, ref2type(arg->l), arg->r, nabi, abi, blk, &arginst);
+         for (int i = 0; i < nabi; ++i)
+            insertinstr(blk, arginst++, mkarginstr(abi[i].ty, r[i]));
          *icall = arginst + (call->narg - argidx - 1);
          return nabi;
       }
@@ -197,8 +244,12 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    if (call->ret.isagg) { /* adjust struct return */
       union irtype retty = call->ret;
       struct typedata *td = &typedata[retty.dat];
-      struct instr alloca = mkalloca(td->siz, td->align);
+      uint align = td->align, ralign;
+      struct instr alloca;
       int ialloca;
+      for (int i = 0; i < nret; ++i)
+         align = align < (ralign = cls2siz[call->abiret[i].ty.cls]) ? ralign : align;
+      alloca = mkalloca(td->siz, align);
 
       sretarghidden = ni == 0;
       /* swap alloca and call temps so users of original call point to alloca */
@@ -250,7 +301,6 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          for (int i = 0; i < nret; ++i) {
             struct instr store = {0};
             int iref, iuser;
-            /* XXX this can generate unaligned stores */
             switch (call->abiret[i].ty.cls) {
             default: assert(0);
             case KF4: case KI4: store.op = Ostore4; break;
@@ -361,25 +411,11 @@ abi0(struct function *fn)
       if (isagg(fn->retty) && blk->jmp.t == Jret && blk->jmp.arg[0].bits) {
          assert(!blk->jmp.arg[1].bits);
          if (fn->nabiret) { /* aggregate return in register(s) */
-            union ref src = blk->jmp.arg[0];
-            for (int i = 0; i < fn->nabiret; ++i) {
-               /* XXX this can generate unaligned loads */
-               struct instr ins = {0};
-               switch (ins.cls = fn->abiret[i].ty.cls) {
-               default: assert(0);
-               case KI4: ins.op = Oloadu4; break;
-               case KI8: ins.op = Oloadi8; break;
-               case KF4: ins.op = Oloadf4; break;
-               case KF8: ins.op = Oloadf8; break;
-               }
-               if (i == 0)
-                  ins.l = src;
-               else
-                  ins.l = insertinstr(blk, blk->ins.n,
-                                      mkinstr(Oadd, KPTR, src,
-                                              mkref(RICON, cls2siz[fn->abiret[0].ty.cls])));
-               blk->jmp.arg[i] = insertinstr(blk, blk->ins.n, ins);
-            }
+            union ref r[2];
+            int curi = blk->ins.n;
+            load2regs(r, mkirtype(fn->retty), blk->jmp.arg[0], fn->nabiret, fn->abiret, blk, &curi);
+            for (int i = 0; i < fn->nabiret; ++i)
+               blk->jmp.arg[i] = r[i];
          } else {
             /* aggregate return (arg[0] is pointer to return value) */
             if (rvovar == -1) {
