@@ -166,7 +166,7 @@ ascale(struct addr *addr, union ref a, union ref b)
       /* XXX maybe we shouldn't do this here because it should be done by a generic
        * arithemetic optimization pass ? */
       if (ins->op == Oadd && (ins->l.t == RREG || ins->l.t == RTMP) && isintcon(ins->r)) {
-         vlong a = ((vlong) addr->disp + intconval(ins->r)) << b.i;
+         vlong a = ((vlong) addr->disp + intconval(ins->r)) * (1 << b.i);
          if (a != (int) a) return 0;
          addr->disp = a;
          addr->index = ins->l;
@@ -363,8 +363,14 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          ins->op = Oneg;
          ins->l = insertinstr(blk, (*curi)++, sub);
          ins->r = NOREF;
+         goto ALU;
+      } else if (kisint(ins->cls) && isintcon(ins->r)) {
+         ins->op = Oadd;
+         ins->r = mkintcon(concls(ins->r), -intconval(ins->r));
+      } else {
+         goto ALU;
       }
-      goto ALU;
+      /* fallthru */
    case Oadd:
       if (kisint(ins->cls)) {
          if ((addarg4addrp(ins->l) || addarg4addrp(ins->r))) {
