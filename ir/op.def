@@ -70,7 +70,5 @@ _(intrin,   2)
 _(phi,      1)
 _(swap,     2)
 /* machine-specific instructions */
-_(xinc,      1)
-_(xdec,      1)
 _(xsave,     1)
 _(xrestore,  1)

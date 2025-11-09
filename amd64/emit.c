@@ -185,6 +185,7 @@ enum operpat {
    PGPR,
    PFPR,
    P1, /* imm = 1 */
+   PN1, /* imm = -1 */
    PI8,
    PU8,
    PI16,
@@ -233,6 +234,7 @@ opermatch(enum operpat pat, struct oper oper)
    case PGPR: return oper.t == OREG && oper.reg <= R15;
    case PFPR: return oper.t == OREG && oper.reg >= XMM0;
    case P1:   return oper.t == OIMM && oper.imm == 1;
+   case PN1:  return oper.t == OIMM && oper.imm == -1;
    case PI8:  return oper.t == OIMM && (schar)oper.imm == oper.imm;
    case PU8:  return oper.t == OIMM && (uchar)oper.imm == oper.imm;
    case PI16: return oper.t == OIMM && (short)oper.imm == oper.imm;
@@ -526,6 +528,8 @@ DEFINSTR2(Xlea,
 )
 DEFINSTR2(Xadd,
    {4|8, PGPR, PGPR, "\x03", EN_RR},   /* ADD r32/64, r32/64 */
+   {4|8, PGPR, P1,   "\xFF", EN_R, .ext=0}, /* INC r32/64 */
+   {4|8, PGPR, PN1,  "\xFF", EN_R, .ext=1}, /* DEC r32/64 */
    {4|8, PGPR, PI8,  "\x83", EN_RI8},  /* ADD r32/64, imm8 */
    {4|8, PRAX, PI32, "\x05", EN_I32},  /* ADD eax/rax, imm */
    {4|8, PGPR, PI32, "\x81", EN_RI32}, /* ADD r32/64, imm */
@@ -539,6 +543,8 @@ DEFINSTR2(Xaddf,
 )
 DEFINSTR2(Xsub,
    {4|8, PGPR, PGPR, "\x2B", EN_RR},           /* SUB r32/64, r32/64 */
+   {4|8, PGPR, P1,   "\xFF", EN_R, .ext=1},    /* DEC r32/64 */
+   {4|8, PGPR, PN1,  "\xFF", EN_R, .ext=0},    /* INC r32/64 */
    {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=5},  /* SUB r32/64, imm8 */
    {4|8, PRAX, PI32, "\x2D", EN_I32},          /* SUB eax/rax, imm */
    {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=5}, /* SUB r32/64, imm */
@@ -623,12 +629,6 @@ DEFINSTR2(Xcvttss2si,
 DEFINSTR2(Xcvttsd2si,
    {-1,  PGPR, PFPR, "\xF2\x0F\x2C", EN_RR}, /* CVTTSD2SI r32/64, xmm */
    {-1,  PGPR, PMEM, "\xF2\x0F\x2C", EN_RM}, /* CVTTSD2SI r32/64, m32 */
-)
-DEFINSTR1(Xinc,
-   {4|8, PGPR, 0, "\xFF", EN_R, .ext=0} /* INC r32/64 */
-)
-DEFINSTR1(Xdec,
-   {4|8, PGPR, 0, "\xFF", EN_R, .ext=1} /* DEC r32/64 */
 )
 DEFINSTR1(Xneg,
    {4|8, PGPR, 0, "\xF7", EN_R, .ext=3} /* NEG r32/64 */
@@ -992,8 +992,6 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       assert(ins->reg-1 == dst.reg);
       X(pcode, cls, dst, mkimmdatregoper(ins->r));
       break;
-   case Oxinc: X1 = Xinc; goto ALU1;
-   case Oxdec: X1 = Xdec; goto ALU1;
    case Oneg: X1 = Xneg; goto ALU1;
    case Onot: X1 = Xnot; goto ALU1;
    ALU1:

@@ -37,8 +37,6 @@ static const uchar opflags[] = {
    [Oulte] = ZF|CLOBF,
    [Ougte] = ZF|CLOBF,
    [Ocall] = CLOBF,
-   [Oxinc] = ZF|CLOBF,
-   [Oxdec] = ZF|CLOBF,
 };
 
 static int iflagsrc = -1;
@@ -358,11 +356,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       blk->ins.p[*curi - 0] = t;
       break;
    case Osub:
-       if (ins->r.bits == mkref(RICON, 1).bits) {
-         /* sub x,1 -> dec x */
-         ins->op = op = Oxdec;
-         ins->r = NOREF;
-      } else if (isintcon(ins->l)) {
+       if (isintcon(ins->l)) {
          /* sub imm, x -> sub x, imm; neg x */
          struct instr sub = *ins;
          rswap(sub.l, sub.r);
@@ -381,17 +375,6 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
                *ins = temp;
                break;
             }
-         } else if (ins->l.bits == mkref(RICON, 1).bits) {
-            /* add 1,x -> inc x */
-            ins->op = op = Oxinc;
-            ins->l = ins->r;
-            ins->r = NOREF;
-            goto ALU;
-         } else if (ins->r.bits == mkref(RICON, 1).bits) {
-            /* add x,1 -> inc x */
-            ins->op = op = Oxinc;
-            ins->r = NOREF;
-            goto ALU;
          }
       }
       /* fallthru */
