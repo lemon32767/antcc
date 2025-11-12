@@ -446,6 +446,14 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Ocvtf4f8: case Ocvtf8f4: case Ocvtf4s: case Ocvtf8s: case Ocvts4f: case Ocvts8f:
    case Ocvtu8f:
    case Oexts1: case Oextu1: case Oexts2: case Oextu2: case Oexts4: case Oextu4:
+      if (isnumcon(ins->l)) {
+         union ref it;
+         bool ok = foldunop(&it, ins->op, ins->cls, ins->l);
+         assert(ok);
+         ins->op = Ocopy;
+         ins->l = it;
+         break;
+      }
    case Ocopy:
       fixarg(&ins->l, ins, blk, curi);
       break;
