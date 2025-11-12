@@ -199,7 +199,7 @@ dumpblk(struct function *fn, struct block *blk)
       dumpinst(&instrtab[blk->ins.p[i]]);
    }
    efmt("%-4d  %s ", blk->inumstart + 1 + i, jnames[blk->jmp.t]);
-   if (blk->jmp.arg[0].bits && !fn->nabiret && isagg(fn->retty)) {
+   if (blk->jmp.t == Jret && blk->jmp.arg[0].bits && !fn->nabiret && isagg(fn->retty)) {
       /* un-lowered struct return */
       dumpref(0, mktyperef(mkirtype(fn->retty)));
       efmt(" ");
