@@ -360,7 +360,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
                 * access thru RSP (function arguments in the stack) */
                mem.base = RSP;
                mem.disp -= 8;
-            } else {
+            } else if (mem.disp < 0) {
                mem.disp += rbpoff;
             }
          }
@@ -387,7 +387,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
             B(mem.shift << 6 | (mem.index & 7) << 3 | (mem.base & 7));
          }
          if (mod == 1) B(mem.disp);
-         else if (mod == 2 || (mod == 0 && mem.base == RBP/*RIP-rel*/) || (mod == 0 && sib && mem.base == RSP/*absolute*/)) {
+         else if (mod == 2 || (mod == 0 && mem.base == RBP/*RIP-rel*/) || (mod == 0 && sib && mem.base == RBP/*absolute*/)) {
             I32(mem.disp);
          }
       }
