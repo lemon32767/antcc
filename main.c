@@ -160,11 +160,22 @@ optparse(char **args)
          task.outft = OFTobj;
       } else if (!strcmp(arg, "E")) {
          task.outft = OFTc;
+      } else if (*arg == 'g') {
+         /* TODO debug info */
       } else if (*arg == 'I') {
          const char *p = arg[1] ? arg+1 : *++args;
          if (!p) fatal(NULL, "missing path after `-I`");
          else addinclpath(p);
-      } else Bad: warn(NULL, "invalid option: %'s", arg-1);
+      } else if (*arg == 'M') {
+         ++arg;
+         if (*arg == 'F' || *arg == 'T' || *arg == 'Q') {
+            const char *p = arg[1] ? arg+1 : *++args;
+            if (!p) fatal(NULL, "missing path after `-M%c`", *arg);
+         }
+         /* TODO depfiles */
+      } else if (*arg == 'W') {
+         /* TODO warning switches */
+      } else Bad: warn(NULL, "unrecognized option: %'s", arg-1);
    }
 
    if (!task.ninf) fatal(NULL, "no input files");
