@@ -96,7 +96,7 @@ addcon(const struct xcon *con)
    assert(con->issym || con->isdat || con->cls);
    for (;; ++i) {
       i &= arraylength(conht) - 1;
-      if (!conht[i].issym && !conht[i].cls) {
+      if (!conht[i].issym && !conht[i].isdat && !conht[i].cls) {
          conht[i] = *con;
          ++nconht;
          return i;
