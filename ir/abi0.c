@@ -276,6 +276,7 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       if (call->vararg == i) vararg = i2;
       i2 += ret;
    }
+   call->argstksiz = ns;
    /* adjust return */
    if (call->ret.isagg) {
       ins->cls = 0;

@@ -46,6 +46,7 @@ struct call {
    union irtype ret;
    ushort narg;
    short vararg; /* first variadic arg or -1 */
+   ushort argstksiz;
    struct abiarg *abiarg;
    struct abiarg abiret[2];
 };

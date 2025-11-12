@@ -106,19 +106,31 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    const struct call *call = &calltab.p[ins->r.i];
    int iarg = *curi - 1;
    enum irclass cls;
+   uint argstksiz = alignup(call->argstksiz, 16);
 
    for (int i = call->narg - 1; i >= 0; --i) {
+      struct abiarg abi = call->abiarg[i];
       struct instr *arg;
-      for (;;) {
-         assert(i >= 0 && "arg?");
-         if ((arg = &instrtab[blk->ins.p[iarg--]])->op == Oarg)
+      for (;; --iarg) {
+         assert(iarg >= 0 && i >= 0 && "arg?");
+         if ((arg = &instrtab[blk->ins.p[iarg]])->op == Oarg)
             break;
       }
 
-      if (call->abiarg[i].reg >= 0) {
-         assert(!call->abiarg[i].ty.isagg);
-         *arg = mkinstr(Omove, call->abiarg[i].ty.cls, mkref(RREG, call->abiarg[i].reg), arg->r);
+      assert(!abi.ty.isagg);
+      if (abi.reg >= 0) {
+         assert(!abi.ty.isagg);
+         *arg = mkinstr(Omove, call->abiarg[i].ty.cls, mkref(RREG, abi.reg), arg->r);
+      } else {
+         union ref adr = mkaddr((struct addr){mkref(RREG, RSP), .disp = argstksiz+abi.stk});
+         *arg = mkinstr(Ostore1+ilog2(cls2siz[abi.ty.cls]), 0, adr, arg->r);
       }
+   }
+   if (call->argstksiz) {
+      union ref disp = mkref(RICON, argstksiz);
+      insertinstr(blk, iarg--, (struct instr){Osub, KPTR, .keep=1, .reg = RSP+1, .l=mkref(RREG,RSP), disp});
+      ++*curi;
+      insertinstr(blk, *curi+1, (struct instr){Oadd, KPTR, .keep=1, .reg = RSP+1, .l=mkref(RREG,RSP), disp});
    }
    cls = ins->cls;
    ins->cls = 0;
