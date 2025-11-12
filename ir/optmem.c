@@ -1,4 +1,5 @@
 #include "ir.h"
+#include <stdlib.h> /* qsort */
 
 static const uchar loadszcls[] = {
    [Oloads1 - Oloads1] = 1|KI4<<4, [Oloadu1 - Oloads1] = 1|KI4<<4,
@@ -179,6 +180,25 @@ tryseal(struct ssabuilder *sb, struct block *blk)
    trysealrec(sb, blk);
 }
 
+static int
+blkfindins(struct block *blk, int ins)
+{
+   for (int i = 0; i < blk->phi.n; ++i)
+      if (blk->phi.p[i] == ins) return -1;
+   for (int i = 0; i < blk->ins.n; ++i)
+      if (blk->ins.p[i] == ins) return i;
+   assert(0 && "ins not in blk");
+}
+
+static int
+cmpuse(const void *a, const void *b)
+{
+   const struct use *ua = a, *ub = b;
+   struct block *blk = ua->blk;
+   if (ua->blk != ub->blk) return ua->blk->id - ub->blk->id;
+   return blkfindins(blk, ua->u) - blkfindins(blk, ub->u);
+}
+
 /* require use, blkid; keeps use */
 void
 mem2reg(struct function *fn)
@@ -231,6 +251,7 @@ mem2reg(struct function *fn)
          if (!ndef) /* slot is read from but never written to */
             goto Next;
          
+         qsort(instruse[var], instrnuse[var], sizeof *instruse[var], cmpuse);
          for (use = instruse[var]; use < uend; ++use) {
             struct instr *m = &instrtab[use->u];
 
