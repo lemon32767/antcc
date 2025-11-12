@@ -352,6 +352,7 @@ Shrink:
       struct use *use = instruse[r.i];
       instruse[r.i] = instrusebuf[r.i];
       memcpy(instruse[r.i], use, sizeof *instrusebuf);
+      xbfree(use);
    }
    --instrnuse[r.i];
    return 1;
@@ -448,6 +449,9 @@ delinstr(struct block *blk, int idx)
 {
    int t = blk->ins.p[idx];
    assert(idx >= 0 && idx < blk->ins.n);
+   for (int i = 0; i < 2; ++i) {
+      deluse(blk, t, (&instrtab[t].l)[i]);
+   }
    memcpy(&instrtab[t], &instrfreelist, sizeof(int));
    instrfreelist = t;
    deluses(t);
