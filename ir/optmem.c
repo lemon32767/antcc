@@ -196,6 +196,8 @@ cmpuse(const void *a, const void *b)
    const struct use *ua = a, *ub = b;
    struct block *blk = ua->blk;
    if (ua->blk != ub->blk) return ua->blk->id - ub->blk->id;
+   if (ua->u == USERJUMP) return ub->u != USERJUMP;
+   if (ub->u == USERJUMP) return -(ua->u != USERJUMP);
    return blkfindins(blk, ua->u) - blkfindins(blk, ub->u);
 }
 
