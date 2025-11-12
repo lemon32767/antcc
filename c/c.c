@@ -2809,7 +2809,6 @@ cvt(struct function *fn, union type to, union type from, union ref ref)
    if (to.bits == from.bits) return ref;
    assert(kto && kfrom);
    if (kto == kfrom && to.t != TYBOOL) return ref;
-   if (ref.t == RICON && kto < KF4) return ref;
 
    if (kisflt(kto) || kisflt(kfrom)) {
       if (ref.t == RICON) {

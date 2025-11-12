@@ -50,7 +50,6 @@ foldint(enum op op, enum irclass k, union ref lr, union ref rr)
    case Ougte: x = l.u >= r.u; break;
    default: assert(0);
    }
-   if (!w) x = (uint)x;
    return mkintcon(k, x);
 }
 
