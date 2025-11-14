@@ -400,6 +400,7 @@ abi0(struct function *fn)
    }
 
    blk = fn->entry->lnext;
+   int id = 1;
    do {
       /* adjust vaargs and calls */
       for (int iinstr = 0; iinstr < blk->ins.n; ++iinstr) {
@@ -431,9 +432,9 @@ abi0(struct function *fn)
             else memset(blk->jmp.arg, 0, sizeof blk->jmp.arg);
          }
       }
+      blk->id = id++;
    } while ((blk = blk->lnext) != fn->entry);
 
-   sortrpo(fn);
    if (ccopt.dbg.a) {
       efmt("<< After abi0 >>\n");
       irdump(fn);
