@@ -297,6 +297,19 @@ loadstoreaddr(struct block *blk, union ref *r, int *curi)
    }
 }
 
+static bool
+arithfold(struct instr *ins)
+{
+   if (isnumcon(ins->l) && (!ins->r.t || isnumcon(ins->r))) {
+      union ref r;
+      bool ok = ins->r.t ? foldbinop(&r, ins->op, ins->cls, ins->l, ins->r) : foldunop(&r, ins->op, ins->cls, ins->l);
+      assert(ok && "fold?");
+      *ins = mkinstr(Ocopy, insrescls(*ins), r);
+      return 1;
+   }
+   return 0;
+}
+
 static void
 sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 {
@@ -304,6 +317,11 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    int t;
    struct instr temp = {0};
    enum op op = ins->op;
+
+   if (oisarith(ins->op) && arithfold(ins)) {
+      fixarg(&ins->l, ins, blk, curi);
+      return;
+   }
 
    switch (op) {
    default: assert(0);
@@ -422,8 +440,10 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       if (!(op == Oadd && kisint(ins->cls))) /* 3-address add is lea */
       if (!(in_range(op, Omul, Oumul) && kisint(ins->cls) && isimm32(ins->r))) /* for (I)MUL r,r/m,imm */
          ins->inplace = 1;
-      if (iscon(ins->l))
+      if (iscon(ins->l)) {
+         fixarg(&ins->l, ins, blk, curi);
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
+      }
       if (ins->r.bits)
    case Omove:
          fixarg(&ins->r, ins, blk, curi);
