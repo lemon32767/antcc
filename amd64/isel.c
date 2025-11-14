@@ -118,11 +118,11 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       }
 
       assert(!abi.ty.isagg);
-      if (abi.reg >= 0) {
+      if (!abi.isstk) {
          assert(!abi.ty.isagg);
          *arg = mkinstr(Omove, call->abiarg[i].ty.cls, mkref(RREG, abi.reg), arg->r);
       } else {
-         union ref adr = mkaddr((struct addr){mkref(RREG, RSP), .disp = argstksiz+abi.stk});
+         union ref adr = mkaddr((struct addr){mkref(RREG, RSP), .disp = abi.stk});
          *arg = mkinstr(Ostore1+ilog2(cls2siz[abi.ty.cls]), 0, adr, arg->r);
       }
    }
@@ -241,8 +241,16 @@ fuseaddr(union ref *r, struct block *blk, int *curi)
 {
    struct addr addr = { 0 };
 
-   if (r->t == RADDR) return 1;
    if (isaddrcon(*r)) return 1;
+   if (r->t == RADDR) {
+      const struct addr *a0 = &addrht[r->i];
+      if (aadd(&addr, a0->base)
+        && (!addr.index.bits || ascale(&addr, a0->index, mkref(RICON, a0->shift)))
+        && aadd(&addr, mkintcon(KPTR, a0->disp))) {
+         *r = mkaddr(addr);
+      }
+      return 1;
+   }
    if (r->t != RTMP) return 0;
    if (!aadd(&addr, *r)) return 0;
 
@@ -311,10 +319,10 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       break;
    case Oparam:
       assert(ins->l.t == RICON && ins->l.i < fn->nabiarg);
-      if (fn->abiarg[ins->l.i].reg >= 0)
+      if (!fn->abiarg[ins->l.i].isstk)
          *ins = mkinstr(Ocopy, ins->cls, mkref(RREG, fn->abiarg[ins->l.i].reg));
       else /* stack */
-         *ins = mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, -fn->abiarg[ins->l.i].stk));
+         *ins = mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, 16+fn->abiarg[ins->l.i].stk));
       break;
    case Oarg:
       fixarg(&ins->r, ins, blk, curi);
@@ -456,6 +464,16 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       }
    case Ocopy:
       fixarg(&ins->l, ins, blk, curi);
+      break;
+   case Oxvaprologue:
+      fuseaddr(&ins->l, blk, curi);
+      assert(ins->l.t == RADDR);
+      /* !this must be the first instruction */
+      assert(*curi == 1);
+      assert(blk == fn->entry);
+      t = blk->ins.p[0];
+      blk->ins.p[0] = blk->ins.p[1];
+      blk->ins.p[1] = t;
       break;
    }
 }

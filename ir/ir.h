@@ -37,8 +37,8 @@ struct xcon {
 struct abiarg {
    union irtype ty;
    union {
-      short reg; /* >= 0 */
-      short stk; /* < 0 */
+      struct { ushort _     : 1, reg : 15; };
+      struct { ushort isstk : 1, stk : 15; };
    };
 };
 
@@ -188,7 +188,8 @@ struct mctarg {
     *                                                     or negative SP offset if stack
     */
    int (*abiarg)(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype);
-
+   void (*vastart)(struct function *, struct block *, int *curi);
+   void (*vaarg)(struct function *, struct block *, int *curi);
    void (*isel)(struct function *);
    void (*emit)(struct function *);
 };
@@ -236,7 +237,9 @@ void addpred(struct block *blk, struct block *p);
 struct block *newblk(struct function *);
 void freeblk(struct function *, struct block *);
 struct block *insertblk(struct function *, struct block *pred, struct block *subst);
+struct block *blksplitafter(struct function *, struct block *, int idx);
 void adduse(struct block *ublk, int ui, union ref r);
+int newinstr(struct block *at, struct instr ins);
 union ref insertinstr(struct block *, int idx, struct instr);
 union ref insertphi(struct block *, enum irclass cls);
 void replcuses(union ref from, union ref to);

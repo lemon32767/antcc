@@ -32,6 +32,7 @@ abiret(struct abiarg abiret[2], struct abiargsvec *abiargs, int *ni, union irtyp
    }
    for (int i = 0; i < retreg; ++i) {
       abiret[i].ty = cls2type(cls[i]);
+      abiret[i].isstk = 0;
       abiret[i].reg = r[i];
    }
    return retreg;
@@ -44,7 +45,7 @@ abiarg(struct abiargsvec *abiargs, int *ni, int *nf, int *ns, union irtype ty)
    uchar cls[2];
    int ret = mctarg->abiarg(r, cls, ni, nf, ns, ty);
    if (!ret) { /* in stack */
-      vpush(abiargs, ((struct abiarg) { ty, .stk = r[0] }));
+      vpush(abiargs, ((struct abiarg) { ty, .isstk = 1, .stk = r[0] }));
    } else if (ret == 1 && ty.isagg && cls[0] == KPTR) { /* aggregate by pointer */
       vpush(abiargs, ((struct abiarg) { cls2type(cls[0]), .reg = r[0] }));
    } else { /* by regs */
@@ -59,7 +60,7 @@ static struct instr
 copyparam(struct function *fn, int *curi, int param, struct abiarg abi)
 {
    struct instr par = mkinstr(Oparam, abi.ty.cls, mkref(RICON, param), mktyperef(abi.ty));
-   if (abi.reg >= 0) { /* reg */
+   if (!abi.isstk) { /* reg */
       assert(!abi.ty.isagg);
       return par;
    } else if (!abi.ty.isagg) { /* scalar in stack */
@@ -237,7 +238,6 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    struct call *call = &calltab.p[ins->r.i];
 
    vararg = call->vararg;
-   vinit(&abiargs, abiargsbuf, arraylength(abiargsbuf));
    ni = nf = ns = 0;
    assert(!ins->cls == !call->ret.bits);
    nret = abiret(call->abiret, &abiargs, &ni, call->ret);
@@ -282,7 +282,7 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       ins->cls = 0;
       if (!nret) { /* hidden pointer argument */
          ins->cls = 0;
-         if (call->abiret[0].reg >= 0) {
+         if (!call->abiret[0].isstk) {
             /* the result location pointer is also returned by the callee, e.g. in x86 */
             ins->cls = KPTR;
             ++nret;
@@ -401,11 +401,12 @@ abi0(struct function *fn)
 
    blk = fn->entry->lnext;
    do {
-      /* adjust calls */
+      /* adjust vaargs and calls */
       for (int iinstr = 0; iinstr < blk->ins.n; ++iinstr) {
          struct instr *ins = &instrtab[blk->ins.p[iinstr]];
-         if (ins->op != Ocall) continue;
-         abi0_call(fn, ins, blk, &iinstr);
+         if (ins->op == Ovastart) mctarg->vastart(fn, blk, &iinstr);
+         else if (ins->op == Ovaarg) mctarg->vaarg(fn, blk, &iinstr);
+         else if (ins->op == Ocall) abi0_call(fn, ins, blk, &iinstr);
       }
 
       /* adjust returns */
@@ -432,6 +433,7 @@ abi0(struct function *fn)
       }
    } while ((blk = blk->lnext) != fn->entry);
 
+   sortrpo(fn);
    if (ccopt.dbg.a) {
       efmt("<< After abi0 >>\n");
       irdump(fn);

@@ -518,6 +518,9 @@ DEFINSTR2(Xmovzxb,
    {4|8, PGPR, PMEM, "\x0F\xB6", EN_RM}, /* MOVZX r64, m8 */
    {4|8, PGPR, PGPR, "\x0F\xB6", EN_RR, .r8=1}, /* MOVZX r64, r8 */
 )
+DEFINSTR2(Xmovaps,
+   {-1, PMEM, PFPR, "\x0F\x29", EN_MR}, /* MOVAPS mem, xmm */
+)
 DEFINSTR2(Xxchg,
    {4|8, PGPR, PGPR, "\x87", EN_RR}, /* XCHG r32/64, r32/64 */
    //{4|8, PGPR, PMEM, "\x87", EN_RM}, /* XCHG r32/64, m32/64 */
@@ -884,6 +887,43 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
    }
 }
 
+static void
+Xvaprologue(uchar **pcode, struct function *fn, struct oper sav)
+{
+   uint gpr0 = 0, fpr0 = 0, jmpaddr;
+   for (int i = 0; i < fn->nabiarg; ++i) {
+      struct abiarg abi = fn->abiarg[i];
+      if (!abi.isstk) {
+         if (abi.reg < XMM0) ++gpr0;
+         else ++fpr0;
+      }
+   }
+   assert(sav.t == OMEM && sav.base == RBP);
+   /* save GPRS */
+   for (int r = 0; r < 6; ++r) {
+      static const char reg[] = {RDI,RSI,RDX,RCX,R8,R9};
+      if (r >= gpr0)
+         Xmov(pcode, KI8, sav, reg2oper(reg[r]));
+      sav.disp += 8;
+   }
+
+   /* save FPRs, but only if al is non zero */
+   if (fpr0 < 8) {
+      DS("\x84\xC0"); /* TEST al,al */
+      jmpaddr = *pcode - objout.textbegin;
+      DS("\x74\xFE"); /* JE rel8 */
+   }
+   for (int r = 0; r < 8; ++r) {
+      if (r >= fpr0)
+         Xmovaps(pcode, KF8, sav, reg2oper(XMM0 + r));     
+      sav.disp += 16;
+   }
+   if (fpr0 < 8) {/* patch relative jump */
+      int off = (*pcode - objout.textbegin) - jmpaddr - 2;
+      objout.textbegin[jmpaddr+1] = off;
+   }
+}
+
 /* condition code for CMP */
 static const uchar icmpop2cc[] = {
    [Oequ]  = CCE, [Oneq]  = CCNE,
@@ -1085,14 +1125,17 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
          /* variadic functions need the caller to write num of args in sse regs to %al */
          int n = 0;
          for (int i = 0; i < call->narg; ++i)
-            n += call->abiarg[i].reg >= XMM0;
+            if (!call->abiarg[i].isstk && call->abiarg[i].reg >= XMM0)
+               ++n;
          if (!n) DS("\x31\xC0"); /* XOR EAX, EAX */
          else B(0xB0), B(n); /* MOV AL, n */
       }
       Xcall(pcode, KPTR, ref2oper(ins->l));
       break;
+   case Oxvaprologue:
+      Xvaprologue(pcode, fn, mkmemoper(ins->l));
+      break;
    }
-   // if (ins->reg) ioper(ins - instrtab) = reg2oper(ins->reg-1);
 }
 
 static void
@@ -1218,8 +1261,8 @@ emitbin(struct function *fn)
    if (!fn->isleaf && ((fn->stksiz + npush*8) & 0xF) != 0x8) {
       assert(usebp);
       fn->stksiz += 8;
-      rbpoff -= 8;
    }
+   rbpoff = alignup(rbpoff, 16);
 
    if (fn->stksiz != 0) {
       /* sub rsp, <stack size> */

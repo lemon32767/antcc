@@ -173,7 +173,7 @@ dumpinst(const struct instr *ins)
    efmt("\n");
 }
 
-static void
+void
 dumpblk(struct function *fn, struct block *blk)
 {
    static const char *jnames[] = { 0, "b", "ret" };
@@ -228,7 +228,7 @@ irdump(struct function *fn)
       efmt("abi: (");
       for (int i = 0; i < fn->nabiarg; ++i) {
          if (i > 0) efmt(", ");
-         if (fn->abiarg[i].reg >= 0) {
+         if (!fn->abiarg[i].isstk) {
             efmt("%s", mctarg->rnames[fn->abiarg[i].reg]);
          } else {
             prityp(fn->abiarg[i].ty);

@@ -234,8 +234,7 @@ delpred(struct block *blk, struct block *p)
 struct block *
 newblk(struct function *fn)
 {
-   struct block *blk = alloc(fn->arena, sizeof(struct block), 0);
-   memset(blk, 0, sizeof *blk);
+   struct block *blk = allocz(fn->arena, sizeof(struct block), 0);
    blk->id = -1;
    return blk;
 }
@@ -297,8 +296,36 @@ insertblk(struct function *fn, struct block *pred, struct block *subst)
    assert(0);
 }
 
+struct block *
+blksplitafter(struct function *fn, struct block *blk, int idx)
+{
+   struct block *new = newblk(fn);
+   ++fn->nblk;
+   new->lprev = blk;
+   new->lnext = blk->lnext;
+   blk->lnext = new;
+   new->lnext->lprev = new;
+   if (idx < blk->ins.n-1)
+      vpushn(&new->ins, &blk->ins.p[idx+1], blk->ins.n-idx-1);
+   blk->ins.n -= new->ins.n;
+   new->jmp = blk->jmp;
+   blk->jmp.t = Jb;
+   memset(blk->jmp.arg, 0, sizeof blk->jmp.arg);
+   for (int i = 0; i < 2; ++i) {
+      struct block *s = (&blk->s1)[i];
+      for (int i = 0; i < s->npred; ++i) {
+         if (blkpred(s, i) == blk)
+            blkpred(s, i) = new;
+      }
+   }
+   new->s1 = blk->s1, new->s2 = blk->s2;
+   blk->s1 = new, blk->s2 = NULL;
+   addpred(new, blk);
+   return new;
+}
+
 int
-newinstr(void)
+allocinstr(void)
 {
    int t;
    if (instrfreelist != -1) {
@@ -358,12 +385,22 @@ Shrink:
    return 1;
 }
 
+int
+newinstr(struct block *at, struct instr ins)
+{
+   int new = allocinstr();
+   instrtab[new] = ins;
+   if (at) {
+      adduse(at, new, ins.l);
+      adduse(at, new, ins.r);
+   }
+   return new;
+}
+
 union ref
 insertinstr(struct block *blk, int idx, struct instr ins)
 {
-   int new = newinstr();
-
-   instrtab[new] = ins;
+   int new = newinstr(blk, ins);
    if (idx == blk->ins.n) vpush(&blk->ins, new);
    else {
       assert(idx >= 0 && idx < blk->ins.n);
@@ -373,15 +410,13 @@ insertinstr(struct block *blk, int idx, struct instr ins)
          blk->ins.p[i] = blk->ins.p[i - 1];
       blk->ins.p[idx] = new;
    }
-   adduse(blk, new, ins.l);
-   adduse(blk, new, ins.r);
    return mkref(RTMP, new);
 }
 
 union ref
 insertphi(struct block *blk, enum irclass cls)
 {
-   int new = newinstr();
+   int new = allocinstr();
    union ref *refs = NULL;
    assert(blk->npred > 0);
    xbgrowz(&refs, blk->npred);

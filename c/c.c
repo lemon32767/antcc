@@ -4,31 +4,19 @@
 #include "../ir/ir.h"
 #include "../obj/obj.h"
 
-/** C compiler state **/
-struct comp {
-   struct lexer lx;
-   struct env *env;
-   struct arena *fnarena, *exarena;
-   struct span fnblkspan;
-   uint loopdepth, switchdepth;
-   struct block *breakto, *loopcont;
-   struct switchstmt *switchstmt;
-   struct label *labels;
-};
-
 /** Parsing helper functions **/
-#define peek(Cm,Tk) lexpeek(&(Cm)->lx,Tk)
+#define peek(Cm,Tk) lexpeek((Cm)->lx,Tk)
 static int
 lexc(struct comp *cm, struct token *tk)
 {
    struct token tk2;
-   int t = lex(&cm->lx, tk);
+   int t = lex(cm->lx, tk);
    if (t == TKSTRLIT && peek(cm, &tk2) == TKSTRLIT && tk2.wide == tk->wide) {
       /* 5.1.1.2 Translation phase 6: concatenate adjacent string literal tokens */
       static char buf[200];
       vec_of(char) rest = VINIT(buf, sizeof buf);
       do {
-         lex(&cm->lx, NULL);
+         lex(cm->lx, NULL);
          if (tk) {
             joinspan(&tk->span.ex, tk2.span.ex);
             if (!tk->wide)
@@ -171,7 +159,6 @@ struct env {
    /* ditto for envtagged[] */
    ushort tagged, ntagged;
 };
-static struct env toplevel;
 
 static void
 envdown(struct comp *cm, struct env *e)
@@ -196,7 +183,7 @@ envup(struct comp *cm)
    cm->env = env->up;
 }
 
-static struct decl *
+struct decl *
 envadddecl(struct env *env, const struct decl *d)
 {
    assert(env->decl + env->ndecl == envdecls.n);
@@ -264,8 +251,8 @@ redeclarationok(const struct decl *old, const struct decl *new)
 static struct decl *
 putdecl(struct comp *cm, const struct decl *decl)
 {
-   struct decl *l;
-   for (l = NULL; enviterdecl(&l, cm->env);) {
+   assert(!decl->isbuiltin);
+   for (struct decl *l = NULL; enviterdecl(&l, cm->env);) {
       if (decl->name == l->name) {
          if (l->isdef && decl->isdef) {
             error(&decl->span, "redefinition of '%s'", decl->name);
@@ -278,18 +265,15 @@ putdecl(struct comp *cm, const struct decl *decl)
          }
       }
    }
-   l = envadddecl(cm->env, decl);
-   return l;
+   return envadddecl(cm->env, decl);
 }
 
 static struct decl *
 finddecl(struct comp *cm, const char *name)
 {
-   struct env *e;
-   struct decl *l;
    assert(name);
-   for (e = cm->env; e; e = e->up) {
-      for (l = NULL; enviterdecl(&l, e);) {
+   for (struct env *e = cm->env; e; e = e->up) {
+      for (struct decl *l = NULL; enviterdecl(&l, e);) {
          if (name == l->name)
             return l;
       }
@@ -300,12 +284,10 @@ finddecl(struct comp *cm, const char *name)
 static union type
 gettagged(struct comp *cm, struct span *span, enum typetag tt, const char *name, bool dodef)
 {
-   struct env *e;
-   struct tagged *l;
    struct typedata td = {0};
    assert(name);
-   for (e = cm->env; e; e = e->up) {
-      for (l = NULL; envitertagged(&l, e);) {
+   for (struct env *e = cm->env; e; e = e->up) {
+      for (struct tagged *l = NULL; envitertagged(&l, e);) {
          if (name == ttypenames[typedata[l->ty.dat].id]) {
             if (dodef && e != cm->env)
                goto Break2;
@@ -324,10 +306,9 @@ Break2:
 static union type
 deftagged(struct comp *cm, struct span *span, enum typetag tt, const char *name, union type ty)
 {
-   struct tagged *l;
    struct typedata td = {0};
    assert(name);
-   for (l = NULL; envitertagged(&l, cm->env);) {
+   for (struct tagged *l = NULL; envitertagged(&l, cm->env);) {
       if (name == ttypenames[typedata[l->ty.dat].id]) {
          *span = l->span;
          return l->ty;
@@ -359,7 +340,7 @@ argpromote(union type t)
    return t;
 }
 
-static bool
+bool
 assigncheck(union type t, const struct expr *src)
 {
    if (assigncompat(t, typedecay(src->ty))) return 1;
@@ -653,6 +634,8 @@ exprdup2(struct comp *cm, const struct expr *e1, const struct expr *e2)
 static struct expr expr(struct comp *cm);
 static struct expr commaexpr(struct comp *cm);
 
+enum { IMPLICITFUNCTY = 0xFF, };
+
 static struct expr /* 6.5.2.2 Function calls */
 callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
 {
@@ -665,11 +648,17 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
    vec_of(struct expr) args = VINIT(argbuf, arraylength(argbuf));
    bool spanok = joinspan(&span.ex, span_->ex);
    bool printsig = 0;
+   const struct builtin *builtin = NULL;
+   
+   if (callee->t == ESYM && !callee->ty.t && callee->sym->isbuiltin) {
+      builtin = callee->sym->builtin;
+      assert(!ty.t);
+   }
 
-   if (callee->t == ESYM && !callee->ty.t) { /* implicit function decl.. */
+   if (callee->t == ESYM && ty.t == IMPLICITFUNCTY) { /* implicit function decl.. */
       const char *name = (void *)callee->sym;
       struct decl decl = {
-         ty = mkfntype(mktype(TYINT), 0, NULL, NULL, /* kandr */ 1, 0),
+         (ty = mkfntype(mktype(TYINT), 0, NULL, NULL, /* kandr */ 1, 0)),
          .scls = SCEXTERN, .span = callee->span, .name = name
       };
       warn(&callee->span, "call to undeclared function '%s'", name);
@@ -678,9 +667,12 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
       td = &typedata[ty.dat];
    }
 
-   if (ty.t == TYPTR) /* auto-deref when calling a function pointer */
-      ty = typechild(ty);
-   if (ty.t != TYFUNC) error(&callee->span, "calling a value of type '%ty'", callee->ty);
+   if (!builtin) {
+      if (ty.t == TYPTR) /* auto-deref when calling a function pointer */
+         ty = typechild(ty);
+      if (ty.t != TYFUNC)
+         error(&callee->span, "calling a value of type '%ty'", callee->ty);
+   }
    if (!match(cm, &tk, ')')) for (;;) {
       arg = expr(cm);
       spanok = spanok && joinspan(&span.ex, callee->span.ex);
@@ -705,7 +697,7 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
    }
    if (!spanok || !joinspan(&span.ex, tk.span.ex)) span = *span_;
 
-   if (!td->variadic && !td->kandr && args.n < td->nmemb) {
+   if (ty.t == TYFUNC && !td->variadic && !td->kandr && args.n < td->nmemb) {
       error(&tk.span, "not enough args to function taking %d param%s",
             td->nmemb, td->nmemb != 1 ? "s" : "");
       printsig = 1;
@@ -717,6 +709,9 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
    ex.sub[0] = *callee;
    memcpy(ex.sub+1, args.p, args.n*sizeof(struct expr));
    vfree(&args);
+   if (builtin) {
+      builtin->sema(cm, &ex);
+   }
    return ex;
 }
 
@@ -810,6 +805,38 @@ ppostfixopers(struct comp *cm, struct expr *ex)
    }
 }
 
+static struct expr
+vaargexpr(struct comp *cm, struct span *span)
+{
+   struct token tk;
+   struct expr ex = mkexpr(EXXX, *span, mktype(TYVOID), );
+   if (expect(cm, '(', "after __builtin_va_arg")) {
+      struct expr arg = expr(cm);
+      struct decl decl;
+      union type ty;
+      expect(cm, ',', NULL);
+      decl = pdecl(&(struct declstate){DCASTEXPR}, cm);
+      ty = decl.ty;
+      peek(cm, &tk);
+      if (expect(cm, ')', NULL))
+         joinspan(&span->ex, tk.span.ex);
+      if (ty.t == TYARRAY)
+         warn(&decl.span, "va_arg type argument is array type '%ty', which is undefined behavior", decl.ty);
+      else if (ty.t == TYFUNC)
+         error(&decl.span, "va_arg type argument is function type '%ty'", decl.ty);
+      else {
+         ty = argpromote(ty);
+         if (ty.bits != decl.ty.bits) {
+            warn(&decl.span,
+                  "va_arg type argument is promotable type '%ty', which has undefined behavior"
+                  " (it will be promoted to '%ty')", decl.ty, ty);
+         }
+      }
+      ex = mkexpr(EVAARG, *span, decl.ty, .sub = exprdup(cm, &arg));
+   }
+   return ex;
+}
+
 static inline int
 tkprec(int tt)
 {
@@ -866,12 +893,41 @@ Unary:
       }
       goto Unary;
 
+   /* might be unary op (cast) or primary expr */
+   case '(':
+      if (!isdecltok(cm)) { /* (expr) */
+         ex = commaexpr(cm);
+         expect(cm, ')', NULL);
+      } else { /* (type) expr */
+         struct declstate st = { DCASTEXPR };
+         struct decl decl = pdecl(&st, cm);
+         struct span span = tk.span;
+         assert(decl.ty.t);
+         peek(cm, &tk);
+         if (expect(cm, ')', NULL))
+            joinspan(&span.ex, tk.span.ex);
+         if (peek(cm, NULL) == '{') {
+            if (ccopt.cstd < STDC99)
+               warn(&tk.span, "compound literals are a c99 feature");
+            ex = initializer(cm, &decl.ty, (decl.scls & SCSTATIC) ? EVSTATICINI : EVFOLD,
+                                 /* globl */ 0, decl.qual, NULL);
+            break;
+         }
+         unops[nunop].span = span;
+         unops[nunop].ty = decl.ty;
+         if (++nunop >= arraylength(unops)) {
+            ex = exprparse(cm, 999, NULL, 0);
+            break;
+         }
+         goto Unary;
+      }
+      break;
    /* base exprs */
    case TKNUMLIT:
    case TKCHRLIT:
       ex = mkexpr(ENUMLIT, tk.span, mktype(0), );
       if (!(ty.t = parsenumlit(&ex.u, &ex.f, &tk, 0)))
-         error(&tk.span, "bad number literal %'tk", &tk);
+         error(&tk.span, "bad %s literal %'tk", tk.t == TKNUMLIT ? "number" : "character", &tk);
       ex.ty.t = ty.t ? ty.t : TYINT;
       break;
    case TKSTRLIT:
@@ -883,7 +939,7 @@ Unary:
       decl = finddecl(cm, tk.s);
       if (!decl) {
          if (peek(cm, NULL) == '(') { /* implicit function decl? */
-            ex = mkexpr(ESYM, tk.span, mktype(0), .sym = (void *)tk.s);
+            ex = mkexpr(ESYM, tk.span, mktype(IMPLICITFUNCTY), .sym = (void *)tk.s);
          } else {
             error(&tk.span, "undeclared identifier %'tk", &tk);
             ex = mkexpr(ESYM, tk.span, mktype(TYINT), .sym = NULL);
@@ -897,33 +953,6 @@ Unary:
          ex = mkexpr(ESYM, tk.span, decl->ty, .qual = decl->qual, .sym = decl);
       }
       break;
-
-   /* might be unary op or primary expr */
-   case '(':
-      if (!isdecltok(cm)) { /* (expr) */
-         ex = commaexpr(cm);
-         expect(cm, ')', NULL);
-         break;
-      } else { /* (type) expr */
-         struct declstate st = { DCASTEXPR };
-         struct decl decl = pdecl(&st, cm);
-         expect(cm, ')', NULL);
-         assert(decl.ty.t);
-         if (peek(cm, NULL) == '{') {
-            if (ccopt.cstd < STDC99)
-               warn(&tk.span, "compound literals are a c99 feature");
-            ex = initializer(cm, &decl.ty, (decl.scls & SCSTATIC) ? EVSTATICINI : EVFOLD,
-                                 /* globl */ 0, decl.qual, NULL);
-            break;
-         }
-         unops[nunop].span = tk.span;
-         unops[nunop].ty = decl.ty;
-         if (++nunop >= arraylength(unops)) {
-            ex = exprparse(cm, 999, NULL, 0);
-            break;
-         }
-         goto Unary;
-      }
    case TKWsizeof:
       span = tk.span;
       if (!match(cm, NULL, '(')) /* sizeof expr */
@@ -944,6 +973,10 @@ Unary:
       }
       sizeofcheck(&span, ty);
       ex = mkexpr(ENUMLIT, span, mktype(targ_sizetype), .u = typesize(ty));
+      break;
+   case TKW__builtin_va_arg:
+      span = tk.span;
+      return vaargexpr(cm, &span);
       break;
    default:
       fatal(&tk.span, "expected %s (near %'tk)", fromstmt ? "statement" : "expression", &tk);
@@ -1193,7 +1226,6 @@ dumpini(struct initparser *ip)
 }
 #endif
 
-static union ref expraddr(struct function *, const struct expr *);
 static bool
 globsym(union ref *psym, const struct expr *ex)
 {
@@ -1981,7 +2013,7 @@ ptypeof(struct comp *cm)
 }
 
 static bool
-declspec(struct declstate *st, struct comp *cm)
+declspec(struct declstate *st, struct comp *cm, struct span *pspan)
 {
    struct token tk;
    struct decl *decl;
@@ -2001,6 +2033,7 @@ declspec(struct declstate *st, struct comp *cm)
 
    for (;;) {
       peek(cm, &tk);
+      if (!span.ex.len) span = tk.span;
       switch (tk.t) {
       case TKWconst:
          st->qual |= QCONST;
@@ -2068,13 +2101,11 @@ declspec(struct declstate *st, struct comp *cm)
          lex(cm, &tk);
          st->base = tagtype(cm, tk.t);
          st->tagdecl = 1;
-         if (!span.ex.len) span.ex = tk.span.ex;
          joinspan(&span.ex, tk.span.ex);
          goto End;
       case TKW__typeof__: case TKWtypeof:
          lex(cm, &tk);
          st->base = ptypeof(cm);
-         if (!span.ex.len) span.ex = tk.span.ex;
          joinspan(&span.ex, tk.span.ex);
          goto End;
       case TKIDENT:
@@ -2085,7 +2116,6 @@ declspec(struct declstate *st, struct comp *cm)
          }
          /* fallthru */
       default:
-         if (!span.ex.len) span.ex = tk.span.ex;
          goto End;
       case TKW_BitInt: case TKW_Complex:
       case TKW_Decimal128: case TKW_Decimal32:
@@ -2093,12 +2123,12 @@ declspec(struct declstate *st, struct comp *cm)
          error(&tk.span, "%'tk is unsupported", &tk);
          arith = arith ? arith : KINT;
       }
-      if (!span.ex.len) span.ex = tk.span.ex;
       joinspan(&span.ex, tk.span.ex);
       lex(cm, &tk);
       if (st->base.t) break;
    }
 End:
+   if (pspan) *pspan = span;
    if (st->base.t && arith) {
       /* combining arith type specifiers and other types */
    Bad:
@@ -2221,7 +2251,7 @@ cvqual(struct comp *cm)
 }
 
 static void
-decltypes(struct comp *cm, struct decllist *list, const char **name, struct span *span) {
+decltypes(struct comp *cm, struct decllist *list, const char **name, struct span *span, struct span *namespan) {
    struct token tk;
    struct decllist *ptr, node;
 
@@ -2230,6 +2260,7 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
       node.qual = cvqual(cm);
       node.span = tk.span;
       declinsert(list, &node);
+      joinspan(&span->ex, tk.span.ex);
    }
    ptr = list->next;
    switch (peek(cm, &tk)) {
@@ -2248,10 +2279,12 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
          node.kandr = 1;
          node.npar = 0;
          declinsert(ptr->prev, &node);
+         joinspan(&span->ex, tk.span.ex);
          break;
       } else {
-         decltypes(cm, list, name, span);
+         decltypes(cm, list, name, span, namespan);
          expect(cm, ')', NULL);
+         joinspan(&span->ex, tk.span.ex);
       }
       break;
    case TKIDENT:
@@ -2259,12 +2292,12 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
          error(&tk.span, "unexpected identifier in type name");
       else {
          *name = tk.s;
-         *span = tk.span;
+         *namespan = tk.span;
       }
       lex(cm, &tk);
+      joinspan(&span->ex, tk.span.ex);
       break;
    default:
-      *span = tk.span;
       if (name)
          *name = NULL;
    }
@@ -2292,6 +2325,7 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
          node.t = TYARRAY;
          node.len = n;
          declinsert(ptr->prev, &node);
+         joinspan(&span->ex, node.span.ex);
       } else if (match(cm, &tk, '(')) Func: {
          static int depth = 0;
          vec_of(union type) params = {0};
@@ -2335,7 +2369,8 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
                         params.n, decl.ty, tdgetqual(qual.p, params.n-1));
                }
             }
-            joinspan(&node.span.ex, tk.span.ex);
+            peek(cm, &tk);
+            joinspan(&span->ex, tk.span.ex);
             if (!match(cm, &tk, ',')) {
                expect(cm, ')', NULL);
                break;
@@ -2359,15 +2394,17 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
          node.pspans = params.n ? spans.p : NULL;
          node.npar = params.n;
          declinsert(ptr->prev, &node);
+         joinspan(&span->ex, node.span.ex);
       } else break;
    }
 }
 
 static struct decl
-declarator(struct declstate *st, struct comp *cm) {
-   struct decl decl = { st->base, st->scls, st->qual, st->align };
+declarator(struct declstate *st, struct comp *cm, struct span span0) {
+   struct decl decl = { st->base, st->scls, st->qual, st->align, .span = span0 };
    struct decllist list = { &list, &list }, *l;
    static bool inidecltmp = 0;
+   struct span namespan ={0};
    if (!inidecltmp) {
       inidecltmp = 1;
       for (int i = 0; i < arraylength(decltmp); ++i) {
@@ -2376,7 +2413,7 @@ declarator(struct declstate *st, struct comp *cm) {
       }
    }
 
-   decltypes(cm, &list, st->kind == DCASTEXPR ? NULL : &decl.name, &decl.span);
+   decltypes(cm, &list, st->kind == DCASTEXPR ? NULL : &decl.name, &decl.span, &namespan);
    if (!decl.name && st->kind != DCASTEXPR && st->kind != DFUNCPARAM) {
       if (list.prev == &list) lex(cm, NULL);
       error(&decl.span, "expected `(', `*' or identifier");
@@ -2398,7 +2435,7 @@ declarator(struct declstate *st, struct comp *cm) {
          if (decl.ty.t == TYFUNC)
             error(&decl.span, "function cannot return function type '%ty'", decl.ty);
          else if (decl.ty.t == TYARRAY)
-            error(&decl.span, "function cannot return array type", decl.ty);
+            error(&decl.span, "function cannot return array type '%ty'", decl.ty);
          else if (decl.ty.t != TYVOID && isincomplete(decl.ty))
             error(&decl.span, "function cannot return incomplete type '%ty'", decl.ty);
          if (l->kandr && ccopt.cstd > STDC89)
@@ -2419,7 +2456,8 @@ declarator(struct declstate *st, struct comp *cm) {
       l->next = declfreelist;
       declfreelist = l;
    }
-
+   if (st->kind != DCASTEXPR)
+      decl.span = namespan;
    return decl;
 }
 
@@ -2499,22 +2537,25 @@ pdecl(struct declstate *st, struct comp *cm) {
          st->scls &= allowed;
       }
       peek(cm, &tk);
-      if (!declspec(st, cm) && st->kind != DTOPLEVEL) {
+      if (!declspec(st, cm, &decl.span) && st->kind != DTOPLEVEL) {
          lex(cm, &tk);
          error(&tk.span, "unknown type name %'s", tk.s);
       }
+   } else {
+      peek(cm, &tk);
+      decl.span = tk.span;
    }
    if (st->scls == SCTYPEDEF) iniallowed = 0;
 
    if (first && st->tagdecl && match(cm, &tk, ';')) {
-      decl = (struct decl) { st->base, st->scls, st->qual, st->align, 0, tk.span };
+      decl = (struct decl) { st->base, st->scls, st->qual, st->align, .span = decl.span };
       return decl;
    } else if (st->kind == DFIELD && match(cm, &tk, ':')) {
-      decl = (struct decl) { st->base, st->scls, st->qual, st->align, 0, tk.span };
+      decl = (struct decl) { st->base, st->scls, st->qual, st->align, .span = decl.span };
       st->bitf = 1;
       return decl;
    }
-   decl = declarator(st, cm);
+   decl = declarator(st, cm, decl.span);
 
    if (iniallowed && match(cm, &tk, '=')) {
       st->varini = 1;
@@ -2543,8 +2584,6 @@ AfterIniBitf:
 /* IR Generation */
 /*****************/
 
-static union ref expraddr(struct function *, const struct expr *);
-static union ref compileexpr(struct function *, const struct expr *, bool discard);
 static inline union ref
 exprvalue(struct function *fn, const struct expr *ex)
 {
@@ -2588,7 +2627,7 @@ mkhiddensym(const char *fnname, const char *name, int id)
 static void geninit(struct function *fn, union type t, union ref dst, const struct expr *src);
 static union ref condexprvalue(struct function *fn, const struct expr *ex, bool discard);
 
-static union ref
+union ref
 expraddr(struct function *fn, const struct expr *ex)
 {
    struct decl *decl;
@@ -3042,6 +3081,9 @@ compilecall(struct function *fn, const struct expr *ex)
    struct instr insnsbuf[10];
    vec_of(struct instr) insns = VINIT(insnsbuf, arraylength(insnsbuf));
 
+   if (ex->sub[0].t == ESYM && ex->sub[0].sym->isbuiltin) {
+      return ex->sub[0].sym->builtin->comp(fn, (struct expr *)ex, 0);
+   }
    ins.op = Ocall;
    if (isagg(ex->ty)) {
       ins.cls = KPTR;
@@ -3127,7 +3169,7 @@ genbitfstore(struct function *fn, const union type ty, union ref addr,
    genstore(fn, ty, addr, val);
 }
 
-static union ref
+union ref
 compileexpr(struct function *fn, const struct expr *ex, bool discard)
 {
    union type ty;
@@ -3154,6 +3196,8 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    case ESYM:
       if (discard && !(ex->qual & QVOLATILE)) return NOREF;
       return genload(fn, ex->ty, expraddr(fn, ex), ex->qual & QVOLATILE);
+   case EVAARG:
+      return builtin_va_arg_comp(fn, ex, discard);
    case EGETF:
       if (discard && !(ex->qual & QVOLATILE)) return NOREF;
       if (ex->fld.bitsiz) {
@@ -3904,7 +3948,7 @@ stmt(struct comp *cm, struct function *fn)
       break;
    }
    freearena(&cm->exarena);
-   lexerfreetemps(&cm->lx);
+   lexerfreetemps(cm->lx);
    return fn->curblk == NULL;
 }
 
@@ -4120,22 +4164,24 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
    }
 }
 
+union type cvalistty;
 void
 docomp(struct comp *cm)
 {
-   static union type valistty;
+   static struct env toplevel;
    struct token tk[1];
 
    if (!cm->env) cm->env = &toplevel;
-
-   if (!valistty.t) {
+   if (!cvalistty.t) {
       struct typedata td = {
          .t = TYSTRUCT, .siz = targ_valistsize, .align = targ_primalign[TYPTR], .nmemb = 1,
-         .fld = (struct namedfield [1]){{"?"}}
+         .fld = &(struct namedfield){"-", {mkarrtype(mktype(TYPTR), 0, 3)}}
       };
-      valistty = mktagtype(intern("__builtin_va_list"), &td);
+      cvalistty = mkarrtype(mktagtype(intern("__builtin_va_list"), &td), 0, 1);
    }
-   putdecl(cm, &(struct decl) { valistty, SCTYPEDEF, .name = intern("__builtin_va_list") });
+   peek(cm, tk);
+   envadddecl(cm->env, &(struct decl) { cvalistty, SCTYPEDEF, .span = tk->span, .name = intern("__builtin_va_list") });
+   putbuiltins(cm->env);
 
    while (peek(cm, tk) != TKEOF) {
       struct declstate st = { DTOPLEVEL };
@@ -4181,7 +4227,7 @@ docomp(struct comp *cm)
          }
          freearena(&cm->fnarena);
          freearena(&cm->exarena);
-         lexerfreetemps(&cm->lx);
+         lexerfreetemps(cm->lx);
       } while (st.more);
    }
 }
@@ -4192,7 +4238,7 @@ initcm(struct comp *cm, const char *file)
    enum { N = 1<<12 };
    static union { char m[sizeof(struct arena) + N]; struct arena *_align; } amem[2];
    const char *err;
-   switch (initlexer(&cm->lx, &err, file)) {
+   switch (initlexer(cm->lx, &err, file)) {
    default: assert(0);
    case LXERR:
       fatal(NULL, "Cannot open %'s: %s", file, err);
@@ -4207,7 +4253,7 @@ initcm(struct comp *cm, const char *file)
 void
 ccomp(const char *file)
 {
-   struct comp cm = {0};
+   struct comp cm = {&(struct lexer){0}};
    initcm(&cm, file);
    docomp(&cm);
 }
@@ -4215,9 +4261,9 @@ ccomp(const char *file)
 void
 cpp(struct wbuf *out, const char *file)
 {
-   struct comp cm = {0};
+   struct comp cm = {&(struct lexer){0}};
    initcm(&cm, file);
-   lexerdump(&cm.lx, out);
+   lexerdump(cm.lx, out);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

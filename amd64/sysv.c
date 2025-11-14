@@ -77,7 +77,7 @@ abiarg(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype typ)
       } else if (*ni < NINT) {
          r[0] = intregs[(*ni)++];
       } else {
-         r[0] = -*ns - 16;
+         r[0] = *ns;
          *ns += 8;
          return 0; /* MEMORY */
       }
@@ -86,7 +86,7 @@ abiarg(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype typ)
    cls[0] = cls[1] = 0;
    ret = classify(cls, &typedata[typ.dat], 0);
    if (!ret) { /*MEMORY*/
-      r[0] = -*ns - 16;
+      r[0] = *ns;
       *ns = alignup(*ns + typedata[typ.dat].siz, 8);
       return 0;
    }
@@ -100,7 +100,7 @@ abiarg(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype typ)
          r[i] = intregs[(*ni)++];
       else { /* MEMORY */
          *ni = ni_save, *nf = nf_save;
-         r[0] = -*ns - 16;
+         r[0] = *ns;
          *ns = alignup(*ns + typedata[typ.dat].siz, 8);
          r[1] = -1;
          return cls[0] = cls[1] = 0;
@@ -140,6 +140,118 @@ abiret(short r[2], uchar cls[2], int *ni, union irtype typ)
    return ret;
 }
 
+static void
+vastart(struct function *fn, struct block *blk, int *curi)
+{
+   union ref rsave; /* register save area */
+   int gpr0 = 0, fpr0 = 0, stk0 = 0;
+   struct instr *ins = &instrtab[blk->ins.p[*curi]];
+   union ref ap = ins->l, src, dst;
+   assert(ins->op == Ovastart);
+   /* add xvaprologue if not there yet, which must be the first instruction in the function */
+   if (fn->entry->ins.n > 0 && instrtab[fn->entry->ins.p[0]].op == Oxvaprologue) {
+      rsave = mkref(RTMP, fn->entry->ins.p[0]);
+   } else {
+      rsave = insertinstr(fn->entry, 0, mkalloca(192, 16));
+      insertinstr(fn->entry, 1, mkinstr(Oxvaprologue, 0, rsave, .keep=1));
+   }
+   /* find first unnamed gpr and fpr */
+   for (int i = 0; i < fn->nabiarg; ++i) {
+      struct abiarg abi = fn->abiarg[i];
+      if (!abi.isstk){
+         if (abi.reg < XMM0) ++gpr0;
+         else ++fpr0;
+      } else {
+         stk0 = abi.stk+8;
+      }
+   }
+   /* set ap->reg_save_area */
+   *ins = mkinstr(Oadd, KPTR, ap, mkref(RICON, 16));
+   dst = mkref(RTMP, ins - instrtab);
+   int i = *curi + 1;
+   insertinstr(blk, i++, mkinstr(Ostore8, 0, dst, rsave));
+   /* set ap->overflow_arg_area */
+   src = insertinstr(blk, i++, mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, 16+stk0)));
+   dst = insertinstr(blk, i++, mkinstr(Oadd, KPTR, ap, mkref(RICON, 8)));
+   insertinstr(blk, i++, mkinstr(Ostore8, 0, dst, src));
+   /* set ap->gp_offset */
+   insertinstr(blk, i++, mkinstr(Ostore4, 0, ap, mkref(RICON, gpr0*8)));
+   /* set ap->fp_offset */
+   dst = insertinstr(blk, i++, mkinstr(Oadd, KPTR, ap, mkref(RICON, 4)));
+   insertinstr(blk, i++, mkinstr(Ostore4, 0, dst, mkref(RICON, 6*8 + fpr0*8)));
+   *curi = i;
+}
+
+static void
+vaarg(struct function *fn, struct block *blk, int *curi)
+{
+   short r[2];
+   uchar cls[2];
+   union ref tmp;
+   int ni = 0, nf = 0, ns = 0;
+   int var = blk->ins.p[*curi];
+   union ref ap = instrtab[var].l;
+   union irtype ty = ref2type(instrtab[var].r);
+
+   assert(instrtab[var].op == Ovaarg);
+   blk->ins.p[*curi] = newinstr(blk, (struct instr){Onop});
+
+   int ret = abiarg(r, cls, &ni, &nf, &ns, ty);
+
+   if (ret == 2) assert(!"nyi");
+   else if (ret == 1) {
+      struct block *merge;
+      union ref phi, phiargs[2];
+      if (ni) {
+         /* l->gp_offset < 48 - num_gp * 8 */
+         tmp = insertinstr(blk, (*curi)++, mkinstr(Oloadu4, KI4, ap));
+         tmp = insertinstr(blk, (*curi)++, mkinstr(Oulte, KI4, tmp, mkref(RICON, 48 - ni*8)));
+         merge = blksplitafter(fn, blk, *curi);
+         blk->jmp.t = 0;
+         useblk(fn, blk);
+         putcondbranch(fn, tmp, newblk(fn), newblk(fn));
+         useblk(fn, blk->s1);
+         {
+            /* phi0: &l->reg_save_area[l->gp_offset] */
+            union ref sav = addinstr(fn, mkinstr(Oloadi8, KPTR, irbinop(fn, Oadd, KPTR, ap, mkref(RICON, 16))));
+            union ref gpoff = addinstr(fn, mkinstr(Oloadu4, KI4, ap));
+            phiargs[0] = irbinop(fn, Oadd, KPTR, sav, gpoff);
+            /* l->gp_offset += num_gp * 8 */
+            gpoff = irbinop(fn, Oadd, KI4, gpoff, mkref(RICON, ni * 8));
+            addinstr(fn, mkinstr(Ostore4, 0, ap, gpoff));
+            assert(merge->npred == 1);
+            blkpred(merge, 0) = blk->s1;
+            blk->s1->jmp.t = Jb;
+            blk->s1->s1 = merge;
+         }
+         useblk(fn, blk->s2);
+         {
+            /* phi1: l->overflow_arg_area */
+            union ref adr = irbinop(fn, Oadd, KPTR, ap, mkref(RICON, 8));
+            union ref ovf = addinstr(fn, mkinstr(Oloadi8, KPTR, adr));
+            /* align no-op */
+            
+            phiargs[1] = ovf;
+            /* update l->overflow_arg_area += num_gp*8 */
+            int siz = 8;
+            addinstr(fn, mkinstr(Ostore8, 0, adr, irbinop(fn, Oadd, KPTR, ovf, mkref(RICON, siz))));
+            putbranch(fn, merge);
+         }
+         assert(merge->npred == 2);
+         vpush(&merge->ins, 0);
+         memmove(merge->ins.p+1, merge->ins.p, (merge->ins.n-1)*sizeof *merge->ins.p);
+         merge->ins.p[0] = var;
+         phi = insertphi(merge, KPTR);
+         memcpy(phitab.p[instrtab[phi.i].l.i], phiargs, sizeof phiargs);
+         instrtab[var] = mkinstr(cls[0] == KI4 ? Oloads4 : Oloadi8, cls[0], phi);
+      } else {
+         assert(0&&nf);
+      }
+   } else {
+      assert(!"nyi");
+   }
+}
+
 static const char amd64_rnames[][6] = {
 #define R(r) #r,
    LIST_REGS(R)
@@ -158,6 +270,8 @@ const struct mctarg t_amd64_sysv = {
    .isa = ISamd64,
    .abiret = abiret,
    .abiarg = abiarg,
+   .vastart = vastart,
+   .vaarg = vaarg,
    .isel = amd64_isel,
    .emit = amd64_emit
 };

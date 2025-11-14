@@ -124,12 +124,12 @@ irunop(struct function *fn, enum op op, enum irclass k, union ref a)
    return addinstr(fn, mkinstr(op, k, a));
 }
 
-int newinstr(void);
+int allocinstr(void);
 
 union ref
 addinstr(struct function *fn, struct instr ins)
 {
-   int new = newinstr();
+   int new = allocinstr();
    assert(fn->curblk != NULL);
    instrtab[new] = ins;
    adduse(fn->curblk, new, ins.l);
@@ -168,8 +168,8 @@ addphi(struct function *fn, enum irclass cls, union ref *r)
    ins.l = mkref(RXXX, phitab.n-1);
 
    assert(fn->curblk != NULL);
-   assert(fn->curblk->ins.n == 0);
-   new = newinstr();
+   /*assert(fn->curblk->ins.n == 0);*/
+   new = allocinstr();
    instrtab[new] = ins;
    for (int i = 0; i < fn->curblk->npred; ++i) {
       adduse(fn->curblk, new, r[i]);
