@@ -684,7 +684,9 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
          error(&arg.span, "too many args to function taking %d params", td->nmemb);
          printsig = 1;
       }
-      if (td && args.n < td->nmemb && !td->kandr) {
+      if (arg.ty.t == TYVOID) {
+         error(&arg.span, "invalid use of void expression");
+      } else if (td && args.n < td->nmemb && !td->kandr) {
          if (!assigncheck(td->param[args.n], &arg)) {
             error(&arg.span, "arg #%d of type '%ty' is incompatible with '%ty'",
                   args.n+1, arg.ty, td->param[args.n]);
