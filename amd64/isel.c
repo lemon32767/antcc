@@ -56,10 +56,10 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
 
    if (r->t == RXCON) {
       struct xcon *con = &conht[r->i];
-      if (in_range(op, Oshl, Oslr)) {
+      if (in_range(op, Oshl, Oslr) && r == &ins->r) {
          sh = con->i;
          goto ShiftImm;
-      } else if (in_range(op, Oadd, Osub) && con->i == 2147483648) {
+      } else if (in_range(op, Oadd, Osub) && con->i == 2147483648 && r == &ins->r) {
          /* add X, INT32MAX+1 -> sub X, INT32MIN */
          ins->op = Oadd + (op == Oadd);
          *r = mkintcon(KI4, -2147483648);
@@ -89,10 +89,10 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, mkaddr((struct addr){*r})));
       } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls))
          goto DivImm;
-   } else if (r->t == RICON && in_range(op, Odiv, Ourem) && kisint(ins->cls)) {
+   } else if (r->t == RICON && in_range(op, Odiv, Ourem) && kisint(ins->cls) && r == &ins->r) {
    DivImm: /* there is no division by immediate, must be copied to a register */
       *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, *r));
-   } else if (r->t == RICON && in_range(op, Oshl, Oslr)) {
+   } else if (r->t == RICON && in_range(op, Oshl, Oslr) && r == &ins->r) {
       sh = r->i;
    ShiftImm: /* shift immediate is always 8bit */
       *r = mkref(RICON, sh & 255);

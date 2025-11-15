@@ -13,5 +13,5 @@ int sum(int x, ...) {
 }
 
 int main() {
-   printf("%d\n", sum(1,2,3,4,5,6,7,0,0));
+   printf("%d\n", sum(1,2,3,4,5,6,5.5,7,0,0));
 }
