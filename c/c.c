@@ -643,7 +643,7 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
    struct expr ex, arg;
    struct span span = callee->span;
    union type ty = callee->ty;
-   const struct typedata *td = &typedata[ty.dat];
+   const struct typedata *td = NULL;
    struct expr argbuf[10];
    vec_of(struct expr) args = VINIT(argbuf, arraylength(argbuf));
    bool spanok = joinspan(&span.ex, span_->ex);
@@ -659,28 +659,32 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
       const char *name = (void *)callee->sym;
       struct decl decl = {
          (ty = mkfntype(mktype(TYINT), 0, NULL, NULL, /* kandr */ 1, 0)),
-         .scls = SCEXTERN, .span = callee->span, .name = name
+         .scls = SCEXTERN, .span = span, .name = name
       };
-      warn(&callee->span, "call to undeclared function '%s'", name);
+      warn(&span, "call to undeclared function '%s'", name);
       ((struct expr *)callee)->ty = decl.ty;
       ((struct expr *)callee)->sym = putdecl(cm, &decl);
-      td = &typedata[ty.dat];
    }
 
    if (!builtin) {
       if (ty.t == TYPTR) /* auto-deref when calling a function pointer */
          ty = typechild(ty);
       if (ty.t != TYFUNC)
-         error(&callee->span, "calling a value of type '%ty'", callee->ty);
+         error(&span, "calling a value of type '%ty'", callee->ty);
+      else
+         td = &typedata[ty.dat];
+      if (ty.t == TYFUNC && td->ret.t != TYVOID && isincomplete(td->ret))
+         error(&span, "cannot call function with incomplete return type '%ty'", td->ret);
    }
+
    if (!match(cm, &tk, ')')) for (;;) {
       arg = expr(cm);
       spanok = spanok && joinspan(&span.ex, callee->span.ex);
-      if (ty.t == TYFUNC && args.n == td->nmemb && !td->variadic && !td->kandr) {
+      if (td && args.n == td->nmemb && !td->variadic && !td->kandr) {
          error(&arg.span, "too many args to function taking %d params", td->nmemb);
          printsig = 1;
       }
-      if (ty.t == TYFUNC && args.n < td->nmemb && !td->kandr) {
+      if (td && args.n < td->nmemb && !td->kandr) {
          if (!assigncheck(td->param[args.n], &arg)) {
             error(&arg.span, "arg #%d of type '%ty' is incompatible with '%ty'",
                   args.n+1, arg.ty, td->param[args.n]);
@@ -697,7 +701,7 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
    }
    if (!spanok || !joinspan(&span.ex, tk.span.ex)) span = *span_;
 
-   if (ty.t == TYFUNC && !td->variadic && !td->kandr && args.n < td->nmemb) {
+   if (td && !td->variadic && !td->kandr && args.n < td->nmemb) {
       error(&tk.span, "not enough args to function taking %d param%s",
             td->nmemb, td->nmemb != 1 ? "s" : "");
       printsig = 1;
@@ -2436,8 +2440,6 @@ declarator(struct declstate *st, struct comp *cm, struct span span0) {
             error(&decl.span, "function cannot return function type '%ty'", decl.ty);
          else if (decl.ty.t == TYARRAY)
             error(&decl.span, "function cannot return array type '%ty'", decl.ty);
-         else if (decl.ty.t != TYVOID && isincomplete(decl.ty))
-            error(&decl.span, "function cannot return incomplete type '%ty'", decl.ty);
          if (l->kandr && ccopt.cstd > STDC89)
             warn(&l->span, "function declaration without a prototype is deprecated");
          decl.ty = mkfntype(decl.ty, l->npar, l->param, l->pqual, l->kandr, l->variadic);
@@ -4205,6 +4207,8 @@ docomp(struct comp *cm)
             const struct typedata *td =  &typedata[decl.ty.dat];
             struct function fn = { &cm->fnarena, decl.name, .globl = decl.scls != SCSTATIC };
             fn.fnty = decl.ty;
+            if (td->ret.t != TYVOID && isincomplete(td->ret))
+               error(&decl.span, "function definition with incomplete return type '%ty'", td->ret);
             fn.retty = td->ret;
             decl.isdef = 1;
             putdecl(cm, &decl);
