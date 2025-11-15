@@ -207,9 +207,17 @@ putcondbranch(struct function *fn, union ref arg, struct block *t, struct block 
 void
 putreturn(struct function *fn, union ref r0, union ref r1)
 {
+   assert(fn->curblk);
    adduse(fn->curblk, USERJUMP, r0);
    adduse(fn->curblk, USERJUMP, r1);
    putjump(fn, Jret, r0, r1, NULL, NULL);
+}
+
+void
+puttrap(struct function *fn)
+{
+   assert(fn->curblk);
+   putjump(fn, Jtrap, NOREF, NOREF, NULL, NULL);
 }
 
 #undef putjump

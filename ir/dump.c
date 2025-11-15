@@ -176,7 +176,7 @@ dumpinst(const struct instr *ins)
 void
 dumpblk(struct function *fn, struct block *blk)
 {
-   static const char *jnames[] = { 0, "b", "ret" };
+   static const char *jnames[] = { 0, "b", "ret", "trap" };
    int i;
    efmt("  @%d:\n", blk->id);
    for (i = 0; i < blk->phi.n; ++i) {

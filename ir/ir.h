@@ -113,7 +113,7 @@ struct instr {
    union ref l, r; /* args */
 };
 
-enum jumpkind { JXXX, Jb, Jret, };
+enum jumpkind { JXXX, Jb, Jret, Jtrap, };
 
 struct block {
    int id;
@@ -263,6 +263,7 @@ void useblk(struct function *, struct block *);
 void putbranch(struct function *, struct block *);
 void putcondbranch(struct function *, union ref arg, struct block *t, struct block *f);
 void putreturn(struct function *, union ref r0, union ref r1);
+void puttrap(struct function *);
 
 /** fold.c **/
 bool foldbinop(union ref *to, enum op, enum irclass, union ref l, union ref r);

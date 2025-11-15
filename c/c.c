@@ -3438,10 +3438,12 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          useblk(fn, tr);
          expreffects(fn, &sub[1]);
          end = newblk(fn);
-         putbranch(fn, end);
+         if (fn->curblk)
+            putbranch(fn, end);
          useblk(fn, fl);
          expreffects(fn, &sub[2]);
-         putbranch(fn, end);
+         if (fn->curblk)
+            putbranch(fn, end);
          useblk(fn, end);
          return NOREF;
       }

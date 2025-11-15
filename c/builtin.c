@@ -27,9 +27,9 @@ callcheck(const struct span *span, int nparam, const union type *param, int narg
 #define DEF_FNLIKE_SEMA(name, retty, ...)                                        \
    static bool                                                                   \
    name##_sema(struct comp *cm, struct expr *ex) {                               \
-      static union type par[] = { __VA_ARGS__, {0} };                            \
+      static union type par[] = { {{0}}, __VA_ARGS__ };                          \
       ex->ty = retty;                                                            \
-      return callcheck(&ex->span, arraylength(par)-1, par, ex->narg, ex->sub+1); \
+      return callcheck(&ex->span, arraylength(par)-1, par+1, ex->narg, ex->sub+1); \
    }
 
 static bool
@@ -63,6 +63,15 @@ va_end_comp(struct function *fn, struct expr *ex, bool discard)
    return NOREF;
 }
 
+DEF_FNLIKE_SEMA(trap, mktype(TYVOID), )
+
+static union ref
+trap_comp(struct function *fn, struct expr *ex, bool discard)
+{
+   puttrap(fn);
+   return NOREF;
+}
+
 union ref
 builtin_va_arg_comp(struct function *fn, const struct expr *ex, bool discard)
 {
@@ -74,6 +83,7 @@ builtin_va_arg_comp(struct function *fn, const struct expr *ex, bool discard)
 #define LIST_BUILTINS(_) \
    _(va_start) \
    _(va_end) \
+   _(trap)
 
 static const struct {
    const char *name;
@@ -84,11 +94,11 @@ static const struct {
 #undef FNS
 };
 
-const char *intern(const char *);
 void
 putbuiltins(struct env *env)
 {
    for (int i = 0; i < arraylength(tab); ++i) {
+      const char *intern(const char *);
       envadddecl(env, &(struct decl) {
          .name = intern(tab[i].name),
          .isbuiltin = 1,
@@ -97,5 +107,13 @@ putbuiltins(struct env *env)
    }
 }
 
+bool
+hasbuiltin(const char *name, uint len)
+{
+   for (int i = 0; i < arraylength(tab); ++i)
+      if (!strncmp(name, tab[i].name, len))
+         return 1;
+   return 0;
+}
 
 /* vim:set ts=3 sw=3 expandtab: */

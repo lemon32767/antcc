@@ -612,6 +612,7 @@ struct macro {
         const struct token *tk;
         int n;
       } rlist;
+      void (*handlerfn)(struct lexer *, struct token *ret, struct rlist arg);
    };
 };
 
@@ -988,7 +989,7 @@ tryexpand(struct lexer *lx, struct token *tk)
       if (l->macno == macidx)
          return 0;
 
-   if (mac->special) {
+   if (mac->special && !mac->fnlike) {
       mac->handler(lx, tk);
       pushmacstk(lx, &span, &(struct macrostack){
          .rlist = { alloccopy(lx->tmparena, tk, sizeof *tk, 0), 1 },
@@ -1080,9 +1081,13 @@ expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac)
       joinspan(&excessspan.ex, tk.span.ex);
       error(&excessspan, "macro `%s' passed %d arguments, but takes just %d", mac->name, narg, mac->nparam);
    }
-
-   /* make new rlist with args replaced */
-   if (mac->nparam) {
+   if (mac->special) {
+      mac->handlerfn(lx, &tk, (struct rlist){argsbuf.p, argsbuf.n});
+      pushmacstk(lx, span, &(struct macrostack){
+         .rlist = { alloccopy(lx->tmparena, &tk, sizeof tk, 0), 1 },
+         .macno = mac - macros.p,
+      });
+   } else if (mac->nparam) { /* make new rlist with args replaced */
       struct token lhsargforpaste;
       bool lhsargpaste = 0, rhsargpaste = 0;
       for (int i = 0; i < mac->rlist.n; ++i) {
@@ -1897,6 +1902,21 @@ mac__time__handler(struct lexer *lx, struct token *tk)
 }
 
 static void
+mac__has_builtin(struct lexer *lx, struct token *tk, struct rlist arg)
+{
+   extern bool hasbuiltin(const char *, uint n);
+   bool has = 0;
+   tk->t = TKNUMLIT, tk->len = 1;
+   if (arg.n == 1) {
+      if (arg.tk->t == TKIDENT)
+         has = hasbuiltin(arg.tk->s, arg.tk->len);
+      else if (in_range(arg.tk->t, TKWBEGIN_, TKWEND_))
+         has = arg.tk->len >= sizeof "__builtin_" && !memcmp(arg.tk->s, "__builtin_", 10);
+   }
+   tk->s = &"01"[has];
+}
+
+static void
 addpredefmacros(void)
 {
    static const struct token tok_1 = { TKNUMLIT, .s = "1", .len = 1 };
@@ -1906,6 +1926,7 @@ addpredefmacros(void)
       { "__LINE__", .predefined = 1, .special = 1, .handler = mac__line__handler },
       { "__DATE__", .predefined = 1, .special = 1, .handler = mac__date__handler },
       { "__TIME__", .predefined = 1, .special = 1, .handler = mac__time__handler },
+      { "__has_builtin", .predefined = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_builtin },
       { "__STDC__", .predefined = 1, .rlist = { &tok_1, 1 } },
       { "__STDC_VERSION__", .predefined = 1, .rlist = { &tok_ver, 1 } },
       { "__STDC_HOSTED__", .predefined = 1, .rlist = { &tok_1, 1 } },

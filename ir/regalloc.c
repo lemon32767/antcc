@@ -1134,10 +1134,10 @@ fini(struct rega *ra)
                 *   b @blk
                 * @blk:
                 *   NOP
-                *   ret
+                *   ret/trap
                 */
                assert(p->s1 == blk);
-               p->jmp.t = Jret;
+               p->jmp.t = blk->jmp.t;
                p->s1 = NULL;
             } else if (blk->s1) {
                /* simplify:

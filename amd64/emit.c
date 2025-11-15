@@ -1317,6 +1317,8 @@ emitbin(struct function *fn)
             if (usebp) B(0xC9); /* leave */
             B(0xC3); /* ret */
          }
+      } else if (blk->jmp.t == Jtrap) {
+         DS("\x0F\x0B"); /* UD2 */
       } else emitbranch(pcode, blk);
    } while ((blk = blk->lnext) != fn->entry);
    objdeffunc(fn->name, fn->globl, fnstart - objout.textbegin, *pcode - fnstart);
