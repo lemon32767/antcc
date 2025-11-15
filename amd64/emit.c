@@ -1252,17 +1252,21 @@ emitbin(struct function *fn)
       usebp = 1;
       /* push rbp; mov rbp, rsp */
       DS("\x55\x48\x89\xE5");
-      ++npush;
    }
    saverestore = calleesave(&npush, pcode, fn);
-   if (usebp) rbpoff = -(npush - 1)*8;
+   if (usebp) rbpoff = -npush*8;
 
    /* ensure stack is 16-byte aligned for function calls */
-   if (!fn->isleaf && ((fn->stksiz + npush*8) & 0xF) != 0x8) {
+   if (!fn->isleaf && ((fn->stksiz + npush*8) & 0xF) != 0) {
       assert(usebp);
-      fn->stksiz += 8;
+      if ((rbpoff & 0xF) == 0) {
+         rbpoff -= 16;
+         fn->stksiz += 24;
+      } else {
+         rbpoff -= 8;
+         fn->stksiz += 8;
+      }
    }
-   rbpoff = alignup(rbpoff, 16);
 
    if (fn->stksiz != 0) {
       /* sub rsp, <stack size> */
