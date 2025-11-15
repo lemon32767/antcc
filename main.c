@@ -140,7 +140,7 @@ optparse(char **args)
       } else if (*arg == 'o') {
          if (arg[1]) task.out = arg+1;
          else if (args[1]) task.out = *++args;
-         else goto Bad;
+         else fatal(NULL, "missing path after `-o`");
       } else if (*arg == 'f') {
          /* -fabc / -fno-abc flags */
          const char *flag = arg+1;
