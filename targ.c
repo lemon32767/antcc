@@ -1,4 +1,5 @@
 #include "common.h"
+#include "type.h"
 
 extern const struct mctarg t_amd64_sysv;
 static const struct targ {

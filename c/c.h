@@ -1,4 +1,5 @@
 #include "../common.h"
+#include "../type.h"
 
 /*************/
 /* EXPR TREE */

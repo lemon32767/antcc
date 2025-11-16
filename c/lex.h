@@ -1,4 +1,5 @@
 #include "../common.h"
+#include "../type.h"
 
 static inline bool
 joinspan(struct span0 *dst, struct span0 snd)
