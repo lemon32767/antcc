@@ -24,7 +24,7 @@ build/%.o: %.c common.h
 	$(CC) $(CFLAGS) -MMD -MP -MT $@ -MF build/$*.d -c -o $@ $<
 
 clean:
-	$(RM) -r build// $(OUT) *.o a.out
+	$(RM) -r build/ test/build/ $(OUT) *.o a.out
 
 .PHONY: clean
 
