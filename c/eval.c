@@ -290,7 +290,7 @@ eval(struct expr *ex, enum evalmode mode)
       return 1;
    }
    if (ex->t == ESTRLIT && mode > EVINTCONST) return 1;
-   if (mode == EVSTATICINI && ex->ty.t == TYPTR && isaddrconst(ex)) {
+   if (mode == EVSTATICINI && isptrcvt(ex->ty) && isaddrconst(ex)) {
       struct expr *e = ex;
       while (e->t == ECAST) e = e->sub;
       if (e != ex) {
