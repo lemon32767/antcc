@@ -233,15 +233,16 @@ static int cc1(const char *out, const char *in);
 static const char *tempobj[arraylength(task.inf)];
 static void
 mktemps(void) {
-   for (int i = 0; i < task.ninf; ++i)
-      tempobj[i] = tempfile(task.inf[i], "o");
+   for (int i = 0; i < task.ninf; ++i) {
+      if (task.inft[i] == IFTc)
+         tempobj[i] = tempfile(task.inf[i], "o");
+   }
 }
 static void
 cleantemps(void)
 {
    for (int i = 0; i < task.ninf; ++i) {
-      if (!tempobj[i]) break;
-      unlink(tempobj[i]);
+      if (tempobj[i]) unlink(tempobj[i]);
    }
 }
 
@@ -253,18 +254,21 @@ compileobjs(void)
 
    if (!ccopt.dbg.any) mktemps();
    for (int i = 0; i < task.ninf; ++i) {
-      if ((p = fork()) < 0) {
-         error(NULL, "fork(): %s\n", strerror(errno));
-         exit(1);
-      } else if (p == 0) {
-         exit(cc1(tempobj[i], task.inf[i]));
-      }
-      waitpid(p, &wstat, 0);
-      if (!WIFEXITED(wstat)) exit(127);
-      if (WEXITSTATUS(wstat) != 0) {
-         cleantemps();
-         exit(WEXITSTATUS(wstat));
-      }
+      if (task.inft[i] == IFTc) {
+         if ((p = fork()) < 0) {
+            error(NULL, "fork(): %s\n", strerror(errno));
+            exit(1);
+         } else if (p == 0) {
+            exit(cc1(tempobj[i], task.inf[i]));
+         }
+         waitpid(p, &wstat, 0);
+         if (!WIFEXITED(wstat)) exit(127);
+         if (WEXITSTATUS(wstat) != 0) {
+            cleantemps();
+            exit(WEXITSTATUS(wstat));
+         }
+      } else if (task.inft[i] == IFTobj) {
+      } else assert(!"not obj");
    }
    if (!ccopt.dbg.any) atexit(cleantemps);
 }
@@ -291,7 +295,13 @@ dolink(void)
    vpush(&cmd, task.out);
    assert(task.ninf > 0);
    for (int i = 0; i < task.ninf; ++i) {
-      vpush(&cmd, tempobj[i]);
+      const char *o;
+      switch (task.inft[i]) {
+      case IFTc: o = tempobj[i]; break;
+      case IFTobj: o = task.inf[i]; break;
+      default: assert(!"link obj?");
+      }
+      vpush(&cmd, o);
    }
    if (task.verbose) {
       efmt("> ");
