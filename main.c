@@ -439,6 +439,7 @@ main(int argc, char **argv)
    sysinclpaths();
    ccopt.cstd = STDC99;
    ccopt.pie = 1;
+   ccopt.dbgout = &bstdout;
 
    /* parse cli ags */
    optparse(argv);

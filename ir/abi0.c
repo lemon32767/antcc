@@ -436,7 +436,7 @@ abi0(struct function *fn)
    } while ((blk = blk->lnext) != fn->entry);
 
    if (ccopt.dbg.a) {
-      efmt("<< After abi0 >>\n");
+      bfmt(ccopt.dbgout, "<< After abi0 >>\n");
       irdump(fn);
    }
 }

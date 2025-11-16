@@ -571,7 +571,7 @@ irfini(struct function *fn)
    mem2reg(fn);
    copyopt(fn);
    if (ccopt.dbg.o) {
-      efmt("<< Before isel >>\n");
+      bfmt(ccopt.dbgout, "<< Before isel >>\n");
       irdump(fn);
    }
    mctarg->isel(fn);

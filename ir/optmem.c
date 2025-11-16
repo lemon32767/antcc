@@ -313,7 +313,7 @@ mem2reg(struct function *fn)
          free(sb.curdefs.v[i]);
    imap_free(&sb.curdefs);
    if (ccopt.dbg.m) {
-      efmt("<< After mem2reg >>\n");
+      bfmt(ccopt.dbgout, "<< After mem2reg >>\n");
       irdump(fn);
    }
 }

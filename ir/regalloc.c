@@ -3,7 +3,7 @@
 /** Implements linear scan register allocation **/
 
 #if 1
-#define DBG(...) if(ccopt.dbg.r) efmt(__VA_ARGS__)
+#define DBG(...) if(ccopt.dbg.r) bfmt(ccopt.dbgout, __VA_ARGS__)
 #else
 #define DBG(...) ((void)0)
 #endif
@@ -1206,7 +1206,7 @@ regalloc(struct function *fn)
    fillblkids(fn);
 
    if (ccopt.dbg.r) {
-      efmt("<< Before linear scan >>\n");
+      DBG("<< Before linear scan >>\n");
       irdump(fn);
    }
 

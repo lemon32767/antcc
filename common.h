@@ -136,6 +136,7 @@ struct option {
       };
       uchar any;
    } dbg;
+   struct wbuf *dbgout;
 };
 extern struct option ccopt;
 extern struct inclpaths {

@@ -4233,9 +4233,9 @@ docomp(struct comp *cm)
             } else if (decl.ty.t != TYFUNC && decl.scls != SCTYPEDEF && (decl.scls != SCEXTERN || noscls)) {
                objnewdat(d->name, Sbss, decl.scls == SCEXTERN, typesize(d->ty), typealign(d->ty));
             }
-            if (ccopt.dbg.p) efmt("var %s : %tq\n", d->name, d->ty, d->qual);
+            if (ccopt.dbg.p) bfmt(ccopt.dbgout, "var %s : %tq\n", d->name, d->ty, d->qual);
          } else {
-            if (ccopt.dbg.p && decl.ty.t) efmt("type %ty\n", decl.ty);
+            if (ccopt.dbg.p && decl.ty.t) bfmt(ccopt.dbgout, "type %ty\n", decl.ty);
          }
          freearena(&cm->fnarena);
          freearena(&cm->exarena);

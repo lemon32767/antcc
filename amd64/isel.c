@@ -577,7 +577,7 @@ amd64_isel(struct function *fn)
    } while ((blk = blk->lnext) != fn->entry);
 
    if (ccopt.dbg.i) {
-      efmt("<< After isel >>\n");
+      bfmt(ccopt.dbgout, "<< After isel >>\n");
       irdump(fn);
    }
 }

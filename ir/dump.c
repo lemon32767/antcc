@@ -3,6 +3,8 @@
 
 static int nextdat;
 
+static struct wbuf *out;
+
 static void
 pridat(const struct irdat *dat)
 {
@@ -14,26 +16,26 @@ pridat(const struct irdat *dat)
    int npri = 0;
    int strbegin = 0, nstr = 0;
    assert(dat->section == Sdata || dat->section == Srodata);
-   efmt("%s %y(align %d, size %d):\n\t", dat->section == Sdata ? "data" : "rodata", dat->name, dat->align, dat->siz);
+   bfmt(out, "%s %y(align %d, size %d):\n\t", dat->section == Sdata ? "data" : "rodata", dat->name, dat->align, dat->siz);
    for (int i = 0; i < dat->siz; ++i) {
       int c = p[i];
       if (npri > MAXLINE) {
          npri = 0;
-         efmt("\n\t");
+         bfmt(out, "\n\t");
       }
       if (aisprint(c)) {
          if (!nstr++) strbegin = i;
       } else {
          if (nstr) {
-            npri += efmt("asc %'S,", p+strbegin, nstr);
+            npri += bfmt(out, "asc %'S,", p+strbegin, nstr);
             nstr = 0;
-            efmt("b ");
+            bfmt(out, "b ");
          }
-         npri += efmt("%d,", c);
+         npri += bfmt(out, "%d,", c);
       }
    }
-   if (nstr) npri += efmt("asc %'S,", p+strbegin, nstr);
-   efmt("\n");
+   if (nstr) npri += bfmt(out, "asc %'S,", p+strbegin, nstr);
+   bfmt(out, "\n");
 }
 
 static const char *clsname[] = {
@@ -44,14 +46,14 @@ static void
 prityp(union irtype typ)
 {
    if (!typ.isagg)
-      efmt(clsname[typ.cls]);
+      bfmt(out, clsname[typ.cls]);
    else {
       const struct typedata *td = &typedata[typ.dat];
       const char *tag = td->t == TYSTRUCT ? "struct" : "union";
       if (ttypenames[td->id])
-         efmt("%s.%s.%d", tag, ttypenames[td->id], td->id);
+         bfmt(out, "%s.%s.%d", tag, ttypenames[td->id], td->id);
       else
-         efmt("%s.%d", tag, td->id);
+         bfmt(out, "%s.%d", tag, td->id);
    }
 }
 
@@ -69,35 +71,35 @@ dumpref(enum op o, union ref ref)
    switch (ref.t) {
    case RXXX:
       if (ref.bits == UNDREF.bits)
-         efmt("undef");
+         bfmt(out, "undef");
       else
-         efmt("??");
+         bfmt(out, "??");
       break;
    case RTMP:
-      efmt("%%%d", ref.i);
+      bfmt(out, "%%%d", ref.i);
       if (instrtab[ref.i].reg)
-         efmt("(%s)", mctarg->rnames[instrtab[ref.i].reg-1]);
+         bfmt(out, "(%s)", mctarg->rnames[instrtab[ref.i].reg-1]);
       break;
    case RREG:
-      efmt("%s", mctarg->rnames[ref.i]);
+      bfmt(out, "%s", mctarg->rnames[ref.i]);
       break;
    case RICON:
-      if (o == Ointrin) efmt("\"%s\"", intrinname[ref.i]);
-      else efmt("%d", ref.i);
+      if (o == Ointrin) bfmt(out, "\"%s\"", intrinname[ref.i]);
+      else bfmt(out, "%d", ref.i);
       break;
    case RXCON:
       con = &conht[ref.i];
-      if (con->deref) efmt("*[");
-      if (con->issym || con->isdat) efmt("$%y", xcon2sym(ref.i));
+      if (con->deref) bfmt(out, "*[");
+      if (con->issym || con->isdat) bfmt(out, "$%y", xcon2sym(ref.i));
       else switch (con->cls) {
-      case KI4: efmt("%d", (int)con->i); break;
-      case KI8: efmt("%ld", con->i); break;
-      case KPTR: efmt("%'lx", con->i); break;
-      case KF4: efmt("%fs", con->f); break;
-      case KF8: efmt("%fd", con->f); break;
+      case KI4: bfmt(out, "%d", (int)con->i); break;
+      case KI8: bfmt(out, "%ld", con->i); break;
+      case KPTR: bfmt(out, "%'lx", con->i); break;
+      case KF4: bfmt(out, "%fs", con->f); break;
+      case KF8: bfmt(out, "%fd", con->f); break;
       default: assert(0);
       }
-      if (con->deref) efmt("]");
+      if (con->deref) bfmt(out, "]");
       break;
    case RTYPE:
       prityp(ref2type(ref));
@@ -106,20 +108,20 @@ dumpref(enum op o, union ref ref)
       {
          const struct addr *addr = &addrht[ref.i];
          bool k = 0;
-         efmt("addr [");
+         bfmt(out, "addr [");
          if ((k = addr->base.bits)) dumpref(0, addr->base);
          if (addr->index.bits) {
-            if (k) efmt(" + ");
+            if (k) bfmt(out, " + ");
             dumpref(0, addr->index);
             if (addr->shift)
-               efmt(" * %d", 1<<addr->shift);
+               bfmt(out, " * %d", 1<<addr->shift);
             k = 1;
          }
          if (k && addr->disp) {
-            efmt(" %c %d", "-+"[addr->disp > 0], addr->disp < 0 ? -addr->disp : addr->disp);
+            bfmt(out, " %c %d", "-+"[addr->disp > 0], addr->disp < 0 ? -addr->disp : addr->disp);
          }
          assert(k);
-         efmt("]");
+         bfmt(out, "]");
       }
       break;
    default: assert(!"ref");
@@ -130,15 +132,15 @@ static void
 dumpcall(struct call *call)
 {
    if (call->ret.isagg) {
-      efmt("sret ");
+      bfmt(out, "sret ");
       prityp(call->ret);
-      efmt(", ");
+      bfmt(out, ", ");
    }
    if (call->vararg < 0) {
-      efmt("#%d", call->narg);
+      bfmt(out, "#%d", call->narg);
    } else {
       assert(call->vararg <= call->narg);
-      efmt("#%d, ... #%d", call->vararg, call->narg - call->vararg);
+      bfmt(out, "#%d, ... #%d", call->vararg, call->narg - call->vararg);
    }
 }
 
@@ -147,30 +149,30 @@ dumpinst(const struct instr *ins)
 {
    int i;
    if (ins->op == Omove) {
-      efmt("move %s ", clsname[ins->cls]);
+      bfmt(out, "move %s ", clsname[ins->cls]);
    } else {
       enum irclass cls = insrescls(*ins);
       if (ins->reg) {
          if (cls)
-            efmt("%s ", clsname[cls]);
-         efmt("(%%%d)%s = ", ins - instrtab, mctarg->rnames[ins->reg - 1]);
+            bfmt(out, "%s ", clsname[cls]);
+         bfmt(out, "(%%%d)%s = ", ins - instrtab, mctarg->rnames[ins->reg - 1]);
       } else if (cls) {
-         efmt("%s %%%d", clsname[cls], ins - instrtab);
-         efmt(" = ");
+         bfmt(out, "%s %%%d", clsname[cls], ins - instrtab);
+         bfmt(out, " = ");
       }
-      efmt("%s ", opnames[ins->op]);
+      bfmt(out, "%s ", opnames[ins->op]);
       if (oiscmp(ins->op))
-         efmt("%s ", clsname[ins->cls]);
+         bfmt(out, "%s ", clsname[ins->cls]);
    }
    for (i = 0; i < opnarg[ins->op]; ++i) {
-      if (i) efmt(", ");
+      if (i) bfmt(out, ", ");
       if (i == 1 && (ins->op == Ocall || ins->op == Ointrin)) {
          dumpcall(&calltab.p[ins->r.i]);
       } else {
          dumpref(ins->op, (&ins->l)[i]);
       }
    }
-   efmt("\n");
+   bfmt(out, "\n");
 }
 
 void
@@ -178,41 +180,41 @@ dumpblk(struct function *fn, struct block *blk)
 {
    static const char *jnames[] = { 0, "b", "ret", "trap" };
    int i;
-   efmt("  @%d:\n", blk->id);
+   bfmt(out, "  @%d:\n", blk->id);
    for (i = 0; i < blk->phi.n; ++i) {
       struct instr *phi = &instrtab[blk->phi.p[i]];
       union ref *refs = phitab.p[phi->l.i];
-      if (i == 0) efmt("%-4d", blk->inumstart);
-      else efmt(" |> ");
-      efmt("  %s ", clsname[phi->cls]);
-      if (!phi->reg) efmt("%%%d = %s ", blk->phi.p[i], opnames[phi->op]);
-      else efmt("(%%%d)%s = %s ", phi - instrtab, mctarg->rnames[phi->reg-1], opnames[phi->op]);
+      if (i == 0) bfmt(out, "%-4d", blk->inumstart);
+      else bfmt(out, " |> ");
+      bfmt(out, "  %s ", clsname[phi->cls]);
+      if (!phi->reg) bfmt(out, "%%%d = %s ", blk->phi.p[i], opnames[phi->op]);
+      else bfmt(out, "(%%%d)%s = %s ", phi - instrtab, mctarg->rnames[phi->reg-1], opnames[phi->op]);
       for (int i = 0; i < blk->npred; ++i) {
-         if (i) efmt(", ");
-         efmt("@%d ", blkpred(blk, i)->id);
+         if (i) bfmt(out, ", ");
+         bfmt(out, "@%d ", blkpred(blk, i)->id);
          dumpref(0, refs[i]);
       }
-      efmt("\n");
+      bfmt(out, "\n");
    }
    for (i = 0; i < blk->ins.n; ++i) {
-      efmt("%-4d  ", blk->inumstart + 1 + i);
+      bfmt(out, "%-4d  ", blk->inumstart + 1 + i);
       dumpinst(&instrtab[blk->ins.p[i]]);
    }
-   efmt("%-4d  %s ", blk->inumstart + 1 + i, jnames[blk->jmp.t]);
+   bfmt(out, "%-4d  %s ", blk->inumstart + 1 + i, jnames[blk->jmp.t]);
    if (blk->jmp.t == Jret && blk->jmp.arg[0].bits && !fn->nabiret && isagg(fn->retty)) {
       /* un-lowered struct return */
       dumpref(0, mktyperef(mkirtype(fn->retty)));
-      efmt(" ");
+      bfmt(out, " ");
    }
    for (i = 0; i < 2; ++i) {
       if (!blk->jmp.arg[i].bits) break;
-      if (i > 0) efmt(", ");
+      if (i > 0) bfmt(out, ", ");
       dumpref(0, blk->jmp.arg[i]);
    }
-   if (i && blk->s1) efmt(", ");
-   if (blk->s1 && blk->s2) efmt("@%d, @%d", blk->s1->id, blk->s2->id);
-   else if (blk->s1) efmt("@%d", blk->s1->id);
-   efmt("\n");
+   if (i && blk->s1) bfmt(out, ", ");
+   if (blk->s1 && blk->s2) bfmt(out, "@%d, @%d", blk->s1->id, blk->s2->id);
+   else if (blk->s1) bfmt(out, "@%d", blk->s1->id);
+   bfmt(out, "\n");
 }
 
 void
@@ -220,28 +222,30 @@ irdump(struct function *fn)
 {
    struct block *blk;
 
+   out = &bstdout;
+
    /* print datas that have never been printed before */
    while (nextdat < dattab.n) pridat(&dattab.p[nextdat++]);
 
-   efmt("function %s : %ty\n", fn->name, fn->fnty);
+   bfmt(out, "function %s : %ty\n", fn->name, fn->fnty);
    if (fn->abiarg || fn->nabiret) {
-      efmt("abi: (");
+      bfmt(out, "abi: (");
       for (int i = 0; i < fn->nabiarg; ++i) {
-         if (i > 0) efmt(", ");
+         if (i > 0) bfmt(out, ", ");
          if (!fn->abiarg[i].isstk) {
-            efmt("%s", mctarg->rnames[fn->abiarg[i].reg]);
+            bfmt(out, "%s", mctarg->rnames[fn->abiarg[i].reg]);
          } else {
             prityp(fn->abiarg[i].ty);
-            efmt(" <stk>");
+            bfmt(out, " <stk>");
          }
       }
-      efmt(")");
+      bfmt(out, ")");
       if (fn->retty.t != TYVOID) {
-         efmt(" -> %s", mctarg->rnames[fn->abiret[0].reg]);
+         bfmt(out, " -> %s", mctarg->rnames[fn->abiret[0].reg]);
          if (fn->nabiret > 1)
-            efmt(", %s", mctarg->rnames[fn->abiret[1].reg]);
+            bfmt(out, ", %s", mctarg->rnames[fn->abiret[1].reg]);
       }
-      efmt("\n");
+      bfmt(out, "\n");
    }
    numberinstrs(fn);
    blk = fn->entry;
@@ -249,7 +253,7 @@ irdump(struct function *fn)
       dumpblk(fn, blk);
       assert(blk->lnext != NULL);
    } while ((blk = blk->lnext) != fn->entry);
-   efmt("\n");
+   bfmt(out, "\n");
 }
 
 /* vim:set ts=3 sw=3 expandtab: */
