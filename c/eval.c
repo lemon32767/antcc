@@ -27,8 +27,8 @@ static bool
 numcast(union type ty, struct expr *dst, const struct expr *src)
 {
    struct expr tmp;
-   enum typetag td = targ2hosttype(ty.t);
-   enum typetag ts = targ2hosttype(src->ty.t == TYENUM ? src->ty.backing : src->ty.t);
+   enum typetag td = targ2hosttype(scalartypet(ty));
+   enum typetag ts = targ2hosttype(scalartypet(src->ty));
    vlong isrc;
    if (src == dst) tmp = *src, src = &tmp;
 
