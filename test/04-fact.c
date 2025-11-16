@@ -1,3 +1,7 @@
+/* EXPECT:
+6! = 720
+*/
+
 int
 fact(int x)
 {

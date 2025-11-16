@@ -1,5 +1,7 @@
 antcc
 build/
+test/build/
+test/log.txt
 compile_commands.json
 .cache/
 .gdb_history

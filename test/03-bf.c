@@ -1,3 +1,6 @@
+/* EXPECT:
+Hello World!
+*/
 unsigned char M[1<<15];
 
 void bf(const char *p)

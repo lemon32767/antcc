@@ -1,4 +1,11 @@
-typedef unsigned long size_t;
+/* ARGS:  3 392 91 -2 -100 0 7 */
+/* EXPECT:
+-100, -2, 0, 3, 7, 91, 392, 
+36 cmps, 3 swaps
+392, 91, 7, 3, 0, -2, -100, 
+*/
+
+#include <stddef.h>
 
 int printf(const char *, ...);
 void *calloc(size_t, size_t);

@@ -1,3 +1,8 @@
+/* EXPECT:
+expect 6, -4, 7, -1
+       6, -4, 7, -1
+*/
+
 int xor(int a) {
    return a ^ 3 | 555;
 }

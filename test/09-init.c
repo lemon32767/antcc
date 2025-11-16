@@ -1,3 +1,19 @@
+/* EXPECT:
+gexplicit[4] -> 7,3,4,5
+gimplicit[] -> 3,5
+dim2[2][2] -> {1,2}, {4,3}
+S.x = 1, S.a[0][1] = 3, S.a[1][0] = 2
+U.x = 1
+str[] -> "abcdef"
+strs -> "axcxdxbx"
+desgn1[] -> {0.000000,0.000000}, {1.000000,3.000000}, {-0.500000,0.000000}
+desgn2 -> {(nil),{0,1.000000},(null)}
+desgn3 -> {(nil),{{{-1},0.000000},{{0},0.000000},{{6},1.000000}},"k"}
+fi -> {1.500000 | 1069547520}
+arrdsgn[] -> {0,5,0,0,1}
+s -> "abc"
+ss[] -> {"red","blue","green"}
+*/
 int gexplicit[4] = { 7, 3, 4, 5, };
 _Static_assert(sizeof gexplicit/sizeof *gexplicit ==4, "");
 int gimplicit[] = { 3, 5, };
@@ -45,21 +61,21 @@ void *rec[1] = {rec+1};
 
 int printf(char *, ...);
 int main() {
-   printf("gexplicit[4] \t%d,%d,%d,%d\n", gexplicit[0], gexplicit[1], gexplicit[2], gexplicit[3]);
-   printf("gimplicit[] \t%d,%d\n", gimplicit[0], gimplicit[1]);
-   printf("dim2[2][2] \t{%d,%d}, {%d,%d}\n", dim2[0][0],dim2[0][1],dim2[1][0],dim2[1][1]);
+   printf("gexplicit[4] -> %d,%d,%d,%d\n", gexplicit[0], gexplicit[1], gexplicit[2], gexplicit[3]);
+   printf("gimplicit[] -> %d,%d\n", gimplicit[0], gimplicit[1]);
+   printf("dim2[2][2] -> {%d,%d}, {%d,%d}\n", dim2[0][0],dim2[0][1],dim2[1][0],dim2[1][1]);
    printf("S.x = %d, S.a[0][1] = %d, S.a[1][0] = %d\n", S.x, S.a[0][1], S.a[1][0]);
    printf("U.x = %d\n", U.x);
-   printf("str[] \t\"%s\"\n", str);
-   printf("strs \t\"%.*s\"\n", (int)sizeof strs, strs);
-   printf("desgn1[] \t{%f,%f}, {%f,%f}, {%f,%f}\n", desgn1[0].x, desgn1[0].y, desgn1[1].x, desgn1[1].y, desgn1[2].x, desgn1[2].y);
-   printf("desgn2 \t{%p,{%d,%f},%s}\n", desgn2.j, desgn2.y, desgn2.z, desgn2.g);
-   printf("desgn3 \t{%p,{{{%d},%f},{{%d},%f},{{%d},%f}},\"%s\"}\n", desgn3.j,
+   printf("str[] -> \"%s\"\n", str);
+   printf("strs -> \"%.*s\"\n", (int)sizeof strs, strs);
+   printf("desgn1[] -> {%f,%f}, {%f,%f}, {%f,%f}\n", desgn1[0].x, desgn1[0].y, desgn1[1].x, desgn1[1].y, desgn1[2].x, desgn1[2].y);
+   printf("desgn2 -> {%p,{%d,%f},%s}\n", desgn2.j, desgn2.y, desgn2.z, desgn2.g);
+   printf("desgn3 -> {%p,{{{%d},%f},{{%d},%f},{{%d},%f}},\"%s\"}\n", desgn3.j,
          desgn3.a[0].y, desgn3.a[0].z, desgn3.a[1].y, desgn3.a[1].z,
          desgn3.a[2].y, desgn3.a[2].z, desgn3.g);
-   printf("fi \t{%f | %d}\n", fi.f, fi.i);
-   printf("arrdsgn[] \t{%d,%d,%d,%d,%d}\n", arrdsgn[0], arrdsgn[1], arrdsgn[2], arrdsgn[3], arrdsgn[4]);
-   printf("s \t\"%s\"\n", s);
-   printf("ss[] \t{\"%s\",\"%s\",\"%s\"}\n", ss[0],ss[1],ss[2]);
-   printf("rec \t%p{%p}\n",rec,rec[0]);
+   printf("fi -> {%f | %d}\n", fi.f, fi.i);
+   printf("arrdsgn[] -> {%d,%d,%d,%d,%d}\n", arrdsgn[0], arrdsgn[1], arrdsgn[2], arrdsgn[3], arrdsgn[4]);
+   printf("s -> \"%s\"\n", s);
+   printf("ss[] -> {\"%s\",\"%s\",\"%s\"}\n", ss[0],ss[1],ss[2]);
+   //printf("rec -> %p{%p}\n",rec,rec[0]);
 }

@@ -1,3 +1,9 @@
+/* EXPECT:
+fib(10)  = 55
+fibf(10) = 55
+fibr(10) = 55
+*/
+
 unsigned fib(unsigned x) {
    unsigned r = 0, q = 1;
    for (; x > 1; --x) {

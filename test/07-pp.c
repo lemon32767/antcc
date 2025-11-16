@@ -1,6 +1,14 @@
+/* EXPECT:
+ok /1 "\n"n ;.& 05.5 ADD(1,2)
+hi from header ;73
+Foo,5 9 1506
+join: "x ## y"
+wide   L"abc123 猫,€á💫",  U+1f98b
+Output ends here
+*/
 
-#include "pp.h"
-#include "pp.h"
+#include "07-pp.h"
+#include "07-pp.h"
 #include <stddef.h>
 #include <stdio.h>
 #include <wchar.h>
@@ -41,7 +49,7 @@ main(void)
 
    setlocale(LC_ALL, "en_US.utf8");
 
-   printf("wide\t L\"%ls\",  U+%x\n", L"abc123 猫,€á💫", L'🦋');
+   printf("wide   L\"%ls\",  U+%x\n", L"abc123 猫,€á💫", L'🦋');
 
    PUT\
 S\
