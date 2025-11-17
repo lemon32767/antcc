@@ -3299,24 +3299,37 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    case EPOSTINC:
    case EPOSTDEC:
       op = ex->t == EPOSTINC ? Oadd : Osub;
-      adr = expraddr(fn, sub);
-      l = genload(fn, sub->ty, adr, sub->qual & QVOLATILE);
       if (ex->ty.t == TYPTR)
          r = mkintcon(type2cls[targ_sizetype], typesize(typechild(ex->ty)));
       else
          r = mkref(RICON, 1);
-      q = irbinop(fn, op, cls, l, r);
-      genstore(fn, sub->ty, adr, q);
-      return l;
+      bitsiz = 0;
+      if (sub[0].t == EGETF && (bitsiz = sub->fld.bitsiz)) {
+         union ref tmp;
+         adr = expraddr(fn, &sub[0].sub[0]);
+         l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
+         q = irbinop(fn, op, cls, l, r);
+         genbitfstore(fn, sub[0].ty, adr, &sub[0].fld, tmp, q);
+      } else {
+         adr = expraddr(fn, sub);
+         l = genload(fn, sub->ty, adr, sub->qual & QVOLATILE);
+         q = irbinop(fn, op, cls, l, r);
+         genstore(fn, sub->ty, adr, q);
+      }
+      return discard ? NOREF : l;
    case EPREINC:
    case EPREDEC:
       op = ex->t == EPREINC ? Oadd : Osub;
-      adr = expraddr(fn, sub);
-      l = genload(fn, sub->ty, adr, sub->qual & QVOLATILE);
       if (ex->ty.t == TYPTR)
          r = mkintcon(type2cls[targ_sizetype], typesize(typechild(ex->ty)));
       else
          r = mkref(RICON, 1);
+      if (sub[0].t == EGETF && (bitsiz = sub->fld.bitsiz)) {
+         ty = ex->ty;
+         goto CompoundBitf;
+      }
+      adr = expraddr(fn, sub);
+      l = genload(fn, sub->ty, adr, sub->qual & QVOLATILE);
       q = irbinop(fn, op, cls, l, r);
       genstore(fn, sub->ty, adr, q);
       if (discard) return NOREF;
@@ -3400,6 +3413,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
          /* bit-field */
          union ref tmp;
+      CompoundBitf:
          adr = expraddr(fn, &sub[0].sub[0]);
          l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
          q = irbinop(fn, op, cls, l, r);
