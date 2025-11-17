@@ -649,7 +649,7 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
    bool spanok = joinspan(&span.ex, span_->ex);
    bool printsig = 0;
    const struct builtin *builtin = NULL;
-   
+
    if (callee->t == ESYM && !callee->ty.t && callee->sym->isbuiltin) {
       builtin = callee->sym->builtin;
       assert(!ty.t);
@@ -3181,10 +3181,10 @@ union ref
 compileexpr(struct function *fn, const struct expr *ex, bool discard)
 {
    union type ty;
-   union ref r, q;
+   union ref l, r, q, adr;
    uint bitsiz;
+   enum op op;
    enum irclass cls = type2cls[scalartypet(ex->ty)];
-   struct instr ins = {0};
    int swp = 0;
    struct expr *sub;
 
@@ -3225,26 +3225,24 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       if (discard) return NOREF;
       return cvt(fn, ex->ty, sub->ty, r);
    case ENEG:
-      ins.op = Oneg;
+      op = Oneg;
       goto Unary;
    case ECOMPL:
-      ins.op = Onot;
+      op = Onot;
    Unary:
-      ins.l = compileexpr(fn, sub, discard);
+      l = compileexpr(fn, sub, discard);
       if (discard) return NOREF;
-      ins.l = cvt(fn, ex->ty, sub->ty, ins.l);
-      ins.cls = cls;
-      return irunop(fn, ins.op, ins.cls, ins.l);
+      l = cvt(fn, ex->ty, sub->ty, l);
+      return irunop(fn, op, cls, l);
    case ELOGNOT:
       for (; sub->t == ELOGNOT; ex = sub, sub = sub->sub)
          swp ^= 1;
-      ins.op = Oequ + swp;
-      ins.l = compileexpr(fn, sub, discard);
+      op = Oequ + swp;
+      l = compileexpr(fn, sub, discard);
       if (discard) return NOREF;
-      ins.l = cvt(fn, ex->ty, sub->ty, ins.l);
-      ins.r = mkintcon(cls, 0);
-      ins.cls = cls;
-      return irbinop(fn, ins.op, ins.cls, ins.l, ins.r);
+      l = cvt(fn, ex->ty, sub->ty, l);
+      r = mkintcon(cls, 0);
+      return irbinop(fn, op, cls, l, r);
    case EDEREF:
       discard &= (ex->qual & QVOLATILE) == 0;
       r = compileexpr(fn, sub, discard);
@@ -3253,174 +3251,171 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    case EADDROF:
       return expraddr(fn, sub);
    case EMUL:
-      ins.op = isunsigned(ex->ty) ? Oumul : Omul;
+      op = isunsigned(ex->ty) ? Oumul : Omul;
       goto BinArith;
    case EDIV:
-      ins.op = isunsigned(ex->ty) ? Oudiv : Odiv;
+      op = isunsigned(ex->ty) ? Oudiv : Odiv;
       goto BinArith;
    case EREM:
-      ins.op = issigned(ex->ty) ? Orem : Ourem;
+      op = issigned(ex->ty) ? Orem : Ourem;
       goto BinArith;
    case EBAND:
-      ins.op = Oand;
+      op = Oand;
       goto BinArith;
    case EXOR:
-      ins.op = Oxor;
+      op = Oxor;
       goto BinArith;
    case EBIOR:
-      ins.op = Oior;
+      op = Oior;
       goto BinArith;
    case ESHL:
-      ins.op = Oshl;
+      op = Oshl;
       goto BinArith;
    case ESHR:
-      ins.op = issigned(ex->ty) ? Osar : Oslr;
+      op = issigned(ex->ty) ? Osar : Oslr;
       goto BinArith;
    case ESUB:
-      ins.op = Osub;
+      op = Osub;
       goto BinArith;
    case EADD:
-      ins.op = Oadd;
+      op = Oadd;
    BinArith:
-      ins.l = compileexpr(fn, &sub[0], discard);
-      ins.r = compileexpr(fn, &sub[1], discard);
+      l = compileexpr(fn, &sub[0], discard);
+      r = compileexpr(fn, &sub[1], discard);
       if (discard) return NOREF;
-      if (ins.op == Osub && isptrcvt(sub[0].ty) && isptrcvt(sub[1].ty)) {
+      if (op == Osub && isptrcvt(sub[0].ty) && isptrcvt(sub[1].ty)) {
          /* ptr - ptr */
-         return genptrdiff(fn, typesize(typechild(sub[0].ty)), ins.l, ins.r);
-      } else if ((ins.op != Oadd && ins.op != Osub) || cls != KPTR) {
+         return genptrdiff(fn, typesize(typechild(sub[0].ty)), l, r);
+      } else if ((op != Oadd && op != Osub) || cls != KPTR) {
          /* num OP num */
-         ins.l = cvt(fn, ex->ty, sub[0].ty, ins.l);
-         ins.r = cvt(fn, ex->ty, sub[1].ty, ins.r);
+         l = cvt(fn, ex->ty, sub[0].ty, l);
+         r = cvt(fn, ex->ty, sub[1].ty, r);
       } else {
          assert(isptrcvt(sub[0].ty));
          /* ptr +/- num */
-         return genptroff(fn, ins.op, typesize(typechild(sub[0].ty)), ins.l, sub[1].ty, ins.r);
+         return genptroff(fn, op, typesize(typechild(sub[0].ty)), l, sub[1].ty, r);
       }
-      ins.cls = cls;
-      return irbinop(fn, ins.op, ins.cls, ins.l, ins.r);
+      return irbinop(fn, op, cls, l, r);
    case EPOSTINC:
    case EPOSTDEC:
-      ins.op = ex->t == EPOSTINC ? Oadd : Osub;
-      ins.cls = cls;
-      r = expraddr(fn, sub);
-      ins.l = genload(fn, sub->ty, r, sub->qual & QVOLATILE);
+      op = ex->t == EPOSTINC ? Oadd : Osub;
+      adr = expraddr(fn, sub);
+      l = genload(fn, sub->ty, adr, sub->qual & QVOLATILE);
       if (ex->ty.t == TYPTR)
-         ins.r = mkintcon(type2cls[targ_sizetype], typesize(typechild(ex->ty)));
+         r = mkintcon(type2cls[targ_sizetype], typesize(typechild(ex->ty)));
       else
-         ins.r = mkref(RICON, 1);
-      genstore(fn, sub->ty, r, irbinop(fn, ins.op, ins.cls, ins.l, ins.r));
-      return ins.l;
+         r = mkref(RICON, 1);
+      q = irbinop(fn, op, cls, l, r);
+      genstore(fn, sub->ty, adr, q);
+      return l;
    case EPREINC:
    case EPREDEC:
-      ins.op = ex->t == EPREINC ? Oadd : Osub;
-      ins.cls = cls;
-      r = expraddr(fn, sub);
-      ins.l = genload(fn, sub->ty, r, sub->qual & QVOLATILE);
+      op = ex->t == EPREINC ? Oadd : Osub;
+      adr = expraddr(fn, sub);
+      l = genload(fn, sub->ty, adr, sub->qual & QVOLATILE);
       if (ex->ty.t == TYPTR)
-         ins.r = mkintcon(type2cls[targ_sizetype], typesize(typechild(ex->ty)));
+         r = mkintcon(type2cls[targ_sizetype], typesize(typechild(ex->ty)));
       else
-         ins.r = mkref(RICON, 1);
-      q = irbinop(fn, ins.op, ins.cls, ins.l, ins.r);
-      genstore(fn, sub->ty, r, q);
+         r = mkref(RICON, 1);
+      q = irbinop(fn, op, cls, l, r);
+      genstore(fn, sub->ty, adr, q);
       if (discard) return NOREF;
       return narrow(fn, cls, ex->ty, q, 0);
    case EEQU:
-      ins.op = Oequ;
+      op = Oequ;
       goto Cmp;
    case ENEQ:
-      ins.op = Oneq;
+      op = Oneq;
       goto Cmp;
    case ELTH:
-      ins.op = Olth;
+      op = Olth;
       goto Cmp;
    case ELTE:
-      ins.op = Olte;
+      op = Olte;
       goto Cmp;
    case EGTH:
-      ins.op = Ogth;
+      op = Ogth;
       goto Cmp;
    case EGTE:
-      ins.op = Ogte;
+      op = Ogte;
    Cmp:
       ty = cvtarith(sub[0].ty, sub[1].ty);
       if (!ty.t) ty.t = TYPTR;
-      if (isunsigned(ty) && in_range(ins.op, Olth, Ogte))
-         ins.op += Oulth - Olth;
-      ins.l = compileexpr(fn, &sub[0], discard);
-      ins.r = compileexpr(fn, &sub[1], discard);
+      if (isunsigned(ty) && in_range(op, Olth, Ogte))
+         op += Oulth - Olth;
+      l = compileexpr(fn, &sub[0], discard);
+      r = compileexpr(fn, &sub[1], discard);
       if (discard) return NOREF;
-      ins.l = cvt(fn, ty, sub[0].ty, ins.l);
-      ins.r = cvt(fn, ty, sub[1].ty, ins.r);
-      ins.cls = type2cls[ty.t];
-      return irbinop(fn, ins.op, ins.cls, ins.l, ins.r);
+      l = cvt(fn, ty, sub[0].ty, l);
+      r = cvt(fn, ty, sub[1].ty, r);
+      cls = type2cls[ty.t];
+      return irbinop(fn, op, cls, l, r);
    case ESET:
       assert(isscalar(ex->ty));
       q = cvt(fn, sub[0].ty, sub[1].ty, exprvalue(fn, &sub[1]));
       if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
          /* bit-field */
-         r = expraddr(fn, &sub[0].sub[0]);
-         genbitfstore(fn, ex->ty, r, &sub[0].fld, NOREF, q);
+         adr = expraddr(fn, &sub[0].sub[0]);
+         genbitfstore(fn, ex->ty, adr, &sub[0].fld, NOREF, q);
       } else {
          bitsiz = 0;
-         r = expraddr(fn, &sub[0]);
-         genstore(fn, ex->ty, r, q);
+         adr = expraddr(fn, &sub[0]);
+         genstore(fn, ex->ty, adr, q);
       }
       if (discard) return NOREF;
       return bitsiz ? narrow(fn, cls, sub[0].ty, q, bitsiz) : q;
    case ESETMUL:
-      ins.op = isunsigned(ex->ty) ? Oumul : Omul;
+      op = isunsigned(ex->ty) ? Oumul : Omul;
       goto Compound;
    case ESETDIV:
-      ins.op = isunsigned(ex->ty) ? Oudiv : Odiv;
+      op = isunsigned(ex->ty) ? Oudiv : Odiv;
       goto Compound;
    case ESETREM:
-      ins.op = issigned(ex->ty) ? Orem : Ourem;
+      op = issigned(ex->ty) ? Orem : Ourem;
       goto Compound;
    case ESETAND:
-      ins.op = Oand;
+      op = Oand;
       goto Compound;
    case ESETXOR:
-      ins.op = Oxor;
+      op = Oxor;
       goto Compound;
    case ESETIOR:
-      ins.op = Oior;
+      op = Oior;
       goto Compound;
    case ESETSHL:
-      ins.op = Oshl;
+      op = Oshl;
       goto Compound;
    case ESETSHR:
-      ins.op = issigned(ex->ty) ? Osar : Oslr;
+      op = issigned(ex->ty) ? Osar : Oslr;
       goto Compound;
    case ESETSUB:
-      ins.op = Osub;
+      op = Osub;
       goto Compound;
    case ESETADD:
-      ins.op = Oadd;
+      op = Oadd;
    Compound:
       ty = in_range(ex->t, ESETSHL, ESETSHR) ? mktype(intpromote(ex->ty.t))
                                              : cvtarith(sub[0].ty, sub[1].ty);
-      ins.cls = cls;
-      ins.r = exprvalue(fn, &sub[1]);
+      r = exprvalue(fn, &sub[1]);
       if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
          /* bit-field */
          union ref tmp;
-         r = expraddr(fn, &sub[0].sub[0]);
-         ins.l = genbitfload(fn, &tmp, sub[0].ty, &r, &sub[0].fld, sub[0].qual & QVOLATILE);
-         q = irbinop(fn, ins.op, ins.cls, ins.l, ins.r);
-         genbitfstore(fn, sub[0].ty, r, &sub[0].fld, tmp, q);
+         adr = expraddr(fn, &sub[0].sub[0]);
+         l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
+         q = irbinop(fn, op, cls, l, r);
+         genbitfstore(fn, sub[0].ty, adr, &sub[0].fld, tmp, q);
       } else {
          bitsiz = 0;
-         r = expraddr(fn, &sub[0]);
-         ins.l = genload(fn, ex->ty, r, ex->qual & QVOLATILE);
-         if ((ins.op != Oadd && ins.op != Osub) || cls != KPTR) {
-            ins.l = cvt(fn, ty, sub[0].ty, ins.l);
-            ins.r = cvt(fn, ex->ty, sub[1].ty, ins.r);
-            q = irbinop(fn, ins.op, ins.cls, ins.l, ins.r);
+         adr = expraddr(fn, &sub[0]);
+         l = genload(fn, ex->ty, adr, ex->qual & QVOLATILE);
+         if ((op != Oadd && op != Osub) || cls != KPTR) {
+            l = cvt(fn, ty, sub[0].ty, l);
+            r = cvt(fn, ex->ty, sub[1].ty, r);
+            q = irbinop(fn, op, cls, l, r);
          } else {
-            q = genptroff(fn, ins.op, typesize(typechild(ex->ty)), ins.l, sub[1].ty, ins.r);
+            q = genptroff(fn, op, typesize(typechild(ex->ty)), l, sub[1].ty, r);
          }
-         genstore(fn, ex->ty, r, q);
+         genstore(fn, ex->ty, adr, q);
       }
       if (discard) return NOREF;
       return bitsiz ? narrow(fn, cls, ex->ty, q, bitsiz) : q;
