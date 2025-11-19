@@ -76,8 +76,8 @@ Redo:
          union ref it = mkref(RTMP, use->u);
          union ref vphi2 = deltrivialphis(sb, use->blk, it);
          if (vphi2.bits != it.bits) {
+            same = vphi2;
             /* deletion happened so phiref use may have changed */
-            if (same.bits == it.bits) same.bits = vphi2.bits;
             goto Redo;
          }
       }
