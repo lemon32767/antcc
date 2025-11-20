@@ -44,9 +44,15 @@ static int iflagsrc = -1;
 static void
 picfixsym(union ref *r, struct block *blk, int *curi)
 {
-   if (!ccopt.pic || !isaddrcon(*r)) return;
+   if (!ccopt.pic || !isaddrcon(*r,0)) return;
    *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, .l = *r));
 }
+
+/* map alloca tmp -> stack frame displacement (0 if not alloca) */
+static ushort *stkslots;
+static uint nstkslots;
+
+#define isstkslot(r) ((r).t == RTMP && (r).i < nstkslots && stkslots[(r).i])
 
 static void
 fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
@@ -100,6 +106,12 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
       sh = r->i;
    ShiftImm: /* shift immediate is always 8bit */
       *r = mkref(RICON, sh & 255);
+   } else if (isstkslot(*r)) {
+      struct instr adr = mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkintcon(KI4, -stkslots[r->i]));
+      if (in_range(op, Ocopy, Omove))
+         *ins = adr;
+      else
+         *r = insertinstr(blk, (*curi)++, adr);
    }
    picfixsym(r, blk, curi);
 }
@@ -150,7 +162,19 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    }
 }
 
-#define isimm32(r) (concls(r) == KI4)
+#define isimm32(r) (iscon(r) && concls(r) == KI4)
+
+static bool
+aimm(struct addr *addr, int disp)
+{
+   vlong a = addr->disp;
+   a += disp;
+   if ((int)a == a) {
+      addr->disp = a;
+      return 1;
+   }
+   return 0;
+}
 
 static bool
 acon(struct addr *addr, union ref r)
@@ -196,22 +220,24 @@ ascale(struct addr *addr, union ref a, union ref b)
 }
 
 static bool
-aadd(struct addr *addr, union ref r)
+aadd(struct addr *addr, struct block *blk, int *curi, union ref r)
 {
-   if (r.t == RTMP) {
+   if (isstkslot(r)) {
+      if (addr->base.bits || !aimm(addr, -stkslots[r.i])) goto Ref;
+      addr->base = mkref(RREG, RBP);
+   } else if (r.t == RTMP) {
       struct instr *ins = &instrtab[r.i];
-
       if (ins->op == Oadd) {
-         if (!aadd(addr, ins->l)) goto Ref;
-         if (!aadd(addr, ins->r)) goto Ref;
+         if (!aadd(addr, blk, curi, ins->l)) goto Ref;
+         if (!aadd(addr, blk, curi, ins->r)) goto Ref;
          ins->skip = 1;
       } else if (ins->op == Oshl) {
          if (!ascale(addr, ins->l, ins->r)) goto Ref;
          ins->skip = 1;
       } else if (ins->op == Ocopy && ins->l.t == RADDR) {
          struct addr save = *addr, *addr2 = &addrht[ins->l.i];
-         if ((!addr2->base.bits || aadd(addr, addr2->base))
-          && acon(addr, mkintcon(KI4, addr2->disp))
+         if ((!addr2->base.bits || aadd(addr, blk, curi, addr2->base))
+          && aimm(addr, addr2->disp)
           && (!addr2->index.bits || ascale(addr, addr2->index, mkref(RICON, addr2->shift))))
          {
             ins->skip = 1;
@@ -220,19 +246,22 @@ aadd(struct addr *addr, union ref r)
             goto Ref;
          }
       } else if (ins->op == Ocopy) {
-         if (!aadd(addr, ins->l)) goto Ref;
+         if (!aadd(addr, blk, curi, ins->l)) goto Ref;
          ins->skip = 1;
       } else goto Ref;
    } else if (isnumcon(r)) {
       return acon(addr, r);
-   } else if (isaddrcon(r)) {
-      if (!addr->base.bits && !isaddrcon(addr->index)) addr->base = r;
+   } else if (isaddrcon(r,1)) {
+      if (!addr->base.bits && !isaddrcon(addr->index,1)) addr->base = r;
       else return 0;
    } else if (r.t == RREG) {
       /* temporaries are single assignment, but register aren't, so they can't be *
        * safely hoisted into an address value, unless they have global lifetime */
       if (!rstest(mctarg->rglob, r.i)) return 0;
    Ref:
+      if (isstkslot(r) && (addr->base.bits || addr->index.bits)) {
+         r = insertinstr(blk, (*curi)++, mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, -stkslots[r.i])));
+      }
       if (!addr->base.bits) addr->base = r;
       else if (!addr->index.bits) addr->index = r;
       else return 0;
@@ -245,20 +274,20 @@ fuseaddr(union ref *r, struct block *blk, int *curi)
 {
    struct addr addr = { 0 };
 
-   if (isaddrcon(*r)) return 1;
+   if (isaddrcon(*r,1)) return 1;
    if (r->t == RADDR) {
       const struct addr *a0 = &addrht[r->i];
-      if (aadd(&addr, a0->base)
+      if (aadd(&addr, blk, curi, a0->base)
         && (!addr.index.bits || ascale(&addr, a0->index, mkref(RICON, a0->shift)))
-        && aadd(&addr, mkintcon(KPTR, a0->disp))) {
+        && aadd(&addr, blk, curi, mkintcon(KPTR, a0->disp))) {
          *r = mkaddr(addr);
       }
       return 1;
    }
    if (r->t != RTMP) return 0;
-   if (!aadd(&addr, *r)) return 0;
+   if (!aadd(&addr, blk, curi, *r)) return 0;
 
-   if (isaddrcon(addr.base) && (ccopt.pic || (ccopt.pie && addr.index.bits))) {
+   if (isaddrcon(addr.base,0) && (ccopt.pic || (ccopt.pie && addr.index.bits))) {
       /* pic needs to load from GOT */
       /* pie cannot encode RIP-relative address with index register */
       /*     first load symbol address into a temp register */
@@ -285,6 +314,7 @@ addarg4addrp(union ref r)
    struct instr *ins;
    if (r.t == RXCON && !conht[r.i].cls && !conht[r.i].deref) return 1; /* sym or dat ref */
    if (r.t != RTMP) return 0;
+   if (isstkslot(r)) return 1;
    ins = &instrtab[r.i];
    return ins->op == Oshl || (ins->op == Ocopy && ins->l.t == RADDR) || ins->op == Oadd;
 }
@@ -318,7 +348,7 @@ static void
 sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 {
    uint siz, alignlog2;
-   int t;
+   int t = ins - instrtab;
    struct instr temp = {0};
    enum op op = ins->op;
 
@@ -336,8 +366,9 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       siz = ins->l.i << alignlog2;
       fn->stksiz += siz;
       fn->stksiz = alignup(fn->stksiz, 1 << alignlog2);
-      if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
-      *ins = mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, -fn->stksiz));
+      if (fn->stksiz > (1<<16)-1) error(NULL, "'%s' stack frame too big", fn->name);
+      stkslots[t] = fn->stksiz;
+      *ins = mkinstr(Onop,0,);
       break;
    case Oparam:
       assert(ins->l.t == RICON && ins->l.i < fn->nabiarg);
@@ -418,7 +449,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          if ((addarg4addrp(ins->l) || addarg4addrp(ins->r))) {
             temp.op = Ocopy;
             temp.cls = ins->cls;
-            temp.l = mkref(RTMP, ins - instrtab);
+            temp.l = mkref(RTMP, t);
             if (fuseaddr(&temp.l, blk, curi)) {
                *ins = temp;
                break;
@@ -451,6 +482,8 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       if (ins->r.bits)
    case Omove:
          fixarg(&ins->r, ins, blk, curi);
+      if (op == Oadd && isaddrcon(ins->r,1)) /* no 3-address add if rhs is mem */
+         ins->inplace = 1;
       break;
    case Oloads1: case Oloadu1: case Oloads2: case Oloadu2:
    case Oloads4: case Oloadu4: case Oloadi8: case Oloadf4: case Oloadf8:
@@ -458,7 +491,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       break;
    case Ostore1: case Ostore2: case Ostore4: case Ostore8:
       loadstoreaddr(blk, &ins->l, curi);
-      if (isaddrcon(ins->r))
+      if (isaddrcon(ins->r,1) || ins->r.t == RADDR)
          ins->r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->r));
       else
          fixarg(&ins->r, ins, blk, curi);
@@ -554,10 +587,11 @@ seljmp(struct function *fn, struct block *blk)
 void
 amd64_isel(struct function *fn)
 {
+   extern int ninstr;
    struct block *blk = fn->entry;
 
    fn->stksiz = 0;
-
+   stkslots = xcalloc((nstkslots = ninstr) * sizeof *stkslots);
    do {
       int i;
       for (i = 0; i < blk->phi.n; ++i) {
@@ -579,6 +613,7 @@ amd64_isel(struct function *fn)
       }
       seljmp(fn, blk);
    } while ((blk = blk->lnext) != fn->entry);
+   free(stkslots);
 
    if (ccopt.dbg.i) {
       bfmt(ccopt.dbgout, "<< After isel >>\n");

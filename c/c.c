@@ -4221,7 +4221,7 @@ docomp(struct comp *cm)
          }
          decl.isdef = st.varini;
          if (st.funcdef) {
-            const struct typedata *td =  &typedata[decl.ty.dat];
+            const struct typedata *td = &typedata[decl.ty.dat];
             struct function fn = { &cm->fnarena, decl.name, .globl = decl.scls != SCSTATIC };
             fn.fnty = decl.ty;
             if (td->ret.t != TYVOID && isincomplete(td->ret))

@@ -135,7 +135,7 @@ mkmemoper(union ref r)
          addmemoper(&mem, mkoper(OIMM, .imm = addr->disp));
          return mem;
       }
-      if (isaddrcon(addr->base)) {
+      if (isaddrcon(addr->base,0)) {
          return mkoper(OSYM, .con = addr->base.i,
                              .cindex = addr->index.bits ? mkregoper(addr->index).reg : NOINDEX,
                              .cshift = addr->shift,
@@ -146,7 +146,7 @@ mkmemoper(union ref r)
                           .index = addr->index.bits ? mkregoper(addr->index).reg : NOINDEX,
                           .disp = intconval(addr->base),
                           .shift = addr->shift);
-      } else if (isaddrcon(addr->index)) {
+      } else if (isaddrcon(addr->index,0)) {
          assert(!addr->shift);
          return mkoper(OSYM, .con = addr->index.i,
                              .cindex = addr->base.bits ? mkregoper(addr->base).reg : NOINDEX,
@@ -857,7 +857,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       }
       /* normal (not 2-address) case */
    Lea:
-      if (isaddrcon(addr->base) && ccopt.pic) {
+      if (isaddrcon(addr->base,0) && ccopt.pic) {
          assert(!addr->disp && !addr->index.bits);
          val = addr->base;
          goto GOTLoad;
@@ -866,7 +866,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
    } else if (val.bits == ZEROREF.bits && dst.t == OREG && (kisflt(cls) || !flagslivep(blk, curi))) {
       /* dst = 0 -> xor dst, dst; but only if it is ok to clobber flags */
       Xxor(pcode, kisint(cls) ? KI4 : cls, dst, dst);
-   } else if (isaddrcon(val)) {
+   } else if (isaddrcon(val,0)) {
       if (ccopt.pic) GOTLoad:
          /* for  mov reg, [rip(sym@GOTPCREL)] */
          Xmov(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));

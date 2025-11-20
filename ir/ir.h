@@ -237,7 +237,7 @@ union ref mkfltcon(enum irclass, double);
 #define isintcon(r) (iscon(r) && kisint(concls(r)))
 #define isfltcon(r) ((r).t == RXCON && kisflt(conht[(r).i].cls))
 #define isnumcon(r) ((r).t == RICON || ((r).t == RXCON && conht[(r).i].cls))
-#define isaddrcon(r) ((r).t == RXCON && !conht[(r).i].cls && !conht[(r).i].deref)
+#define isaddrcon(r,derefok) ((r).t == RXCON && !conht[(r).i].cls && (derefok || !conht[(r).i].deref))
 #define intconval(r) ((r).t == RICON ? (r).i : conht[(r).i].i)
 #define fltconval(r) ((r).t == RICON ? (r).i : conht[(r).i].f)
 union ref mksymref(const char *);
