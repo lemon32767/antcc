@@ -73,14 +73,18 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          /* float immediates & 64bit immediates are loaded from memory */
          uchar data[8];
          uint ksiz = cls2siz[con->cls];
+         union type ctype;
          if (con->cls <= KPTR && in_range(ins->op, Ocopy, Omove)) /* in this case we can use movabs */
             return;
-         if (con->cls != KF4) wr64le(data, con->i);
-         else {
+         if (con->cls != KF4) {
+            wr64le(data, con->i);
+            ctype = mktype(con->cls == KF8 ? TYDOUBLE : TYVLONG);
+         } else {
             union { float f; int i; } pun = { con->f };
             wr32le(data, pun.i);
+            ctype = mktype(TYFLOAT);
          }
-         *r = mkdatref(NULL, ksiz, /*align*/ksiz, data, ksiz, /*deref*/1);
+         *r = mkdatref(NULL, ctype, ksiz, /*align*/ksiz, data, ksiz, /*deref*/1);
          if (&ins->l != r && ins->l.t == RADDR) {
             /* can't use memory arg in rhs if lhs is memory */
             *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, con->cls, *r));

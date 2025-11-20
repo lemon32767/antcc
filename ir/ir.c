@@ -144,9 +144,9 @@ mksymref(const char *s)
 }
 
 union ref
-mkdatref(const char *name, uint siz, uint align, const void *bytes, uint n, bool deref)
+mkdatref(const char *name, union type ctype, uint siz, uint align, const void *bytes, uint n, bool deref)
 {
-   struct irdat dat = { .align = align, .siz = siz, .name = name, .section = Srodata };
+   struct irdat dat = { .ctype = ctype, .align = align, .siz = siz, .name = name, .section = Srodata };
 
    assert(n <= siz && siz && align);
    if (!name) {

@@ -19,6 +19,7 @@ union irtype {
 struct irdat {
    uchar align : 6, globl : 1;
    uchar section;
+   union type ctype;
    uint siz;
    uint off;
    const char *name;
@@ -240,7 +241,7 @@ union ref mkfltcon(enum irclass, double);
 #define intconval(r) ((r).t == RICON ? (r).i : conht[(r).i].i)
 #define fltconval(r) ((r).t == RICON ? (r).i : conht[(r).i].f)
 union ref mksymref(const char *);
-union ref mkdatref(const char *name, uint siz, uint align, const void *, uint n, bool deref);
+union ref mkdatref(const char *name, union type ctype, uint siz, uint align, const void *, uint n, bool deref);
 const char *xcon2sym(int ref);
 struct instr mkalloca(uint siz, uint align);
 union ref mkcallarg(union irtype ret, uint narg, int vararg);

@@ -1,9 +1,26 @@
 #include "ir.h"
 #include "../obj/obj.h"
+#include "../endian.h"
 
 static int nextdat;
 
 static struct wbuf *out;
+
+static bool
+prilitdat(const struct irdat *dat, const char *prefix)
+{
+   uchar *p = (dat->section == Sdata ? objout.data.p : objout.rodata.p) + dat->off; 
+   if (dat->ctype.t == TYARRAY && typechild(dat->ctype).t == TYCHAR && dat->siz-1 < 60 && p[dat->siz-1] == 0) {
+      bfmt(out, "%s%'S", prefix, p, dat->siz-1);
+   } else if (dat->ctype.t == TYFLOAT) {
+      bfmt(out, "%s%f", prefix, rdf32targ(p));
+   } else if (dat->ctype.t == TYDOUBLE) {
+      bfmt(out, "%s%f", prefix, rdf64targ(p));
+   } else if (dat->ctype.t == TYVLONG) {
+      bfmt(out, "%s0x%lx", prefix, rd64targ(p));
+   } else return 0;
+   return 1;
+}
 
 static void
 pridat(const struct irdat *dat)
@@ -16,25 +33,27 @@ pridat(const struct irdat *dat)
    int npri = 0;
    int strbegin = 0, nstr = 0;
    assert(dat->section == Sdata || dat->section == Srodata);
-   bfmt(out, "%s %y(align %d, size %d):\n\t", dat->section == Sdata ? "data" : "rodata", dat->name, dat->align, dat->siz);
-   for (int i = 0; i < dat->siz; ++i) {
-      int c = p[i];
-      if (npri > MAXLINE) {
-         npri = 0;
-         bfmt(out, "\n\t");
-      }
-      if (aisprint(c)) {
-         if (!nstr++) strbegin = i;
-      } else {
-         if (nstr) {
-            npri += bfmt(out, "asc %'S,", p+strbegin, nstr);
-            nstr = 0;
-            bfmt(out, "b ");
+   bfmt(out, "%s %ty %y(align %d, size %d):\n\t", dat->section == Sdata ? "data" : "rodata", dat->ctype, dat->name, dat->align, dat->siz);
+   if (!prilitdat(dat, "lit: ")) {
+      for (int i = 0; i < dat->siz; ++i) {
+         int c = p[i];
+         if (npri > MAXLINE) {
+            npri = 0;
+            bfmt(out, "\n\t");
          }
-         npri += bfmt(out, "%d,", c);
+         if (aisprint(c)) {
+            if (!nstr++) strbegin = i;
+         } else {
+            if (nstr) {
+               npri += bfmt(out, "asc %'S,", p+strbegin, nstr);
+               nstr = 0;
+               bfmt(out, "b ");
+            }
+            npri += bfmt(out, "%d,", c);
+         }
       }
+      if (nstr) npri += bfmt(out, "asc %'S,", p+strbegin, nstr);
    }
-   if (nstr) npri += bfmt(out, "asc %'S,", p+strbegin, nstr);
    bfmt(out, "\n");
 }
 
@@ -90,8 +109,20 @@ dumpref(enum op o, union ref ref)
    case RXCON:
       con = &conht[ref.i];
       if (con->deref) bfmt(out, "*[");
-      if (con->issym || con->isdat) bfmt(out, "$%y", xcon2sym(ref.i));
-      else switch (con->cls) {
+      if (con->issym || con->isdat) {
+         bfmt(out, "$%y", xcon2sym(ref.i));
+         if (con->isdat) {
+            struct irdat *dat = &dattab.p[con->dat];
+            if (prilitdat(dat, " (= ")) {
+               if (isscalar(dat->ctype)) {
+                  struct wbuf tmp = MEMBUF((char [1]){0}, 1);
+                  bfmt(&tmp, "%ty", dat->ctype);
+                  ioputc(out, *tmp.buf);
+               }
+               ioputc(out, ')');
+            }
+         }
+      } else switch (con->cls) {
       case KI4: bfmt(out, "%d", (int)con->i); break;
       case KI8: bfmt(out, "%ld", con->i); break;
       case KPTR: bfmt(out, "%'lx", con->i); break;

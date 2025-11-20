@@ -2658,7 +2658,7 @@ expraddr(struct function *fn, const struct expr *ex)
       break;
    case ESTRLIT:
       /* XXX endian for wide strs */
-      return mkdatref(NULL, typesize(ex->ty), typealign(ex->ty), ex->s.p, ex->s.n * typesize(typechild(ex->ty)), /*deref*/0);
+      return mkdatref(NULL, ex->ty, typesize(ex->ty), typealign(ex->ty), ex->s.p, ex->s.n * typesize(typechild(ex->ty)), /*deref*/0);
    case EDEREF:
       return exprvalue(fn, ex->sub);
    case EGETF:
