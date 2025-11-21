@@ -14,7 +14,7 @@ void
 sortrpo(struct function *fn)
 {
    static struct block **rpobuf;
-   struct block **rpoend, **rpo;
+   struct block **rpoend, **rpo, *blk, *next;
    int i, ndead;
 
    xbgrow(&rpobuf, fn->nblk);
@@ -24,19 +24,20 @@ sortrpo(struct function *fn)
    fn->entry->id = 0;
    porec(&rpo, fn->entry);
    ndead = rpo - rpobuf;
-   for (struct block *blk = fn->entry->lprev, *next; blk != fn->entry; blk = next) {
+   if (ndead > 0) for (blk = fn->entry->lprev; blk != fn->entry; blk = next) {
       next = blk->lprev;
       if (!wasvisited(blk)) {
          for (int i = 0; i < blk->ins.n; ++i) {
-            /* don't delete unreachable blocks with alloca pseudo-instrs */
-            if (oisalloca(instrtab[blk->ins.p[i]].op))
-               goto Next;
+            /* if unreachable block has alloca pseudo-instrs, move them to the entry
+             * to be able to delete it */
+            if (oisalloca(instrtab[blk->ins.p[i]].op)) {
+               vpush(&fn->entry->ins, blk->ins.p[i]);
+            }
          }
          for (int i = 0; i < blk->npred; ++i)
             assert(!wasvisited(blkpred(blk, i)));
          freeblk(fn, blk);
          --ndead;
-      Next:;
       }
    }
    for (i = 1, ++rpo; rpo < rpoend; ++rpo, ++i) {
