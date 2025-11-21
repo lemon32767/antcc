@@ -203,6 +203,9 @@ dumpinst(const struct instr *ins)
          dumpref(ins->op, (&ins->l)[i]);
       }
    }
+   if (oisalloca(ins->op) && ins->l.t == RICON) {
+      bfmt(out, " \t; %d bytes", ins->l.i << (ins->op - Oalloca1));
+   }
    bfmt(out, "\n");
 }
 
