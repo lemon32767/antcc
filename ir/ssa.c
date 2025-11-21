@@ -15,7 +15,7 @@ copyopt(struct function *fn)
          if (ins->op == Ocopy) {
             union ref arg = ins->l;
             if (arg.t == RTMP) k = insrescls(instrtab[arg.i]);
-            else if (arg.t == RICON) k = cls2siz[ins->cls] == 4 ? KI4 : KI8;
+            else if (arg.t == RICON) k = cls2siz[ins->cls] == 4 ? KI32 : KI64;
             else if (arg.t == RXCON) k = isnumcon(arg) ? conht[arg.i].cls : KPTR;
             else continue;
             if (ins->cls != k) continue;

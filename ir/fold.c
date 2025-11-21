@@ -58,7 +58,7 @@ foldflt(enum op op, enum irclass k, union ref lr, union ref rr)
 {
    int xi;
    double x, l = fltconval(lr), r = fltconval(rr);
-   bool w = k == KF8;
+   bool w = k == KF64;
    if (in_range(op, Odiv, Ourem)) assert(r != 0.0);
    switch (op) {
    case Ocopy: x = l; break;

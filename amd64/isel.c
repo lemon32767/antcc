@@ -68,23 +68,23 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
       } else if (in_range(op, Oadd, Osub) && con->i == 2147483648 && r == &ins->r) {
          /* add X, INT32MAX+1 -> sub X, INT32MIN */
          ins->op = Oadd + (op == Oadd);
-         *r = mkintcon(KI4, -2147483648);
+         *r = mkintcon(KI32, -2147483648);
       } else if (kisflt(con->cls) && con->f == 0) {
          /* copy of float zero -> regular zero, that emit() will turn into xor x,x */
          if (in_range(op, Ocopy, Omove) || op == Ophi)
             *r = ZEROREF;
          else
             *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, con->cls, ZEROREF));
-      } else if (con->cls >= KI8) {
+      } else if (con->cls >= KI64) {
          /* float immediates & 64bit immediates are loaded from memory */
          uchar data[8];
          uint ksiz = cls2siz[con->cls];
          union type ctype;
          if (con->cls <= KPTR && in_range(ins->op, Ocopy, Omove)) /* in this case we can use movabs */
             return;
-         if (con->cls != KF4) {
+         if (con->cls != KF32) {
             wr64le(data, con->i);
-            ctype = mktype(con->cls == KF8 ? TYDOUBLE : TYVLONG);
+            ctype = mktype(con->cls == KF64 ? TYDOUBLE : TYVLONG);
          } else {
             union { float f; int i; } pun = { con->f };
             wr32le(data, pun.i);
@@ -107,7 +107,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
    ShiftImm: /* shift immediate is always 8bit */
       *r = mkref(RICON, sh & 255);
    } else if (isstkslot(*r)) {
-      struct instr adr = mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkintcon(KI4, -stkslots[r->i]));
+      struct instr adr = mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkintcon(KI32, -stkslots[r->i]));
       if (in_range(op, Ocopy, Omove))
          *ins = adr;
       else
@@ -162,7 +162,7 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    }
 }
 
-#define isimm32(r) (iscon(r) && concls(r) == KI4)
+#define isimm32(r) (iscon(r) && concls(r) == KI32)
 
 static bool
 aimm(struct addr *addr, int disp)
@@ -389,7 +389,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Oshl: case Osar: case Oslr:
       if (!iscon(ins->r)) {
          /* shift amount register is always CL */
-         insertinstr(blk, (*curi)++, mkinstr(Omove, KI4, mkref(RREG, RCX), ins->r));
+         insertinstr(blk, (*curi)++, mkinstr(Omove, KI32, mkref(RREG, RCX), ins->r));
          ins->r = mkref(RREG, RCX);
       }
       goto ALU;
@@ -498,13 +498,13 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       break;
    case Ocvtu4f:
       fixarg(&ins->l, ins, blk, curi);
-      ins->l = insertinstr(blk, (*curi)++, mkinstr(Oextu4, KI8, ins->l));
+      ins->l = insertinstr(blk, (*curi)++, mkinstr(Oextu4, KI64, ins->l));
       ins->op = Ocvts8f;
       break;
    case Ocvtf4u: case Ocvtf8u:
       fixarg(&ins->l, ins, blk, curi);
-      if (ins->cls == KI4) {
-         ins->l = insertinstr(blk, (*curi)++, mkinstr(ins->op == Ocvtf4u ? Ocvtf4s : Ocvtf8s, KI8, ins->l));
+      if (ins->cls == KI32) {
+         ins->l = insertinstr(blk, (*curi)++, mkinstr(ins->op == Ocvtf4u ? Ocvtf4s : Ocvtf8s, KI64, ins->l));
          ins->op = Oextu4;
      } else assert(!"nyi flt -> u64");
       break;
@@ -541,7 +541,7 @@ seljmp(struct function *fn, struct block *blk)
    if (blk->jmp.t == Jb && blk->jmp.arg[0].bits) {
       union ref c = blk->jmp.arg[0];
       if (c.t != RTMP) {
-         enum irclass cls = c.t == RICON ? KI4 : c.t == RXCON && conht[c.i].cls ? conht[c.i].cls : KPTR;
+         enum irclass cls = c.t == RICON ? KI32 : c.t == RXCON && conht[c.i].cls ? conht[c.i].cls : KPTR;
          int curi = blk->ins.n;
 
          c = insertinstr(blk, blk->ins.n, mkinstr(Ocopy, cls, c));

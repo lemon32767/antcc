@@ -2,12 +2,12 @@
 #include <stdlib.h> /* qsort */
 
 static const uchar loadszcls[] = {
-   [Oloads1 - Oloads1] = 1|KI4<<4, [Oloadu1 - Oloads1] = 1|KI4<<4,
-   [Oloads2 - Oloads1] = 2|KI4<<4, [Oloadu2 - Oloads1] = 2|KI4<<4,
-   [Oloads4 - Oloads1] = 4|KI4<<4, [Oloadu4 - Oloads1] = 4|KI4<<4,
-   [Oloadi8 - Oloads1] = 8|KI8<<4,
-   [Oloadf4 - Oloads1] = 4|KF4<<4,
-   [Oloadf8 - Oloads1] = 8|KF8<<4,
+   [Oloads1 - Oloads1] = 1|KI32<<4, [Oloadu1 - Oloads1] = 1|KI32<<4,
+   [Oloads2 - Oloads1] = 2|KI32<<4, [Oloadu2 - Oloads1] = 2|KI32<<4,
+   [Oloads4 - Oloads1] = 4|KI32<<4, [Oloadu4 - Oloads1] = 4|KI32<<4,
+   [Oloadi8 - Oloads1] = 8|KI64<<4,
+   [Oloadf4 - Oloads1] = 4|KF32<<4,
+   [Oloadf8 - Oloads1] = 8|KF64<<4,
 };
 static const uchar load2ext[] = {
    [Oloads1 - Oloads1] = Oexts1, [Oloadu1 - Oloads1] = Oextu1,
@@ -291,7 +291,7 @@ mem2reg(struct function *fn)
                if (!val.bits) { /* var is used uninitialized */
                   /* TODO emit diagnostic */
                   /* load some garbage */
-                  *m = mkinstr(kisflt(k) ? Oloadf4 + (k==KF8) : Oloads1+ilog2(sz)*2,
+                  *m = mkinstr(kisflt(k) ? Oloadf4 + (k==KF64) : Oloads1+ilog2(sz)*2,
                                k, mkref(RREG, mctarg->bpr));
                } else {
                   adduse(use->blk, use->u, val);

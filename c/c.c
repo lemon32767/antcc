@@ -2664,7 +2664,7 @@ expraddr(struct function *fn, const struct expr *ex)
    case EGETF:
       r = expraddr(fn, ex->sub);
       assert(ex->fld.bitsiz == 0);
-      return irbinop(fn, Oadd, KPTR, r, mkintcon(KI4, ex->fld.off));
+      return irbinop(fn, Oadd, KPTR, r, mkintcon(KI32, ex->fld.off));
    case ESET:
       assert(isagg(ex->ty));
       r = expraddr(fn, &ex->sub[1]);
@@ -2768,7 +2768,7 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
          /* TODO make it into an intrinsic */
          struct instr call = { Ocall, KPTR };
          addinstr(fn, mkarginstr(cls2type(KPTR), dst));
-         addinstr(fn, mkarginstr(cls2type(KI4), ZEROREF));
+         addinstr(fn, mkarginstr(cls2type(KI32), ZEROREF));
          addinstr(fn, mkarginstr(cls2type(type2cls[targ_sizetype]), mkintcon(type2cls[targ_sizetype], siz)));
          call.l = mksymref("memset");
          call.r = mkcallarg(cls2type(KPTR), 3, -1);
@@ -2799,7 +2799,7 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
          else if (csiz == 2)
             genstore(fn, ctyp, adr, mkref(RICON, src->s.w16[i]));
          else
-            genstore(fn, ctyp, adr, mkintcon(KI4, src->s.w32[i]));
+            genstore(fn, ctyp, adr, mkintcon(KI32, src->s.w32[i]));
          adr = irbinop(fn, Oadd, KPTR, dst, mkref(RICON, (i+1)*csiz));
       }
       genstore(fn, ctyp, adr, ZEROREF); /* null term */
@@ -2856,26 +2856,26 @@ cvt(struct function *fn, union type to, union type from, union ref ref)
    if (kisflt(kto) || kisflt(kfrom)) {
       if (ref.t == RICON) {
          assert(kisflt(kto) && kisint(kfrom));
-         return mkfltcon(kto, kto == KF4 ? (float)ref.i : (double)ref.i);
+         return mkfltcon(kto, kto == KF32 ? (float)ref.i : (double)ref.i);
       }
-      if (kisflt(kto) && kfrom == KI4) op = issigned(from) ? Ocvts4f : Ocvtu4f;
+      if (kisflt(kto) && kfrom == KI32) op = issigned(from) ? Ocvts4f : Ocvtu4f;
       else if (to.t == TYBOOL && kisflt(kfrom)) return irbinop(fn, Oneq, kfrom, ref, mkfltcon(kfrom, 0.0));
-      else if (kisflt(kto) && kfrom == KI8) op = issigned(from) ? Ocvts8f : Ocvtu8f;
-      else if (kto == KF8 && kfrom == KF4) op = Ocvtf4f8;
-      else if (kto == KF4 && kfrom == KF8) op = Ocvtf8f4;
-      else if (kfrom == KF4) op = issigned(to) ? Ocvtf4s : Ocvtf4u;
-      else if (kfrom == KF8) op = issigned(to) ? Ocvtf8s : Ocvtf8u;
+      else if (kisflt(kto) && kfrom == KI64) op = issigned(from) ? Ocvts8f : Ocvtu8f;
+      else if (kto == KF64 && kfrom == KF32) op = Ocvtf4f8;
+      else if (kto == KF32 && kfrom == KF64) op = Ocvtf8f4;
+      else if (kfrom == KF32) op = issigned(to) ? Ocvtf4s : Ocvtf4u;
+      else if (kfrom == KF64) op = issigned(to) ? Ocvtf8s : Ocvtf8u;
       else assert(0);
    } else {
       if (to.t == TYBOOL) {
          if (from.t == TYBOOL) return ref;
          if (isboollike(fn, ref))
-            return kfrom == KI4 ? ref : cvt(fn, mktype(TYINT), from, ref);
+            return kfrom == KI32 ? ref : cvt(fn, mktype(TYINT), from, ref);
          return irbinop(fn, Oneq, kfrom, ref, ZEROREF);
       }
-      else if (kfrom == KI4 && issigned(from)) op = Oexts4;
-      else if (kfrom == KI4) op = Oextu4;
-      else if (kto == KI4 && isintcon(ref))
+      else if (kfrom == KI32 && issigned(from)) op = Oexts4;
+      else if (kfrom == KI32) op = Oextu4;
+      else if (kto == KI32 && isintcon(ref))
          return issigned(to) ? mkintcon(kto, (int)intconval(ref)) : mkintcon(kto, (uint)intconval(ref));
       else op = Ocopy;
    }
@@ -2890,7 +2890,7 @@ narrow(struct function *fn, enum irclass to, union type t, union ref ref, uint b
    if (targ_primsizes[tt] < cls2siz[to]) {
       enum op op;
       if (isfltt(tt)) {
-         assert(to == KF4 && tt >= TYDOUBLE);
+         assert(to == KF32 && tt >= TYDOUBLE);
          op = Ocvtf8f4;
       } else {
          static const enum op ext[5][2] = {
@@ -3128,7 +3128,7 @@ genbitfload(struct function *fn, union ref *tmpval, const union type ty, union r
    uvlong mask;
 
    assert(k);
-   *addr = irbinop(fn, Oadd, KPTR, *addr, mkintcon(KI4, off));
+   *addr = irbinop(fn, Oadd, KPTR, *addr, mkintcon(KI32, off));
    tmp = genload(fn, ty, *addr, volatyl);
    if (tmpval) *tmpval = tmp;
    if (!issigned(ty)) {

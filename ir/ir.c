@@ -2,8 +2,8 @@
 #include "../obj/obj.h"
 
 uchar type2cls[NTYPETAG];
-uchar cls2siz[KF8+1];
-const uchar siz2intcls[] = { [1] = KI4, [2] = KI4, [4] = KI4, [8] = KI8 };
+uchar cls2siz[KF64+1];
+const uchar siz2intcls[] = { [1] = KI32, [2] = KI32, [4] = KI32, [8] = KI64 };
 
 const char *opnames[] = {
    "?\??",
@@ -54,15 +54,15 @@ irinit(struct function *fn)
    if (!type2cls[TYINT]) {
       for (int i = TYBOOL; i <= TYUVLONG; ++i) {
          int siz = targ_primsizes[i];
-         type2cls[i] = siz < 8 ? KI4 : KI8;
+         type2cls[i] = siz < 8 ? KI32 : KI64;
       }
-      type2cls[TYFLOAT] = KF4;
-      type2cls[TYDOUBLE] = KF8;
-      type2cls[TYLDOUBLE] = KF8;
+      type2cls[TYFLOAT] = KF32;
+      type2cls[TYDOUBLE] = KF64;
+      type2cls[TYLDOUBLE] = KF64;
       type2cls[TYPTR] = KPTR;
       type2cls[TYARRAY] = KPTR;
-      cls2siz[KI4] = cls2siz[KF4] = 4;
-      cls2siz[KI8] = cls2siz[KF8] = 8;
+      cls2siz[KI32] = cls2siz[KF32] = 4;
+      cls2siz[KI64] = cls2siz[KF64] = 8;
       cls2siz[KPTR] = targ_primsizes[TYPTR];
    }
    fn->entry = fn->curblk = allocz(fn->arena, sizeof(struct block), 0);
@@ -132,7 +132,7 @@ mkintcon(enum irclass k, vlong i)
 union ref
 mkfltcon(enum irclass k, double f)
 {
-   struct xcon con = { .cls = k, .f = k == KF4 ? (float) f : f };
+   struct xcon con = { .cls = k, .f = k == KF32 ? (float) f : f };
    return mkref(RXCON, addcon(&con));
 }
 

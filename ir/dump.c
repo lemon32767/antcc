@@ -58,7 +58,7 @@ pridat(const struct irdat *dat)
 }
 
 static const char *clsname[] = {
-   "?", "i4", "i8", "ptr", "f4", "f8"
+   "?", "i32", "i64", "ptr", "f32", "f64"
 };
 
 static void
@@ -123,11 +123,11 @@ dumpref(enum op o, union ref ref)
             }
          }
       } else switch (con->cls) {
-      case KI4: bfmt(out, "%d", (int)con->i); break;
-      case KI8: bfmt(out, "%ld", con->i); break;
+      case KI32: bfmt(out, "%d", (int)con->i); break;
+      case KI64: bfmt(out, "%ld", con->i); break;
       case KPTR: bfmt(out, "%'lx", con->i); break;
-      case KF4: bfmt(out, "%fs", con->f); break;
-      case KF8: bfmt(out, "%fd", con->f); break;
+      case KF32: bfmt(out, "%fs", con->f); break;
+      case KF64: bfmt(out, "%fd", con->f); break;
       default: assert(0);
       }
       if (con->deref) bfmt(out, "]");

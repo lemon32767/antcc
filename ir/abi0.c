@@ -69,10 +69,10 @@ copyparam(struct function *fn, int *curi, int param, struct abiarg abi)
       if (abi.ty.cls == KPTR) abi.ty.cls = siz2intcls[cls2siz[abi.ty.cls]];
       switch (abi.ty.cls) {
       default: assert(0);
-      case KI4: ld = Oloadu4; break;
-      case KI8: ld = Oloadi8; break;
-      case KF4: ld = Oloadf4; break;
-      case KF8: ld = Oloadf8; break;
+      case KI32: ld = Oloadu4; break;
+      case KI64: ld = Oloadi8; break;
+      case KF32: ld = Oloadf4; break;
+      case KF64: ld = Oloadf8; break;
       }
       return mkinstr(ld, abi.ty.cls, insertinstr(fn->entry, (*curi)++, par));
    } else { /* aggregate in stack */
@@ -156,10 +156,10 @@ load2regs(union ref out[2], union irtype typ, union ref src, int nabi, struct ab
          union ref temp;
          switch (ins.cls = abi[i].ty.cls) {
          default: assert(0);
-         case KI4: ins.op = Oloadu4; break;
-         case KI8: ins.op = Oloadi8; break;
-         case KF4: ins.op = Oloadf4; break;
-         case KF8: ins.op = Oloadf8; break;
+         case KI32: ins.op = Oloadu4; break;
+         case KI64: ins.op = Oloadi8; break;
+         case KF32: ins.op = Oloadf4; break;
+         case KF64: ins.op = Oloadf8; break;
          }
          if (i == 0)
             ins.l = src;
@@ -304,8 +304,8 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
             int iref, iuser;
             switch (call->abiret[i].ty.cls) {
             default: assert(0);
-            case KF4: case KI4: store.op = Ostore4; break;
-            case KI8: case KF8: store.op = Ostore8; break;
+            case KF32: case KI32: store.op = Ostore4; break;
+            case KI64: case KF64: store.op = Ostore8; break;
             }
             if (i == 0) {
                store.l = retmem;

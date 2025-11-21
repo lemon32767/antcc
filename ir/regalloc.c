@@ -251,11 +251,11 @@ emitmove(enum irclass k, struct alloc dst, struct alloc src, struct block *blk, 
    if (src.t == ASTACK) {
       switch (mv.cls = k) {
       default: assert(0);
-      case KI4: mv.op = Oloads4; break;
-      case KI8: mv.op = Oloadi8; break;
+      case KI32: mv.op = Oloads4; break;
+      case KI64: mv.op = Oloadi8; break;
       case KPTR: mv.op = targ_64bit ? Oloadi8 : Oloads4; break;
-      case KF4: mv.op = Oloadf4; break;
-      case KF8: mv.op = Oloadf8; break;
+      case KF32: mv.op = Oloadf4; break;
+      case KF64: mv.op = Oloadf8; break;
       }
       if (dst.t == AREG)
          reg = dst.a;
@@ -976,7 +976,7 @@ devirt(struct rega *ra, struct block *blk)
 
       for (int i = 0; i < nargref; ++i) {
          static uchar cls2load[] = {
-            [KI4] = Oloads4, [KI8] = Oloadi8, [KF4] = Oloadf4, [KF8] = Oloadf8, [KPTR] = 0
+            [KI32] = Oloads4, [KI64] = Oloadi8, [KF32] = Oloadf4, [KF64] = Oloadf8, [KPTR] = 0
          };
          cls2load[KPTR] = targ_64bit ? Oloadi8 : Oloads4;
          union ref *r = argref[i];

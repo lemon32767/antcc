@@ -3,12 +3,12 @@
 
 enum irclass {
    KXXX,
-   KI4, KI8, KPTR,
-   KF4, KF8,
+   KI32, KI64, KPTR,
+   KF32, KF64,
 };
 
-#define kisint(k) in_range((k), KI4, KPTR)
-#define kisflt(k) in_range((k), KF4, KF8)
+#define kisint(k) in_range((k), KI32, KPTR)
+#define kisflt(k) in_range((k), KF32, KF64)
 
 union irtype {
    struct { ushort _     : 1, cls : 15; };
@@ -73,7 +73,7 @@ struct addr {
    int shift, disp;
 };
 
-#define insrescls(ins) (oiscmp((ins).op) ? KI4 : (ins).cls)
+#define insrescls(ins) (oiscmp((ins).op) ? KI32 : (ins).cls)
 #define NOREF ((union ref) {0})
 #define UNDREF ((union ref) {{ 0, -1 }})
 #define ZEROREF ((union ref) {{ RICON, 0 }})
@@ -107,7 +107,7 @@ enum intrin {
 
 struct instr {
    uchar op,
-         cls; /* operation data class; also result class except for cmp ops (always i4) */
+         cls; /* operation data class; also result class except for cmp ops (always i32) */
    uchar skip : 1, /* ignore during codegen: forms part of one machine instruction */
          keep : 1; /* for codegen, keep instr even if result seems unused */
    uchar inplace : 1; /* set (by isel) for instructions which modify its first arg in place */
@@ -233,7 +233,7 @@ union irtype mkirtype(union type);
 union ref mkintcon(enum irclass, vlong);
 union ref mkfltcon(enum irclass, double);
 #define iscon(r) in_range((r).t, RICON, RXCON)
-#define concls(r) ((r).t == RICON ? KI4 : conht[(r).i].cls)
+#define concls(r) ((r).t == RICON ? KI32 : conht[(r).i].cls)
 #define isintcon(r) (iscon(r) && kisint(concls(r)))
 #define isfltcon(r) ((r).t == RXCON && kisflt(conht[(r).i].cls))
 #define isnumcon(r) ((r).t == RICON || ((r).t == RXCON && conht[(r).i].cls))

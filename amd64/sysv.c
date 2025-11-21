@@ -8,7 +8,7 @@ clsscalar(uchar cls[2], uint off, union type ty)
    enum irclass k = type2cls[scalartypet(ty)];
    uchar *fcls = &cls[off/8];
    if (isflt(ty)) { /* SSE */
-      if (!*fcls || (*fcls == KF4 && k > *fcls))
+      if (!*fcls || (*fcls == KF32 && k > *fcls))
          *fcls = k;
    } else { /* INTEGER */
       assert(isint(ty) || ty.t == TYPTR);
@@ -16,7 +16,7 @@ clsscalar(uchar cls[2], uint off, union type ty)
          *fcls = k;
    }
    if (off % 8 >= 4 && cls2siz[*fcls] < 8)
-      *fcls = kisint(*fcls) ? KI8 : KF8;
+      *fcls = kisint(*fcls) ? KI64 : KF64;
 }
 
 static int
@@ -230,8 +230,8 @@ vaarg(struct function *fn, struct block *blk, int *curi)
       union ref phi, phiargs[2];
       if (ni) {
          /* l->gp_offset < 48 - num_gp * 8 */
-         tmp = insertinstr(blk, (*curi)++, mkinstr(Oloadu4, KI4, ap));
-         tmp = insertinstr(blk, (*curi)++, mkinstr(Oulte, KI4, tmp, mkref(RICON, 48 - ni*8)));
+         tmp = insertinstr(blk, (*curi)++, mkinstr(Oloadu4, KI32, ap));
+         tmp = insertinstr(blk, (*curi)++, mkinstr(Oulte, KI32, tmp, mkref(RICON, 48 - ni*8)));
          merge = blksplitafter(fn, blk, *curi);
          blk->jmp.t = 0;
          useblk(fn, blk);
@@ -240,10 +240,10 @@ vaarg(struct function *fn, struct block *blk, int *curi)
          {
             /* phi0: &l->reg_save_area[l->gp_offset] */
             union ref sav = addinstr(fn, mkinstr(Oloadi8, KPTR, irbinop(fn, Oadd, KPTR, ap, mkref(RICON, 16))));
-            union ref gpoff = addinstr(fn, mkinstr(Oloadu4, KI4, ap));
+            union ref gpoff = addinstr(fn, mkinstr(Oloadu4, KI32, ap));
             phiargs[0] = irbinop(fn, Oadd, KPTR, sav, gpoff);
             /* l->gp_offset += num_gp * 8 */
-            gpoff = irbinop(fn, Oadd, KI4, gpoff, mkref(RICON, ni * 8));
+            gpoff = irbinop(fn, Oadd, KI32, gpoff, mkref(RICON, ni * 8));
             addinstr(fn, mkinstr(Ostore4, 0, ap, gpoff));
             assert(merge->npred == 1);
             blkpred(merge, 0) = blk->s1;
@@ -269,7 +269,7 @@ vaarg(struct function *fn, struct block *blk, int *curi)
          merge->ins.p[0] = var;
          phi = insertphi(merge, KPTR);
          memcpy(phitab.p[instrtab[phi.i].l.i], phiargs, sizeof phiargs);
-         instrtab[var] = mkinstr(cls[0] == KI4 ? Oloads4 : Oloadi8, cls[0], phi);
+         instrtab[var] = mkinstr(cls[0] == KI32 ? Oloads4 : Oloadi8, cls[0], phi);
       } else {
          assert(0&&nf);
       }
