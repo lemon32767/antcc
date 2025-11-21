@@ -22,9 +22,7 @@ static const uchar load2ext[] = {
 
 /* Implements algorithm in 'Simple and Efficient Construction of Static Single Assignment' (Braun et al) */
 
-struct pendingphi { ushort var, phi; };
 struct ssabuilder {
-   vec_of(struct pendingphi) *pendingphis; /* map of block to list of incomplete phis in block */
    imap_of(union ref *) curdefs; /* map of var to (map of block to def of var) */
    struct bitset *sealed;
    int lastvisit;
@@ -96,6 +94,7 @@ addphiargs(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk, 
       args[i] = readvar(sb, var, cls, pred);
       adduse(blk, phiref.i, args[i]);
    }
+   instrtab[phiref.i].r.bits = 0;
    return deltrivialphis(sb, blk, phiref);
 }
 
@@ -110,14 +109,16 @@ writevar(struct ssabuilder *sb, int var, struct block *blk, union ref val)
    (*pcurdefs)[blk->id] = val;
 }
 
+enum { RPENDINGPHI = 7 };
 static union ref
 readvarrec(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
 {
    union ref val;
    assert(blk->npred > 0);
    if (!bstest(sb->sealed, blk->id)) { /* unsealed block */
+      /* add pending phi */
       val = insertphi(blk, cls);
-      vpush(&sb->pendingphis[blk->id], ((struct pendingphi) { var, val.i }));
+      instrtab[val.i].r = mkref(RPENDINGPHI, var);
    } else if (blk->npred == 1) {
       val = readvar(sb, var, cls, blkpred(blk, 0));
    } else {
@@ -143,8 +144,6 @@ readvar(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
 static bool
 trysealrec(struct ssabuilder *sb, struct block *blk)
 {
-   vec_of(struct pendingphi) *pending;
-
 Recur:
    if (bstest(sb->sealed, blk->id)) return 1;
    if (blk->id > sb->lastvisit) return 0;
@@ -156,12 +155,11 @@ Recur:
    }
 
    bsset(sb->sealed, blk->id);
-   pending = (void *) &sb->pendingphis[blk->id];
-   for (int i = 0; i < pending->n; ++i) {
-      addphiargs(sb, pending->p[i].var, instrtab[pending->p[i].phi].cls, blk,
-                 mkref(RTMP, pending->p[i].phi));
+   for (int i = 0; i < blk->phi.n; ++i) {
+      struct instr *ins = &instrtab[blk->phi.p[i]];
+      if (ins->r.t == RPENDINGPHI)
+         addphiargs(sb, ins->r.i, ins->cls, blk, mkref(RTMP, blk->phi.p[i]));
    }
-   vfree(pending);
    if (blk->s1 && !blk->s2) {
       blk = blk->s1;
       goto Recur;
@@ -209,7 +207,6 @@ mem2reg(struct function *fn)
    struct ssabuilder sb = { .nblk = fn->nblk };
    struct block *blk;
 
-   sb.pendingphis = xcalloc(fn->nblk * sizeof *sb.pendingphis);
    if (fn->nblk <= 64 * arraylength(ssealed)) {
       sb.sealed = ssealed;
       memset(ssealed, 0, BSSIZE(fn->nblk) * sizeof *ssealed);
@@ -306,7 +303,6 @@ mem2reg(struct function *fn)
    } while ((blk = blk->lnext) != fn->entry);
 
    if (sb.sealed != ssealed) free(sb.sealed);
-   free(sb.pendingphis);
 
    for (int i = 0; i < sb.curdefs.mb.N; ++i)
       if (bstest(sb.curdefs.mb.bs, i))
