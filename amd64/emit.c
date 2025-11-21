@@ -1041,7 +1041,6 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       break;
    case Omul:
       if (kisint(cls))
-   case Oumul:
          Ximul(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r));
       else
          Xmulf(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->r));

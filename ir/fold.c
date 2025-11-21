@@ -27,7 +27,6 @@ foldint(enum op op, enum irclass k, union ref lr, union ref rr)
    case Oadd:  x = l.u + r.u; break;
    case Osub:  x = l.u - r.u; break;
    case Omul:  x = l.u * r.u; break;
-   case Oumul: x = l.u * r.u; break;
    case Odiv:  x = w ? l.s / r.s : (int)l.s / (int)r.s; break;
    case Oudiv: x = w ? l.u / r.u : (uint)l.u / (uint)r.u; break;
    case Orem:  x = w ? l.s % r.s : (int)l.s % (int)r.s; break;

@@ -3255,7 +3255,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    case EADDROF:
       return expraddr(fn, sub);
    case EMUL:
-      op = isunsigned(ex->ty) ? Oumul : Omul;
+      op = Omul;
       goto BinArith;
    case EDIV:
       op = isunsigned(ex->ty) ? Oudiv : Odiv;
@@ -3382,7 +3382,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       if (discard) return NOREF;
       return bitsiz ? narrow(fn, cls, sub[0].ty, q, bitsiz) : q;
    case ESETMUL:
-      op = isunsigned(ex->ty) ? Oumul : Omul;
+      op = Omul;
       goto Compound;
    case ESETDIV:
       op = isunsigned(ex->ty) ? Oudiv : Odiv;

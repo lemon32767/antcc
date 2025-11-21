@@ -15,7 +15,6 @@ static const uchar opflags[NOPER] = {
    [Oadd]  = ZF|CLOBF,
    [Osub]  = ZF|CLOBF,
    [Omul]  = CLOBF,
-   [Oumul] = CLOBF,
    [Odiv]  = CLOBF,
    [Oudiv] = CLOBF,
    [Orem]  = CLOBF,
@@ -457,7 +456,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          }
       }
       /* fallthru */
-   case Omul: case Oumul:
+   case Omul:
    case Oand: case Oxor: case Oior:
       /* commutative ops */
       if (iscon(ins->l))
@@ -473,7 +472,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Onot:
    ALU:
       if (!(op == Oadd && kisint(ins->cls))) /* 3-address add is lea */
-      if (!(in_range(op, Omul, Oumul) && kisint(ins->cls) && isimm32(ins->r))) /* for (I)MUL r,r/m,imm */
+      if (!(op == Omul && kisint(ins->cls) && isimm32(ins->r))) /* for (I)MUL r,r/m,imm */
          ins->inplace = 1;
       if (iscon(ins->l)) {
          fixarg(&ins->l, ins, blk, curi);

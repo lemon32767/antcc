@@ -18,7 +18,7 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
    case Osub:
       if (r.bits == ZEROREF.bits) return l; /* x +/- 0 ==> x */
       break;
-   case Omul: case Oumul:
+   case Omul:
       if (isnumcon(l)) rswap(l, r); /* put const in rhs */
       if (r.bits == ZEROREF.bits) /* x * 0 ==> 0 */
          return ZEROREF;
