@@ -209,7 +209,7 @@ addpred(struct block *blk, struct block *p)
    }
    if (blk->npred == 1) {
       struct block *p0 = blk->_pred0;
-      blk->_pred = 0;
+      blk->_pred = NULL;
       xbgrow(&blk->_pred, 4);
       *blk->_pred = p0;
    }
@@ -221,10 +221,20 @@ delpred(struct block *blk, struct block *p)
 {
    for (int i = 0; i < blk->npred; ++i) {
       if (blkpred(blk, i) == p) {
+         for (int j = 0; j < blk->phi.n; ++j) {
+            union ref *phiargs = phitab.p[instrtab[blk->phi.p[j]].l.i];
+            for (int k = i; k < blk->npred - 1; ++k) {
+               phiargs[k] = phiargs[k + 1];
+            }
+         }
          for (int k = i; k < blk->npred - 1; ++k) {
             blkpred(blk, k) = blkpred(blk, k + 1);
          }
-         --blk->npred;
+         if (--blk->npred == 1) {
+            struct block *p0 = blk->_pred[0];
+            xbfree(blk->_pred);
+            blk->_pred0 = p0;
+         }
          return;
       }
    }
