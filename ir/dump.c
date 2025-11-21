@@ -211,7 +211,15 @@ dumpblk(struct function *fn, struct block *blk)
 {
    static const char *jnames[] = { 0, "b", "ret", "trap" };
    int i;
-   bfmt(out, "  @%d:\n", blk->id);
+   bfmt(out, "  @%d:", blk->id);
+   if (blk->npred) {
+      bfmt(out, " \t; preds:");
+      for (i = 0; i < blk->npred; ++i) {
+         if (i) ioputc(out, ',');
+         bfmt(out, " @%d", blkpred(blk, i)->id);
+      }
+   }
+   ioputc(out, '\n');
    for (i = 0; i < blk->phi.n; ++i) {
       struct instr *phi = &instrtab[blk->phi.p[i]];
       union ref *refs = phitab.p[phi->l.i];
@@ -225,7 +233,7 @@ dumpblk(struct function *fn, struct block *blk)
          bfmt(out, "@%d ", blkpred(blk, i)->id);
          dumpref(0, refs[i]);
       }
-      bfmt(out, "\n");
+      ioputc(out, '\n');
    }
    for (i = 0; i < blk->ins.n; ++i) {
       bfmt(out, "%-4d  ", blk->inumstart + 1 + i);
