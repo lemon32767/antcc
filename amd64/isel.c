@@ -618,6 +618,8 @@ amd64_isel(struct function *fn)
       bfmt(ccopt.dbgout, "<< After isel >>\n");
       irdump(fn);
    }
+
+   fn->prop = 0;
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

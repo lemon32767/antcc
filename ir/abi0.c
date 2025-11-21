@@ -348,6 +348,8 @@ abi0(struct function *fn)
    struct block *blk;
    union ref sret = {0};
 
+   FREQUIRE(FNUSE);
+
    if (fn->retty.t == TYVOID) {
       fn->nabiret = 0;
    } else {
@@ -434,6 +436,9 @@ abi0(struct function *fn)
       }
       blk->id = id++;
    } while ((blk = blk->lnext) != fn->entry);
+
+   /* vaargs might break */
+   fn->prop &= ~(FNBLKID | FNRPO);
 
    if (ccopt.dbg.a) {
       bfmt(ccopt.dbgout, "<< After abi0 >>\n");

@@ -411,6 +411,8 @@ fixcssa(struct function *fn)
          }
       }
    } while ((blk = blk->lnext) != fn->entry);
+
+   fn->prop &= ~FNBLKID;
 }
 
 static inline bool

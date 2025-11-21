@@ -68,6 +68,7 @@ irinit(struct function *fn)
    fn->entry = fn->curblk = allocz(fn->arena, sizeof(struct block), 0);
    fn->nblk = 1;
    fn->entry->lprev = fn->entry->lnext = fn->entry;
+   fn->prop = FNUSE; /* builder keeps this */
 }
 
 static int
@@ -552,6 +553,8 @@ fillblkids(struct function *fn)
    int i = 0;
    struct block *blk = fn->entry;
    do blk->id = i++; while ((blk = blk->lnext) != fn->entry);
+
+   fn->prop |= FNBLKID;
 }
 
 /** Misc **/

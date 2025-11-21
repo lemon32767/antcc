@@ -225,13 +225,14 @@ cmpuse(const void *a, const void *b)
    return blkfindins(blk, ua->u) - blkfindins(blk, ub->u);
 }
 
-/* require use, blkid; keeps use */
 void
 mem2reg(struct function *fn)
 {
    static struct bitset bsbuf[2][4];
    struct ssabuilder sb = { .nblk = fn->nblk };
    struct block *blk;
+
+   FREQUIRE(FNUSE);
 
    if (fn->nblk <= 64 * arraylength(bsbuf[0])) {
       sb.sealed = bsbuf[0];

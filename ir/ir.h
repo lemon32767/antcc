@@ -153,6 +153,12 @@ rsiter(int *i, uvlong rs)
    return 1;
 }
 
+enum {
+   FNBLKID = 1<<0,
+   FNUSE   = 1<<1,
+   FNRPO   = 1<<2,
+   FNDOM   = 1<<3,
+};
 struct function {
    struct arena **arena;
    const char *name;
@@ -161,6 +167,7 @@ struct function {
    short *nuse;
    union type fnty, retty;
    struct abiarg *abiarg, abiret[2];
+   uint prop;
    uint nblk;
    int stksiz;
    ushort nabiarg, nabiret;
@@ -168,6 +175,7 @@ struct function {
    bool isleaf;
    regset regusage;
 };
+#define FREQUIRE(_prop) assert((fn->prop & (_prop)) && "preconditions not met")
 
 enum objkind { OBJELF };
 enum mcisa { ISamd64 };

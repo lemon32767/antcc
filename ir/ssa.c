@@ -1,11 +1,11 @@
 #include "ir.h"
 
-/* require use, keeps use */
 void
 copyopt(struct function *fn)
 {
    struct block *blk = fn->entry;
 
+   FREQUIRE(FNUSE);
    do {
       for (int i = 0; i < blk->ins.n; ++i) {
          union ref var = mkref(RTMP, blk->ins.p[i]);
@@ -53,6 +53,8 @@ filluses(struct function *fn)
       adduse(blk, USERJUMP, blk->jmp.arg[0]);
       adduse(blk, USERJUMP, blk->jmp.arg[1]);
    } while ((blk = blk->lnext) != fn->entry);
+
+   fn->prop |= FNUSE;
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

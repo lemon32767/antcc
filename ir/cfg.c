@@ -10,6 +10,7 @@ porec(struct block ***rpo, struct block *b)
    *--*rpo = b;
 }
 
+/* also blkid */
 void
 sortrpo(struct function *fn)
 {
@@ -47,6 +48,8 @@ sortrpo(struct function *fn)
    }
    fn->entry->lprev = rpo[-1];
    rpo[-1]->lnext = fn->entry;
+
+   fn->prop |= FNBLKID | FNRPO;
 }
 
 /* vim:set ts=3 sw=3 expandtab: */
