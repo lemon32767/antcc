@@ -128,6 +128,7 @@ struct block {
    };
    struct block *lprev, *lnext;
    struct block *s1, *s2;
+   struct block *idom;
    vec_of(ushort) phi;
    vec_of(ushort) ins;
    struct { uchar t; union ref arg[2]; } jmp;
@@ -301,6 +302,7 @@ void copyopt(struct function *);
 
 /** cfg.c **/
 void sortrpo(struct function *fn);
+void filldom(struct function *fn);
 
 /** abi0.c **/
 void abi0(struct function *);

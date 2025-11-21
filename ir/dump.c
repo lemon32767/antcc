@@ -219,6 +219,9 @@ dumpblk(struct function *fn, struct block *blk)
          bfmt(out, " @%d", blkpred(blk, i)->id);
       }
    }
+   if (fn->prop & FNDOM && blk->idom) {
+      bfmt(out, "\t; idom: @%d", blk->idom->id);
+   }
    ioputc(out, '\n');
    for (i = 0; i < blk->phi.n; ++i) {
       struct instr *phi = &instrtab[blk->phi.p[i]];

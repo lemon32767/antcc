@@ -52,4 +52,39 @@ sortrpo(struct function *fn)
    fn->prop |= FNBLKID | FNRPO;
 }
 
+/* also blkid */
+void
+filldom(struct function *fn)
+{
+   struct block *blk = fn->entry;
+   int i = 0;
+
+   FREQUIRE(FNRPO);
+
+   /* Implements 'A Simple, Fast Dominance Algorithm' by K. Cooper, T. Harvey, and K. Kennedy */
+   do blk->id = i++, blk->idom = NULL; while ((blk = blk->lnext) != fn->entry);
+   fn->entry->idom = fn->entry;
+   for (bool changed = 1; changed;) {
+      changed = 0;
+      blk = fn->entry->lnext;
+      do {
+         struct block *new = blkpred(blk, 0);
+         for (int i = 1; i < blk->npred; ++i) {
+            struct block *p = blkpred(blk, i);
+            if (p->idom) { /* new = intersect(p, new) */
+               while (p != new) {
+                  while (p->id > new->id) p = p->idom;
+                  while (p->id < new->id) new = new->idom;
+               }
+            }
+         }
+         if (blk->idom != new) {
+            blk->idom = new;
+            changed = 1;
+         }
+      } while ((blk = blk->lnext) != fn->entry);
+   }
+   fn->prop |= FNBLKID | FNDOM;
+}
+
 /* vim:set ts=3 sw=3 expandtab: */
