@@ -198,10 +198,20 @@ void
 putcondbranch(struct function *fn, union ref arg, struct block *t, struct block *f)
 {
    assert(fn->curblk && t && f);
-   adduse(fn->curblk, USERJUMP, arg);
-   addpred(t, fn->curblk);
-   addpred(f, fn->curblk);
-   putjump(fn, Jb, arg, NOREF, t, f);
+   if (iscon(arg)) {
+      bool truthy;
+      if (isintcon(arg)) truthy = intconval(arg) != 0;
+      else if (isfltcon(arg)) truthy = fltconval(arg) != 0.0;
+      else if (isaddrcon(arg,0)) truthy = 1; /* XXX ok to assume symbols have non null addresses? */
+      else goto Cond;
+      putbranch(fn, truthy ? t : f);
+   } else {
+   Cond:
+      adduse(fn->curblk, USERJUMP, arg);
+      addpred(t, fn->curblk);
+      addpred(f, fn->curblk);
+      putjump(fn, Jb, arg, NOREF, t, f);
+   }
 }
 
 void
