@@ -36,8 +36,8 @@ intrin(struct block *blk, int *curi, enum intrin in, struct arg *args, int narg,
                pdst = insertinstr(blk, ++*curi, mkinstr(Oadd, KPTR, *args[0].arg, mkref(RICON, off)));
                psrc = insertinstr(blk, ++*curi, mkinstr(Oadd, KPTR, *args[1].arg, mkref(RICON, off)));
             }
-            src = insertinstr(blk, ++*curi, mkinstr(Oloads1 + 2*ilog2(step), step < 8 ? KI32 : KI64, psrc));
-            insertinstr(blk, ++*curi, mkinstr(Ostore1 + ilog2(step), 0, pdst, src));
+            src = insertinstr(blk, ++*curi, mkinstr(Oloads8 + 2*ilog2(step), step < 8 ? KI32 : KI64, psrc));
+            insertinstr(blk, ++*curi, mkinstr(Ostore8 + ilog2(step), 0, pdst, src));
          }
          return 1;
       }

@@ -442,7 +442,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
          }
          if (!umod && i < 0) {
             n += bputc(buf, '-');
-            i = -i;
+            i = -(uvlong)i;
          }
          n += putuint(prec > 0 ? &tmp2 : buf, i, base, lower);
          if (prec > 0) {

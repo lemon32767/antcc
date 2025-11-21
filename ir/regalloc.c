@@ -251,11 +251,11 @@ emitmove(enum irclass k, struct alloc dst, struct alloc src, struct block *blk, 
    if (src.t == ASTACK) {
       switch (mv.cls = k) {
       default: assert(0);
-      case KI32: mv.op = Oloads4; break;
-      case KI64: mv.op = Oloadi8; break;
-      case KPTR: mv.op = targ_64bit ? Oloadi8 : Oloads4; break;
-      case KF32: mv.op = Oloadf4; break;
-      case KF64: mv.op = Oloadf8; break;
+      case KI32: mv.op = Oloads32; break;
+      case KI64: mv.op = Oloadi64; break;
+      case KPTR: mv.op = targ_64bit ? Oloadi64 : Oloads32; break;
+      case KF32: mv.op = Oloadf32; break;
+      case KF64: mv.op = Oloadf64; break;
       }
       if (dst.t == AREG)
          reg = dst.a;
@@ -265,7 +265,7 @@ emitmove(enum irclass k, struct alloc dst, struct alloc src, struct block *blk, 
       addstkslotref(insertinstr(blk, curi, mv).i, src.a*8);
    } else reg = src.a;
    if (dst.t == ASTACK) {
-      mv = mkinstr(Ostore1+ilog2(cls2siz[k]), 0, .r = mkref(RREG, reg));
+      mv = mkinstr(Ostore8+ilog2(cls2siz[k]), 0, .r = mkref(RREG, reg));
       addstkslotref(insertinstr(blk, curi, mv).i, dst.a*8);
    }
 }
@@ -976,9 +976,9 @@ devirt(struct rega *ra, struct block *blk)
 
       for (int i = 0; i < nargref; ++i) {
          static uchar cls2load[] = {
-            [KI32] = Oloads4, [KI64] = Oloadi8, [KF32] = Oloadf4, [KF64] = Oloadf8, [KPTR] = 0
+            [KI32] = Oloads32, [KI64] = Oloadi64, [KF32] = Oloadf32, [KF64] = Oloadf64, [KPTR] = 0
          };
-         cls2load[KPTR] = targ_64bit ? Oloadi8 : Oloads4;
+         cls2load[KPTR] = targ_64bit ? Oloadi64 : Oloads32;
          union ref *r = argref[i];
          int tr;
          if (r->t == RTMP) {
@@ -1044,7 +1044,7 @@ devirt(struct rega *ra, struct block *blk)
       alloc = temp < ra->intervals.ntemps && (it = &ra->intervals.temps[temp]) && it->nrange ? &it->alloc : NULL;
       if (alloc && alloc->t == ASTACK) {
          enum irclass cls = insrescls(*ins);
-         int store = Ostore1 + ilog2(cls2siz[cls]);
+         int store = Ostore8 + ilog2(cls2siz[cls]);
          /* t was spilled, gen store */
          if (ins->op == Ocopy && ins->l.t != RADDR) {
             ins->op = store;
@@ -1075,7 +1075,7 @@ devirt(struct rega *ra, struct block *blk)
             }
          }
       }
-      if (!ins->reg && insrescls(*ins) && ins->op != Omove && !ins->keep && !in_range(ins->op, Ostore1, Ostore8)) {
+      if (!ins->reg && insrescls(*ins) && ins->op != Omove && !ins->keep && !in_range(ins->op, Ostore8, Ostore64)) {
          /* dead */
       Nop:
         ins->op = Onop;
@@ -1095,7 +1095,7 @@ devirt(struct rega *ra, struct block *blk)
          ++curi;
          ins->l.i = ins->reg-1;
       }
-      if (!ins->reg && in_range(ins->op, Oloads1, Oloadf8)) {
+      if (!ins->reg && in_range(ins->op, Oloads8, Oloadf64)) {
          assert(ins->keep);
          ins->reg = kisint(ins->cls) ? mctarg->gprscratch+1 : mctarg->fprscratch+1;
       }

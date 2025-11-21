@@ -112,11 +112,11 @@ irunop(struct function *fn, enum op op, enum irclass k, union ref a)
       if (ins && ins->op == Onot) /* ~(~x) ==> x */
          return ins->l;
       break;
-   case Ocvtf4s: case Ocvtf4u: case Ocvtf4f8: case Ocvtf8s: 
-   case Ocvtf8u: case Ocvtf8f4: case Ocvts4f: case Ocvtu4f: 
-   case Ocvts8f: case Ocvtu8f: 
-   case Oexts1: case Oextu1: case Oexts2: case Oextu2: 
-   case Oexts4: case Oextu4:
+   case Ocvtf32s: case Ocvtf32u: case Ocvtf32f64: case Ocvtf64s:
+   case Ocvtf64u: case Ocvtf64f32: case Ocvts32f: case Ocvtu32f:
+   case Ocvts64f: case Ocvtu64f:
+   case Oexts8: case Oextu8: case Oexts16: case Oextu16:
+   case Oexts32: case Oextu32:
    case Ocopy:
       break;
    default: assert(!"unop?");

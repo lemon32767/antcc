@@ -69,10 +69,10 @@ copyparam(struct function *fn, int *curi, int param, struct abiarg abi)
       if (abi.ty.cls == KPTR) abi.ty.cls = siz2intcls[cls2siz[abi.ty.cls]];
       switch (abi.ty.cls) {
       default: assert(0);
-      case KI32: ld = Oloadu4; break;
-      case KI64: ld = Oloadi8; break;
-      case KF32: ld = Oloadf4; break;
-      case KF64: ld = Oloadf8; break;
+      case KI32: ld = Oloadu32; break;
+      case KI64: ld = Oloadi64; break;
+      case KF32: ld = Oloadf32; break;
+      case KF64: ld = Oloadf64; break;
       }
       return mkinstr(ld, abi.ty.cls, insertinstr(fn->entry, (*curi)++, par));
    } else { /* aggregate in stack */
@@ -120,11 +120,11 @@ patchparam(struct function *fn, int *curi, int *param, int tydat, int nabi, stru
           *  store* %x, %a
           *  store* %x + N, %b
           */
-         st = mkinstr(Ostore1 + ilog2(cls2siz[abi[0].ty.cls]), 0, alloc, r[0]);
+         st = mkinstr(Ostore8 + ilog2(cls2siz[abi[0].ty.cls]), 0, alloc, r[0]);
          insertinstr(blk, ++*curi, st);
          if (nabi > 1) {
             struct instr tmp = mkinstr(Oadd, KPTR, alloc, mkref(RICON, cls2siz[abi[0].ty.cls]));
-            st = mkinstr(Ostore1 + ilog2(cls2siz[abi[1].ty.cls]), 0, insertinstr(blk, ++*curi, tmp), r[1]);
+            st = mkinstr(Ostore8 + ilog2(cls2siz[abi[1].ty.cls]), 0, insertinstr(blk, ++*curi, tmp), r[1]);
             insertinstr(blk, ++*curi, st);
          }
       }
@@ -156,10 +156,10 @@ load2regs(union ref out[2], union irtype typ, union ref src, int nabi, struct ab
          union ref temp;
          switch (ins.cls = abi[i].ty.cls) {
          default: assert(0);
-         case KI32: ins.op = Oloadu4; break;
-         case KI64: ins.op = Oloadi8; break;
-         case KF32: ins.op = Oloadf4; break;
-         case KF64: ins.op = Oloadf8; break;
+         case KI32: ins.op = Oloadu32; break;
+         case KI64: ins.op = Oloadi64; break;
+         case KF32: ins.op = Oloadf32; break;
+         case KF64: ins.op = Oloadf64; break;
          }
          if (i == 0)
             ins.l = src;
@@ -177,7 +177,7 @@ load2regs(union ref out[2], union irtype typ, union ref src, int nabi, struct ab
          union ref reg, temp;
          uint n = cls2siz[abi[i].ty.cls] / align;
          assert(n > 0);
-         ld.op = Oloadu1 + ilog2(align)*2;
+         ld.op = Oloadu8 + ilog2(align)*2;
          ld.cls = abi[i].ty.cls;
          for (int o = 0; o < n && (i*cls2siz[ld.cls])+o*align < siz; ++o) {
             if (i+o == 0)
@@ -304,8 +304,8 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
             int iref, iuser;
             switch (call->abiret[i].ty.cls) {
             default: assert(0);
-            case KF32: case KI32: store.op = Ostore4; break;
-            case KI64: case KF64: store.op = Ostore8; break;
+            case KF32: case KI32: store.op = Ostore32; break;
+            case KI64: case KF64: store.op = Ostore64; break;
             }
             if (i == 0) {
                store.l = retmem;

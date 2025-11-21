@@ -2703,10 +2703,10 @@ genload(struct function *fn, union type t, union ref ref, bool volatyl)
    ins.cls = type2cls[scalartypet(t)];
    assert(ins.cls);
    switch (typesize(t)) {
-   case 1: ins.op = issigned(t) ? Oloads1 : Oloadu1; break;
-   case 2: ins.op = issigned(t) ? Oloads2 : Oloadu2; break;
-   case 4: ins.op = isflt(t) ? Oloadf4 : issigned(t) ? Oloads4 : Oloadu4; break;
-   case 8: ins.op = isflt(t) ? Oloadf8 : Oloadi8; break;
+   case 1: ins.op = issigned(t) ? Oloads8 : Oloadu8; break;
+   case 2: ins.op = issigned(t) ? Oloads16 : Oloadu16; break;
+   case 4: ins.op = isflt(t) ? Oloadf32 : issigned(t) ? Oloads32 : Oloadu32; break;
+   case 8: ins.op = isflt(t) ? Oloadf64 : Oloadi64; break;
    default: assert(0);
    }
    ins.l = ref;
@@ -2721,10 +2721,10 @@ genstore(struct function *fn, union type t, union ref ptr, union ref val)
 
    assert(isscalar(t));
    switch (typesize(t)) {
-   case 1: ins.op = Ostore1; break;
-   case 2: ins.op = Ostore2; break;
-   case 4: ins.op = Ostore4; break;
-   case 8: ins.op = Ostore8; break;
+   case 1: ins.op = Ostore8; break;
+   case 2: ins.op = Ostore16; break;
+   case 4: ins.op = Ostore32; break;
+   case 8: ins.op = Ostore64; break;
    default: assert(0);
    }
    ins.l = ptr;
@@ -2758,7 +2758,7 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
             /* write individual zeros at non initialized gaps */
             for (uint i = 0; bsiter(&i, azero, arraylength(azero)) && i < siz; i += align) {
                adr = irbinop(fn, Oadd, KPTR, dst, mkref(RICON, i));
-               addinstr(fn, mkinstr(Ostore1 + ilog2(align), 0, .l = adr, .r = ZEROREF));
+               addinstr(fn, mkinstr(Ostore8 + ilog2(align), 0, .l = adr, .r = ZEROREF));
             }
          } else {
             goto Memset0;
@@ -2837,7 +2837,7 @@ isboollike(struct function *fn, union ref r)
    }
    if (in_range(ins->op, Oand, Oxor))
       return isboollike(fn, ins->l) && isboollike(fn, ins->r);
-   if (ins->op == Ocopy || in_range(ins->op, Oexts1, Oextu4))
+   if (ins->op == Ocopy || in_range(ins->op, Oexts8, Oextu32))
       return isboollike(fn, ins->l);
    if (ins->op == Oparam)
       return typedata[fn->fnty.dat].param[ins->l.i].t == TYBOOL;
@@ -2858,13 +2858,13 @@ cvt(struct function *fn, union type to, union type from, union ref ref)
          assert(kisflt(kto) && kisint(kfrom));
          return mkfltcon(kto, kto == KF32 ? (float)ref.i : (double)ref.i);
       }
-      if (kisflt(kto) && kfrom == KI32) op = issigned(from) ? Ocvts4f : Ocvtu4f;
+      if (kisflt(kto) && kfrom == KI32) op = issigned(from) ? Ocvts32f : Ocvtu32f;
       else if (to.t == TYBOOL && kisflt(kfrom)) return irbinop(fn, Oneq, kfrom, ref, mkfltcon(kfrom, 0.0));
-      else if (kisflt(kto) && kfrom == KI64) op = issigned(from) ? Ocvts8f : Ocvtu8f;
-      else if (kto == KF64 && kfrom == KF32) op = Ocvtf4f8;
-      else if (kto == KF32 && kfrom == KF64) op = Ocvtf8f4;
-      else if (kfrom == KF32) op = issigned(to) ? Ocvtf4s : Ocvtf4u;
-      else if (kfrom == KF64) op = issigned(to) ? Ocvtf8s : Ocvtf8u;
+      else if (kisflt(kto) && kfrom == KI64) op = issigned(from) ? Ocvts64f : Ocvtu64f;
+      else if (kto == KF64 && kfrom == KF32) op = Ocvtf32f64;
+      else if (kto == KF32 && kfrom == KF64) op = Ocvtf64f32;
+      else if (kfrom == KF32) op = issigned(to) ? Ocvtf32s : Ocvtf32u;
+      else if (kfrom == KF64) op = issigned(to) ? Ocvtf64s : Ocvtf64u;
       else assert(0);
    } else {
       if (to.t == TYBOOL) {
@@ -2873,8 +2873,8 @@ cvt(struct function *fn, union type to, union type from, union ref ref)
             return kfrom == KI32 ? ref : cvt(fn, mktype(TYINT), from, ref);
          return irbinop(fn, Oneq, kfrom, ref, ZEROREF);
       }
-      else if (kfrom == KI32 && issigned(from)) op = Oexts4;
-      else if (kfrom == KI32) op = Oextu4;
+      else if (kfrom == KI32 && issigned(from)) op = Oexts32;
+      else if (kfrom == KI32) op = Oextu32;
       else if (kto == KI32 && isintcon(ref))
          return issigned(to) ? mkintcon(kto, (int)intconval(ref)) : mkintcon(kto, (uint)intconval(ref));
       else op = Ocopy;
@@ -2891,10 +2891,10 @@ narrow(struct function *fn, enum irclass to, union type t, union ref ref, uint b
       enum op op;
       if (isfltt(tt)) {
          assert(to == KF32 && tt >= TYDOUBLE);
-         op = Ocvtf8f4;
+         op = Ocvtf64f32;
       } else {
          static const enum op ext[5][2] = {
-            [1] = {Oextu1, Oexts1}, [2] = {Oextu2, Oexts2}, [4] = {Oextu4, Oexts4}
+            [1] = {Oextu8, Oexts8}, [2] = {Oextu16, Oexts16}, [4] = {Oextu32, Oexts32}
          };
          op = ext[targ_primsizes[tt]][issignedt(tt)];
       }

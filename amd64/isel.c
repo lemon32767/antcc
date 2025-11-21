@@ -139,7 +139,7 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          *arg = mkinstr(Omove, call->abiarg[i].ty.cls, mkref(RREG, abi.reg), arg->r);
       } else {
          union ref adr = mkaddr((struct addr){mkref(RREG, RSP), .disp = abi.stk});
-         *arg = mkinstr(Ostore1+ilog2(cls2siz[abi.ty.cls]), 0, adr, arg->r);
+         *arg = mkinstr(Ostore8+ilog2(cls2siz[abi.ty.cls]), 0, adr, arg->r);
       }
    }
    if (call->argstksiz) {
@@ -485,32 +485,32 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       if (op == Oadd && isaddrcon(ins->r,1)) /* no 3-address add if rhs is mem */
          ins->inplace = 1;
       break;
-   case Oloads1: case Oloadu1: case Oloads2: case Oloadu2:
-   case Oloads4: case Oloadu4: case Oloadi8: case Oloadf4: case Oloadf8:
+   case Oloads8: case Oloadu8: case Oloads16: case Oloadu16:
+   case Oloads32: case Oloadu32: case Oloadi64: case Oloadf32: case Oloadf64:
       loadstoreaddr(blk, &ins->l, curi);
       break;
-   case Ostore1: case Ostore2: case Ostore4: case Ostore8:
+   case Ostore8: case Ostore16: case Ostore32: case Ostore64:
       loadstoreaddr(blk, &ins->l, curi);
       if (isaddrcon(ins->r,1) || ins->r.t == RADDR)
          ins->r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->r));
       else
          fixarg(&ins->r, ins, blk, curi);
       break;
-   case Ocvtu4f:
+   case Ocvtu32f:
       fixarg(&ins->l, ins, blk, curi);
-      ins->l = insertinstr(blk, (*curi)++, mkinstr(Oextu4, KI64, ins->l));
-      ins->op = Ocvts8f;
+      ins->l = insertinstr(blk, (*curi)++, mkinstr(Oextu32, KI64, ins->l));
+      ins->op = Ocvts64f;
       break;
-   case Ocvtf4u: case Ocvtf8u:
+   case Ocvtf32u: case Ocvtf64u:
       fixarg(&ins->l, ins, blk, curi);
       if (ins->cls == KI32) {
-         ins->l = insertinstr(blk, (*curi)++, mkinstr(ins->op == Ocvtf4u ? Ocvtf4s : Ocvtf8s, KI64, ins->l));
-         ins->op = Oextu4;
+         ins->l = insertinstr(blk, (*curi)++, mkinstr(ins->op == Ocvtf32u ? Ocvtf32s : Ocvtf64s, KI64, ins->l));
+         ins->op = Oextu32;
      } else assert(!"nyi flt -> u64");
       break;
-   case Ocvtf4f8: case Ocvtf8f4: case Ocvtf4s: case Ocvtf8s: case Ocvts4f: case Ocvts8f:
-   case Ocvtu8f:
-   case Oexts1: case Oextu1: case Oexts2: case Oextu2: case Oexts4: case Oextu4:
+   case Ocvtf32f64: case Ocvtf64f32: case Ocvtf32s: case Ocvtf64s: case Ocvts32f: case Ocvts64f:
+   case Ocvtu64f:
+   case Oexts8: case Oextu8: case Oexts16: case Oextu16: case Oexts32: case Oextu32:
       if (isnumcon(ins->l)) {
          union ref it;
          bool ok = foldunop(&it, ins->op, ins->cls, ins->l);

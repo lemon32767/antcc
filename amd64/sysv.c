@@ -195,16 +195,16 @@ vastart(struct function *fn, struct block *blk, int *curi)
    *ins = mkinstr(Oadd, KPTR, ap, mkref(RICON, 16));
    dst = mkref(RTMP, ins - instrtab);
    int i = *curi + 1;
-   insertinstr(blk, i++, mkinstr(Ostore8, 0, dst, rsave));
+   insertinstr(blk, i++, mkinstr(Ostore64, 0, dst, rsave));
    /* set ap->overflow_arg_area */
    src = insertinstr(blk, i++, mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, 16+stk0)));
    dst = insertinstr(blk, i++, mkinstr(Oadd, KPTR, ap, mkref(RICON, 8)));
-   insertinstr(blk, i++, mkinstr(Ostore8, 0, dst, src));
+   insertinstr(blk, i++, mkinstr(Ostore64, 0, dst, src));
    /* set ap->gp_offset */
-   insertinstr(blk, i++, mkinstr(Ostore4, 0, ap, mkref(RICON, gpr0*8)));
+   insertinstr(blk, i++, mkinstr(Ostore32, 0, ap, mkref(RICON, gpr0*8)));
    /* set ap->fp_offset */
    dst = insertinstr(blk, i++, mkinstr(Oadd, KPTR, ap, mkref(RICON, 4)));
-   insertinstr(blk, i++, mkinstr(Ostore4, 0, dst, mkref(RICON, 6*8 + fpr0*8)));
+   insertinstr(blk, i++, mkinstr(Ostore32, 0, dst, mkref(RICON, 6*8 + fpr0*8)));
    *curi = i;
 }
 
@@ -230,7 +230,7 @@ vaarg(struct function *fn, struct block *blk, int *curi)
       union ref phi, phiargs[2];
       if (ni) {
          /* l->gp_offset < 48 - num_gp * 8 */
-         tmp = insertinstr(blk, (*curi)++, mkinstr(Oloadu4, KI32, ap));
+         tmp = insertinstr(blk, (*curi)++, mkinstr(Oloadu32, KI32, ap));
          tmp = insertinstr(blk, (*curi)++, mkinstr(Oulte, KI32, tmp, mkref(RICON, 48 - ni*8)));
          merge = blksplitafter(fn, blk, *curi);
          blk->jmp.t = 0;
@@ -239,12 +239,12 @@ vaarg(struct function *fn, struct block *blk, int *curi)
          useblk(fn, blk->s1);
          {
             /* phi0: &l->reg_save_area[l->gp_offset] */
-            union ref sav = addinstr(fn, mkinstr(Oloadi8, KPTR, irbinop(fn, Oadd, KPTR, ap, mkref(RICON, 16))));
-            union ref gpoff = addinstr(fn, mkinstr(Oloadu4, KI32, ap));
+            union ref sav = addinstr(fn, mkinstr(Oloadi64, KPTR, irbinop(fn, Oadd, KPTR, ap, mkref(RICON, 16))));
+            union ref gpoff = addinstr(fn, mkinstr(Oloadu32, KI32, ap));
             phiargs[0] = irbinop(fn, Oadd, KPTR, sav, gpoff);
             /* l->gp_offset += num_gp * 8 */
             gpoff = irbinop(fn, Oadd, KI32, gpoff, mkref(RICON, ni * 8));
-            addinstr(fn, mkinstr(Ostore4, 0, ap, gpoff));
+            addinstr(fn, mkinstr(Ostore32, 0, ap, gpoff));
             assert(merge->npred == 1);
             blkpred(merge, 0) = blk->s1;
             blk->s1->jmp.t = Jb;
@@ -254,13 +254,13 @@ vaarg(struct function *fn, struct block *blk, int *curi)
          {
             /* phi1: l->overflow_arg_area */
             union ref adr = irbinop(fn, Oadd, KPTR, ap, mkref(RICON, 8));
-            union ref ovf = addinstr(fn, mkinstr(Oloadi8, KPTR, adr));
+            union ref ovf = addinstr(fn, mkinstr(Oloadi64, KPTR, adr));
             /* align no-op */
             
             phiargs[1] = ovf;
             /* update l->overflow_arg_area += num_gp*8 */
             int siz = 8;
-            addinstr(fn, mkinstr(Ostore8, 0, adr, irbinop(fn, Oadd, KPTR, ovf, mkref(RICON, siz))));
+            addinstr(fn, mkinstr(Ostore64, 0, adr, irbinop(fn, Oadd, KPTR, ovf, mkref(RICON, siz))));
             putbranch(fn, merge);
          }
          assert(merge->npred == 2);
@@ -269,7 +269,7 @@ vaarg(struct function *fn, struct block *blk, int *curi)
          merge->ins.p[0] = var;
          phi = insertphi(merge, KPTR);
          memcpy(phitab.p[instrtab[phi.i].l.i], phiargs, sizeof phiargs);
-         instrtab[var] = mkinstr(cls[0] == KI32 ? Oloads4 : Oloadi8, cls[0], phi);
+         instrtab[var] = mkinstr(cls[0] == KI32 ? Oloads32 : Oloadi64, cls[0], phi);
       } else {
          assert(0&&nf);
       }

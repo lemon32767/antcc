@@ -2,23 +2,23 @@
 #include <stdlib.h> /* qsort */
 
 static const uchar loadszcls[] = {
-   [Oloads1 - Oloads1] = 1|KI32<<4, [Oloadu1 - Oloads1] = 1|KI32<<4,
-   [Oloads2 - Oloads1] = 2|KI32<<4, [Oloadu2 - Oloads1] = 2|KI32<<4,
-   [Oloads4 - Oloads1] = 4|KI32<<4, [Oloadu4 - Oloads1] = 4|KI32<<4,
-   [Oloadi8 - Oloads1] = 8|KI64<<4,
-   [Oloadf4 - Oloads1] = 4|KF32<<4,
-   [Oloadf8 - Oloads1] = 8|KF64<<4,
+   [Oloads8  - Oloads8] = 1|KI32<<4, [Oloadu8  - Oloads8] = 1|KI32<<4,
+   [Oloads16 - Oloads8] = 2|KI32<<4, [Oloadu16 - Oloads8] = 2|KI32<<4,
+   [Oloads32 - Oloads8] = 4|KI32<<4, [Oloadu32 - Oloads8] = 4|KI32<<4,
+   [Oloadi64 - Oloads8] = 8|KI64<<4,
+   [Oloadf32 - Oloads8] = 4|KF32<<4,
+   [Oloadf64 - Oloads8] = 8|KF64<<4,
 };
 static const uchar load2ext[] = {
-   [Oloads1 - Oloads1] = Oexts1, [Oloadu1 - Oloads1] = Oextu1,
-   [Oloads2 - Oloads1] = Oexts2, [Oloadu2 - Oloads1] = Oextu2,
-   [Oloads4 - Oloads1] = Oexts4, [Oloadu4 - Oloads1] = Oextu4,
-   [Oloadi8 - Oloads1] = Ocopy,
+   [Oloads8  - Oloads8] = Oexts8,  [Oloadu8  - Oloads8] = Oextu8,
+   [Oloads16 - Oloads8] = Oexts16, [Oloadu16 - Oloads8] = Oextu16,
+   [Oloads32 - Oloads8] = Oexts32, [Oloadu32 - Oloads8] = Oextu32,
+   [Oloadi64 - Oloads8] = Ocopy,
 };
-#define loadsz(o) (loadszcls[(o) - Oloads1] & 0xF)
-#define loadcls(o) (loadszcls[(o) - Oloads1] >> 4)
-#define load2ext(o) (load2ext[(o) - Oloads1])
-#define storesz(o) (1 << ((o) - Ostore1))
+#define loadsz(o) (loadszcls[(o) - Oloads8] & 0xF)
+#define loadcls(o) (loadszcls[(o) - Oloads8] >> 4)
+#define load2ext(o) (load2ext[(o) - Oloads8])
+#define storesz(o) (1 << ((o) - Ostore8))
 
 /* Implements algorithm in 'Simple and Efficient Construction of Static Single Assignment' (Braun et al) */
 
@@ -291,19 +291,19 @@ mem2reg(struct function *fn)
                if (!val.bits) { /* var is used uninitialized */
                   /* TODO emit diagnostic */
                   /* load some garbage */
-                  *m = mkinstr(kisflt(k) ? Oloadf4 + (k==KF64) : Oloads1+ilog2(sz)*2,
+                  *m = mkinstr(kisflt(k) ? Oloadf32 + (k==KF64) : Oloads8+ilog2(sz)*2,
                                k, mkref(RREG, mctarg->bpr));
                } else {
                   adduse(use->blk, use->u, val);
                   if (isintcon(val) && ext != Ocopy) {
                      vlong x = intconval(val);
                      switch (ext) {
-                     case Oexts1: x = (schar)x; break;
-                     case Oextu1: x = (uchar)x; break;
-                     case Oexts2: x = (short)x; break;
-                     case Oextu2: x = (ushort)x; break;
-                     case Oexts4: x = (int)x; break;
-                     case Oextu4: x = (uint)x; break;
+                     case Oexts8:  x = (schar)x; break;
+                     case Oextu8:  x = (uchar)x; break;
+                     case Oexts16: x = (short)x; break;
+                     case Oextu16: x = (ushort)x; break;
+                     case Oexts32: x = (int)x; break;
+                     case Oextu32: x = (uint)x; break;
                      default: assert(0);
                      }
                      val = mkintcon(k, x);
