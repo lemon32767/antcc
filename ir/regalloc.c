@@ -657,6 +657,7 @@ buildintervals(struct rega *ra)
                continue;
 
             if (r.t == RTMP) {
+               assert(instrtab[r.i].op != Onop);
                addrange(&ra->intervals, r.i, (struct range){blk->inumstart, pos}, reghint);
                bsset(live, r.i);
             } else if (r.t == RREG) {
