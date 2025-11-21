@@ -24,7 +24,8 @@ static const uchar load2ext[] = {
 
 struct ssabuilder {
    imap_of(union ref *) curdefs; /* map of var to (map of block to def of var) */
-   struct bitset *sealed;
+   struct bitset *sealed, /* set of sealed blocks */
+                 *marked; /* blocks marked, for 'Marker Algorithm' in the paper */
    int lastvisit;
    int nblk;
 };
@@ -119,12 +120,37 @@ readvarrec(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
       /* add pending phi */
       val = insertphi(blk, cls);
       instrtab[val.i].r = mkref(RPENDINGPHI, var);
-   } else if (blk->npred == 1) {
+   } else if (blk->npred == 1) { /* trivial case when block has a single predecessor */
       val = readvar(sb, var, cls, blkpred(blk, 0));
-   } else {
+   } else if (!bstest(sb->marked, blk->id)) {
+      /* Marker Algorithm to optimize the common case where a control flow join doesn't
+       * need a phi function for the variable: mark the block in case we recursively reach
+       * it again, collect defs from predecessors, only create a phi if they differ.
+       * This avoids creating temporary trivial phi functions in acyclic data flow
+       */
+      bsset(sb->marked, blk->id);
+      for (int i = 0; i < blk->npred; ++i) {
+         struct block *pred = blkpred(blk, i);
+         union ref it = readvar(sb, var, cls, pred);
+         if (!bstest(sb->marked, blk->id)) {
+            /* recursion reached this blk again, use its phi */
+            union ref **pcurdefs = imap_get(&sb->curdefs, var);
+            /* must have called writevar */
+            assert(*pcurdefs && (*pcurdefs)[blk->id].bits);
+            return (*pcurdefs)[blk->id];
+         }
+         if (i == 0) val = it;
+         else if (it.bits != val.bits) /* found a different definition, must add phi */
+            goto AddPhi;
+      }
+      bsclr(sb->marked, blk->id);
+   } else { /* reached block while recursing */
+   AddPhi:
       val = insertphi(blk, cls);
       writevar(sb, var, blk, val);
       val = addphiargs(sb, var, cls, blk, val);
+      bsclr(sb->marked, blk->id);
+      return val;
    }
    writevar(sb, var, blk, val);
    return val;
@@ -203,15 +229,18 @@ cmpuse(const void *a, const void *b)
 void
 mem2reg(struct function *fn)
 {
-   static struct bitset ssealed[4];
+   static struct bitset bsbuf[2][4];
    struct ssabuilder sb = { .nblk = fn->nblk };
    struct block *blk;
 
-   if (fn->nblk <= 64 * arraylength(ssealed)) {
-      sb.sealed = ssealed;
-      memset(ssealed, 0, BSSIZE(fn->nblk) * sizeof *ssealed);
+   if (fn->nblk <= 64 * arraylength(bsbuf[0])) {
+      sb.sealed = bsbuf[0];
+      sb.marked = bsbuf[1];
+      memset(bsbuf[0], 0, BSSIZE(fn->nblk) * sizeof *bsbuf[0]);
+      memset(bsbuf[1], 0, BSSIZE(fn->nblk) * sizeof *bsbuf[1]);
    } else {
       sb.sealed = xcalloc(BSSIZE(fn->nblk) * sizeof *sb.sealed);
+      sb.marked = xcalloc(BSSIZE(fn->nblk) * sizeof *sb.marked);
    }
 
    sortrpo(fn);
@@ -302,7 +331,10 @@ mem2reg(struct function *fn)
             delphi(blk, i--);
    } while ((blk = blk->lnext) != fn->entry);
 
-   if (sb.sealed != ssealed) free(sb.sealed);
+   if (sb.sealed != bsbuf[0]) {
+      free(sb.sealed);
+      free(sb.marked);
+   }
 
    for (int i = 0; i < sb.curdefs.mb.N; ++i)
       if (bstest(sb.curdefs.mb.bs, i))
