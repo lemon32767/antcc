@@ -3000,7 +3000,7 @@ struct condphis {
 
 static void
 condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
-            int boolcon, struct block *const next, struct block *end)
+            union type phityp, int boolcon, struct block *const next, struct block *end)
 {
    struct block *tr, *fl;
    while (ex->t == ESEQ) {
@@ -3009,22 +3009,22 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
    }
    if (ex->t == ELOGAND) {
       tr = newblk(fn);
-      condexprrec(fn, &ex->sub[0], phis, 0, tr, end);
+      condexprrec(fn, &ex->sub[0], phis, phityp, 0, tr, end);
       useblk(fn, tr);
-      condexprrec(fn, &ex->sub[1], phis, 0, next, end);
+      condexprrec(fn, &ex->sub[1], phis, phityp, 0, next, end);
    } else if (ex->t == ELOGIOR) {
       fl = newblk(fn);
-      condexprrec(fn, &ex->sub[0], phis, 1, end, fl);
+      condexprrec(fn, &ex->sub[0], phis, phityp, 1, end, fl);
       useblk(fn, fl);
-      condexprrec(fn, &ex->sub[1], phis, 1, end, next ? next : end);
+      condexprrec(fn, &ex->sub[1], phis, phityp, 1, end, next ? next : end);
    } else if (ex->t == ECOND) {
       tr = newblk(fn);
       fl = newblk(fn);
       condjump(fn, &ex->sub[0], tr, fl);
       useblk(fn, tr);
-      condexprrec(fn, &ex->sub[1], phis, -1, end, end);
+      condexprrec(fn, &ex->sub[1], phis, phityp, -1, end, end);
       useblk(fn, fl);
-      condexprrec(fn, &ex->sub[2], phis, -1, end, end);
+      condexprrec(fn, &ex->sub[2], phis, phityp, -1, end, end);
    } else {
       union ref r, val;
       if (!phis && (!next || next == end)) {
@@ -3040,8 +3040,12 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
             }
          }
       }
-      if (phis)
+      if (phis) {
+         if (isscalar(phityp))
+            val = cvt(fn, phityp, ex->ty, val);
+         else assert(ex->ty.bits == phityp.bits);
          vpush(&phis->ref, val);
+      }
       if (next && next != end) {
          putcondbranch(fn, r, next, end);
       } else {
@@ -3061,7 +3065,7 @@ condexprvalue(struct function *fn, const struct expr *ex, bool discard)
    struct block *dst = newblk(fn);
    union ref r;
    enum irclass k;
-   condexprrec(fn, ex, discard ? NULL : &phis, -1, NULL, dst);
+   condexprrec(fn, ex, discard ? NULL : &phis, ex->ty, -1, NULL, dst);
    useblk(fn, dst);
    if (discard) return NOREF;
    if (isscalar(ex->ty)) {
