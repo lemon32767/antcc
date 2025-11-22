@@ -255,6 +255,8 @@ freeblk(struct function *fn, struct block *blk)
 {
    if (blk->npred > 1)
       xbfree(blk->_pred);
+   blk->npred = 0;
+   blk->_pred = NULL;
 
    for (int i = 0; i < blk->phi.n; ++i) {
       int ui = blk->phi.p[i];
