@@ -13,7 +13,7 @@ clsscalar(uchar cls[2], uint off, union type ty)
    } else { /* INTEGER */
       assert(isint(ty) || ty.t == TYPTR);
       if (cls2siz[*fcls] < cls2siz[k])
-         *fcls = k;
+         *fcls = k == KPTR ? KI64 : k;
    }
    if (off % 8 >= 4 && cls2siz[*fcls] < 8)
       *fcls = kisint(*fcls) ? KI64 : KF64;
