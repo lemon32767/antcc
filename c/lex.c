@@ -1597,25 +1597,23 @@ ppinclude(struct lexer *lx, const struct span *span0)
       const char *base, *end;
       joinspan(&span.ex, tk.span.ex);
       if (tk.t == TKPPHDRQ) {
-         if (tk.s[0] == '/') {
-            /* absolute path */
-            xbgrow(&path, tk.len + 1);
-            memcpy(path, tk.s, tk.len);
-            path[tk.len] = 0;
-            if (tryinclude(lx, &span, path)) return;
-            goto NotFound;
-         } else {
-            /* build relative path */
-            base = getfilename(lx->fileid);
-            for (end = base; *end != 0; ++end) {}
-            for (--end; *end != '/' && end != base; --end) {}
-            if (*end == '/') ++end;
-            xbgrow(&path, end - base + tk.len + 1);
-            memcpy(path, base, end - base);
-            memcpy(path + (end - base), tk.s, tk.len);
-            path[end - base + tk.len] = 0;
-            if (tryinclude(lx, &span, path)) return;
-         }
+         /* try raw path: absolute or relative to working dir */
+         xbgrow(&path, tk.len + 1);
+         memcpy(path, tk.s, tk.len);
+         path[tk.len] = 0;
+         if (tryinclude(lx, &span, path)) return;
+         if (tk.s[0] == '/') goto NotFound;
+
+         /* try relative to current file's directory */
+         base = getfilename(lx->fileid);
+         for (end = base; *end != 0; ++end) {}
+         for (--end; *end != '/' && end != base; --end) {}
+         if (*end == '/') ++end;
+         xbgrow(&path, end - base + tk.len + 1);
+         memcpy(path, base, end - base);
+         memcpy(path + (end - base), tk.s, tk.len);
+         path[end - base + tk.len] = 0;
+         if (tryinclude(lx, &span, path)) return;
       }
       /* try system paths */
       for (struct inclpaths *p = cinclpaths; p; p = p->next) {
