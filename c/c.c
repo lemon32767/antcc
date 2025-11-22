@@ -1255,7 +1255,9 @@ expr2reloc(union ref *psym, vlong *paddend, const struct expr *ex)
 {
    if (ex->t == EADDROF && globsym(psym, ex->sub)) {
       *paddend = 0;
-   } else if (ex->t == EADDROF && (ex->sub->t == EGETF && globsym(psym, ex->sub->sub))) {
+   } else if (ex->t == EADDROF && ex->sub->t == EGETF && globsym(psym, ex->sub->sub)) {
+      *paddend = ex->sub->fld.off;
+   } else if (ex->t == EGETF && ex->ty.t == TYARRAY && globsym(psym, ex->sub)) {
       *paddend = ex->sub->fld.off;
    } else if (globsym(psym, ex) && in_range(ex->ty.t, TYARRAY, TYFUNC)) {
       *paddend = 0;

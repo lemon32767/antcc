@@ -167,6 +167,8 @@ isaddrconst(struct expr *ex)
       return isaddrconst(ex->sub) || (eval(ex->sub, EVSTATICINI) && ex->sub->t == ENUMLIT);
    if (ex->t == EADDROF && (isglobsym(ex->sub) || (ex->sub->t == EGETF && isglobsym(ex->sub->sub))))
       return 1;
+   if (ex->t == EGETF && ex->ty.t == TYARRAY && isglobsym(ex->sub))
+      return 1;
    if (isglobsym(ex) && in_range(ex->ty.t, TYARRAY, TYFUNC))
       return 1;
    if (ex->t == ESUB)
@@ -294,7 +296,8 @@ eval(struct expr *ex, enum evalmode mode)
       struct expr *e = ex;
       while (e->t == ECAST) e = e->sub;
       if (e != ex) {
-         e->ty = ex->ty;
+         if (e->ty.t != TYARRAY)
+            e->ty = ex->ty;
          *ex = *e;
       }
       return 1;
