@@ -2451,7 +2451,7 @@ declarator(struct declstate *st, struct comp *cm, struct span span0) {
             error(&decl.span, "function cannot return function type '%ty'", decl.ty);
          else if (decl.ty.t == TYARRAY)
             error(&decl.span, "function cannot return array type '%ty'", decl.ty);
-         if (l->kandr && ccopt.cstd > STDC89)
+         if (l->kandr && ccopt.cstd > STDC89 && (ccopt.cstd >= STDC23 || ccopt.pedant))
             warn(&l->span, "function declaration without a prototype is deprecated");
          decl.ty = mkfntype(decl.ty, l->npar, l->param, l->pqual, l->kandr, l->variadic);
          if (l->param != declparamtmp) free(l->param);
