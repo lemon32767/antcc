@@ -519,7 +519,7 @@ usereg(struct rega *ra, int reg, struct block *blk, int pos)
    if (rstest(mctarg->rglob, reg)) return; /* regalloc never allocates globally live regs, so don't need intervals for those */
    for (struct fixinterval *fxit = ra->intervals.fixed; fxit; fxit = fxit->next) {
       if (fxit->range.from > pos) break;
-      if (fxit->rs == 1<<reg && fxit->range.from <= pos && pos <= fxit->range.to) {
+      if (fxit->rs == 1<<reg && fxit->range.from <= pos && pos < fxit->range.to) {
          /* contained by existing interval */
          fxit->range.from = blk->inumstart;
          return;
@@ -619,7 +619,7 @@ buildintervals(struct rega *ra)
          if (ins->op == Omove) {
             assert(ins->l.t == RREG);
             if (ins->l.bits == ins->r.bits) /* special case `move Rx,Rx`: clobber reg, not a real use */
-               usereg(ra, ins->l.i, blk, pos+1); /* +1 to avoid empty interval [pos,pos) */
+               usereg(ra, ins->l.i, blk, pos);
             defreg(ra, ins->l.i, pos);
             if (ins->l.bits == ins->r.bits)
                continue;

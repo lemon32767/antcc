@@ -147,6 +147,11 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       ++*curi;
       insertinstr(blk, *curi+1, (struct instr){Oadd, KPTR, .keep=1, .reg = RSP+1, .l=mkref(RREG,RSP), disp});
    }
+   if (call->vararg >= 0 && ins->l.t == RTMP) {
+      /* variadic calls write number of sse regs used to AL, so mark it as clobbered such that
+       * the function pointer of an indirect calls does not get allocated to RAX by regalloc */
+      insertinstr(blk, (*curi)++, mkinstr(Omove, KPTR, mkref(RREG, RAX), mkref(RREG, RAX)));
+   }
    cls = ins->cls;
    ins->cls = 0;
    if (cls) {
