@@ -561,8 +561,11 @@ Begin:
          }
          tmp[n] = 0;
          tk->len = n;
-         if (n == lx->chridx - idx) tk->s = (char *)&lx->dat[idx];
-         else {
+         if (n == lx->chridx - idx) {
+            tk->litlit = 1;
+            tk->s = (char *)&lx->dat[idx];
+         } else {
+            tk->litlit = 0;
             tk->s = alloccopy(lx->tmparena, tmp, n, 1);
          }
          RET(TKNUMLIT);
@@ -890,6 +893,8 @@ ppdefine(struct lexer *lx)
             continue;
          }
       }
+      if (in_range(tk.t, TKNUMLIT, TKSTRLIT) && !tk.litlit)
+         tk.s = alloccopy(&globarena, tk.s, tk.len << tk.wide, 1);
       vpush(&rlist, tk);
    Next:;
    }
