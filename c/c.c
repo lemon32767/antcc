@@ -666,7 +666,7 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
       const char *name = (void *)callee->sym;
       struct decl decl = {
          (ty = mkfntype(mktype(TYINT), 0, NULL, NULL, /* kandr */ 1, 0)),
-         .scls = SCEXTERN, .span = span, .name = name
+         .scls = SCEXTERN, .span = span, .name = name, .sym = name
       };
       warn(&span, "call to undeclared function '%s'", name);
       ((struct expr *)callee)->ty = decl.ty;
@@ -1602,7 +1602,7 @@ designators(struct initparser *ip, struct comp *cm)
 
 static struct expr
 initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
-            enum qualifier qual, const char *name)
+            enum qualifier qual, const char *sym)
 {
    struct token tk;
    struct span span;
@@ -1620,7 +1620,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
          memset(ip->ddat.p, 0, typesize(*ty));
       } else {
          ip->sec = qual & QCONST ? Srodata : Sdata;
-         ip->off = objnewdat(name, ip->sec, globl, typesize(*ty), typealign(*ty));
+         ip->off = objnewdat(sym, ip->sec, globl, typesize(*ty), typealign(*ty));
       }
    } else {
       ip->init = &res;
@@ -1699,7 +1699,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
          sec = Srodata;
       else
          sec = Sdata;
-      off = objnewdat(name, sec, globl, siz = typesize(*ty), align = typealign(*ty));
+      off = objnewdat(sym, sec, globl, siz = typesize(*ty), align = typealign(*ty));
       p = sec == Srodata ? objout.rodata.p : objout.data.p;
       memcpy(p + off, ip->ddat.p, ip->ddat.n);
       memset(p + off + ip->ddat.n, 0, typesize(*ty) - ip->ddat.n);
@@ -2652,13 +2652,8 @@ expraddr(struct function *fn, const struct expr *ex)
       case SCAUTO: case SCREGISTER:
          assert(decl->id >= 0);
          return mkref(RTMP, decl->id);
-      case SCEXTERN: case SCNONE:
-         return mksymref(decl->name);
-      case SCSTATIC:
-         if (!decl->id)
-            return mksymref(decl->name);
-         else
-            return mksymref(mkhiddensym(fn->name, decl->name, decl->id));
+      case SCEXTERN: case SCNONE: case SCSTATIC:
+         return mksymref(decl->sym);
       default:
          assert(0);
       }
@@ -4015,11 +4010,12 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
          case SCSTATIC:
             if (forini)
                error(&decl.span, "static declaration in 'for' loop initializer");
-            decl.id = ++staticid;
+            decl.sym = mkhiddensym(fn->name, decl.name, ++staticid);
             goto Initz;
          case SCNONE:
             if (decl.ty.t == TYFUNC) {
                decl.scls = SCEXTERN;
+               decl.sym = decl.name;
                break;
             }
             decl.scls = SCAUTO;
@@ -4042,12 +4038,9 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
             if (st.varini) {
                struct decl *d = putdecl(cm, &decl);
                bool statik = decl.scls & (SCSTATIC | SCEXTERN);
-               const char *name = decl.name;
-               put = 1;
-               if (decl.scls == SCSTATIC)
-                  name = mkhiddensym(fn->name, name, decl.id);
                ini = initializer(cm, &d->ty, statik ? EVSTATICINI : EVFOLD,
-                                 /* globl? */ decl.scls == SCEXTERN, decl.qual, name);
+                                 /* globl? */ decl.scls == SCEXTERN, decl.qual, statik ? decl.sym : NULL);
+               put = 1;
                pdecl(&st, cm);
                if (!statik) {
                   /* fix alloca for actual size, for implicitly sized arrays */
@@ -4078,11 +4071,10 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                }
             } else if (decl.scls == SCSTATIC) {
                /* zero-initialized static */
-               const char *sym = mkhiddensym(fn->name, decl.name, decl.id);
                if (decl.ty.t == TYARRAY && isincomplete(decl.ty))
                   error(&decl.span, "definition of variable with array type needs size or initializer");
                else
-                  objnewdat(sym, Sbss, 0, typesize(decl.ty), typealign(decl.ty));
+                  objnewdat(decl.sym, Sbss, 0, typesize(decl.ty), typealign(decl.ty));
             }
             break;
          case SCTYPEDEF:
@@ -4090,6 +4082,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                error(&decl.span, "typedef in 'for' loop initializer");
             break;
          case SCEXTERN:
+            decl.sym = decl.name;
             if (forini)
                error(&decl.span, "extern declaration in 'for' loop initializer");
             if (st.varini) goto Initz;
@@ -4167,7 +4160,7 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
       putdecl(cm, &(struct decl) {
          .ty = ty, .qual = QCONST,
          .name = ifunc, .scls = SCSTATIC, .span = (peek(cm, &tk), tk.span),
-         .id = 1,
+         .sym = sym,
       });
    }
    /* end prologue */
@@ -4233,6 +4226,7 @@ docomp(struct comp *cm)
             noscls = 1;
             decl.scls = SCEXTERN;
          }
+         decl.sym = decl.name;
          decl.isdef = st.varini;
          if (st.funcdef) {
             const struct typedata *td = &typedata[decl.ty.dat];
@@ -4251,10 +4245,10 @@ docomp(struct comp *cm)
          } else if (decl.name) {
             struct decl *d = putdecl(cm, &decl);
             if (st.varini) {
-               (void) initializer(cm, &d->ty, EVSTATICINI, decl.scls != SCSTATIC, decl.qual, decl.name);
+               (void) initializer(cm, &d->ty, EVSTATICINI, decl.scls != SCSTATIC, decl.qual, decl.sym);
                pdecl(&st, cm);
             } else if (decl.ty.t != TYFUNC && decl.scls != SCTYPEDEF && (decl.scls != SCEXTERN || noscls)) {
-               objnewdat(d->name, Sbss, decl.scls == SCEXTERN, typesize(d->ty), typealign(d->ty));
+               objnewdat(d->sym, Sbss, decl.scls == SCEXTERN, typesize(d->ty), typealign(d->ty));
             }
             if (ccopt.dbg.p) bfmt(ccopt.dbgout, "var %s : %tq\n", d->name, d->ty, d->qual);
          } else {

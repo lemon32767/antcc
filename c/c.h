@@ -92,6 +92,7 @@ struct decl {
    struct span span;
    const char *name;
    union {
+      const char *sym;
       struct { ushort align; int id; };
       vlong value;
       const struct builtin *builtin;
