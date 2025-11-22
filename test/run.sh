@@ -49,3 +49,7 @@ done
 echo TESTS PASSED: $npass/$ntest
 printf 'wc log.txt;'
 wc log.txt
+
+echo "--- 'Write a C Compiler' test suite ---"
+cd nlsandler-write_a_c_compiler
+exec ./test_compiler.sh ../../antcc
