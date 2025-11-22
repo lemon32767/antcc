@@ -517,6 +517,14 @@ usereg(struct rega *ra, int reg, struct block *blk, int pos)
 {
    struct fixinterval *fxit;
    if (rstest(mctarg->rglob, reg)) return; /* regalloc never allocates globally live regs, so don't need intervals for those */
+   for (struct fixinterval *fxit = ra->intervals.fixed; fxit; fxit = fxit->next) {
+      if (fxit->range.from > pos) break;
+      if (fxit->rs == 1<<reg && fxit->range.from <= pos && pos <= fxit->range.to) {
+         /* contained by existing interval */
+         fxit->range.from = blk->inumstart;
+         return;
+      }
+   }
    fxit = alloc(ra->arena, sizeof *fxit, 0);
    fxit->next = ra->intervals.fixed;
    fxit->range = (struct range) {blk->inumstart, pos};
@@ -610,7 +618,11 @@ buildintervals(struct rega *ra)
          /* gather fixed intervals */
          if (ins->op == Omove) {
             assert(ins->l.t == RREG);
+            if (ins->l.bits == ins->r.bits) /* special case `move Rx,Rx`: clobber reg, not a real use */
+               usereg(ra, ins->l.i, blk, pos+1); /* +1 to avoid empty interval [pos,pos) */
             defreg(ra, ins->l.i, pos);
+            if (ins->l.bits == ins->r.bits)
+               continue;
          } else if (ins->op == Ocall) {
             struct call *call = &calltab.p[ins->r.i];
             regset rclob = (gpregset | fpregset) &~ (mctarg->rglob | mctarg->rcallee);
@@ -637,7 +649,6 @@ buildintervals(struct rega *ra)
                }
             }
          }
-
 
          /* for each input operand opd of op do
           *    intervals[opd].addRange(b.from, op.id)
