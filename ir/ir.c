@@ -189,7 +189,7 @@ union ref
 mkcallarg(union irtype ret, uint narg, int vararg)
 {
    struct call call = { .ret=ret, .narg=narg, .vararg=vararg };
-   assert((long) vararg <= narg);
+   assert(vararg == -1 || (uint)vararg <= narg);
    vpush(&calltab, call);
    return mkref(RXXX, calltab.n-1);
 }
