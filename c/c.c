@@ -3227,6 +3227,8 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    case EPLUS:
       r = compileexpr(fn, sub, discard);
       if (discard) return NOREF;
+      if (isscalar(ex->ty) && typesize(ex->ty) < typesize(sub->ty))
+         return narrow(fn, type2cls[scalartypet(ex->ty)], ex->ty, r, 0);
       return cvt(fn, ex->ty, sub->ty, r);
    case ENEG:
       op = Oneg;

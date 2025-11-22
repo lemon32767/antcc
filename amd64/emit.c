@@ -293,7 +293,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       rex |= (dst.reg >> 3) << 2; /* REX.R */
       rex |= (src.reg >> 3) << 0; /* REX.B */
       if (rex) B(0x40 | rex);
-      else if (en->r8 && in_range(dst.reg, RSP, RDI)) {
+      else if (en->r8 && in_range(src.reg, RSP, RDI)) {
          /* /r8 needs REX to encode SP,BP,SI,DI (otherwise -> AH..BH) */
          B(0x40);
       }
@@ -304,7 +304,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       rex |= (src.reg >> 3) << 2; /* REX.R */
       rex |= (dst.reg >> 3) << 0; /* REX.B */
       if (rex) B(0x40 | rex);
-      else if (en->r8 && in_range(src.reg, RSP, RDI)) {
+      else if (en->r8 && in_range(dst.reg, RSP, RDI)) {
          /* /r8 needs REX to encode SP,BP,SI,DI (otherwise -> AH..BH) */
          B(0x40);
       }
