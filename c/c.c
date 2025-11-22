@@ -1080,7 +1080,7 @@ Unary:
          assert(ty.t);
          ex = mkexpr(ek, span, ty, .sub = exprdup2(cm, &ex, &rhs));
       } else {
-         /* ex ? tmp : rhs */
+         /* logical-OR-expression ? expression : conditional-expression */
          struct expr *sub;
          span.sl = tk.span.sl;
          span.ex = ex.span.ex;
@@ -1089,7 +1089,7 @@ Unary:
          tmp = commaexpr(cm);
          joinspan(&tk.span.ex, tmp.span.ex);
          expect(cm, ':', NULL);
-         rhs = expr(cm);
+         rhs = exprparse(cm, opprec, NULL, 0);
          if (!joinspan(&span.ex, tk.span.ex) || !joinspan(&span.ex, tmp.span.ex)
            || !joinspan(&span.ex, rhs.span.ex))
             span.ex = tk.span.ex;
