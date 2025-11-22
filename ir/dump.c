@@ -4,7 +4,7 @@
 
 static int nextdat;
 
-static struct wbuf *out;
+static struct wbuf *out = &bstdout;
 
 static bool
 prilitdat(const struct irdat *dat, const char *prefix)
@@ -266,8 +266,6 @@ void
 irdump(struct function *fn)
 {
    struct block *blk;
-
-   out = &bstdout;
 
    /* print datas that have never been printed before */
    while (nextdat < dattab.n) pridat(&dattab.p[nextdat++]);
