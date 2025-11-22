@@ -9,8 +9,8 @@
 static int
 lexc(struct comp *cm, struct token *tk)
 {
-   struct token tk2;
-   int t = lex(cm->lx, tk);
+   struct token tk2, tk_[1];
+   int t = lex(cm->lx, tk ? tk : tk_);
    if (t == TKSTRLIT && peek(cm, &tk2) == TKSTRLIT && tk2.wide == tk->wide) {
       /* 5.1.1.2 Translation phase 6: concatenate adjacent string literal tokens */
       static char buf[200];
@@ -43,6 +43,13 @@ lexc(struct comp *cm, struct token *tk)
          }
       }
       vfree(&rest);
+   }
+   if (in_range(t, TKWBEGIN_, TKWEND_) && (tk = tk ? tk : tk_)->extwarn) {
+      static struct bitset already[BSSIZE(TKWEND_-TKWBEGIN_+1)];
+      if (!bstest(already, t-TKWBEGIN_)) {
+         bsset(already, t-TKWBEGIN_);
+         warn(&tk->span, "%'tk in %M is an extension", tk);
+      }
    }
    return t;
 }

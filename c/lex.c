@@ -33,6 +33,7 @@ identkeyword(struct token *tk, const char *s, int len)
    };
    int l = 0, h = arraylength(kwtab) - 1, i, cmp;
 
+   tk->extwarn = 0;
    if (len > TKWMAXLEN_) goto ident;
    /* binary search over sorted array */
    while (l <= h) {
@@ -579,8 +580,7 @@ Begin:
          }
          tmp[n] = 0;
          if (!identkeyword(tk, tmp, n) && ccopt.pedant)
-            warn(&(struct span) {{ idx, lx->chridx - idx, lx->fileid }},
-                  "%'tk in %M is an extension", tk);
+            tk->extwarn = 1;
          goto End;
       }
    case 0: if (lx->idx >= lx->ndat) RET(TKEOF);

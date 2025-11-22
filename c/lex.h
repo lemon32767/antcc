@@ -54,6 +54,7 @@ struct token {
    bool litlit;
    uchar wide : 2; /* for CHRLIT & STRLIT; 1 -> 16bit, 2 -> 32bit */
    uchar wideuni : 1; /* ditto, 0 -> 'L', 1 -> 'u'/'U' (C11) */
+   uchar extwarn : 1; /* warn this keyword token is an extension */
    union {
       uint len;
       struct { ushort macidx, argidx; };
