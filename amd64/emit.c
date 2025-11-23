@@ -658,10 +658,10 @@ DEFINSTR2(Xcmp,
    {4|8, PRAX, PI32, "\x3D", EN_I32},          /* CMP eax/rax, imm */
    {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=7}, /* CMP r32/64, imm */
    {  8, PGPR, PMEM, "\x3B", EN_RM},           /* CMP r64, m64 */
-   {4  , PFPR, PFPR, "\x0F\x2F", EN_RR},       /* COMISS xmm, xmm */
-   {4  , PFPR, PMEM, "\x0F\x2F", EN_RM},       /* COMISS xmm, m32 */
-   {  8, PFPR, PFPR, "\x66\x0F\x2F", EN_RR},   /* COMISD xmm, xmm */
-   {  8, PFPR, PMEM, "\x66\x0F\x2F", EN_RM},   /* COMISD xmm, m64 */
+   {4  , PFPR, PFPR, "\x0F\x2E", EN_RR},       /* UCOMISS xmm, xmm */
+   {4  , PFPR, PMEM, "\x0F\x2E", EN_RM},       /* UCOMISS xmm, m32 */
+   {  8, PFPR, PFPR, "\x66\x0F\x2E", EN_RR},   /* UCOMISD xmm, xmm */
+   {  8, PFPR, PMEM, "\x66\x0F\x2E", EN_RM},   /* UCOMISD xmm, m64 */
 )
 DEFINSTR2(Xtest,
    {4|8, PRAX, PI8,  "\xA8", EN_I8},  /* TEST AL, imm8 */
@@ -930,6 +930,10 @@ static const uchar icmpop2cc[] = {
    [Olth]  = CCL, [Ogth]  = CCG, [Olte]  = CCLE, [Ogte]  = CCGE,
    [Oulth] = CCB, [Ougth] = CCA, [Oulte] = CCBE, [Ougte] = CCAE,
    [Oand] = CCNE, [Osub] = CCNE,
+}, fcmpop2cc[] = {
+   /* XXX properly handle unordered comparison results */
+   [Oequ] = CCE, [Oneq] = CCNE,
+   [Olth] = CCB, [Ogth] = CCAE, [Olte] = CCBE, [Ogte] = CCAE,
 };
 /* condition code for TEST reg,reg (compare with zero) */
 static const uchar icmpzero2cc[] = {
@@ -1085,7 +1089,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
          enum cc cc;
          dst = reg2oper(ins->reg-1);
          if (ins->r.bits != ZEROREF.bits) { /* CMP */
-            cc = icmpop2cc[ins->op];
+            cc = (kisint(ins->cls) ? icmpop2cc : fcmpop2cc)[ins->op];
          } else { /* TEST r,r  (CMP r, 0) */
             cc = icmpzero2cc[ins->op];
          }
@@ -1151,7 +1155,7 @@ emitbranch(uchar **pcode, struct block *blk)
       if ((oiscmp(ins->op) || ins->op == Oand || ins->op == Osub)) {
          if (ins->r.bits != ZEROREF.bits) {
             /* for CMP instr */
-            cc = icmpop2cc[ins->op];
+            cc = (kisint(ins->cls) ? icmpop2cc : fcmpop2cc)[ins->op];
          } else {
             /* for TEST instr, which modifies ZF and SF and sets CF = OF = 0 */
             cc = icmpzero2cc[ins->op];
