@@ -319,6 +319,7 @@ dolink(void)
          exit(1);
       }
    }
+   vfree(&cmd);
    waitpid(p, &wstat, 0);
    if (!WIFEXITED(wstat)) return 127;
    return WEXITSTATUS(wstat);
