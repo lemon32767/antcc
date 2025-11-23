@@ -73,26 +73,54 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
       if (r.bits == l.bits && kisint(k))
          return ZEROREF;
       break;
-   case Olth:
-      break;
-   case Ogth:
-      break;
-   case Olte:
-      break;
-   case Ogte:
+   case Olth: case Ogth:
+   case Olte: case Ogte:
       break;
    case Oulth:
+      if (r.bits == ZEROREF.bits) /* x u< 0 ==> f */
+         return ZEROREF;
       break;
    case Ougth:
+      if (l.bits == ZEROREF.bits) /* 0 u> x ==> f */
+         return ZEROREF;
       break;
    case Oulte:
+      if (l.bits == ZEROREF.bits) /* 0 u<= x ==> f */
+         return ONE;
       break;
    case Ougte:
+      if (r.bits == ZEROREF.bits) /* x u>= 0 ==> f */
+         return ONE;
       break;
    default:
       assert(!"binop?");
    }
    return addinstr(fn, mkinstr(op, k, l, r));
+}
+
+/* implements f32/f64 -> u64 conversion */
+static union ref
+cvtfu64(struct function *fn, enum irclass from, union ref x)
+{
+   struct block *t, *f, *merge;
+   union ref tmp, phiarg[2];
+   /* if (x < 2p63) cvtfXs(x) else (cvtfXs(x - 2p63) | (1<<63)) */
+   union ref max = mkfltcon(from, 0x1.0p63);
+   enum op cvt = from == KF32 ? Ocvtf32s : Ocvtf64s;
+   putcondbranch(fn, irbinop(fn, Olth, from, x, max), t = newblk(fn), f = newblk(fn));
+
+   useblk(fn, t);
+   phiarg[0] = irunop(fn, cvt, KI64, x);
+   putbranch(fn, merge = newblk(fn));
+
+   useblk(fn, f);
+   tmp = irbinop(fn, Osub, from, x, max);
+   tmp = irunop(fn, cvt, KI64, tmp);
+   phiarg[1] = irbinop(fn, Oior, KI64, tmp, mkintcon(KI64, 1ull<<63));
+   putbranch(fn, merge);
+
+   useblk(fn, merge);
+   return addphi(fn, KI64, phiarg);
 }
 
 union ref
@@ -112,8 +140,17 @@ irunop(struct function *fn, enum op op, enum irclass k, union ref a)
       if (ins && ins->op == Onot) /* ~(~x) ==> x */
          return ins->l;
       break;
-   case Ocvtf32s: case Ocvtf32u: case Ocvtf32f64: case Ocvtf64s:
-   case Ocvtf64u: case Ocvtf64f32: case Ocvts32f: case Ocvtu32f:
+   case Ocvtf32s: case Ocvtf32f64: case Ocvtf64s:
+      break;
+   case Ocvtf32u: case Ocvtf64u:
+      if (k == KI64) {
+         /* XXX some architectures like arm64 do have these instructions natively
+          * this should probably be handled in a separate "arithmetic-lowering" pass, earlier than isel
+          */
+         return cvtfu64(fn, op == Ocvtf32u ? KF32 : KF64, a);
+      }
+      break;
+   case Ocvtf64f32: case Ocvts32f: case Ocvtu32f:
    case Ocvts64f: case Ocvtu64f:
    case Oexts8: case Oextu8: case Oexts16: case Oextu16:
    case Oexts32: case Oextu32:

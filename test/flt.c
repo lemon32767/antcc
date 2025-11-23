@@ -18,8 +18,8 @@ u32 f32_to_u32(f32 x) { return x; }
 s32 f64_to_s32(f64 x) { return x; }
 u32 f64_to_u32(f64 x) { return x; }
 s64 f32_to_s64(f32 x) { return x; }
-//u64 f32_to_u64(f32 x) { return x; }
+u64 f32_to_u64(f32 x) { return x; }
 s64 f64_to_s64(f64 x) { return x; }
-//u64 f64_to_u64(f64 x) { return x; }
+u64 f64_to_u64(f64 x) { return x; }
 f32 f64_to_f32(f64 x) { return x; }
 f64 f32_to_f64(f32 x) { return x; }
