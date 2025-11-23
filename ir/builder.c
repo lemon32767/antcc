@@ -20,6 +20,7 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
       break;
    case Omul:
       if (isnumcon(l)) rswap(l, r); /* put const in rhs */
+      if (kisflt(k)) break;
       if (r.bits == ZEROREF.bits) /* x * 0 ==> 0 */
          return ZEROREF;
       if (r.bits == ONE.bits) /* x * 1 ==> x */
@@ -33,6 +34,7 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
    case Odiv:
       break;
    case Oudiv:
+      if (kisflt(k)) break;
       if (isintcon(r) && ispo2(iv = intconval(r))) {
          /* x / 2^y ==> x >> y */
          op = Oslr;
@@ -42,6 +44,7 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
    case Orem:
       break;
    case Ourem:
+      if (kisflt(k)) break;
       if (isintcon(r) && ispo2(iv = intconval(r))) {
          /* x % 2^y ==> x & 2^y-1 */
          op = Oand;
@@ -123,6 +126,33 @@ cvtfu64(struct function *fn, enum irclass from, union ref x)
    return addphi(fn, KI64, phiarg);
 }
 
+/* implements u64 -> f32/f64 conversion */
+static union ref
+cvtu64f(struct function *fn, enum irclass to, union ref x)
+{
+   struct block *t, *f, *merge;
+   union ref t1, t2, phiarg[2];
+
+   /* if ((s64)x >= 0) cvts64f(x) else cvts64f((x>>1)|(x&1))*2  */
+
+   putcondbranch(fn, irbinop(fn, Ogte, KI64, x, ZEROREF), t = newblk(fn), f = newblk(fn));
+
+   useblk(fn, t);
+   phiarg[0] = irunop(fn, Ocvts64f, to, x);
+   putbranch(fn, merge = newblk(fn));
+
+   useblk(fn, f);
+   t1 = irbinop(fn, Oslr, KI64, x, mkref(RICON, 1));
+   t2 = irbinop(fn, Oand, KI64, x, mkref(RICON, 1));
+   t1 = irbinop(fn, Oior, KI64, t1, t2);
+   t1 = irunop(fn, Ocvts64f, to, t1);
+   phiarg[1] = irbinop(fn, Oadd, to, t1, t1);
+   putbranch(fn, merge);
+
+   useblk(fn, merge);
+   return addphi(fn, to, phiarg);
+}
+
 union ref
 irunop(struct function *fn, enum op op, enum irclass k, union ref a)
 {
@@ -141,6 +171,8 @@ irunop(struct function *fn, enum op op, enum irclass k, union ref a)
          return ins->l;
       break;
    case Ocvtf32s: case Ocvtf32f64: case Ocvtf64s:
+   case Ocvtf64f32: case Ocvts32f: case Ocvtu32f:
+   case Ocvts64f:
       break;
    case Ocvtf32u: case Ocvtf64u:
       if (k == KI64) {
@@ -150,8 +182,9 @@ irunop(struct function *fn, enum op op, enum irclass k, union ref a)
          return cvtfu64(fn, op == Ocvtf32u ? KF32 : KF64, a);
       }
       break;
-   case Ocvtf64f32: case Ocvts32f: case Ocvtu32f:
-   case Ocvts64f: case Ocvtu64f:
+   case Ocvtu64f:
+      /* XXX see above */
+      return cvtu64f(fn, k, a);
    case Oexts8: case Oextu8: case Oexts16: case Oextu16:
    case Oexts32: case Oextu32:
    case Ocopy:

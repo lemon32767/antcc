@@ -3051,11 +3051,14 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
       condexprrec(fn, &ex->sub[2], phis, phityp, -1, end, end);
    } else {
       union ref r, val;
+      union type valty;
       if (!phis && (!next || next == end)) {
          expreffects(fn, ex);
       } else {
          val = r = exprvalue(fn, ex);
+         valty = ex->ty;
          if (boolcon >= 0) {
+            valty = mktype(TYBOOL);
             if (!next || next == end) {
                boolcon = -1;
                val = cvt(fn, mktype(TYBOOL), ex->ty, r);
@@ -3066,7 +3069,7 @@ condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
       }
       if (phis) {
          if (isscalar(phityp))
-            val = cvt(fn, phityp, ex->ty, val);
+            val = cvt(fn, phityp, valty, val);
          else assert(ex->ty.bits == phityp.bits);
          vpush(&phis->ref, val);
       }

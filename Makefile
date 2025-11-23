@@ -5,7 +5,8 @@ SRC=main.c io.c mem.c c/c.c c/lex.c c/eval.c c/builtin.c type.c targ.c \
 CFLAGS=-Wall -std=c11 -pedantic
 OBJ=$(patsubst %.c,build/%.o,$(SRC))
 DEP=$(OBJ:.o=.d)
-OUT=antcc
+BUILDDIR?=build
+OUT?=antcc
 
 all: CFLAGS += -g
 all: $(OUT)
@@ -13,18 +14,19 @@ all: $(OUT)
 opt: CFLAGS += -g -O2
 opt: $(OUT)
 
-dbg: CFLAGS += -g -fsanitize=address -fsanitize=undefined
+dbg: CFLAGS += -g -fsanitize=address,undefined
+dbg: CC:=clang
 dbg: $(OUT)
 
 $(OUT): $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ)
 
-build/%.o: %.c common.h
+$(BUILDDIR)/%.o: %.c common.h
 	@mkdir -p `dirname $@`
-	$(CC) $(CFLAGS) -MMD -MP -MT $@ -MF build/$*.d -c -o $@ $<
+	$(CC) $(CFLAGS) -MMD -MP -MT $@ -MF $(BUILDDIR)/$*.d -c -o $@ $<
 
 clean:
-	$(RM) -r build/ test/build/ $(OUT) *.o a.out
+	$(RM) -r $(BUILDDIR)/ test/build/ $(OUT) *.o a.out
 
 .PHONY: clean
 

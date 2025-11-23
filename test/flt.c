@@ -10,9 +10,9 @@ f32 u32_to_f32(u32 x) { return x; }
 f64 s32_to_f64(s32 x) { return x; }
 f64 u32_to_f64(u32 x) { return x; }
 f32 s64_to_f32(s64 x) { return x; }
-//f32 u64_to_f32(u64 x) { return x; }
+f32 u64_to_f32(u64 x) { return x; }
 f64 s64_to_f64(s64 x) { return x; }
-//f64 u64_to_f64(u64 x) { return x; }
+f64 u64_to_f64(u64 x) { return x; }
 s32 f32_to_s32(f32 x) { return x; }
 u32 f32_to_u32(f32 x) { return x; }
 s32 f64_to_s32(f64 x) { return x; }
