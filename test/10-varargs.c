@@ -2,6 +2,8 @@
 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 = 36
 <1.5>
 1.1 + 2.1 + 3.1 + 5.1 + 1.5 + -1.5 + 1.5 + -1.5 + 1.5 + -1 = 11.9
+fwd()/1: Hello World
+fwd()/2: Hello World
 */
 
 
@@ -37,9 +39,24 @@ double sumf(double x, ...) {
    return x;
 }
 
+void fwd(const char *fmt, ...) {
+   va_list ap, aq;
+   va_start(ap, fmt);
+   va_copy(aq, ap);
+   printf("fwd()/1: ");
+   vprintf(fmt, ap);
+   va_end(ap);
+   printf("\n");
+   printf("fwd()/2: ");
+   vprintf(fmt, aq);
+   printf("\n");
+   va_end(aq);
+}
+
 
 int main() {
    printf(" = %d\n", sum(1,2,3,4,5,6,7,8,0,0));
    printf("<%g>\n", stkarg(0,0,0,0,0,0,0,0,1.5));
    printf(" = %g\n", sumf(1.1, 2.1, 3.1, 5.1, 1.5, -1.5, 1.5, -1.5, 1.5, -1.0, 0.0));
+   fwd("%s %s", "Hello", "World");
 }

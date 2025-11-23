@@ -24,11 +24,11 @@ callcheck(const struct span *span, int nparam, const union type *param, int narg
    return ok;
 }
 
-#define DEF_FNLIKE_SEMA(name, retty, ...)                                        \
-   static bool                                                                   \
-   name##_sema(struct comp *cm, struct expr *ex) {                               \
-      static union type par[] = { {{0}}, __VA_ARGS__ };                          \
-      ex->ty = retty;                                                            \
+#define DEF_FNLIKE_SEMA(name, retty, ...)                                          \
+   static bool                                                                     \
+   name##_sema(struct comp *cm, struct expr *ex) {                                 \
+      union type par[] = { {{0}}, __VA_ARGS__ };                                   \
+      ex->ty = retty;                                                              \
       return callcheck(&ex->span, arraylength(par)-1, par+1, ex->narg, ex->sub+1); \
    }
 
@@ -50,6 +50,8 @@ va_start_comp(struct function *fn, struct expr *ex, bool discard)
    return NOREF;
 }
 
+DEF_FNLIKE_SEMA(trap, mktype(TYVOID), )
+
 static bool
 va_end_sema(struct comp *cm, struct expr *ex)
 {
@@ -63,7 +65,19 @@ va_end_comp(struct function *fn, struct expr *ex, bool discard)
    return NOREF;
 }
 
-DEF_FNLIKE_SEMA(trap, mktype(TYVOID), )
+DEF_FNLIKE_SEMA(va_copy, mktype(TYVOID), cvalistty, cvalistty)
+
+static union ref
+va_copy_comp(struct function *fn, struct expr *ex, bool discard)
+{
+   union irtype typ = mkirtype(cvalistty.t == TYARRAY ? typechild(cvalistty) : cvalistty);
+   assert(ex->sub[1].ty.bits == cvalistty.bits);
+   assert(ex->sub[2].ty.bits == cvalistty.bits);
+   addinstr(fn, mkarginstr(typ, compileexpr(fn, &ex->sub[1], 0)));
+   addinstr(fn, mkarginstr(typ, compileexpr(fn, &ex->sub[2], 0)));
+   addinstr(fn, mkintrin(INstructcopy, 0, 2));
+   return NOREF;
+}
 
 static union ref
 trap_comp(struct function *fn, struct expr *ex, bool discard)
@@ -81,8 +95,7 @@ builtin_va_arg_comp(struct function *fn, const struct expr *ex, bool discard)
 }
 
 #define LIST_BUILTINS(_) \
-   _(va_start) \
-   _(va_end) \
+   _(va_start) _(va_copy) _(va_end) \
    _(trap)
 
 static const struct {
