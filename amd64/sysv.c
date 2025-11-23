@@ -205,7 +205,7 @@ vastart(struct function *fn, struct block *blk, int *curi)
    /* set ap->fp_offset */
    dst = insertinstr(blk, i++, mkinstr(Oadd, KPTR, ap, mkref(RICON, 4)));
    insertinstr(blk, i++, mkinstr(Ostore32, 0, dst, mkref(RICON, 6*8 + fpr0*16)));
-   *curi = i;
+   *curi = i-1;
 }
 
 static void
@@ -270,7 +270,13 @@ vaarg(struct function *fn, struct block *blk, int *curi)
       merge->ins.p[0] = var;
       phi = insertphi(merge, KPTR);
       memcpy(phitab.p[instrtab[phi.i].l.i], phiargs, sizeof phiargs);
-      instrtab[var] = mkinstr(cls[0] == KI32 ? Oloads32 : Oloadi64, cls[0], phi);
+      if (!ty.isagg) {
+         instrtab[var] = mkinstr(cls[0] == KI32 ? Oloads32 : Oloadi64, cls[0], phi);
+      } else {
+         instrtab[var] = mkalloca(8, 8);
+         tmp = insertinstr(merge, 1, mkinstr(Oloadi64, KI64, phi));
+         insertinstr(merge, 2, mkinstr(Ostore64, 0, mkref(RTMP, var), tmp));
+      }
       fn->prop &= ~FNUSE;
    } else {
       assert(!"nyi");
