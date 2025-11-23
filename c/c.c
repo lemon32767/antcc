@@ -4201,11 +4201,15 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
    }
    if (fn->curblk) {
       if (!strcmp(fn->name, "main") && fn->retty.t == TYINT) {
-         /* implicit return 0 for main function */
+         /* implicit return 0 for main function (ISO C standard behavior) */
          putreturn(fn, ZEROREF, NOREF);
       } else {
          if (fn->retty.t != TYVOID && !nerror) {
-            warn(&cm->fnblkspan, "non-void function may not return a value");
+            /* it may not actually be reachable after constant-folding
+             * peephole optimizations (from code like assert(0 && "x")) */
+            if (blkreachable(fn, fn->curblk)) {
+               warn(&cm->fnblkspan, "non-void function may not return a value");
+            }
          }
          putreturn(fn, NOREF, NOREF);
       }

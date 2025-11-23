@@ -451,6 +451,27 @@ numberinstrs(struct function *fn)
    } while ((blk = blk->lnext) != fn->entry);
 }
 
+static bool
+reachablerec(struct function *fn, struct block *blk)
+{
+   if (blk == fn->entry) return 1;
+   markvisited(blk);
+   if (blk->npred == 1 && !wasvisited(blkpred(blk, 0)))
+      return reachablerec(fn, blkpred(blk, 0));
+   else for (int i = 0; i < blk->npred; ++i) {
+      struct block *p = blkpred(blk, i);
+      if (!wasvisited(p) && reachablerec(fn, p)) return 1;
+   }
+   return 0;
+}
+
+bool
+blkreachable(struct function *fn, struct block *blk)
+{
+   startbbvisit();
+   return reachablerec(fn, blk);
+}
+
 /* require use */
 void
 replcuses(union ref from, union ref to)

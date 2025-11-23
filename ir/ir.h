@@ -277,6 +277,7 @@ void fillblkids(struct function *);
 #define wasvisited(blk) ((blk)->visit == visitmark)
 #define markvisited(blk) ((blk)->visit = visitmark)
 void numberinstrs(struct function *);
+bool blkreachable(struct function *fn, struct block *blk);
 
 /** builder.c **/
 union ref irbinop(struct function *, enum op, enum irclass, union ref lhs, union ref rhs);
