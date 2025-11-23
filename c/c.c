@@ -2677,6 +2677,9 @@ expraddr(struct function *fn, const struct expr *ex)
    case ECALL:
       assert(isagg(ex->ty));
       return compilecall(fn, ex);
+   case EVAARG:
+      assert(isagg(ex->ty));
+      return builtin_va_arg_comp(fn, ex, 0);
    case EINIT:
       if (fn) {
          /* compound literal, allocate temp */

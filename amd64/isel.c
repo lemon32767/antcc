@@ -141,6 +141,12 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       } else {
          union ref adr = mkaddr((struct addr){mkref(RREG, RSP), .disp = abi.stk});
          *arg = mkinstr(Ostore8+ilog2(cls2siz[abi.ty.cls]), 0, adr, arg->r);
+         int iargsave = iarg;
+         if (isaddrcon(arg->r,1) || arg->r.t == RADDR)
+            arg->r = insertinstr(blk, iarg++, mkinstr(Ocopy, abi.ty.cls, arg->r));
+         else
+            fixarg(&ins->r, ins, blk, &iarg);
+         *curi += iarg - iargsave;
       }
    }
    if (call->argstksiz) {

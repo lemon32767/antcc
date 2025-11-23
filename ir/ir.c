@@ -326,7 +326,7 @@ blksplitafter(struct function *fn, struct block *blk, int idx)
    memset(blk->jmp.arg, 0, sizeof blk->jmp.arg);
    for (int i = 0; i < 2; ++i) {
       struct block *s = (&blk->s1)[i];
-      for (int i = 0; i < s->npred; ++i) {
+      if (s) for (int i = 0; i < s->npred; ++i) {
          if (blkpred(s, i) == blk)
             blkpred(s, i) = new;
       }
@@ -334,6 +334,7 @@ blksplitafter(struct function *fn, struct block *blk, int idx)
    new->s1 = blk->s1, new->s2 = blk->s2;
    blk->s1 = new, blk->s2 = NULL;
    addpred(new, blk);
+   fn->prop &= ~FNUSE;
    return new;
 }
 

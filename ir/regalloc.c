@@ -517,11 +517,18 @@ usereg(struct rega *ra, int reg, struct block *blk, int pos)
 {
    struct fixinterval *fxit;
    if (rstest(mctarg->rglob, reg)) return; /* regalloc never allocates globally live regs, so don't need intervals for those */
-   for (struct fixinterval *fxit = ra->intervals.fixed; fxit; fxit = fxit->next) {
+   for (struct fixinterval *prev = NULL, *fxit = ra->intervals.fixed; fxit; prev = fxit, fxit = fxit->next) {
       if (fxit->range.from > pos) break;
       if (fxit->rs == 1<<reg && fxit->range.from <= pos && pos < fxit->range.to) {
          /* contained by existing interval */
          fxit->range.from = blk->inumstart;
+         /* insert at head */
+         //DBG(">>>extend REG %s range %d-%d\n", mctarg->rnames[reg], fxit->range.from, fxit->range.to);
+         if (prev) {
+            prev->next = fxit->next;
+            fxit->next = ra->intervals.fixed;
+            ra->intervals.fixed = fxit;
+         }
          return;
       }
    }
@@ -539,7 +546,7 @@ defreg(struct rega *ra, int reg, int pos) {
       if (fxit->rs == 1<<reg) {
          assert(fxit->range.from <= pos);
          fxit->range.from = pos;
-         // DBG(">>>REG %s range @%d: %d-%d\n", mctarg->rnames[reg], fxit->range.from.blk, fxit->range.from.ins, fxit->range.to.ins);
+         //DBG(">>>def REG %s range %d-%d\n", mctarg->rnames[reg], fxit->range.from, fxit->range.to);
          return;
       }
    }
@@ -643,9 +650,9 @@ buildintervals(struct rega *ra)
                ra->intervals.fixed = fxit;
             }
             for (int j = call->narg - 1; j >= 0; --j) {
-               int reg = call->abiarg[j].reg;
-               if (reg >= 0) {
-                  usereg(ra, reg, blk, pos);
+               struct abiarg abi = call->abiarg[j];
+               if (!abi.isstk) {
+                  usereg(ra, abi.reg, blk, pos);
                }
             }
          }

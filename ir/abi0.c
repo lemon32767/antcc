@@ -437,7 +437,9 @@ abi0(struct function *fn)
       blk->id = id++;
    } while ((blk = blk->lnext) != fn->entry);
 
-   /* vaargs might break */
+
+   /* vaargs might break these */
+   if (!(fn->prop & FNUSE)) filluses(fn);
    fn->prop &= ~(FNBLKID | FNRPO);
 
    if (ccopt.dbg.a) {
