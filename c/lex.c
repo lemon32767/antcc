@@ -34,6 +34,7 @@ identkeyword(struct token *tk, const char *s, int len)
    int l = 0, h = arraylength(kwtab) - 1, i, cmp;
 
    tk->extwarn = 0;
+   tk->blue = 0;
    if (len > TKWMAXLEN_) goto ident;
    /* binary search over sorted array */
    while (l <= h) {
@@ -922,27 +923,26 @@ ppundef(struct lexer *lx)
 static bool noexpandmac;
 
 static struct macrostack {
-   struct macrostack *link;
    struct rlist rlist;
    struct span0 exspan;
    int idx;
-   int macno:28;
-   uint prevnoexpandmac:1;
-   uint stop:1;
-} mstk[64], *mfreelist;
+   signed macno : 24;
+   bool prevnoexpandmac : 1,
+        stop : 1,
+        nopaint : 1;
+} mstk[64];
 
 static void
 pushmacstk(struct lexer *lx, const struct span *span, const struct macrostack *m)
 {
-   struct macrostack *l;
-   if (!(l = mfreelist)) fatal(span, "macro depth limit reached");
-   l = mfreelist;
-   mfreelist = l->link;
-   l->link = lx->macstk;
+   struct macrostack *l = lx->macstk;
+   if (!l) l = mstk;
+   else if ((++l == mstk+arraylength(mstk))) fatal(span, "macro depth limit reached");
    l->rlist = m->rlist;
    l->macno = m->macno;
    l->idx = 0;
    l->stop = m->stop;
+   l->nopaint = m->nopaint;
    l->exspan = span->ex;
    l->prevnoexpandmac = noexpandmac;
    lx->macstk = l;
@@ -960,9 +960,8 @@ popmac(struct lexer *lx)
        && stk->rlist.tk != macros.p[stk->macno].rlist.tk) {
          free((void *)stk->rlist.tk);
       }
-      lx->macstk = stk->link;
-      stk->link = mfreelist;
-      mfreelist = stk;
+      if (lx->macstk == mstk) lx->macstk = NULL;
+      else --lx->macstk;
    } while ((stk = lx->macstk) && stk->idx >= stk->rlist.n && !stk->stop);
 }
 
@@ -971,28 +970,22 @@ static void expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac
 static bool
 tryexpand(struct lexer *lx, struct token *tk)
 {
-   static bool inimstk;
-   int macidx, i;
    struct span span = tk->span;
-   struct macrostack *l;
    struct macro *mac = NULL;
 
-   if (!inimstk) {
-      inimstk = 1;
-      for (i = 0; i < arraylength(mstk); ++i) {
-         mstk[i].link = mfreelist;
-         mfreelist = &mstk[i];
-      }
-   }
-
-   if (noexpandmac || !isppident(*tk) || !(mac = findmac(tk->s)))
+   if (noexpandmac || !isppident(*tk) || !(mac = findmac(tk->s)) || tk->blue)
       return 0;
 
-   macidx = mac - macros.p;
+   int macidx = mac - macros.p;
    /* prevent infinite recursion */
-   for (l = lx->macstk; l; l = l->link)
-      if (l->macno == macidx)
+   for (struct macrostack *l = lx->macstk; l && l+1 > mstk; --l) {
+      if (l->macno == macidx) {
+         if (!l->nopaint) {
+            tk->blue = 1;
+         }
          return 0;
+      }
+   }
 
    if (mac->special && !mac->fnlike) {
       mac->handler(lx, tk);
@@ -1014,6 +1007,7 @@ tryexpand(struct lexer *lx, struct token *tk)
             .rlist = { tk2, 2 - (tk.t == TKEOF) },
             .exspan = span.ex,
             .macno = macidx,
+            .nopaint = 1,
          });
          return 1;
       }
@@ -1052,6 +1046,7 @@ expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac)
             excessspan = tk.span;
             toomany = 1;
          } else if (i < mac->nparam - mac->variadic) {
+            assert(i < arraylength(args) || "too many args in fn-like macro");
             args[i].idx = cur;
             args[i].n = len;
             cur = argsbuf.n;
@@ -1068,6 +1063,7 @@ expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac)
          ++len;
       }
    }
+
    noexpandmac = 0;
    if (tk.t == TKEOF)
       error(span, "unterminated function-like macro invocation");

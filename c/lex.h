@@ -52,6 +52,7 @@ enum toktag { /* single-character tokens' tag value is the character itself */
 struct token {
    short t; /* toktag */
    bool litlit;
+   uchar blue : 1; /* preprocessor token painted blue */
    uchar wide : 2; /* for CHRLIT & STRLIT; 1 -> 16bit, 2 -> 32bit */
    uchar wideuni : 1; /* ditto, 0 -> 'L', 1 -> 'u'/'U' (C11) */
    uchar extwarn : 1; /* warn this keyword token is an extension */

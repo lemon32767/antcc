@@ -3,7 +3,6 @@ Things to finish before moving onto compiler optimizations, C extensions, other 
 - self host. not yet compiling:
     - io.c (TODO varargs)
     - c/eval.c, ir/fold.c (NYI flt -> u64 cvt)
-    - ir/optmem.c (preprocessor bugs w/ imap macros)
     - embedfilesdir.c (static eval bug)
 
 at some point add another backend like arm64 to make sure the non target specific stuff is generic enough..
