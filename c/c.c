@@ -1717,9 +1717,10 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
    } else {
       uint siz;
       if (isincomplete(*ty)) {
-         if (!ip->arrlen)
+         uint len = ip->arrlen > ip->cur->idx ? ip->arrlen : ip->cur->idx;
+         if (!len)
             error(&span, "initializer creates a zero-sized array");
-         *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, ip->arrlen > 0 ? ip->arrlen : 1);
+         *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, len);
       }
 
       assert(arraylength(res.zero) == 1);
