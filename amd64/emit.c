@@ -360,7 +360,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
                 * access thru RSP (function arguments in the stack) */
                mem.base = RSP;
                mem.disp -= 8;
-            } else if (mem.disp < 0) {
+            } else if (mem.disp <= 0) {
                mem.disp += rbpoff;
             }
          }
