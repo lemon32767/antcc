@@ -1100,7 +1100,7 @@ expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac)
          tk = mac->rlist.tk[i];
          if (tk.t == TKPPCAT) {
             if (i > 0 && i < mac->rlist.n-1) {
-               const struct token *lhs = rlist2.n ? &rlist2.p[rlist2.n-1] : &mac->rlist.tk[i-1],
+               const struct token *lhs = &mac->rlist.tk[i-1],
                                   *rhs = &mac->rlist.tk[i+1];
                struct token new;
                if (lhs->t != TKPPMACARG && rhs->t != TKPPMACARG) {
