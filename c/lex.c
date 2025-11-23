@@ -1930,6 +1930,7 @@ addpredefmacros(void)
       { "__STDC_VERSION__", .predefined = 1, .rlist = { &tok_ver, 1 } },
       { "__STDC_HOSTED__", .predefined = 1, .rlist = { &tok_1, 1 } },
       { "__antcc__", .predefined = 1, .rlist = { &tok_1, 1 } },
+      { "__x86_64__", .predefined = 1, .rlist = { &tok_1, 1 } },
    };
    switch (ccopt.cstd) {
    default: assert(0);
