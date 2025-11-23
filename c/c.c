@@ -1356,6 +1356,7 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
          }
       }
    } else {
+      assert(cm != NULL);
       struct init *init = ip->init;
       struct initval val = {
          .off = off,
@@ -1375,6 +1376,7 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
 static bool
 iniwriterec(struct comp *cm, struct initparser *ip, uint off, union type ty, struct expr *ex)
 {
+   assert(ex->t == EINIT);
    for (struct initval *v = ex->init->vals; v; v = v->next) {
       if (v->ex.t == EINIT) iniwriterec(cm, ip, off + v->off, ty, &v->ex);
       else if (ip->ev && !eval(&v->ex, ip->ev) && ip->ev != EVFOLD) return 0;
@@ -2632,7 +2634,10 @@ mkhiddensym(const char *fnname, const char *name, int id)
    char buf[200];
    struct wbuf wbuf = MEMBUF(buf, sizeof buf);
    assert(id > 0);
-   bfmt(&wbuf, "%s.%s.%d", fnname, name, id-1);
+   if (fnname)
+      bfmt(&wbuf, "%s.%s.%d", fnname, name, id-1);
+   else
+      bfmt(&wbuf, "%s.%d", name, id-1);
    ioputc(&wbuf, 0);
    assert(!wbuf.err);
    return intern(buf);
@@ -2688,7 +2693,18 @@ expraddr(struct function *fn, const struct expr *ex)
          geninit(fn, ex->ty, r, ex);
          return r;
       } else {
-         assert(!"nyi");
+         /* emit static dat */
+         static int id;
+         struct initparser ip[1] = {0};
+         union type ty = ex->ty;
+         const char *sym = mkhiddensym(NULL, ".LC", ++id);
+         ip->sec = Sdata; /* TODO put in rodata if possible */
+         ip->ev = EVSTATICINI;
+         assert(!isincomplete(ty));
+         ip->off = objnewdat(sym, ip->sec, 0, typesize(ty), typealign(ty));
+         if (!iniwriterec(NULL, ip, 0, ty, (struct expr *)ex))
+            error(&ex->span, "cannot not evaluate expression statically");
+         return mksymref(sym);
       }
    case ESEQ:
       expreffects(fn, &ex->sub[0]);
