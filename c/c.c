@@ -2967,23 +2967,21 @@ static void
 condjump(struct function *fn, const struct expr *ex, struct block *tr, struct block *fl)
 {
    struct block *next, *next2;
-Loop:
-   while (ex->t == ESEQ) {
+Recur:
+   for (; ex->t == ESEQ; ex = &ex->sub[1])
       expreffects(fn, &ex->sub[0]);
-      ex = &ex->sub[1];
-   }
    if (ex->t == ELOGAND) {
       next = newblk(fn);
       condjump(fn, &ex->sub[0], next, fl);
       useblk(fn, next);
       ex = &ex->sub[1];
-      goto Loop;
+      goto Recur;
    } else if (ex->t == ELOGIOR) {
       next = newblk(fn);
       condjump(fn, &ex->sub[0], tr, next);
       useblk(fn, next);
       ex = &ex->sub[1];
-      goto Loop;
+      goto Recur;
    } else if (ex->t == ECOND) {
       next = newblk(fn);
       next2 = newblk(fn);
@@ -2999,78 +2997,68 @@ Loop:
       tr = fl;
       fl = next;
       ex = &ex->sub[0];
-      goto Loop;
+      goto Recur;
    } else if (ex->t == EEQU && isnullpo(&ex->sub[1])) { /* == 0 */
       goto Negate;
    } else if (ex->t == ENEQ && isnullpo(&ex->sub[1])) { /* != 0 */
       ex = &ex->sub[0];
-      goto Loop;
+      goto Recur;
    } else {
       putcondbranch(fn, exprvalue(fn, ex), tr, fl);
    }
 }
 
 struct condphis {
+   union type typ;
    vec_of(union ref) ref;
 };
 
 static void
-condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis,
-            union type phityp, int boolcon, struct block *const next, struct block *end)
+condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis, struct block *end)
 {
-   struct block *tr, *fl;
-   while (ex->t == ESEQ) {
+Recur:
+   for (; ex->t == ESEQ; ex = &ex->sub[1])
       expreffects(fn, &ex->sub[0]);
-      ex = &ex->sub[1];
-   }
+   int prevpred = end->npred;
    if (ex->t == ELOGAND) {
-      tr = newblk(fn);
-      condexprrec(fn, &ex->sub[0], phis, phityp, 0, tr, end);
+      struct block *tr = newblk(fn);
+      condjump(fn, &ex->sub[0], tr, end);
+      assert(prevpred <= end->npred);
+      if (phis) for (int n = end->npred - prevpred; n > 0; --n) {
+         vpush(&phis->ref, mkref(RICON, 0));
+      }
       useblk(fn, tr);
-      condexprrec(fn, &ex->sub[1], phis, phityp, 0, next, end);
+      ex = &ex->sub[1];
+      goto Recur;
    } else if (ex->t == ELOGIOR) {
-      fl = newblk(fn);
-      condexprrec(fn, &ex->sub[0], phis, phityp, 1, end, fl);
+      struct block *fl = newblk(fn);
+      condjump(fn, &ex->sub[0], end, fl);
+      assert(prevpred <= end->npred);
+      if (phis) for (int n = end->npred - prevpred; n > 0; --n) {
+         vpush(&phis->ref, mkref(RICON, 1));
+      }
       useblk(fn, fl);
-      condexprrec(fn, &ex->sub[1], phis, phityp, 1, end, next ? next : end);
+      ex = &ex->sub[1];
+      goto Recur;
    } else if (ex->t == ECOND) {
-      tr = newblk(fn);
-      fl = newblk(fn);
+      struct block *tr = newblk(fn), *fl = newblk(fn);
       condjump(fn, &ex->sub[0], tr, fl);
       useblk(fn, tr);
-      condexprrec(fn, &ex->sub[1], phis, phityp, -1, end, end);
+      condexprrec(fn, &ex->sub[1], phis, end);
       useblk(fn, fl);
-      condexprrec(fn, &ex->sub[2], phis, phityp, -1, end, end);
+      ex = &ex->sub[2];
+      goto Recur;
    } else {
-      union ref r, val;
-      union type valty;
-      if (!phis && (!next || next == end)) {
+      if (!phis) {
          expreffects(fn, ex);
       } else {
-         val = r = exprvalue(fn, ex);
-         valty = ex->ty;
-         if (boolcon >= 0) {
-            valty = mktype(TYBOOL);
-            if (!next || next == end) {
-               boolcon = -1;
-               val = cvt(fn, mktype(TYBOOL), ex->ty, r);
-            } else {
-               val = mkref(RICON, boolcon);
-            }
-         }
-      }
-      if (phis) {
-         if (isscalar(phityp))
-            val = cvt(fn, phityp, valty, val);
-         else assert(ex->ty.bits == phityp.bits);
+         union ref val = exprvalue(fn, ex);
+         if (isscalar(phis->typ))
+            val = cvt(fn, phis->typ, ex->ty, val);
+         else assert(ex->ty.bits == phis->typ.bits);
          vpush(&phis->ref, val);
       }
-      if (next && next != end) {
-         putcondbranch(fn, r, next, end);
-      } else {
-         if (phis) assert(boolcon < 0);
-         putbranch(fn, end);
-      }
+      putbranch(fn, end);
    }
 }
 
@@ -3080,13 +3068,12 @@ static union ref
 condexprvalue(struct function *fn, const struct expr *ex, bool discard)
 {
    union ref refbuf[8];
-   struct condphis phis = { VINIT(refbuf, arraylength(refbuf)) };
+   struct condphis phis = { ex->t == ECOND ? ex->ty : mktype(TYBOOL), VINIT(refbuf, arraylength(refbuf)) };
    struct block *dst = newblk(fn);
-   union ref r;
-   enum irclass k;
-   condexprrec(fn, ex, discard ? NULL : &phis, ex->ty, -1, NULL, dst);
+   condexprrec(fn, ex, discard ? NULL : &phis, dst);
    useblk(fn, dst);
    if (discard) return NOREF;
+   enum irclass k;
    if (isscalar(ex->ty)) {
       k = type2cls[scalartypet(ex->ty)];
       assert(k);
@@ -3094,7 +3081,7 @@ condexprvalue(struct function *fn, const struct expr *ex, bool discard)
       assert(isagg(ex->ty) || isptrcvt(ex->ty));
       k = KPTR;
    }
-   r = addphi(fn, k, phis.ref.p);
+   union ref r = addphi(fn, k, phis.ref.p);
    vfree(&phis.ref);
    return r;
 }
@@ -3490,6 +3477,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       if (eval(&ex->sub[0], EVFOLD)) {
          bool k = isflt(ex->sub[0].ty) ? ex->sub[0].f != 0.0 : ex->sub[0].u != 0;
          assert(ex->sub[0].t == ENUMLIT);
+         k ^= ex->t == ELOGIOR;
          r = compileexpr(fn, &ex->sub[k], discard);
          if (discard) return NOREF;
          return cvt(fn, mktype(TYBOOL), ex->sub[k].ty, r);
