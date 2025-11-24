@@ -1089,8 +1089,7 @@ expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac)
          .macno = mac - macros.p,
       });
    } else if (mac->nparam) { /* make new rlist with args replaced */
-      struct token lhsargforpaste;
-      bool lhsargpaste = 0, rhsargpaste = 0;
+      bool rhsargpaste = 0;
       for (int i = 0; i < mac->rlist.n; ++i) {
          struct argtks *arg;
          tk = mac->rlist.tk[i];
@@ -1103,18 +1102,18 @@ expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac)
                   /* trivial case should have been handled when defining */
                   assert(0 && "## ?");
                } else if (rhs->t != TKPPMACARG) {
-                  assert(lhsargpaste);
-                  if (tokpaste(lx, &new, &lhsargforpaste, rhs)) {
-                     vpush(&rlist2, new);
+                  if (rlist2.n == 0) {
+                     vpush(&rlist2, *rhs);
                      ++i;
-                     continue;
+                  } else {
+                     lhs = &rlist2.p[rlist2.n-1];
+                     if (tokpaste(lx, &new, lhs, rhs)) {
+                        rlist2.p[rlist2.n-1] = new;
+                        ++i;
+                     }
                   }
-                  lhsargpaste = 0;
+                  continue;
                } else {
-                  if (lhs->t != TKPPMACARG) {
-                     --rlist2.n;
-                     lhsargforpaste = *lhs;
-                  }
                   rhsargpaste = 1;
                   continue;
                }
@@ -1128,40 +1127,29 @@ expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac)
          arg = &args[tk.argidx];
          if (tk.t == TKPPMACARG) {
             struct macrostack *l;
-            lhsargpaste = i < mac->rlist.n-1 && mac->rlist.tk[i+1].t == TKPPCAT;
             if (arg->n == 0) {
-               if (rhsargpaste) {
-                  rhsargpaste = 0;
-                  if (!lhsargpaste && lhsargforpaste.t) {
-                     vpush(&rlist2, lhsargforpaste);
-                  }
-               } else if (lhsargpaste) {
-                  lhsargforpaste.t = 0;
-                  lhsargforpaste.span = tk.span;
-               }
+               rhsargpaste = 0;
                continue;
             }
             pushmacstk(lx, &tk.span, &(struct macrostack) {
-               .rlist = {argsbuf.p + arg->idx, arg->n - lhsargpaste},
+               .rlist = {argsbuf.p + arg->idx, arg->n},
                .macno = -1,
                .idx = 0,
                .stop = 1,
             });
             l = lx->macstk;
-            if (rhsargpaste) {
+            if (rhsargpaste && rlist2.n > 0) {
                struct token new;
                rhsargpaste = 0;
-               if (tokpaste(lx, &new, &lhsargforpaste, &l->rlist.tk[0])) {
+               if (tokpaste(lx, &new, &rlist2.p[rlist2.n-1], &l->rlist.tk[0])) {
                   l->idx = 1;
-                  vpush(&rlist2, new);
+                  rlist2.p[rlist2.n-1] = new;
                }
             }
             while (lex(lx, &tk) != TKEOF)
                vpush(&rlist2, tk);
             assert(lx->macstk == l);
             popmac(lx);
-            if (lhsargpaste)
-               lhsargforpaste = argsbuf.p[arg->idx + arg->n-1];
          } else { /* PPMACSTR */
             char tmp[100];
             struct wbuf buf = MEMBUF(tmp, sizeof tmp);
