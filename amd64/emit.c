@@ -48,8 +48,13 @@ ref2oper(union ref r)
    case RXCON:
       if (conht[r.i].cls == KI32)
          return mkoper(OIMM, .imm = conht[r.i].i);
-      else if (!conht[r.i].cls)
+      else if (conht[r.i].cls == KI64) {
+         vlong i = conht[r.i].i;
+         assert(i == (int)i);
+         return mkoper(OIMM, .imm = i);
+      } else if (!conht[r.i].cls) {
          return mkoper(OSYM, .con = r.i, .cindex = NOINDEX);
+      }
       assert(0);
    case RADDR: return mkmemoper(r);
    default: assert(0);
@@ -779,17 +784,27 @@ Xsetcc(uchar **pcode, enum cc cc, enum reg reg)
 static void
 Xpush(uchar **pcode, enum reg reg)
 {
-   assert(in_range(reg, RAX, R15));
-   if (reg >> 3) B(0x41); /* REX.B */
-   B(0x50 + (reg & 7));
+   if (in_range(reg, RAX, R15)) {
+      if (reg >> 3) B(0x41); /* REX.B */
+      B(0x50 + (reg & 7)); /* PUSH reg */
+   } else {
+      assert(in_range(reg, XMM0, XMM15));
+      DS("\x48\x83\xEC\x08"); /* SUB RSP, 8 */
+      Xmov(pcode, KF64, mkoper(OMEM, .base = RSP, .index = NOINDEX), reg2oper(reg)); /* MOVD [rsp],xmm0 */
+   }
 }
 
 static void
 Xpop(uchar **pcode, enum reg reg)
 {
-   assert(in_range(reg, RAX, R15));
-   if (reg >> 3) B(0x41); /* REX.B */
-   B(0x58 + (reg & 7));
+   if (in_range(reg, RAX, R15)) {
+      if (reg >> 3) B(0x41); /* REX.B */
+      B(0x58 + (reg & 7)); /* POP reg */
+   } else {
+      assert(in_range(reg, XMM0, XMM15));
+      Xmov(pcode, KF64, reg2oper(reg), mkoper(OMEM, .base = RSP, .index = NOINDEX)); /* MOVD xmm0,[rsp] */
+      DS("\x48\x83\xC4\x08"); /* ADD RSP, 8 */
+   }
 }
 
 /* are flags live at given instruction? */
