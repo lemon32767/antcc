@@ -254,7 +254,7 @@ union ref mkdatref(const char *name, union type ctype, uint siz, uint align, con
 const char *xcon2sym(int ref);
 struct instr mkalloca(uint siz, uint align);
 union ref mkcallarg(union irtype ret, uint narg, int vararg);
-#define mkintrin(B, C, N) mkinstr(Ointrin, C, {.t=RICON,B}, mkcallarg((union irtype){{0}},N,-1))
+#define mkintrin(B, C, N) mkinstr(Ointrin, C, {{.t=RICON,B}}, mkcallarg((union irtype){{0}},N,-1))
 union ref mkaddr(struct addr);
 void addpred(struct block *blk, struct block *p);
 
