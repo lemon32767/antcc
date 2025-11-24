@@ -7,6 +7,16 @@ copyopt(struct function *fn)
 
    FREQUIRE(FNUSE);
    do {
+      if (blk->npred == 1) for (int i = 0; i < blk->phi.n; ++i) {
+         /* simplify 1-arg phi */
+         int phi = blk->phi.p[i];
+         union ref *arg = phitab.p[instrtab[phi].l.i];
+         /* being conservative here because phis could have circular dependencies? */
+         if (arg->t != RTMP || instrtab[arg->i].op != Ophi) {
+            replcuses(mkref(RTMP, phi), *arg);
+            delphi(blk, i--);
+         }
+      }
       for (int i = 0; i < blk->ins.n; ++i) {
          union ref var = mkref(RTMP, blk->ins.p[i]);
          struct instr *ins = &instrtab[var.i];

@@ -228,19 +228,18 @@ useblk(struct function *fn, struct block *blk)
 union ref
 addphi(struct function *fn, enum irclass cls, union ref *r)
 {
-   int new;
-   struct instr ins = { Ophi, cls };
-   union ref *refs = NULL;
+   assert(fn->curblk);
+   if (fn->curblk->npred == 0) return UNDREF;
+   if (fn->curblk->npred == 1) /* 1-argument phi is identity */
+      return *r;
 
+   union ref *refs = NULL;
    xbgrow(&refs, fn->curblk->npred);
    memcpy(refs, r, fn->curblk->npred * sizeof *r);
    vpush(&phitab, refs);
-   ins.l = mkref(RXXX, phitab.n-1);
-
-   assert(fn->curblk != NULL);
    /*assert(fn->curblk->ins.n == 0);*/
-   new = allocinstr();
-   instrtab[new] = ins;
+   int new = allocinstr();
+   instrtab[new] = mkinstr(Ophi, cls, .l.i = phitab.n-1);
    for (int i = 0; i < fn->curblk->npred; ++i) {
       adduse(fn->curblk, new, r[i]);
    }
