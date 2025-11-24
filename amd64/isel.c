@@ -339,10 +339,12 @@ loadstoreaddr(struct block *blk, union ref *r, int *curi)
 {
    if (isimm32(*r)) {
       *r = mkaddr((struct addr){.base = *r});
-   } else if (!fuseaddr(r, blk, curi) && r->t != RTMP && r->t != RREG) {
-      *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, *r));
-   } else {
+   } else if (isaddrcon(*r, 0)) {
       picfixsym(r, blk, curi);
+   } else if (r->t == RTMP) {
+      if (addarg4addrp(*r)) fuseaddr(r, blk, curi);
+   } else if (r->t != RREG) {
+      *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, *r));
    }
 }
 
