@@ -75,14 +75,6 @@ expect(struct comp *cm, enum toktag t, const char *s)
    }
    return 1;
 }
-static struct token
-expectdie(struct comp *cm, enum toktag t, const char *s)
-{
-   struct token tk;
-   if (!match(cm, &tk, t))
-      fatal(&tk.span, "expected %'tt%s%s", t, s?" ":"",s ? s : "");
-   return tk;
-}
 
 /******************************************/
 /* Data structures for declaration parser */
