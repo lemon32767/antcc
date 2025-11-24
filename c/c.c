@@ -3128,15 +3128,11 @@ compilecall(struct function *fn, const struct expr *ex)
       assert(ins.cls || ex->ty.t == TYVOID);
    }
    ins.l = exprvalue(fn, &sub[0]);
-   for (int i = 0; i < ex->narg && fn->curblk; ++i) {
+   for (int i = 0; i < ex->narg; ++i) {
       struct expr *arg = &sub[i+1];
       union type ty = i < td->nmemb ? td->param[i] : argpromote(arg->ty);
       union ref r = cvt(fn, ty, typedecay(arg->ty), exprvalue(fn, arg));
       vpush(&insns, mkarginstr(mkirtype(ty), r));
-   }
-   if (!fn->curblk) {
-      vfree(&insns);
-      return NOREF;
    }
    for (int i = 0; i < insns.n; ++i)
       addinstr(fn, insns.p[i]);

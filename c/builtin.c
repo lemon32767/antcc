@@ -83,6 +83,7 @@ static union ref
 trap_comp(struct function *fn, struct expr *ex, bool discard)
 {
    puttrap(fn);
+   useblk(fn, newblk(fn)); /* unreachable block, but simplifies expr codegen */
    return NOREF;
 }
 
