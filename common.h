@@ -338,7 +338,7 @@ struct wbuf {
    union {
       struct {
          char *buf;
-         const uint cap;
+         uint cap;
          uint len;
          int fd;
       };

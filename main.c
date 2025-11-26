@@ -355,17 +355,17 @@ driver(void)
       assert(*task.inft == IFTc && "nyi");
       return cc1(task.out, *task.inf);
    } else if (task.outft == OFTc) {
-      static char tmp[1<<12];
-      struct wbuf _buf = FDBUF(tmp, sizeof tmp, 1),
-                  *buf = &_buf;
-      bool ok = 1;
+      struct wbuf _buf = {0}, *buf = &bstdout;
       if (task.out) {
+         buf = &_buf;
+         buf->buf = alloc(&globarena, buf->cap = 1<<12, 1);
          buf->fd = open(task.out, O_CREAT | O_TRUNC | O_WRONLY, 0777);
          if (buf->fd < 0) {
             error(NULL, "open(%'s): %s", task.out, strerror(errno));
             return 1;
          }
       }
+      bool ok = 1;
       if (!task.out && task.ninf == 1)
          cpp(buf, task.inf[0]);
       else for (int i = 0; i < task.ninf; ++i) {
@@ -383,9 +383,9 @@ driver(void)
          if (!WIFEXITED(wstat)) ok = 0;
          ok = ok && WEXITSTATUS(wstat) == 0;
       }
-      if (task.out) {
+      ioflush(buf);
+      if (task.out)
          close(buf->fd);
-      }
       return ok ? 0 : 1;
    } else if (task.outft == OFTexe || task.outft == OFTdll) {
       compileobjs();
