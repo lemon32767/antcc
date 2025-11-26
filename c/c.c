@@ -1302,8 +1302,8 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
          struct expr *e = ex, tmp;
          if (ex->ty.bits != ty.bits && ty.t != TYPTR) {
             tmp = mkexpr(ECAST, ex->span, ty, .sub = ex);
-            e = exprdup(cm, &tmp);
-            eval(e, EVSTATICINI);
+            e = &tmp;
+            assert(eval(e, EVSTATICINI));
             assert(e->t == ENUMLIT);
          }
          if (!bitsiz) switch (siz) {
@@ -1366,13 +1366,13 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
 }
 
 static bool
-iniwriterec(struct comp *cm, struct initparser *ip, uint off, union type ty, struct expr *ex)
+iniwriterec(struct comp *cm, struct initparser *ip, uint off, struct expr *ex)
 {
    assert(ex->t == EINIT);
    for (struct initval *v = ex->init->vals; v; v = v->next) {
-      if (v->ex.t == EINIT) iniwriterec(cm, ip, off + v->off, ty, &v->ex);
+      if (v->ex.t == EINIT) iniwriterec(cm, ip, off + v->off, &v->ex);
       else if (ip->ev && !eval(&v->ex, ip->ev) && ip->ev != EVFOLD) return 0;
-      else iniwrite(cm, ip, off + v->off, v->bitsiz, v->bitoff, ty, &v->ex);
+      else iniwrite(cm, ip, off + v->off, v->bitsiz, v->bitoff, v->ex.ty, &v->ex);
    }
    return 1;
 }
@@ -1474,7 +1474,7 @@ Retry:
          error(&ex.span, "cannot initialize '%ty' with expression of type '%ty'", targ, ex.ty);
       else {
          if (targ.bits == ex.ty.bits && ex.t == EINIT) {
-            if (!iniwriterec(cm, ip, ip->sub->off + off, targ, &ex))
+            if (!iniwriterec(cm, ip, ip->sub->off + off, &ex))
                goto CannotEval;
          } else if (ip->ev && !eval(&ex, ip->ev) && ip->ev != EVFOLD) {
          CannotEval:
@@ -2705,7 +2705,7 @@ expraddr(struct function *fn, const struct expr *ex)
          ip->ev = EVSTATICINI;
          assert(!isincomplete(ty));
          ip->off = objnewdat(sym, ip->sec, 0, typesize(ty), typealign(ty));
-         if (!iniwriterec(NULL, ip, 0, ty, (struct expr *)ex))
+         if (!iniwriterec(NULL, ip, 0, (struct expr *)ex))
             error(&ex->span, "cannot not evaluate expression statically");
          return mksymref(sym);
       }
