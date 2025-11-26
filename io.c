@@ -1011,10 +1011,11 @@ vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
          do {
             ioputc(&bstderr, mark);
             mark = '~';
-         } while (--nmark && ++j < end);
+         } while (--nmark > 0 && ++j < end);
          col = 1;
          ++line;
          efmt("%g.\n");
+         --nmark;
       }
       ioputc(&bstderr,  '\n');
    }

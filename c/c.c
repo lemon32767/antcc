@@ -342,7 +342,14 @@ argpromote(union type t)
 bool
 assigncheck(union type t, const struct expr *src)
 {
-   if (assigncompat(t, typedecay(src->ty))) return 1;
+   union type srcty = typedecay(src->ty);;
+   if (assigncompat(t, srcty)) {
+      if (t.t == TYPTR && srcty.t == TYPTR
+       && (t.flag & TFCHLDQUAL & srcty.flag & TFCHLDQUAL) != (srcty.flag & TFCHLDQUAL)) {
+         warn(&src->span, "usage of '%ty' discards pointer qualifiers", src->ty);
+      }
+      return 1;
+   }
    if (t.t == TYPTR && iszero(*src)) return 1;
    return 0;
 }

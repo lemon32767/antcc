@@ -257,8 +257,7 @@ assigncompat(union type dst, union type src)
    if (dst.t == TYPTR && src.t == TYPTR) {
       ds = typechild(dst);
       ss = typechild(src);
-      if (ds.bits == ss.bits || ss.t == TYVOID || ds.t == TYVOID)
-         return ((dst.flag & TFCHLDQUAL) & (src.flag & TFCHLDQUAL)) == (src.flag & TFCHLDQUAL);
+      return ds.bits == ss.bits || ss.t == TYVOID || ds.t == TYVOID;
    }
    if (dst.t == TYBOOL && src.t == TYPTR)
       return 1;
