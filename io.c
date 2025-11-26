@@ -970,7 +970,7 @@ vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
    efmt("\n");
    if (span) {
       uint i;
-      int j, nmark;
+      int nmark;
       char mark = '^';
 
       /* find start of line */
@@ -979,17 +979,35 @@ vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
 
       nmark = loc->len;
       while (i < loc->off + loc->len) {
-         int end;
+         int j, end;
          int curoff = efmt("%5d | ", line);
-         for (end = 0; f->p[i] != '\n' && i < f->n; ++i, ++end)
-            ioputc(&bstderr,  f->p[i]);
+         const uchar *linep = &f->p[i];
+         bool begintabs = 1;
+         for (end = 0; f->p[i] != '\n' && i < f->n; ++i, ++end) {
+            uchar c = f->p[i];
+            if (c == '\t') {
+               if (!begintabs) c = ' ';
+            } else {
+               begintabs = 0;
+            }
+            ioputc(&bstderr, c);
+         }
+         ioputc(&bstderr, '\n');
          ++i;
-         ioputc(&bstderr,  '\n');
 
-         for (j = 0; j < curoff + col - 1; ++j)
-            ioputc(&bstderr, j == curoff-2 ? '|' : ' ');
+         for (j = -curoff; j < 0; ++j)
+            ioputc(&bstderr, j == -2 ? '|' : ' ');
+         for (begintabs = 1; j < col-1; ++j) {
+            uchar c = *linep++;
+            if (c == '\t') {
+               if (!begintabs) c = ' ';
+            } else {
+               c = ' ';
+               begintabs = 0;
+            }
+            ioputc(&bstderr, c);
+         }
          efmt(color[kind]);
-         j -= curoff;
          do {
             ioputc(&bstderr, mark);
             mark = '~';
