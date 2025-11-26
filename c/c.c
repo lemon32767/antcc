@@ -1124,11 +1124,11 @@ commaexpr(struct comp *cm)
 static uint
 nmemb(union type ty)
 {
-   if (ty.t == TYARRAY)
-      return typearrlen(ty) ? typearrlen(ty) : -1u;
-   if (isagg(ty))
-      return typedata[ty.dat].nmemb;
-   return 1;
+   switch (ty.t) {
+   case TYARRAY: return typearrlen(ty) ? typearrlen(ty) : -1u;
+   case TYUNION: case TYSTRUCT: return typedata[ty.dat].nmemb;
+   default: return 1;
+   }
 }
 
 static bool
@@ -1389,6 +1389,10 @@ iniadvance(struct initparser *ip, struct initcur *c, const struct span *span)
 static void
 inifocus(struct initparser *ip, struct comp *cm, const struct span *span, uint idx)
 {
+   while (idx >= nmemb(ip->sub->ty) && ip->sub != ip->cur) {
+      --ip->sub;
+      idx = ip->sub->idx;
+   }
    uint off, bitsiz, bitoff;
    union type targ = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, idx);
    struct initcur *next = iniadvance(ip, ip->cur, span);
@@ -1678,6 +1682,13 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
          ininext(ip, cm);
       }
       match(cm, NULL, ',');
+      if (peek(cm, &tk) != '}' && ip->sub->ty.t == TYUNION) {
+         if (ip->sub == ip->cur) {
+            warn(&tk.span, "excess elements in union initializer");
+         } else while (ip->sub != ip->cur && ip->sub->ty.t == TYUNION) {
+            --ip->sub;
+         }
+      }
    }
    if (ip->dyn) {
       enum section sec;
