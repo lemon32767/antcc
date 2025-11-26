@@ -376,7 +376,10 @@ lowerphis(struct rega *ra, struct block *blk, struct block *suc)
          DBG("  phi had R%d\n", to.a);
       } else {
          to = ra->intervals.temps[phi - instrtab].alloc;
-         assert(to.t != ADEAD);
+         if (to.t == ADEAD) {
+            DBG("  skip dead phi\n");
+            continue;
+         }
          DBG("  found phi %c%d\n", " RS"[to.t], to.a);
          if (to.t == AREG)
             phi->reg = to.a+1;
