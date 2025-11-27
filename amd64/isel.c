@@ -563,6 +563,8 @@ static void
 seljmp(struct function *fn, struct block *blk)
 {
    if (blk->jmp.t == Jb && blk->jmp.arg[0].bits) {
+      int curi = blk->ins.n;
+      fixarg(&blk->jmp.arg[0], NULL, blk, &curi);
       union ref c = blk->jmp.arg[0];
       if (c.t != RTMP) {
          enum irclass cls = c.t == RICON ? KI32 : c.t == RXCON && conht[c.i].cls ? conht[c.i].cls : KPTR;
