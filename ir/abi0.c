@@ -63,13 +63,15 @@ copyparam(struct function *fn, int *curi, int param, struct abiarg abi)
    if (!abi.isstk) { /* reg */
       assert(!abi.ty.isagg);
       return par;
-   } else if (!abi.ty.isagg) { /* scalar in stack */
+   }
+   par.r = mktyperef((union irtype){.cls = KPTR});
+   if (!abi.ty.isagg) { /* scalar in stack */
       enum op ld;
       par.cls = KPTR;
       if (abi.ty.cls == KPTR) abi.ty.cls = siz2intcls[cls2siz[abi.ty.cls]];
       switch (abi.ty.cls) {
       default: assert(0);
-      case KI32: ld = Oloadu32; break;
+      case KI32: ld = Oloads32; break;
       case KI64: ld = Oloadi64; break;
       case KF32: ld = Oloadf32; break;
       case KF64: ld = Oloadf64; break;
@@ -207,23 +209,43 @@ patcharg(struct block *blk, int *icall, struct call *call,
    int arginst = *icall - (call->narg - argidx);
    struct instr *arg = &instrtab[blk->ins.p[arginst]];
    assert(arg->op == Oarg && arg->l.t == RTYPE);
-   if (ref2type(arg->l).isagg) {
-      /* aggregate argument */
-      if (abi[0].ty.isagg  /* aggregate in stack */
-       || abi[0].ty.cls == KPTR) /* aggregate by pointer */
-      {
+   if (ref2type(arg->l).isagg) { /* aggregate argument */
+      if (abi[0].ty.isagg) {  /* aggregate in stack */
+         /* XXX do this better.. */
+         /* ptr %dst = arg <stk dst> */
+         /* (blit %dst, %src) */
+         union ref dst = mkref(RTMP, arg - instrtab);
+         uint align = typedata[abi->ty.dat].align, siz = typedata[abi->ty.dat].siz;
+         union ref src = arg->r;
+         if (src.t == RTMP && oisalloca(instrtab[src.i].op)) {
+            align = 1 << (instrtab[src.i].op - Oalloca1);
+         }
+         assert(align <= 8);
+         arg->cls = KPTR;
+         arg->r = mkref(RICON, abi->stk);
+         for (uint off = 0; off < siz; off += align) {
+            union ref sadr = off == 0 ? src : insertinstr(blk, ++arginst, mkinstr(Oadd, KPTR, src, mkref(RICON, off)));
+            union ref tmp = insertinstr(blk, ++arginst, mkinstr(Oloads8+2*ilog2(align), align < 8 ? KI32 : KI64, sadr));
+            union ref dadr = off == 0 ? dst : insertinstr(blk, ++arginst, mkinstr(Oadd, KPTR, dst, mkref(RICON, off)));
+            insertinstr(blk, ++arginst, mkinstr(Ostore8+ilog2(align), 0, dadr, tmp));
+         }
+         *icall = arginst + (call->narg - argidx);
+         return 1;
+      } else if (abi[0].ty.cls == KPTR) { /* aggregate by pointer */
+         arg->cls = KPTR;
          return 1;
       } else { /* aggregate in registers */
          union ref r[2];
          delinstr(blk, arginst);
          load2regs(r, ref2type(arg->l), arg->r, nabi, abi, blk, &arginst);
          for (int i = 0; i < nabi; ++i)
-            insertinstr(blk, arginst++, mkarginstr(abi[i].ty, r[i]));
+            insertinstr(blk, arginst++, mkinstr(Oarg, 0, mktyperef(abi[i].ty), r[i]));
          *icall = arginst + (call->narg - argidx - 1);
          return nabi;
       }
-   } else /* normal scalar argument */
+   } else { /* normal scalar argument */
       return 1;
+   }
 }
 
 static struct abiarg abiargsbuf[32];

@@ -136,18 +136,21 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
             break;
       }
 
-      assert(!abi.ty.isagg);
       if (!abi.isstk) {
          assert(!abi.ty.isagg);
          *arg = mkinstr(Omove, call->abiarg[i].ty.cls, mkref(RREG, abi.reg), arg->r);
       } else {
          union ref adr = mkaddr((struct addr){mkref(RREG, RSP), .disp = abi.stk});
-         *arg = mkinstr(Ostore8+ilog2(cls2siz[abi.ty.cls]), 0, adr, arg->r);
          int iargsave = iarg;
-         if (isaddrcon(arg->r,1) || arg->r.t == RADDR)
-            arg->r = insertinstr(blk, iarg++, mkinstr(Ocopy, abi.ty.cls, arg->r));
-         else
-            fixarg(&ins->r, ins, blk, &iarg);
+         if (!abi.ty.isagg) { /* scalar arg in stack */
+            *arg = mkinstr(Ostore8+ilog2(cls2siz[abi.ty.cls]), 0, adr, arg->r);
+            if (isaddrcon(arg->r,1) || arg->r.t == RADDR)
+               arg->r = insertinstr(blk, iarg++, mkinstr(Ocopy, abi.ty.cls, arg->r));
+            else
+               fixarg(&ins->r, ins, blk, &iarg);
+         } else { /* aggregate arg in stack, callee stack frame destination address */
+            *arg = mkinstr(Ocopy, KPTR, adr);
+         }
          *curi += iarg - iargsave;
       }
    }
@@ -423,6 +426,8 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       }
       if (ins->l.t != RTMP && ins->l.t != RREG)
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
+      else
+         fixarg(&ins->l, ins, blk, curi);
       fixarg(&ins->r, ins, blk, curi);
       break;
    case Odiv: case Oudiv: case Orem: case Ourem:
