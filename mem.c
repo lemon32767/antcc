@@ -36,7 +36,7 @@ void *
    return p;
 }
 
-/* vec: when _cap < 0, buf is dynamic allocated, otherwise an user provided buf */
+/* vec: when .dyn, buf is dynamic allocated, otherwise an user provided buf */
 
 void
 vinit_(struct vecbase *v, void *inlbuf, uint cap, uint siz)
