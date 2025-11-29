@@ -132,6 +132,7 @@ mkmemoper(union ref r)
       const struct addr *addr = &addrht[r.i];
       struct oper mem;
 
+      assert(addr->shift <= 3);
       if (addr->base.t == RTMP && ioper(addr->base.i).t == OMEM) {
          mem = ioper(addr->base.i);
          if (addr->index.bits) addmemoper(&mem, mkregoper(addr->index));

@@ -214,9 +214,9 @@ ascale(struct addr *addr, union ref a, union ref b)
 {
    if (b.t != RICON) return 0;
    if (addr->index.bits) return 0;
+   if ((unsigned)b.i > 3) return 0;
    if (a.t == RREG) {
    Scaled:
-      if ((unsigned)b.i > 3) return 0;
       addr->index = a;
       addr->shift = b.i;
       return 1;
