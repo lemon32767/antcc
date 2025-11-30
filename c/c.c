@@ -988,7 +988,7 @@ Unary:
       break;
    case TKW__builtin_va_arg:
       span = tk.span;
-      return vaargexpr(cm, &span);
+      ex = vaargexpr(cm, &span);
       break;
    default:
       fatal(&tk.span, "expected %s (near %'tk)", fromstmt ? "statement" : "expression", &tk);
@@ -2058,10 +2058,11 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
       KDOUBLE   = 1<<9,
    } arith = 0;
    struct span span = {0};
+   union type ty;
 
-   for (;;) {
+   for (bool first = 1;; first = 0) {
       peek(cm, &tk);
-      if (!span.ex.len) span = tk.span;
+      if (first) span = tk.span;
       switch (tk.t) {
       case TKWconst:
          st->qual |= QCONST;
@@ -2080,7 +2081,12 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
          st->qual |= QINLINE;
          break;
       case TKWvoid:
-         st->base = mktype(TYVOID);
+         if (st->base.t) {
+         DupBase:
+            error(&tk.span, "more than one data type in declaration specifier");
+         } else {
+            st->base = mktype(TYVOID);
+         }
          break;
       case TKWsigned:
          arith |= KSIGNED;
@@ -2090,12 +2096,12 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
          break;
       case TKW_Bool:
       case TKWbool:
-         if (arith & KBOOL) goto Dup;
+         if (arith & KBOOL) goto DupArith;
          arith |= KBOOL;
          break;
       case TKWchar:
          if (arith & KCHAR) {
-         Dup:
+         DupArith:
             error(&tk.span, "duplicate %tk specifier", &tk);
          }
          arith |= KCHAR;
@@ -2112,33 +2118,38 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
             error(&tk.span, "too long");
          break;
       case TKWint:
-         if (arith & KINT) goto Dup;
+         if (arith & KINT) goto DupArith;
          arith |= KINT;
          break;
       case TKWfloat:
-         if (arith & KFLOAT) goto Dup;
+         if (arith & KFLOAT) goto DupArith;
          arith |= KFLOAT;
          break;
       case TKWdouble:
-         if (arith & KDOUBLE) goto Dup;
+         if (arith & KDOUBLE) goto DupArith;
          arith |= KDOUBLE;
          break;
       case TKWenum:
       case TKWstruct:
       case TKWunion:
          lex(cm, &tk);
-         st->base = tagtype(cm, tk.t);
+         ty = tagtype(cm, tk.t);
          st->tagdecl = 1;
          joinspan(&span.ex, tk.span.ex);
-         goto End;
+         if (st->base.t) goto DupBase;
+         st->base = ty;
+         continue;
       case TKW__typeof__: case TKWtypeof:
          lex(cm, &tk);
-         st->base = ptypeof(cm);
+         ty = ptypeof(cm);
          joinspan(&span.ex, tk.span.ex);
-         goto End;
+         if (st->base.t) goto DupBase;
+         st->base = ty;
+         continue;
       case TKIDENT:
          if (!st->base.t && !arith && (decl = finddecl(cm, tk.s))
              && decl->scls == SCTYPEDEF) {
+            if (st->base.t) goto DupBase;
             st->base = decl->ty;
             break;
          }
@@ -2153,7 +2164,6 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
       }
       joinspan(&span.ex, tk.span.ex);
       lex(cm, &tk);
-      if (st->base.t) break;
    }
 End:
    if (pspan) *pspan = span;
@@ -2482,7 +2492,7 @@ declarator(struct declstate *st, struct comp *cm, struct span span0) {
       l->next = declfreelist;
       declfreelist = l;
    }
-   if (st->kind != DCASTEXPR)
+   if (st->kind != DCASTEXPR && decl.name)
       decl.span = namespan;
    return decl;
 }
@@ -2543,6 +2553,7 @@ pdecl(struct declstate *st, struct comp *cm) {
          st->empty = 1;
          return (struct decl){.span = tk.span};
       }
+      peek(cm, &tk);
       st->scls = sclass(cm, &tk.span);
       if (popcnt(st->scls) > 1)
          error(&tk.span, "invalid combination of storage class specifiers");
@@ -2564,8 +2575,8 @@ pdecl(struct declstate *st, struct comp *cm) {
       }
       peek(cm, &tk);
       if (!declspec(st, cm, &decl.span) && st->kind != DTOPLEVEL) {
-         lex(cm, &tk);
-         error(&tk.span, "unknown type name %'s", tk.s);
+         if (lex(cm, &tk) == TKIDENT)
+            error(&tk.span, "unknown type name %'s", tk.s);
       }
    } else {
       peek(cm, &tk);
@@ -4092,6 +4103,8 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                /* zero-initialized static */
                if (decl.ty.t == TYARRAY && isincomplete(decl.ty))
                   error(&decl.span, "definition of variable with array type needs size or initializer");
+               else if (isincomplete(decl.ty))
+                  error(&decl.span, "definition of static variable with incomplete type");
                else
                   objnewdat(decl.sym, Sbss, 0, typesize(decl.ty), typealign(decl.ty));
             }
@@ -4271,7 +4284,10 @@ docomp(struct comp *cm)
                (void) initializer(cm, &d->ty, EVSTATICINI, decl.scls != SCSTATIC, decl.qual, decl.sym);
                pdecl(&st, cm);
             } else if (decl.ty.t != TYFUNC && decl.scls != SCTYPEDEF && (decl.scls != SCEXTERN || noscls)) {
-               objnewdat(d->sym, Sbss, decl.scls == SCEXTERN, typesize(d->ty), typealign(d->ty));
+               if (!isincomplete(decl.ty))
+                  objnewdat(d->sym, Sbss, decl.scls == SCEXTERN, typesize(d->ty), typealign(d->ty));
+               else
+                  error(&decl.span, "definition of static variable with incomplete type");
             }
             if (ccopt.dbg.p) bfmt(ccopt.dbgout, "var %s : %tq\n", d->name, d->ty, d->qual);
          } else {
