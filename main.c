@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <unistd.h>
 
 struct option ccopt;
@@ -78,10 +79,14 @@ withext(const char *path, const char *ext)
       len = strlen(file);
    else
       len = oext - file - 1;
-   res = alloc(&globarena, len + 1 + strlen(ext) + 1, 1);
+   res = alloc(&globarena, len + 1 + (ext ? strlen(ext) + 1 : 0), 1);
    memcpy(res, file, len);
-   res[len] = '.';
-   memcpy(res + len + 1, ext, strlen(ext));
+   if (ext) {
+      res[len] = '.';
+      memcpy(res + len + 1, ext, strlen(ext));
+   } else {
+      res[len] = 0;
+   }
    return res;
 }
 
@@ -91,9 +96,10 @@ static struct task {
    const char *targ;
    const char *inf[64];
    enum inft inft[64];
+   char **runargs;
    vec_of(const char *) linkargs;
    int ninf;
-   bool verbose;
+   bool verbose, run;
 } task;
 
 static void prihelp(void);
@@ -111,6 +117,10 @@ optparse(char **args)
          task.inft[task.ninf] = ft ? ft : ftdetect(arg-1);
          ++task.ninf;
          ft = IFTauto;
+         if (task.run) {
+            task.runargs = args+1;
+            return;
+         }
          continue;
       }
       if (!strcmp(arg, "help") || !strcmp(arg, "h") || !strcmp(arg, "-help")) {
@@ -160,6 +170,12 @@ optparse(char **args)
          task.outft = OFTobj;
       } else if (!strcmp(arg, "E")) {
          task.outft = OFTc;
+      } else if (!strcmp(arg, "run")) {
+         task.run = 1;
+         if (task.ninf > 0) {
+            task.runargs = args+1;
+            return;
+         }
       } else if (*arg == 'g') {
          /* TODO debug info */
       } else if (*arg == 'I') {
@@ -183,7 +199,7 @@ optparse(char **args)
    if (!task.out) {
       switch (task.outft) {
       case OFTdll:
-      case OFTexe: task.out = "a.out"; break;
+      case OFTexe: if (!task.run) task.out = "a.out"; break;
       case OFTasm: task.out = withext(*task.inf, "s"); break;
       case OFTobj: task.out = withext(*task.inf, "o"); break;
       case OFTc: break;
@@ -230,13 +246,15 @@ tempfile(const char *path, const char *ext)
 
 static int cc1(const char *out, const char *in);
 
-static const char *tempobj[arraylength(task.inf)];
+static const char *tempobj[arraylength(task.inf)], *tempout;
 static void
 mktemps(void) {
    for (int i = 0; i < task.ninf; ++i) {
       if (task.inft[i] == IFTc)
          tempobj[i] = tempfile(task.inf[i], "o");
    }
+   if (!task.out)
+      task.out = tempout = tempfile(task.ninf > 1 ? "run" : withext(task.inf[0], NULL), NULL);
 }
 static void
 cleantemps(void)
@@ -244,6 +262,13 @@ cleantemps(void)
    for (int i = 0; i < task.ninf; ++i) {
       if (tempobj[i]) unlink(tempobj[i]);
    }
+   if (tempout)
+      unlink(tempout);
+}
+static void
+sigcleantemps(int _)
+{
+   cleantemps();
 }
 
 static void
@@ -270,7 +295,10 @@ compileobjs(void)
       } else if (task.inft[i] == IFTobj) {
       } else assert(!"not obj");
    }
-   if (!ccopt.dbg.any) atexit(cleantemps);
+   if (!ccopt.dbg.any) {
+      atexit(cleantemps);
+      signal(SIGINT, sigcleantemps);
+   }
 }
 
 static int
@@ -325,21 +353,29 @@ dolink(void)
    return WEXITSTATUS(wstat);
 }
 
-static void
-prihelp(void)
+static int
+dorun(void)
 {
-   pfmt("Usage: antcc [options] file...\n\n"
-       "Options:\n"
-       " -help   \tPrint this help message\n"
-       " -std=<..> \tSet C standard\n"
-       " -pedantic \tWarnings for strict standards compliance\n"
-       " -d{pailrm} \tDebug options\n"
-       " -o <file> \tPlace the output into <file>\n"
-       " -v     \tVerbose output\n"
-       " -c     \tEmit object file but do not link\n"
-       " -fpie  \tEmit code for position independent executable\n"
-       " -fpic  \tEmit position independent code\n"
-   );
+   if (task.verbose) {
+      efmt("> exec %s", task.out);
+      for (char **s = task.runargs; *s; ++s)
+         efmt(" %s", *s);
+      efmt("\n");
+   }
+   pid_t p;
+   if ((p = fork()) < 0) {
+      error(NULL, "fork(): %s\n", strerror(errno));
+      exit(1);
+   } else if (p == 0) {
+      if (!execv(task.out, task.runargs - 1)) {
+         error(NULL, "execv(): %s\n", strerror(errno));
+         exit(1);
+      }
+   }
+   int wstat;
+   waitpid(p, &wstat, 0);
+   if (!WIFEXITED(wstat)) return 127;
+   return WEXITSTATUS(wstat);
 }
 
 #include <fcntl.h> /* open */
@@ -390,7 +426,10 @@ driver(void)
    } else if (task.outft == OFTexe || task.outft == OFTdll) {
       compileobjs();
       if (ccopt.dbg.any) return 0;
-      return dolink();
+      if (!task.run) return dolink();
+      int st = dolink();
+      if (st == 0) st = dorun();
+      return st;
    }
    assert(0);
 }
@@ -427,6 +466,23 @@ sysinclpaths(void)
    };
    for (int i = 0; i < arraylength(paths); ++i)
       addinclpath(paths[i]);
+}
+
+static void
+prihelp(void)
+{
+   pfmt("Usage: antcc [options] file...\n\n"
+       "Options:\n"
+       " -help   \tPrint this help message\n"
+       " -std=<..> \tSet C standard\n"
+       " -pedantic \tWarnings for strict standards compliance\n"
+       " -d{pailrm} \tDebug options\n"
+       " -o <file> \tPlace the output into <file>\n"
+       " -v     \tVerbose output\n"
+       " -c     \tEmit object file but do not link\n"
+       " -fpie  \tEmit code for position independent executable\n"
+       " -fpic  \tEmit position independent code\n"
+   );
 }
 
 int

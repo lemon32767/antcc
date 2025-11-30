@@ -1,11 +1,11 @@
 #!/bin/env sh
 
-set -euo pipefail
+set -eo pipefail
 cc=gcc
 cflags="-std=c11"
 src=$(grep -o '\([_A-Za-z0-9/]\)\+\.c' < Makefile)
 X() {
-    echo "> $@" | sed -s 's/\([^ ]\+\.c \?\)\{10\}$/.../'
+    echo "> $@" | ([ x"$V" == x1 ] && cat || sed -s 's/\([^ ]\+\.c \?\)\{10\}$/.../')
     $@
 }
 echo "== Stage 0 (compiling with $cc) =="
