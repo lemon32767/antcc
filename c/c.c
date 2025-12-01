@@ -3259,7 +3259,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       r = compileexpr(fn, sub, discard);
       if (discard) return NOREF;
       r = cvt(fn, ex->ty, sub->ty, r);
-      if (isint(ex->ty) && typesize(ex->ty) < typesize(sub->ty))
+      if (isint(ex->ty) && (typesize(ex->ty) < typesize(sub->ty) || issigned(ex->ty) != issigned(sub->ty)))
          return narrow(fn, type2cls[scalartypet(ex->ty)], ex->ty, r, 0);
       return r;
    case ENEG:
