@@ -236,7 +236,7 @@ redeclarationok(const struct decl *old, const struct decl *new)
    case SCEXTERN:
       if (old->ty.t == TYARRAY && new->ty.t == TYARRAY
        && typechild(old->ty).bits == typechild(new->ty).bits
-       && isincomplete(old->ty))
+       && (isincomplete(old->ty) || isincomplete(new->ty)))
       {
          return 1;
       }
