@@ -230,9 +230,6 @@ redeclarationok(const struct decl *old, const struct decl *new)
    if (old->scls != new->scls) return 0;
    switch (old->scls) {
    case SCSTATIC:
-      if (old->ty.t != TYFUNC)
-         break;
-      /*fallthru*/
    case SCEXTERN:
       if (old->ty.t == TYARRAY && new->ty.t == TYARRAY
        && typechild(old->ty).bits == typechild(new->ty).bits
@@ -253,7 +250,7 @@ putdecl(struct comp *cm, const struct decl *decl)
    assert(!decl->isbuiltin);
    for (struct decl *l = NULL; enviterdecl(&l, cm->env);) {
       if (decl->name == l->name) {
-         if (l->isdef && decl->isdef) {
+         if ((cm->env->up != NULL && decl->scls == SCSTATIC) || (l->isdef && decl->isdef)) {
             error(&decl->span, "redefinition of '%s'", decl->name);
             note(&l->span, "previously defined here");
             break;
@@ -262,6 +259,7 @@ putdecl(struct comp *cm, const struct decl *decl)
             note(&l->span, "previously declared here");
             break;
          }
+         if (l->isdef && !decl->isdef) return l;
       }
    }
    return envadddecl(cm->env, decl);
@@ -1627,7 +1625,8 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
          memset(ip->ddat.p, 0, typesize(*ty));
       } else {
          ip->sec = qual & QCONST ? Srodata : Sdata;
-         ip->off = objnewdat(sym, ip->sec, globl, typesize(*ty), typealign(*ty));
+         if (!nerror)
+            ip->off = objnewdat(sym, ip->sec, globl, typesize(*ty), typealign(*ty));
       }
    } else {
       ip->init = &res;
@@ -1713,13 +1712,15 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
          sec = Srodata;
       else
          sec = Sdata;
-      off = objnewdat(sym, sec, globl, siz = typesize(*ty), align = typealign(*ty));
-      p = sec == Srodata ? objout.rodata.p : objout.data.p;
-      memcpy(p + off, ip->ddat.p, ip->ddat.n);
-      memset(p + off + ip->ddat.n, 0, typesize(*ty) - ip->ddat.n);
-      vfree(&ip->ddat);
-      for (struct dreloc *rel = ip->drel; rel; rel = rel->link) {
-         objreloc(rel->sym, targ_64bit ? REL_ABS64 : REL_ABS32, sec, off + rel->off, rel->addend);
+      if (!nerror) {
+         off = objnewdat(sym, sec, globl, siz = typesize(*ty), align = typealign(*ty));
+         p = sec == Srodata ? objout.rodata.p : objout.data.p;
+         memcpy(p + off, ip->ddat.p, ip->ddat.n);
+         memset(p + off + ip->ddat.n, 0, typesize(*ty) - ip->ddat.n);
+         vfree(&ip->ddat);
+         for (struct dreloc *rel = ip->drel; rel; rel = rel->link) {
+            objreloc(rel->sym, targ_64bit ? REL_ABS64 : REL_ABS32, sec, off + rel->off, rel->addend);
+         }
       }
    }
    dumpini(ip);
@@ -3226,10 +3227,13 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    //eval((struct expr *)ex, EVFOLD);
    sub = ex->sub;
 
-   if (ex->ty.t != TYVOID && !isscalar(ex->ty))
+   if (ex->ty.t != TYVOID && !isscalar(ex->ty)) {
       /* fn & array designators evaluate to their address;
        * so do aggregates for the purpose of code generation */
+      if (isagg(ex->ty) && isincomplete(ex->ty))
+         error(&ex->span, "use of incomplete type '%ty'", ex->ty);
       return expraddr(fn, ex);
+   }
    switch (ex->t) {
    case ENUMLIT:
       if (discard) return NOREF;
@@ -4281,13 +4285,26 @@ docomp(struct comp *cm)
          } else if (decl.name) {
             struct decl *d = putdecl(cm, &decl);
             if (st.varini) {
+               if (isagg(d->ty) && isincomplete(d->ty))
+                  error(&d->span, "initialization of variable with incomplete type '%ty'", d->ty);
                (void) initializer(cm, &d->ty, EVSTATICINI, decl.scls != SCSTATIC, decl.qual, decl.sym);
                pdecl(&st, cm);
             } else if (decl.ty.t != TYFUNC && decl.scls != SCTYPEDEF && (decl.scls != SCEXTERN || noscls)) {
-               if (!isincomplete(decl.ty))
-                  objnewdat(d->sym, Sbss, decl.scls == SCEXTERN, typesize(d->ty), typealign(d->ty));
-               else
-                  error(&decl.span, "definition of static variable with incomplete type");
+               /* tentative definitions */
+               if (!objhassym(decl.sym)) {
+                  uint size = typesize(d->ty);
+                  if (isincomplete(d->ty)) {
+                     if (d->ty.t == TYARRAY) {
+                        warn(&d->span, "tentative array definition assumed to have one element");
+                        size = typesize(typechild(d->ty));
+                        assert(size != 0);
+                     } else if (isagg(d->ty)) {
+                        warn(&d->span, "tentative definition with incomplete type '%ty'", d->ty);
+                        assert(size == 0);
+                     } else assert(0);
+                  }
+                  if (size) objnewdat(d->sym, Sbss, decl.scls == SCEXTERN, size, typealign(d->ty));
+               }
             }
             if (ccopt.dbg.p) bfmt(ccopt.dbgout, "var %s : %tq\n", d->name, d->ty, d->qual);
          } else {

@@ -87,6 +87,20 @@ enum {
    BSS_SHNDX    = 4,
 };
 
+enum section
+elfhassym(const char *nam)
+{
+   struct sym *sym = findsym(str2idx(nam));
+   if (sym) switch (sym->shndx) {
+   case SHN_UND: return Snone;
+   case TEXT_SHNDX: return Stext;
+   case RODATA_SHNDX: return Srodata;
+   case DATA_SHNDX: return Sdata;
+   case BSS_SHNDX: return Sbss;
+   }
+   return Snone;
+}
+
 void
 elfaddsym(const char *nam, int info, enum section sect, uvlong value, uvlong size)
 {

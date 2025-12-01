@@ -6,6 +6,7 @@
 
 
 void elfinit(void);
+enum section elfhassym(const char *);
 void elfaddsym(const char *, int info, enum section, uvlong value, uvlong size);
 void elfreloc(const char *sym, enum relockind, enum section, uint off, vlong addend);
 void elffini(struct wbuf *);
@@ -36,6 +37,12 @@ objdeffunc(const char *nam, bool globl, uint off, uint siz)
       elfaddsym(nam, /*STT_LOCAL/GLOBAL*/globl << 4 | /*STT_FUNC*/2, Stext, off, siz);
       break;
    }
+}
+
+enum section
+objhassym(const char *name)
+{
+   return elfhassym(name);
 }
 
 uint

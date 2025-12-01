@@ -214,7 +214,7 @@ useblk(struct function *fn, struct block *blk)
    extern int nerror;
    if (fn->curblk && nerror == 0) assert(fn->curblk->jmp.t && "never finished block");
    if (blk) assert(!blk->jmp.t && "reusing built block");
-   if (!blk->lprev) { /* initialize */
+   if (blk && !blk->lprev) { /* initialize */
       blk->lnext = fn->entry;
       blk->lprev = fn->entry->lprev;
       blk->lprev->lnext = blk;
