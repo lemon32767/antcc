@@ -818,6 +818,7 @@ static struct file {
    vec_of(uint) lineoffs;
    bool once;
    bool seen;
+   const char *guardmac;
 } *fileht[1<<SPANFILEBITS];
 static int nfiles;
 
@@ -913,18 +914,20 @@ getfilepos(int *line, int *col, int id, uint off)
 }
 
 bool
-isoncefile(int id)
+isoncefile(int id, const char **guard)
 {
    assert(id < arraylength(fileht) && fileht[id]);
+   *guard = fileht[id]->guardmac;
    return fileht[id]->once;
 }
+
 void
-markfileonce(int id)
+markfileonce(int id, const char *guard)
 {
    assert(id < arraylength(fileht) && fileht[id]);
    fileht[id]->once = 1;
+   fileht[id]->guardmac = guard;
 }
-
 
 void
 markfileseen(int id)

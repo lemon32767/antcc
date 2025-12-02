@@ -99,6 +99,9 @@ struct lexer {
    struct token peektok;
    bool eof, err;
    struct arena **tmparena;
+   bool firstdirective;
+   ushort nppcnd0;
+   const char *inclguard;
 };
 
 enum initlexer {

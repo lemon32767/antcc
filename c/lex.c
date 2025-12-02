@@ -1441,6 +1441,7 @@ ppifxdef(struct lexer *lx, bool defp, const struct span *span)
       ppskipline(lx);
       return;
    }
+   if (!defp && lx->firstdirective) lx->inclguard = tk.s;
    assert(nppcnd < arraylength(ppcndstk) && "too many nested #if");
    ppcndstk[nppcnd].ifspan = span->sl;
    ppcndstk[nppcnd].filedepth = includedepth;
@@ -1624,7 +1625,7 @@ pppragma(struct lexer *lx, const struct span *span0)
    struct token tk;
    struct span span = *span0;
    if (lex0(lx, &tk) == TKIDENT && !strcmp(tk.s, "once")) {
-      markfileonce(lx->fileid);
+      markfileonce(lx->fileid, NULL);
    } else {
       joinspan(&span.ex, tk.span.ex);
       warn(&span, "unknown pragma ignored");
@@ -1710,7 +1711,6 @@ lex(struct lexer *lx, struct token *tk_)
 {
    struct token tkx[1], *tk;
    int t;
-   bool linebegin, skip;
 
    assert(tk_ != &lx->peektok);
    tk = tk_ ? tk_ : tkx;
@@ -1726,14 +1726,18 @@ lex(struct lexer *lx, struct token *tk_)
       return tk->t;
    }
 
-   skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
-   for (linebegin = 1;;) {
+   bool linebegin = 1,
+        skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
+   enum directive lastcmd = 0;
+   for (;;) {
       while ((t = lex0(lx, tk)) == '\n') linebegin = 1;
       if (t == '#' && linebegin) {
          if (lex0(lx, tk) == '\n') { }
          else if (isppident(*tk)) {
+            lastcmd = findppcmd(tk);
+            if (nppcnd == lx->nppcnd0) lx->inclguard = NULL;
             if (!skip) {
-               switch (findppcmd(tk)) {
+               switch (lastcmd) {
                case PPXXX: goto BadPP;
                case PPDEFINE:   ppdefine(lx); break;
                case PPUNDEF:    ppundef(lx); break;
@@ -1753,7 +1757,7 @@ lex(struct lexer *lx, struct token *tk_)
                default: assert(0&&"nyi");
                }
             } else {
-               switch (findppcmd(tk)) {
+               switch (lastcmd) {
                case PPIF: /* increment nesting level */
                case PPIFDEF:
                case PPIFNDEF:
@@ -1770,6 +1774,8 @@ lex(struct lexer *lx, struct token *tk_)
                default: ppskipline(lx); break;
                }
             }
+            if (lastcmd != PPINCLUDE)
+               lx->firstdirective = 0;
             skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
          } else {
             if (!skip) {
@@ -1780,6 +1786,7 @@ lex(struct lexer *lx, struct token *tk_)
          }
          linebegin = 1;
       } else {
+         lx->firstdirective = 0;
          linebegin = 0;
          if (skip && tk->t != TKEOF) continue;
          if (tryexpand(lx, tk))
@@ -1790,11 +1797,16 @@ lex(struct lexer *lx, struct token *tk_)
          }
          if (t == TKEOF && lx->save) {
             /* end of #include'd file, restore previous state */
+            if (lastcmd == PPENDIF && lx->inclguard) {
+               markfileonce(lx->fileid, lx->inclguard);
+            }
             struct lexer *sv = lx->save;
             memcpy(lx, lx->save, sizeof *lx);
             free(sv);
             --includedepth;
+            lx->firstdirective = 0;
          } else {
+            if (nppcnd == lx->nppcnd0) lx->inclguard = NULL;
             return t;
          }
       }
@@ -1935,25 +1947,29 @@ initlexer(struct lexer *lx, const char **err, const char *file)
    enum { NARENA = 1<<12 };
    static union { char m[sizeof(struct arena) + NARENA]; struct arena *_align; } amem;
    static struct arena *tmparena = (void *)amem.m;
-   int fileid;
-
-   struct memfile *f;
 
    if (!macros.n) addpredefmacros();
    if (!tmparena->cap) tmparena->cap = NARENA;
 
-   fileid = openfile(err, &f, file);
+   struct memfile *f;
+   int fileid = openfile(err, &f, file);
    if (fileid < 0)
       return LXERR;
-   if (isfileseen(fileid) && isoncefile(fileid))
+   const char *guard;
+   if (isfileseen(fileid) && isoncefile(fileid, &guard) && (!guard || findmac(guard))) {
+      //efmt("skipping %s .. guard %s\n", file, guard ? guard : "<none>");
       return LXFILESKIP;
+   }
    memset(lx, 0, sizeof *lx);
    lx->fileid = fileid;
    markfileseen(fileid);
+
    lx->dat = f->p;
    lx->ndat = f->n;
    lx->tmparena = &tmparena;
    lx->chrbuf0 = arraylength(lx->chrbuf);
+   lx->firstdirective = 1;
+   lx->nppcnd0 = nppcnd;
    return getfilename(fileid) != file ? LXFILESEEN : LXOK;
 }
 
