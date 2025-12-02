@@ -68,8 +68,8 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          /* add X, INT32MAX+1 -> sub X, INT32MIN */
          ins->op = Oadd + (op == Oadd);
          *r = mkintcon(KI32, -2147483648);
-      } else if (kisflt(con->cls) && con->f == 0) {
-         /* copy of float zero -> regular zero, that emit() will turn into xor x,x */
+      } else if (kisflt(con->cls) && con->i == 0) {
+         /* copy of positive float zero -> regular zero, that emit() will turn into xor x,x */
          if (in_range(op, Ocopy, Omove) || op == Ophi)
             *r = ZEROREF;
          else
@@ -176,10 +176,13 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       /* duplicate to reuse same TMP ref */
       insertinstr(blk, (*curi)++, *ins);
       *ins = mkinstr(Ocopy, cls, mkref(RREG, call->abiret[0].reg));
-      if (*curi + 1 < blk->ins.n)
-      if (instrtab[blk->ins.p[*curi + 1]].op == Ocall2r) {
-         ins = &instrtab[blk->ins.p[++*curi]];
-         *ins = mkinstr(Ocopy, ins->cls, mkref(RREG, call->abiret[1].reg));
+      for (int i = 1; i <= 2; ++i) {
+         if (*curi + i >= blk->ins.n) break;
+         if (instrtab[blk->ins.p[*curi + i]].op == Ocall2r) {
+            ins = &instrtab[blk->ins.p[*curi += i]];
+            *ins = mkinstr(Ocopy, ins->cls, mkref(RREG, call->abiret[1].reg));
+            break;
+         }
       }
    }
 }
