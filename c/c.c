@@ -231,13 +231,21 @@ redeclarationok(const struct decl *old, const struct decl *new)
    switch (old->scls) {
    case SCSTATIC:
    case SCEXTERN:
-      if (old->ty.t == TYARRAY && new->ty.t == TYARRAY
+      if (old->ty.bits == new->ty.bits) return 1;
+      if (old->ty.t != new->ty.t) return 0;
+      if (old->ty.t == TYARRAY /* allow 'int x[]; int x[100];' */
        && typechild(old->ty).bits == typechild(new->ty).bits
        && (isincomplete(old->ty) || isincomplete(new->ty)))
       {
          return 1;
       }
-      /*fallthru*/
+      if (old->ty.t == TYFUNC /* allow 'int f(); int f(int);' (some K&R) */
+       && typedata[old->ty.dat].ret.bits == typedata[new->ty.dat].ret.bits
+       && (typedata[old->ty.dat].kandr || typedata[new->ty.dat].kandr))
+      {
+         return 1;
+      }
+      return 0;
    case SCTYPEDEF:
       return old->ty.bits == new->ty.bits;
    }
