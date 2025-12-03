@@ -1263,7 +1263,7 @@ tkprec(int tt)
 }
 
 static vlong
-expr(struct lexer *lx, bool *pu, int prec)
+expr(struct lexer *lx, bool *pu, int prec, bool ignore)
 {
    vlong x, y;
    struct token tk;
@@ -1278,13 +1278,13 @@ Unary:
    case '-': case '~': case '!':
       unops[nunop++] = tk.t;
       if (nunop >= arraylength(unops)) {
-         x = expr(lx, &xu, 999);
+         x = expr(lx, &xu, 999, ignore);
          break;
       }
       /* fallthru */
    case '+': goto Unary;
    case '(':
-      x = expr(lx, &xu, 1);
+      x = expr(lx, &xu, 1, ignore);
       if (elex(lx, &tk) != ')') {
          error(&tk.span, "expected ')'");
          goto Err;
@@ -1345,8 +1345,10 @@ Unary:
       elex(lx, &tk);
       if (tk.t != '?') {
          bool u;
-         y = expr(lx, &yu, opprec + 1);
-         u = xu | yu;
+         if (tk.t != TKLOGAND && tk.t != TKLOGIOR) {
+            y = expr(lx, &yu, opprec + 1, ignore);
+            u = xu | yu;
+         }
          switch ((int) tk.t) {
          case   '+': x += (uvlong) y; break;
          case   '-': x -= (uvlong) y; break;
@@ -1355,37 +1357,41 @@ Unary:
          case   '^': x ^= y; break;
          case   '|': x |= y; break;
          case   '/': if (y) x = u ? (uvlong) x / y : x / y;
+                     else if (ignore) x = 0;
                      else goto Div0;
                      break;
          case   '%': if (y) x = u ? (uvlong) x % y : x % y;
+                     else if (ignore) x = 0;
                      else Div0: error(&tk.span, "division by zero");
                      break;
          case TKSHL: if ((uvlong)y < 64) x <<= y;
+                     else if (ignore) x = 0;
                      else goto BadShift;
                      break;
          case TKSHR: if ((uvlong)y < 64) x = u ? (uvlong) x >> y : x >> y;
+                     else if (ignore) x = 0;
                      else BadShift: error(&tk.span, "bad shift by %ld", y);
                      break;
-         case   '<': x = u ? (uvlong) x < y  : x < y;  goto BoolRes;
-         case   '>': x = u ? (uvlong) x > y  : x > y;  goto BoolRes;
-         case TKLTE: x = u ? (uvlong) x <= y : x <= y; goto BoolRes;
-         case TKGTE: x = u ? (uvlong) x >= y : x >= y; goto BoolRes;
-         case TKEQU: x = x == y; goto BoolRes;
-         case TKNEQ: x = x != y; goto BoolRes;
-         case TKLOGAND: x = x && y; goto BoolRes;
-         case TKLOGIOR: x = x || y; BoolRes: u = 0; break;
+         case   '<': x = u ? (uvlong) x < y  : x < y;  u = 0; break;
+         case   '>': x = u ? (uvlong) x > y  : x > y;  u = 0; break;
+         case TKLTE: x = u ? (uvlong) x <= y : x <= y; u = 0; break;
+         case TKGTE: x = u ? (uvlong) x >= y : x >= y; u = 0; break;
+         case TKEQU: x = x == y; u = 0; break;
+         case TKNEQ: x = x != y; u = 0; break;
+         case TKLOGAND: x = !!x & !!expr(lx, &yu, opprec+1, ignore || !x); u = 0; break;
+         case TKLOGIOR: x = !!x | !!expr(lx, &yu, opprec+1, ignore || x);  u = 0; break;
          default: assert(0);
          }
          xu = u;
       } else {
          struct span span = tk.span;
-         vlong m = expr(lx, &xu, 1);
+         vlong m = expr(lx, &xu, 1, ignore || !x);
          if (elex(lx, &tk) != ':') {
             error(&tk.span, "expected ':'");
             note(&span, "to match conditional expression here");
             goto Err;
          }
-         y = expr(lx, &yu, 1);
+         y = expr(lx, &yu, 1, ignore || x);
          x = x ? m : y;
          xu |= yu;
       }
@@ -1422,7 +1428,7 @@ static int includedepth;
 static void
 ppif(struct lexer *lx, const struct span *span)
 {
-   vlong v = expr(lx, NULL, 0);
+   vlong v = expr(lx, NULL, 0, 0);
    assert(nppcnd < arraylength(ppcndstk) && "too many nested #if");
    ppcndstk[nppcnd].ifspan = span->sl;
    ppcndstk[nppcnd].filedepth = includedepth;
@@ -1460,7 +1466,7 @@ ppelif(struct lexer *lx, const struct span *span)
       ppif(lx, span);
       return;
    }
-   v = expr(lx, NULL, 0);
+   v = expr(lx, NULL, 0, 0);
    cnd = &ppcndstk[nppcnd-1];
    if (cnd->elsep) {
       error(span, "#elif after #else");
