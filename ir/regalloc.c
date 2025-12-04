@@ -542,18 +542,20 @@ usereg(struct rega *ra, int reg, struct block *blk, int pos)
    ra->intervals.fixed = fxit;
 }
 
-static void
+static bool
 defreg(struct rega *ra, int reg, int pos) {
-   if (rstest(mctarg->rglob, reg)) return;
+   if (rstest(mctarg->rglob, reg)) return 1;
    for (struct fixinterval *fxit = ra->intervals.fixed; fxit; fxit = fxit->next) {
       if (fxit->rs == 1<<reg) {
-         assert(fxit->range.from <= pos);
-         fxit->range.from = pos;
-         //DBG(">>>def REG %s range %d-%d\n", mctarg->rnames[reg], fxit->range.from, fxit->range.to);
-         return;
+         if (fxit->range.from <= pos) {
+            fxit->range.from = pos;
+            //DBG(">>>def REG %s range %d-%d\n", mctarg->rnames[reg], fxit->range.from, fxit->range.to);
+            return 1;
+         }
+         break;
       }
    }
-   assert(0&&"def reg not used");
+   return 0;
 }
 
 /* lifetime interval construction: https://c9x.me/compile/bib/Wimmer10a.pdf */
@@ -630,7 +632,13 @@ buildintervals(struct rega *ra)
             assert(ins->l.t == RREG);
             if (ins->l.bits == ins->r.bits) /* special case `move Rx,Rx`: clobber reg, not a real use */
                usereg(ra, ins->l.i, blk, pos);
-            defreg(ra, ins->l.i, pos);
+            if (!defreg(ra, ins->l.i, pos)) {
+               /* dead register use. for example if
+                *   move RCX, %1
+                *   %2 = shl 1, RCX
+                * and %2 is dead, the move to RCX can be killed */
+               *ins = mkinstr(Onop,0,);
+            }
             if (ins->l.bits == ins->r.bits)
                continue;
          } else if (ins->op == Ocall) {
