@@ -43,7 +43,7 @@ fileext(const char *path)
    return dot ? dot+1 : "";
 }
 
-enum inft { IFTauto, IFTc, IFTasm, IFTobj };
+enum inft { IFTauto, IFTc, IFTasm, IFTobj, IFTar };
 
 static enum inft
 ftdetect(const char *s)
@@ -51,6 +51,7 @@ ftdetect(const char *s)
    const char *ext = fileext(s);
    if (!strcmp(ext, "c")) return IFTc;
    if (!strcmp(ext, "o")) return IFTobj;
+   if (!strcmp(ext, "a")) return IFTar;
    if (!strcmp(ext, "s")) return IFTasm;
    warn(NULL, "assuming %'s is C source file", s);
    return IFTc;
@@ -178,6 +179,10 @@ optparse(char **args)
          }
       } else if (*arg == 'g') {
          /* TODO debug info */
+      } else if (*arg == 'D') {
+         /* TODO cmdline defines */
+      } else if (*arg == 'O') {
+         /* TODO optimization level */
       } else if (*arg == 'I') {
          const char *p = arg[1] ? arg+1 : *++args;
          if (!p) fatal(NULL, "missing path after `-I`");
@@ -292,7 +297,7 @@ compileobjs(void)
             cleantemps();
             exit(WEXITSTATUS(wstat));
          }
-      } else if (task.inft[i] == IFTobj) {
+      } else if (task.inft[i] == IFTobj || task.inft[i] == IFTar) {
       } else assert(!"not obj");
    }
    if (!ccopt.dbg.any) {
@@ -326,7 +331,8 @@ dolink(void)
       const char *o;
       switch (task.inft[i]) {
       case IFTc: o = tempobj[i]; break;
-      case IFTobj: o = task.inf[i]; break;
+      case IFTobj: case IFTar:
+         o = task.inf[i]; break;
       default: assert(!"link obj?");
       }
       vpush(&cmd, o);
