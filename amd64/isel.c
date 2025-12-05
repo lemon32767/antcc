@@ -459,6 +459,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
        if (isintcon(ins->l)) {
          /* sub imm, x -> sub x, imm; neg x */
          fixarg(&ins->l, ins, blk, curi);
+         ins->inplace = 1;
          struct instr sub = *ins;
          rswap(sub.l, sub.r);
          ins->op = Oneg;
