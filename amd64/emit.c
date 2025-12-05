@@ -789,7 +789,7 @@ Xpush(uchar **pcode, enum reg reg)
       B(0x50 + (reg & 7)); /* PUSH reg */
    } else {
       assert(in_range(reg, XMM0, XMM15));
-      DS("\x48\x83\xEC\x08"); /* SUB RSP, 8 */
+      DS("\x48\x8d\x64\x24\xF8"); /* LEA RSP, [RSP-8] */
       Xmov(pcode, KF64, mkoper(OMEM, .base = RSP, .index = NOINDEX), reg2oper(reg)); /* MOVD [rsp],xmm0 */
    }
 }
@@ -803,7 +803,7 @@ Xpop(uchar **pcode, enum reg reg)
    } else {
       assert(in_range(reg, XMM0, XMM15));
       Xmov(pcode, KF64, reg2oper(reg), mkoper(OMEM, .base = RSP, .index = NOINDEX)); /* MOVD xmm0,[rsp] */
-      DS("\x48\x83\xC4\x08"); /* ADD RSP, 8 */
+      DS("\x48\x8d\x64\x24\x08"); /* LEA RSP, [RSP+8] */
    }
 }
 
