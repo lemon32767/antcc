@@ -291,6 +291,11 @@ putdouble(struct wbuf *buf, double x, vlong prec)
       x = -x;
    }
 
+   if (x != x) {
+      iowrite(buf, "NaN", 3);
+      return n + 3;
+   }
+
    x += 0.5 / prec;  // round last decimal
    if (x >= (double)(-1ULL>>1)) { // out of range?
       n += bwriteS(buf, "inf");
