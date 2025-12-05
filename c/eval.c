@@ -283,6 +283,8 @@ binop(struct expr *ex, enum evalmode mode)
 #undef ef
    }
 
+   if (!in_range(ex->t, EADD, ESHR))
+      lhs->ty = mktype(TYINT);
    return numcast(ex->ty, ex, lhs);
 }
 
