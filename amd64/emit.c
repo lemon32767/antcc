@@ -779,7 +779,6 @@ Xsetcc(uchar **pcode, enum cc cc, enum reg reg)
    if (rex) B(rex | 0x40);
    B(0x0F), B(0x90+cc); /* SETcc */
    B(0xC0 + (reg & 7)); /* ModR/M with mod=11, rm=reg */
-
 }
 
 static void
@@ -947,7 +946,6 @@ static const uchar icmpop2cc[] = {
    [Oulth] = CCB, [Ougth] = CCA, [Oulte] = CCBE, [Ougte] = CCAE,
    [Oand] = CCNE, [Osub] = CCNE,
 }, fcmpop2cc[] = {
-   /* XXX properly handle unordered comparison results */
    [Oequ] = CCE, [Oneq] = CCNE,
    [Olth] = CCB, [Ogth] = CCAE, [Olte] = CCBE, [Ogte] = CCAE,
 };
@@ -1107,7 +1105,30 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
          if (ins->r.bits != ZEROREF.bits) { /* CMP */
             cc = (kisint(ins->cls) ? icmpop2cc : fcmpop2cc)[ins->op];
          } else { /* TEST r,r  (CMP r, 0) */
+            assert(kisint(ins->cls));
             cc = icmpzero2cc[ins->op];
+         }
+         if (kisflt(ins->cls)) { /* handle float unordered result */
+            int unordres = ins->op == Oneq ? 1 : 0;
+            int rex = 0;
+            if (in_range(dst.reg, RSP, RDI)) rex = 0x40;
+            rex |= (dst.reg >> 3); /* REX.B */
+            int jpoff = 3 + (rex != 0);
+            if (regzeroed && unordres == 0) {
+               /* if cmp unordered, just jump over the SETcc; result reg was already zeroed */
+               B(0x7A), B(jpoff); /* JP <off> */
+            } else {
+               /*     JNP .a
+                *     MOV r8, 0/1
+                *     JMP .b
+                * .a: SETcc r8
+                * .b: MOVZX r, r8
+                */
+               B(0x7B), B(jpoff+1); /* JNP <off> */
+               if (rex) B(rex | 0x40);
+               B(0xB0 + (dst.reg & 7)), B(unordres); /* MOV r8, 0/1 */
+               B(0xEB), B(jpoff); /* JMP <off> */
+            }
          }
          Xsetcc(pcode, cc, dst.reg);
          if (!regzeroed)
@@ -1166,19 +1187,26 @@ emitbranch(uchar **pcode, struct block *blk)
       /* conditional branch.. */
       union ref arg = blk->jmp.arg[0];
       struct instr *ins;
+      struct block *unord;
       assert(arg.t == RTMP);
       ins = &instrtab[arg.i];
       if ((oiscmp(ins->op) || ins->op == Oand || ins->op == Osub)) {
          if (ins->r.bits != ZEROREF.bits) {
             /* for CMP instr */
             cc = (kisint(ins->cls) ? icmpop2cc : fcmpop2cc)[ins->op];
+            unord = ins->op == Oneq ? blk->s1 : blk->s2;
          } else {
+            assert(kisint(ins->cls));
             /* for TEST instr, which modifies ZF and SF and sets CF = OF = 0 */
             cc = icmpzero2cc[ins->op];
          }
       } else {
          /* implicit by ZF */
          cc = CCNZ;
+      }
+      if (kisflt(ins->cls)) {
+         /* handle float unordered result */
+         Xjcc(pcode, CCP, unord);
       }
       if (blk->s1 == blk->lnext) {
          /* if s1 is next adjacent block, swap s1,s2 and flip condition to emit a
