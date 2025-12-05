@@ -1,3 +1,6 @@
+/* EXPECT:
+ok
+*/
 typedef unsigned u32;
 typedef signed s32;
 typedef float f32;
@@ -23,3 +26,28 @@ s64 f64_to_s64(f64 x) { return x; }
 u64 f64_to_u64(f64 x) { return x; }
 f32 f64_to_f32(f64 x) { return x; }
 f64 f32_to_f64(f32 x) { return x; }
+
+#include <stdio.h>
+#include <assert.h>
+
+double NAN = 0.0;
+double _(double x) { return x; }
+
+int main() {
+   NAN/=0.0;
+   assert(_(1.0) < _(2.0));
+   assert(_(1.0) >= _(1.0));
+   assert(_(1.0) >= _(-1.0));
+   assert(_(1.0) != _(2.0));
+   assert(_(1.0) - 1.0 == 0.0);
+   assert(-_(0.0) == 0.0);
+   assert(!(NAN < 2.0));
+   assert(!(NAN > NAN));
+   assert(!(NAN >= NAN));
+   assert(!(NAN <= NAN));
+   assert(!(NAN < NAN));
+   assert(!(NAN == NAN));
+   assert(NAN != NAN);
+   assert(NAN != 0.0);
+   printf("ok\n");
+}
