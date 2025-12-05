@@ -58,7 +58,6 @@ foldflt(enum op op, enum irclass k, union ref lr, union ref rr)
    int xi;
    double x, l = fltconval(lr), r = fltconval(rr);
    bool w = k == KF64;
-   if (in_range(op, Odiv, Ourem)) assert(r != 0.0);
    switch (op) {
    case Ocopy: x = l; break;
    case Oneg:  x = -l; break;
@@ -88,10 +87,10 @@ foldflt(enum op op, enum irclass k, union ref lr, union ref rr)
 bool
 foldbinop(union ref *to, enum op op, enum irclass k, union ref l, union ref r)
 {
-   if (!isnumcon(l) || !isnumcon(r)) return 0;
-   if (in_range(op, Odiv, Ourem) && (kisint(k) ? intconval(r) == 0 : fltconval(r) == 0))
-      return 0;
    if (!oisarith(op))
+      return 0;
+   if (!isnumcon(l) || !isnumcon(r)) return 0;
+   if (in_range(op, Odiv, Ourem) && kisint(k) && intconval(r) == 0)
       return 0;
    if (kisint(k))
       *to = foldint(op, k, l, r);
