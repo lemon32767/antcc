@@ -51,6 +51,7 @@ struct call {
    ushort argstksiz;
    struct abiarg *abiarg;
    struct abiarg abiret[2];
+   uchar r2off;
 };
 
 enum refkind {
@@ -193,23 +194,25 @@ struct mctarg {
    enum objkind objkind;
    /* abiret: lower return type:
     *  scalar/small struct -> returns number of regs (1..2),
-    *                         r & cls filled with reg and irclass of each scalar return
+    *                         r & cls filled with reg and irclass of each scalar return,
+    *                         for struct, r2off filled with byte offset within struct for 2nd reg
     *  big struct -> returns 0, is passed via hidden pointer argument,
     *                r[0] contains register for returning said pointer or -1,
     *                r[1] contains register for hidden pointer argument,
     *                     *ni is set to 1 if said register is the first ABI integer argument
     */
-   int (*abiret)(short r[2], uchar cls[2], int *ni, union irtype);
+   int (*abiret)(short r[2], uchar cls[2], uchar *r2off, int *ni, union irtype);
    /* abiarg: lower argument type:
     *  scalar/small struct -> returns number of regs (1..2),
     *                         r & cls filled with reg and irclass of each scalar arg
+    *                         for struct, r2off filled with byte offset within struct for 2nd reg
     *                         if reg == -1 -> stack
     *  big struct -> returns 0,
     *                if passed in stack   cls[0] == 0, r[0] == negative SP offset
     *                if passed by pointer cls[0] == KPTR, r[0] contains integer register
     *                                                     or negative SP offset if stack
     */
-   int (*abiarg)(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype);
+   int (*abiarg)(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, union irtype);
    void (*vastart)(struct function *, struct block *, int *curi);
    void (*vaarg)(struct function *, struct block *, int *curi);
    void (*isel)(struct function *);

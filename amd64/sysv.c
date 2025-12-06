@@ -39,6 +39,7 @@ classifyarr(uchar cls[2], union type ty, uint off)
    }
    return !!cls[0] + !!cls[1];
 }
+
 static int
 classify(uchar cls[2], const struct typedata *td, uint off)
 {
@@ -65,7 +66,7 @@ classify(uchar cls[2], const struct typedata *td, uint off)
 }
 
 static int
-abiarg(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype typ)
+abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, union irtype typ)
 {
    static const uchar intregs[] = { RDI, RSI, RDX, RCX, R8, R9 };
    enum { NINT = arraylength(intregs), NFLT = 8 };
@@ -92,6 +93,7 @@ abiarg(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype typ)
    }
    assert(ret <= 2);
    ni_save = *ni, nf_save = *nf;
+   *r2off = 8;
    for (int i = 0; i < ret; ++i) {
       assert(cls[i]);
       if (kisflt(cls[i]) && *nf < NFLT)
@@ -110,7 +112,7 @@ abiarg(short r[2], uchar cls[2], int *ni, int *nf, int *ns, union irtype typ)
 }
 
 static int
-abiret(short r[2], uchar cls[2], int *ni, union irtype typ)
+abiret(short r[2], uchar cls[2], uchar *r2off, int *ni, union irtype typ)
 {
    int ret;
 
@@ -129,6 +131,7 @@ abiret(short r[2], uchar cls[2], int *ni, union irtype typ)
       return 0;
    }
    assert(ret <= 2);
+   *r2off = 8;
    for (int i = 0, ni = 0, nf = 0; i < ret; ++i) {
       assert(cls[i]);
       if (kisflt(cls[i])) /* SSE (XMM0, XMM1) */
@@ -215,6 +218,7 @@ vaarg(struct function *fn, struct block *blk, int *curi)
    uchar cls[2];
    union ref tmp;
    int ni = 0, nf = 0, ns = 0;
+   uchar r2off;
    int var = blk->ins.p[*curi];
    union ref ap = instrtab[var].l;
    union irtype ty = ref2type(instrtab[var].r);
@@ -222,7 +226,7 @@ vaarg(struct function *fn, struct block *blk, int *curi)
    assert(instrtab[var].op == Ovaarg);
    blk->ins.p[*curi] = newinstr(blk, (struct instr){Onop});
 
-   int ret = abiarg(r, cls, &ni, &nf, &ns, ty);
+   int ret = abiarg(r, cls, &r2off, &ni, &nf, &ns, ty);
 
    if (ret == 2) assert(!"nyi");
    else if (ret == 1) {

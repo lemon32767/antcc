@@ -10,13 +10,13 @@
 struct abiargsvec { vec_of(struct abiarg); };
 
 static int
-abiret(struct abiarg abiret[2], struct abiargsvec *abiargs, int *ni, union irtype retty)
+abiret(struct abiarg abiret[2], struct abiargsvec *abiargs, uchar *r2off, int *ni, union irtype retty)
 {
    short r[2];
    uchar cls[2];
    int retreg = 0;
+   retreg = mctarg->abiret(r, cls, r2off, ni, retty);
    if (retty.isagg) {
-      retreg = mctarg->abiret(r, cls, ni, retty);
       if (!retreg) {
          vpush(abiargs, ((struct abiarg) { cls2type(KPTR), .reg = r[1] }));
          if (r[0] == -1) {
@@ -27,7 +27,6 @@ abiret(struct abiarg abiret[2], struct abiargsvec *abiargs, int *ni, union irtyp
          }
       }
    } else if (retty.cls) {
-      retreg = mctarg->abiret(r, cls, ni, retty);
       assert(retreg == 1);
    }
    for (int i = 0; i < retreg; ++i) {
@@ -39,11 +38,11 @@ abiret(struct abiarg abiret[2], struct abiargsvec *abiargs, int *ni, union irtyp
 }
 
 static int
-abiarg(struct abiargsvec *abiargs, int *ni, int *nf, int *ns, union irtype ty)
+abiarg(struct abiargsvec *abiargs, uchar *r2off, int *ni, int *nf, int *ns, union irtype ty)
 {
    short r[2];
    uchar cls[2];
-   int ret = mctarg->abiarg(r, cls, ni, nf, ns, ty);
+   int ret = mctarg->abiarg(r, cls, r2off, ni, nf, ns, ty);
    if (!ret) { /* in stack */
       vpush(abiargs, ((struct abiarg) { ty, .isstk = 1, .stk = r[0] }));
    } else if (ret == 1 && ty.isagg && cls[0] == KPTR) { /* aggregate by pointer */
@@ -84,7 +83,7 @@ copyparam(struct function *fn, int *curi, int param, struct abiarg abi)
 }
 
 static void
-patchparam(struct function *fn, int *curi, int *param, int tydat, int nabi, struct abiarg abi[2])
+patchparam(struct function *fn, int *curi, int *param, int tydat, int nabi, struct abiarg abi[2], uchar r2off)
 {
    struct block *blk = fn->entry;
    assert(in_range(nabi,1,2));
@@ -125,7 +124,7 @@ patchparam(struct function *fn, int *curi, int *param, int tydat, int nabi, stru
          st = mkinstr(Ostore8 + ilog2(cls2siz[abi[0].ty.cls]), 0, alloc, r[0]);
          insertinstr(blk, ++*curi, st);
          if (nabi > 1) {
-            struct instr tmp = mkinstr(Oadd, KPTR, alloc, mkref(RICON, cls2siz[abi[0].ty.cls]));
+            struct instr tmp = mkinstr(Oadd, KPTR, alloc, mkref(RICON, r2off));
             st = mkinstr(Ostore8 + ilog2(cls2siz[abi[1].ty.cls]), 0, insertinstr(blk, ++*curi, tmp), r[1]);
             insertinstr(blk, ++*curi, st);
          }
@@ -137,7 +136,7 @@ patchparam(struct function *fn, int *curi, int *param, int tydat, int nabi, stru
 }
 
 static void
-load2regs(union ref out[2], union irtype typ, union ref src, int nabi, struct abiarg abi[2], struct block *blk, int *curi)
+load2regs(union ref out[2], union irtype typ, union ref src, int nabi, struct abiarg abi[2], uchar r2off, struct block *blk, int *curi)
 {
    uint align = typedata[typ.dat].align;
    uint siz = typedata[typ.dat].siz;
@@ -166,7 +165,7 @@ load2regs(union ref out[2], union irtype typ, union ref src, int nabi, struct ab
          if (i == 0)
             ins.l = src;
          else {
-            struct instr adr = mkinstr(Oadd, KPTR, src, mkref(RICON, cls2siz[abi[0].ty.cls]));
+            struct instr adr = mkinstr(Oadd, KPTR, src, mkref(RICON, r2off));
             ins.l = insertinstr(blk, (*curi)++, adr);
          }
          temp = insertinstr(blk, (*curi)++, ins);
@@ -185,7 +184,7 @@ load2regs(union ref out[2], union irtype typ, union ref src, int nabi, struct ab
             if (i+o == 0)
                ld.l = src;
             else {
-               struct instr adr = mkinstr(Oadd, KPTR, src, mkref(RICON, (i == 0 ? 0 : cls2siz[ld.cls]) + o*align));
+               struct instr adr = mkinstr(Oadd, KPTR, src, mkref(RICON, (i == 0 ? 0 : r2off) + o*align));
                ld.l = insertinstr(blk, (*curi)++, adr);
             }
             temp = insertinstr(blk, (*curi)++, ld);
@@ -204,7 +203,7 @@ load2regs(union ref out[2], union irtype typ, union ref src, int nabi, struct ab
 
 static int
 patcharg(struct block *blk, int *icall, struct call *call,
-         int argidx, int nabi, struct abiarg abi[2])
+         int argidx, int nabi, struct abiarg abi[2], uchar r2off)
 {
    int arginst = *icall - (call->narg - argidx);
    struct instr *arg = &instrtab[blk->ins.p[arginst]];
@@ -237,7 +236,7 @@ patcharg(struct block *blk, int *icall, struct call *call,
       } else { /* aggregate in registers */
          union ref r[2];
          delinstr(blk, arginst);
-         load2regs(r, ref2type(arg->l), arg->r, nabi, abi, blk, &arginst);
+         load2regs(r, ref2type(arg->l), arg->r, nabi, abi, r2off, blk, &arginst);
          for (int i = 0; i < nabi; ++i)
             insertinstr(blk, arginst++, mkinstr(Oarg, 0, mktyperef(abi[i].ty), r[i]));
          *icall = arginst + (call->narg - argidx - 1);
@@ -262,7 +261,7 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    vararg = call->vararg;
    ni = nf = ns = 0;
    assert(!ins->cls == !call->ret.bits);
-   nret = abiret(call->abiret, &abiargs, &ni, call->ret);
+   nret = abiret(call->abiret, &abiargs, &call->r2off, &ni, call->ret);
    if (call->ret.isagg) { /* adjust struct return */
       union irtype retty = call->ret;
       struct typedata *td = &typedata[retty.dat];
@@ -292,9 +291,10 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       int arginst = *curi - (call->narg - i);
       struct instr *arg = &instrtab[blk->ins.p[arginst]];
       union irtype pty = ref2type(arg->l);
+      uchar r2off;
       int first = abiargs.n;
-      int ret = abiarg(&abiargs, &ni, &nf, &ns, pty);
-      ret = patcharg(blk, curi, call, i, ret, &abiargs.p[first]);
+      int ret = abiarg(&abiargs, &r2off, &ni, &nf, &ns, pty);
+      ret = patcharg(blk, curi, call, i, ret, &abiargs.p[first], r2off);
       if (call->vararg == i) vararg = i2;
       i2 += ret;
    }
@@ -332,8 +332,7 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
             if (i == 0) {
                store.l = retmem;
             } else {
-               union ref off = mkref(RICON, cls2siz[call->abiret[0].ty.cls]);
-               struct instr addr = mkinstr(Oadd, KPTR, retmem, off);
+               struct instr addr = mkinstr(Oadd, KPTR, retmem, mkref(RICON, call->r2off));
                store.l = insertinstr(blk, ++*curi, addr);
             }
             store.r = r[i];
@@ -367,6 +366,7 @@ abi0(struct function *fn)
    struct abiargsvec abiargs = {VINIT(abiargsbuf, arraylength(abiargsbuf))};
    int rvovar = -1;
    int ni = 0, nf = 0, ns = 0, istart = 0;
+   uchar r2off;
    struct block *blk;
    union ref sret = {0};
 
@@ -375,7 +375,7 @@ abi0(struct function *fn)
    if (fn->retty.t == TYVOID) {
       fn->nabiret = 0;
    } else {
-      fn->nabiret = abiret(fn->abiret, &abiargs, &ni, mkirtype(fn->retty));
+      fn->nabiret = abiret(fn->abiret, &abiargs, &r2off, &ni, mkirtype(fn->retty));
       if (!fn->nabiret && isagg(fn->retty)) { /* ret agg by hidden pointer */
          struct instr param = copyparam(fn, NULL, 0, abiargs.p[0]);
          sret = insertinstr(fn->entry, 0, param);
@@ -392,8 +392,9 @@ abi0(struct function *fn)
    for (int i = 0, param = abiargs.n; i < nparam; ++i) {
       union irtype pty = mkirtype(paramty[i]);
       int first = abiargs.n;
-      int ret = abiarg(&abiargs, &ni, &nf, &ns, pty);
-      patchparam(fn, &istart, &param, pty.isagg ? pty.dat : -1, ret+!ret, &abiargs.p[first]);
+      uchar r2off;
+      int ret = abiarg(&abiargs, &r2off, &ni, &nf, &ns, pty);
+      patchparam(fn, &istart, &param, pty.isagg ? pty.dat : -1, ret+!ret, &abiargs.p[first], r2off);
    }
    fn->abiarg = alloccopy(fn->arena, abiargs.p, abiargs.n * sizeof *abiargs.p, 0);
    fn->nabiarg = abiargs.n;
@@ -440,7 +441,7 @@ abi0(struct function *fn)
          if (fn->nabiret) { /* aggregate return in register(s) */
             union ref r[2];
             int curi = blk->ins.n;
-            load2regs(r, mkirtype(fn->retty), blk->jmp.arg[0], fn->nabiret, fn->abiret, blk, &curi);
+            load2regs(r, mkirtype(fn->retty), blk->jmp.arg[0], fn->nabiret, fn->abiret, r2off, blk, &curi);
             for (int i = 0; i < fn->nabiret; ++i)
                blk->jmp.arg[i] = r[i];
          } else {
