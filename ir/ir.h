@@ -179,7 +179,6 @@ struct function {
 #define FREQUIRE(_prop) assert((fn->prop & (_prop)) && "preconditions not met")
 
 enum objkind { OBJELF };
-enum mcisa { ISamd64 };
 
 struct mctarg {
    short gpr0, /* first gpr */
@@ -192,7 +191,6 @@ struct mctarg {
           rglob;   /* globally live (never used for regalloc) */
    const char (*rnames)[6];
    enum objkind objkind;
-   enum mcisa isa;
    /* abiret: lower return type:
     *  scalar/small struct -> returns number of regs (1..2),
     *                         r & cls filled with reg and irclass of each scalar return

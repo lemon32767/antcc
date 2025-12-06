@@ -9,8 +9,9 @@ static const struct targ {
    bool charsigned;
    uchar sizetype, ptrdifftype, wchartype;
    const struct mctarg *mctarg;
+   enum mcisa isa;
 } targs[] = {
-   { "amd64-sysv", {8, 8, 8, 24}, {8, 8, 8, 8}, 1, TYULONG, TYLONG, TYINT, &t_amd64_sysv },
+   { "amd64-sysv", {8, 8, 8, 24}, {8, 8, 8, 8}, 1, TYULONG, TYLONG, TYINT, &t_amd64_sysv, ISamd64 },
    { "i686-sysv",  {4, 8, 4,  8}, {4, 4, 4, 4}, 1, TYUINT,  TYINT,  TYINT }
 };
 
@@ -19,6 +20,7 @@ uchar targ_primalign[TYPTR+1];
 uint targ_valistsize;
 enum typetag targ_sizetype, targ_ptrdifftype, targ_wchartype;
 bool targ_charsigned, targ_bigendian, targ_64bit;
+enum mcisa targ_mcisa;
 const struct mctarg *mctarg;
 
 void

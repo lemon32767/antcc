@@ -148,7 +148,9 @@ extern struct inclpaths {
 /* Target */
 /**********/
 
+enum mcisa { ISamd64 };
 extern const struct mctarg *mctarg;
+extern enum mcisa targ_mcisa;
 void targ_init(const char *);
 
 /*********/
@@ -377,6 +379,7 @@ struct memfile mapopen(const char **err, const char *path);
 void mapclose(struct memfile *);
 void *mapzeros(uint);
 int munmap(void *, size_t);
+int getpredeffile(struct memfile **, const char *name);
 int openfile(const char **err, struct memfile **, const char *path);
 const char *getfilename(int id);
 struct memfile *getfile(int id);

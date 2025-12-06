@@ -1836,6 +1836,23 @@ lexpeek(struct lexer *lx, struct token *tk_)
    return t;
 }
 
+/* Predefined/builtin macros */
+
+static vec_of(uchar) ppcmdline;
+
+void
+cpppredef(bool undef, const char *cmd)
+{
+   const char *sep = strchr(cmd, '='), *body = sep ? sep+1 : "1";
+   uint namelen = sep ? sep - cmd : strlen(cmd);
+   char line[1024];
+   struct wbuf wbuf = MEMBUF(line, sizeof line);
+   if (!ppcmdline.p) vinit(&ppcmdline, NULL, 1<<10);
+   int n = bfmt(&wbuf, "%s %S %s\n", undef ? "#undef" : "#define", cmd, namelen, body);
+   assert(n <= sizeof line);
+   vpushn(&ppcmdline, line, n);
+}
+
 static void
 mac__file__handler(struct lexer *lx, struct token *tk)
 {
@@ -1916,10 +1933,21 @@ mac__has_builtin(struct lexer *lx, struct token *tk, struct rlist arg)
    tk->s = &"01"[has];
 }
 
+static const struct token tok_1 = { TKNUMLIT, .s = "1", .len = 1, .litlit = 1 };
 static void
-addpredefmacros(void)
+putdef1(const char *name)
 {
-   static const struct token tok_1 = { TKNUMLIT, .s = "1", .len = 1 };
+   struct macro mac = {
+      .name = intern(name),
+      .predefined = 1,
+      .rlist = { &tok_1, 1 },
+   };
+   putmac(&mac);
+}
+
+static void
+addpredefmacros(struct arena **tmparena)
+{
    static struct token tok_ver = { TKNUMLIT };
    static struct macro macs[] = {
       { "__FILE__", .predefined = 1, .special = 1, .handler = mac__file__handler },
@@ -1931,7 +1959,6 @@ addpredefmacros(void)
       { "__STDC_VERSION__", .predefined = 1, .rlist = { &tok_ver, 1 } },
       { "__STDC_HOSTED__", .predefined = 1, .rlist = { &tok_1, 1 } },
       { "__antcc__", .predefined = 1, .rlist = { &tok_1, 1 } },
-      { "__x86_64__", .predefined = 1, .rlist = { &tok_1, 1 } },
    };
    switch (ccopt.cstd) {
    default: assert(0);
@@ -1945,6 +1972,27 @@ addpredefmacros(void)
       macs[i].name = intern(macs[i].name);
       putmac(&macs[i]);
    }
+
+   switch (targ_mcisa) {
+   case ISamd64:
+      putdef1("__x86_64__");
+      putdef1("__x86_64");
+      break;
+   }
+
+   if (ppcmdline.n) {
+      struct memfile *f;
+      struct lexer lx[1] = {0};
+      vpushn(&ppcmdline, "\0\0\0\0", 5);
+      lx->fileid = getpredeffile(&f, "<command line>");
+      assert(!f->p);
+      lx->dat = f->p = ppcmdline.p;
+      lx->ndat = f->n = ppcmdline.n;
+      lx->tmparena = tmparena;
+      lx->chrbuf0 = arraylength(lx->chrbuf);
+      lx->firstdirective = 1;
+      while (!lx->eof) lex(lx, NULL);
+   }
 }
 
 enum initlexer
@@ -1954,8 +2002,8 @@ initlexer(struct lexer *lx, const char **err, const char *file)
    static union { char m[sizeof(struct arena) + NARENA]; struct arena *_align; } amem;
    static struct arena *tmparena = (void *)amem.m;
 
-   if (!macros.n) addpredefmacros();
    if (!tmparena->cap) tmparena->cap = NARENA;
+   if (!macros.n) addpredefmacros(&tmparena);
 
    struct memfile *f;
    int fileid = openfile(err, &f, file);

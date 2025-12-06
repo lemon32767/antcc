@@ -179,8 +179,11 @@ optparse(char **args)
          }
       } else if (*arg == 'g') {
          /* TODO debug info */
-      } else if (*arg == 'D') {
-         /* TODO cmdline defines */
+      } else if (*arg == 'D' || *arg == 'U') {
+         void cpppredef(bool undef, const char *cmd);
+         const char *def = arg[1] ? arg+1 : *++args;
+         if (!def) fatal(NULL, "macro name missing after `-%c`", *arg);
+         cpppredef(*arg == 'U', def);
       } else if (*arg == 'O') {
          /* TODO optimization level */
       } else if (*arg == 'I') {

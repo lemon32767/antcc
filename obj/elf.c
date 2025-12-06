@@ -42,7 +42,7 @@ elfinit(void)
    hdr.i_osabi = ELFOSABI_SYSV;
    hdr.i_abiversion = 0;
    hdr.h32.type = ET_REL;
-   switch (mctarg->isa) {
+   switch (targ_mcisa) {
    case ISamd64: hdr.h32.machine = EM_X86_64; break;
    }
    hdr.h32.version = ELFVERSION;
@@ -148,7 +148,7 @@ elfreloc(const char *sym, enum relockind kind, enum section section, uint off, v
    case Sdata:   ++ndatarel; break;
    }
    assert(kind < NRELOCKIND);
-   vpush(&relocs, ((struct reloc) { section, relktab[mctarg->isa][kind], snam, off, addend }));
+   vpush(&relocs, ((struct reloc) { section, relktab[targ_mcisa][kind], snam, off, addend }));
 }
 
 static void
@@ -365,7 +365,7 @@ elffini(struct wbuf *out)
       shnam_strtab = 36, shnam_symtab = 44, shnam_reltext = 52, shnam_relrodata = 63, shnam_reldata = 76
    };
    int align = targ_64bit ? 8 : 4;
-   bool userela = userelatab[mctarg->isa];
+   bool userela = userelatab[targ_mcisa];
    char shstrs[] = "\0.text\0.rodata\0.data\0.bss\0.shstrtab\0.strtab\0.symtab\0"
                    ".rela.text\0.rela.rodata\0.rela.data";
    if (!userela) {

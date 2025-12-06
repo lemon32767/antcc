@@ -298,7 +298,6 @@ const struct mctarg t_amd64_sysv = {
    .rglob = 1<<RSP | 1<<RBP,
    .rnames = amd64_rnames,
    .objkind = OBJELF,
-   .isa = ISamd64,
    .abiret = abiret,
    .abiarg = abiarg,
    .vastart = vastart,

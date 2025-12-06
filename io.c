@@ -828,6 +828,37 @@ static struct file {
 static int nfiles;
 
 int
+getpredeffile(struct memfile **pf, const char *name)
+{
+   struct file *f;
+   struct fileuid uid;
+   uint h, id, n = arraylength(fileht);
+
+   uid.dev = -11;
+   uid.ino = hashs(0, name);
+   for (id = h = uid.dev ^ uid.ino;; ++id) {
+      id &= arraylength(fileht) - 1;
+      f = fileht[id];
+      if (f && f->uid.dev == uid.dev && f->uid.ino == uid.ino) {
+         break;
+      } else if (!f) {
+         f = allocz(&globarena, sizeof *f, 0);
+         f->uid = uid;
+         f->path = name;
+         f->f = (struct memfile) { .statik = 1 };
+         fileht[id] = f;
+         vinit(&f->lineoffs, NULL, 10);
+         vpush(&f->lineoffs, 0);
+         ++nfiles;
+         break;
+      }
+      assert(--n > 0 && "fileht full");
+   }
+   *pf = &f->f;
+   return id;
+}
+
+int
 openfile(const char **err, struct memfile **pf, const char *path)
 {
    struct stat st;
@@ -873,14 +904,14 @@ openfile(const char **err, struct memfile **pf, const char *path)
 const char *
 getfilename(int id)
 {
-   assert(id < arraylength(fileht) && fileht[id]);
+   assert((uint)id < arraylength(fileht) && fileht[id]);
    return fileht[id]->path;
 }
 
 struct memfile *
 getfile(int id)
 {
-   assert(id < arraylength(fileht) && fileht[id]);
+   assert((uint)id < arraylength(fileht) && fileht[id]);
    return &fileht[id]->f;
 }
 
@@ -889,7 +920,7 @@ addfileline(int id, uint off)
 {
    vec_of(uint) *lineoffs;
 
-   assert(id < arraylength(fileht) && fileht[id]);
+   assert((uint)id < arraylength(fileht) && fileht[id]);
    lineoffs = (void *)&fileht[id]->lineoffs;
    if (lineoffs->n && off > lineoffs->p[lineoffs->n-1])
       vpush(lineoffs, off);
@@ -901,7 +932,7 @@ getfilepos(int *line, int *col, int id, uint off)
    uint *offs, n;
    int l = 0, h, i = 0;
 
-   assert(id < arraylength(fileht) && fileht[id]);
+   assert((uint)id < arraylength(fileht) && fileht[id]);
    offs = fileht[id]->lineoffs.p;
    n = fileht[id]->lineoffs.n;
    h = n - 1;

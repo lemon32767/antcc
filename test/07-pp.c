@@ -1,3 +1,4 @@
+/* CFLAGS: -D CMD_WORKING -DV=void */
 /* EXPECT:
 ok /1 "\n"n ;.& 05.5 ADD(1,2)
 hi from header ;73
@@ -30,9 +31,10 @@ u\
 t\
 s
 
-
+#ifdef CMD_WORKING
 int
-main(void)
+main(V)
+#endif
 {
    int CATl(foo);
    ++foobar;
