@@ -1,6 +1,5 @@
 Things to finish before moving onto compiler optimizations, C extensions, other nice features
 
-- fix codegen for float comparisons (to handle NaNs correctly)
 - testing on real world codebases
 
 at some point add another backend like arm64 to make sure the non target specific stuff is generic enough..

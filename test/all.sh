@@ -5,4 +5,9 @@ cd $(dirname "$0")
 
 echo "--- 'Write a C Compiler' test suite ---"
 cd nlsandler-write_a_c_compiler
-exec ./test_compiler.sh ../../antcc
+./test_compiler.sh ../../antcc
+
+cd ..
+
+echo "--- Lua 5.4.0 ---"
+./lua.sh
