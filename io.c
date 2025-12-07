@@ -283,34 +283,12 @@ fmttype(struct wbuf *buf, union type ty, int qual)
 }
 
 static int
-putdouble(struct wbuf *buf, double x, vlong prec)
+putdouble(struct wbuf *buf, double x)
 {
-   int n = 0;
-   if (x < 0) {
-      n += bputc(buf, '-');
-      x = -x;
-   }
-
-   if (x != x) {
-      iowrite(buf, "NaN", 3);
-      return n + 3;
-   }
-
-   x += 0.5 / prec;  // round last decimal
-   if (x >= (double)(-1ULL>>1)) { // out of range?
-      n += bwriteS(buf, "inf");
-   } else {
-      vlong integral = x;
-      vlong fractional = (x - integral)*prec;
-      n += putuint(buf, integral, 10, 0);
-      n += bputc(buf, '.');
-      for (vlong i = prec/10; i > 1; i /= 10) {
-         if (i > fractional) {
-            n += bputc(buf, '0');
-         }
-      }
-      n += putuint(buf, fractional, 10, 0);
-   }
+   char tmp[200];
+   int n = snprintf(tmp, sizeof tmp, "%f", x);
+   assert(n < sizeof tmp-1);
+   iowrite(buf, tmp, n);
    return n;
 }
 
@@ -483,7 +461,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
          break;
       case 'f': /* float */
          f = va_arg(ap, double);
-         n += putdouble(buf, f, prec <= 0 ? 10e6 : prec);
+         n += putdouble(buf, f);
          break;
       case 't': /* token/tokentag/type */
          switch (*fmt++) {
