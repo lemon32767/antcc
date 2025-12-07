@@ -1,5 +1,6 @@
+/* CFLAGS: -lm */
 /* EXPECT:
-ok
+ok -0.0
 */
 typedef unsigned u32;
 typedef signed s32;
@@ -32,6 +33,12 @@ f64 f32_to_f64(f32 x) { return x; }
 
 double NAN = 0.0;
 double _(double x) { return x; }
+double fmod(double, double);
+double nummod(double a, double b) {
+   double m = fmod(a,b);
+   if ((m > 0) ? (printf("bluh\n"), b < 0) : (m < 0 && b > 0)) m += b;
+   return m;
+}
 
 int main() {
    NAN/=0.0;
@@ -49,5 +56,5 @@ int main() {
    assert(!(NAN == NAN));
    assert(NAN != NAN);
    assert(NAN != 0.0);
-   printf("ok\n");
+   printf("ok %.1f\n", nummod(-10.0, -2.0));
 }
