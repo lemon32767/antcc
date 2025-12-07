@@ -948,7 +948,7 @@ static const uchar icmpop2cc[] = {
    [Oand] = CCNE, [Osub] = CCNE,
 }, fcmpop2cc[] = {
    [Oequ] = CCE, [Oneq] = CCNE,
-   [Olth] = CCB, [Ogth] = CCAE, [Olte] = CCBE, [Ogte] = CCAE,
+   [Olth] = CCB, [Ogth] = CCA, [Olte] = CCBE, [Ogte] = CCAE,
 };
 /* condition code for TEST reg,reg (compare with zero) */
 static const uchar icmpzero2cc[] = {
