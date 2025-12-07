@@ -599,6 +599,7 @@ DEFINSTR2(Xxor,
    {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=6}, /* XOR r32/64, imm */
    {  8, PGPR, PMEM, "\x33", EN_RM},           /* XOR r64, m64 */
    {4|8, PFPR, PFPR, "\x0F\x57", EN_RR},       /* XORPS xmm, xmm */
+   {4|8, PFPR, PMEM, "\x0F\x57", EN_RM},       /* XORPS xmm, m128 */
 )
 DEFINSTR2(Xshl,
    {4|8, PGPR, P1,   "\xD1", EN_R, .ext=4},   /* SHL r32/64, 1 */

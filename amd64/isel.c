@@ -494,9 +494,12 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       goto ALU;
    case Oneg:
       if (kisflt(ins->cls)) {
-         ins->op = Osub;
-         ins->r = ins->l;
-         ins->l = ZEROREF;
+         /* flip sign bit with XORPS/D */
+         static const uvlong sd[2] = {0x8000000000000000,0x8000000000000000};
+         static const uint sf[4] = {0x80000000,80000000,0x80000000,80000000};
+         ins->op = Oxor;
+         ins->r = mkdatref(NULL, mktype(ins->cls == KF32 ? TYFLOAT : TYDOUBLE), /*siz*/16,
+               /*align*/16, ins->cls == KF32 ? (void *)sf : sd, /*siz*/16, /*deref*/1);
       }
       /* fallthru */
    case Onot:
