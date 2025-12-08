@@ -268,10 +268,10 @@ static void
 cleantemps(void)
 {
    for (int i = 0; i < task.ninf; ++i) {
-      if (tempobj[i]) unlink(tempobj[i]);
+      if (tempobj[i]) unlink(tempobj[i]), tempobj[i] = NULL;
    }
    if (tempout)
-      unlink(tempout);
+      unlink(tempout), tempout = NULL;
 }
 static void
 sigcleantemps(int _)
@@ -362,6 +362,8 @@ dolink(void)
    return WEXITSTATUS(wstat);
 }
 
+#include <fcntl.h> /* open */
+
 static int
 dorun(void)
 {
@@ -371,23 +373,22 @@ dorun(void)
          efmt(" %s", *s);
       efmt("\n");
    }
-   pid_t p;
-   if ((p = fork()) < 0) {
-      error(NULL, "fork(): %s\n", strerror(errno));
-      exit(1);
-   } else if (p == 0) {
-      if (!execv(task.out, task.runargs - 1)) {
-         error(NULL, "execv(): %s\n", strerror(errno));
-         exit(1);
-      }
+   int fd = open(task.out, O_RDONLY);
+   if (fd < 0) {
+      error(NULL, "open(): %s\n", strerror(errno));
+      return 1;
    }
-   int wstat;
-   waitpid(p, &wstat, 0);
-   if (!WIFEXITED(wstat)) return 127;
-   return WEXITSTATUS(wstat);
+   if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0) {
+      error(NULL, "fcntl(): %s\n", strerror(errno));
+      return 1;
+   }
+   cleantemps();
+   extern char **environ;
+   int fexecve(int fd, char *const argv[], char *const envp[]);
+   fexecve(fd, task.runargs - 1, environ);
+   error(NULL, "fexecv(): %s\n", strerror(errno));
+   return 1;
 }
-
-#include <fcntl.h> /* open */
 
 static int
 driver(void)
