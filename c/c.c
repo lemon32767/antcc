@@ -1261,6 +1261,8 @@ expr2reloc(union ref *psym, vlong *paddend, const struct expr *ex)
 {
    if (ex->t == EADDROF && globsym(psym, ex->sub)) {
       *paddend = 0;
+   } else if (isptrcvt(ex->ty) && globsym(psym, ex)) {
+      *paddend = 0;
    } else if (ex->t == EADDROF && ex->sub->t == EGETF && globsym(psym, ex->sub->sub)) {
       *paddend = ex->sub->fld.off;
    } else if (ex->t == EGETF && ex->ty.t == TYARRAY && globsym(psym, ex->sub)) {
@@ -1278,7 +1280,7 @@ expr2reloc(union ref *psym, vlong *paddend, const struct expr *ex)
          }
       }
       goto Fail;
-   } else Fail: assert(0 && "non static reloc");
+   } else Fail: fatal(&ex->span, "internal bug: non static reloc?");
 }
 
 static bool
