@@ -101,7 +101,8 @@ struct declstate {
    enum storageclass scls;
    enum qualifier qual;
    uint align;
-   bool more, /* caller should keep calling pdecl to get next decl */
+   bool base0, /* caller set initial base type, but there may be declspecs to parse */
+        more, /* caller should keep calling pdecl to get next decl */
         varini, /* caller should parse an initializer ('=' <ini>) and
                    call pdecl() to advance state before checking .more */
         funcdef, /* caller should parse an func definition ('{' <body> '}').
@@ -2067,7 +2068,7 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
       KDOUBLE   = 1<<9,
    } arith = 0;
    struct span span = {0};
-   union type ty;
+   union type ty = st->base;
 
    for (bool first = 1;; first = 0) {
       peek(cm, &tk);
@@ -2158,9 +2159,10 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
       case TKIDENT:
          if (!st->base.t && !arith && (decl = finddecl(cm, tk.s))
              && decl->scls == SCTYPEDEF) {
+            lex(cm, &tk);
             if (st->base.t) goto DupBase;
             st->base = decl->ty;
-            break;
+            continue;
          }
          /* fallthru */
       default:
@@ -2246,6 +2248,7 @@ static struct decllist {
    };
    struct span span;
 } decltmp[64], *declfreelist;
+static bool usingdeclparamtmp;
 static union type declparamtmp[16];
 static const char *declpnamestmp[16];
 static struct span declpspanstmp[16];
@@ -2298,7 +2301,8 @@ cvqual(struct comp *cm)
 }
 
 static void
-decltypes(struct comp *cm, struct decllist *list, const char **name, struct span *span, struct span *namespan) {
+decltypes(struct comp *cm, struct decllist *list, const char **name, struct span *span, struct span *namespan)
+{
    struct token tk;
    struct decllist *ptr, node;
 
@@ -2374,19 +2378,20 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
          declinsert(ptr->prev, &node);
          joinspan(&span->ex, node.span.ex);
       } else if (match(cm, &tk, '(')) Func: {
-         static int depth = 0;
          vec_of(union type) params = {0};
          vec_of(uchar) qual = {0};
          vec_of(const char *) names = {0};
          vec_of(struct span) spans = {0};
          bool anyqual = 0;
 
-         if (depth++ == 0) {
+         if (!usingdeclparamtmp) {
+            usingdeclparamtmp = 1;
             vinit(&params, declparamtmp, arraylength(declparamtmp));
             vinit(&qual, declpqualtmp, arraylength(declpqualtmp));
             vinit(&names, declpnamestmp, arraylength(declpnamestmp));
             vinit(&spans, declpspanstmp, arraylength(declpspanstmp));
          }
+
          node.span = tk.span;
          node.kandr = 0;
          node.variadic = 0;
@@ -2423,7 +2428,6 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
                break;
             }
          }
-         --depth;
          node.kandr = params.n == 0 && ccopt.cstd < STDC23;
          if (params.n == 1 && params.p[0].t == TYVOID && !qual.n && !names.p[0]) { /* (void) */
             vfree(&params);
@@ -2494,6 +2498,7 @@ declarator(struct declstate *st, struct comp *cm, struct span span0) {
          }
          if (l->pnames != declpnamestmp) free(l->pnames);
          if (l->pspans != declpspanstmp) free(l->pspans);
+         if (l->param == declparamtmp) usingdeclparamtmp = 0;
          decl.qual = 0;
          break;
       }
@@ -2552,6 +2557,7 @@ pdecl(struct declstate *st, struct comp *cm) {
       goto AfterIniBitf;
    }
 
+   if (st->base0) goto DeclSpec;
    if (!st->base.t) {
       if (staticassertok && (match(cm, &tk, TKW_Static_assert) || match(cm, &tk, TKWstatic_assert))) {
          pstaticassert(cm, &tk.span);
@@ -2583,6 +2589,8 @@ pdecl(struct declstate *st, struct comp *cm) {
          st->scls &= allowed;
       }
       peek(cm, &tk);
+   DeclSpec:
+      st->base0 = 0;
       if (!declspec(st, cm, &decl.span) && st->kind != DTOPLEVEL) {
          if (lex(cm, &tk) == TKIDENT)
             error(&tk.span, "unknown type name %'s", tk.s);
@@ -4038,7 +4046,9 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
          stmt(cm, fn);
          return;
       }
+      /* finddecl() -> non null because localdecl() is called when isdecltok() */
       st.base = finddecl(cm, tk.s)->ty;
+      st.base0 = 1;
    }
    do {
       struct decl decl = pdecl(&st, cm);
