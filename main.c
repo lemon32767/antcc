@@ -141,11 +141,11 @@ optparse(char **args)
          while (*++arg) switch (*arg | 32) {
          case 'p': ccopt.dbg.p = 1; break;
          case 'a': ccopt.dbg.a = 1; break;
-         case 'i': ccopt.dbg.i = 1; break;
+         case 'm': ccopt.dbg.m = 1; break;
          case 'o': ccopt.dbg.o = 1; break;
+         case 'i': ccopt.dbg.i = 1; break;
          case 'l': ccopt.dbg.l = 1; break;
          case 'r': ccopt.dbg.r = 1; break;
-         case 'm': ccopt.dbg.m = 1; break;
          default: warn(NULL, "-d: invalid debug flag %'c", *arg);
          }
       } else if (*arg == 'o') {
@@ -171,6 +171,10 @@ optparse(char **args)
          task.outft = OFTobj;
       } else if (!strcmp(arg, "E")) {
          task.outft = OFTc;
+      } else if (!strcmp(arg, "xc")) {
+         ft = IFTc;
+      } else if (!strcmp(arg, "xo")) {
+         ft = IFTobj;
       } else if (!strcmp(arg, "run")) {
          task.run = 1;
          if (task.ninf > 0) {
@@ -398,7 +402,8 @@ driver(void)
       efmt("# Target: %s\n", task.targ);
    if (task.outft == OFTobj) {
       assert(task.ninf == 1);
-      assert(*task.inft == IFTc && "nyi");
+      if (*task.inft != IFTc)
+         fatal(NULL, "not a C source file: %s", task.inf[0]);
       return cc1(task.out, *task.inf);
    } else if (task.outft == OFTc) {
       struct wbuf _buf = {0}, *buf = &bstdout;
@@ -481,17 +486,26 @@ sysinclpaths(void)
 static void
 prihelp(void)
 {
-   pfmt("Usage: antcc [options] file...\n\n"
-       "Options:\n"
-       " -help   \tPrint this help message\n"
-       " -std=<..> \tSet C standard\n"
-       " -pedantic \tWarnings for strict standards compliance\n"
-       " -d{pailrm} \tDebug options\n"
-       " -o <file> \tPlace the output into <file>\n"
-       " -v     \tVerbose output\n"
-       " -c     \tEmit object file but do not link\n"
-       " -fpie  \tEmit code for position independent executable\n"
-       " -fpic  \tEmit position independent code\n"
+   pfmt("Usage: antcc [options] infile(s)...\n"
+        "       antcc [options] -run infile [arguments...]\n"
+        "       antcc [options] infile(s)... -run [arguments...]\n"
+        "Options:\n"
+        " -help   \tPrint this help message\n"
+        " -std=<..> \tSet C standard (c89, c99, c11, c23)\n"
+        " -pedantic \tWarnings for strict standards compliance\n"
+        " -d{pamoilr} \tDebug print IR after {parse, abi, mem, opts, isel, live, rega}\n"
+        " -o <file> \tPlace the output into <file>\n"
+        " -v     \tVerbose output\n"
+        " -c     \tEmit object file but do not link\n"
+        " -run   \tRun compiled sources\n"
+        " -Idir  \tAdd include path\n"
+        " -Dsym[=val] \tDefine macro\n"
+        " -Usym  \tUndefine macro\n"
+        " -E     \tPreprocess only\n"
+        " -llib  \tLink with library\n"
+        " -fpie  \tEmit code for position independent executable\n"
+        " -fpic  \tEmit position independent code\n"
+        " -x[c|o] \tSpecify type of next input file (C, object)\n"
    );
 }
 
@@ -509,6 +523,10 @@ main(int argc, char **argv)
    ccopt.dbgout = &bstdout;
 
    /* parse cli ags */
+   if (argc == 1) {
+      prihelp();
+      return 1;
+   }
    optparse(argv);
 
    /* global init */
