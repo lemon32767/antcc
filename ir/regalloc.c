@@ -1064,7 +1064,7 @@ devirt(struct rega *ra, struct block *blk)
             }
          }
       }
-      if (nspill > 0) assert(ins->op != Ocall);
+      if (nspill > 1) assert(ins->op != Ocall);
       if (naddr) {
          union ref *r = ins->l.t == RADDR ? &ins->l : &ins->r;
          *r = mkaddr(newaddr);
