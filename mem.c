@@ -221,7 +221,7 @@ imap_rehash(struct imapbase *m, void **v, uint vsiz)
 int
 imap_set_(struct imapbase *m, void **v, uint vsiz, short k)
 {
-   if (m->n >= m->N >> 1) {
+   if (m->n >= m->N/4*3 /*load factor 75*/) {
       imap_rehash(m, v, vsiz);
       assert(m->n < m->N);
    }
@@ -241,10 +241,9 @@ imap_set_(struct imapbase *m, void **v, uint vsiz, short k)
 void
 pmap_init_(struct pmapbase *m, void **v, uint vsiz, uint N)
 {
-   uint sizk = N*sizeof(int),
+   uint sizk = N*sizeof*m->k,
         sizv = N*vsiz;
 
-   assert(ispo2(N));
    m->k = xcalloc(sizk + sizv);
    *v = (char *)m->k + sizk;
    m->N = N;
@@ -297,7 +296,7 @@ pmap_rehash(struct pmapbase *m, void **v, uint vsiz)
 int pmap_set_(struct pmapbase *m, void **v, uint vsiz, const void *k)
 {
    assert(k && "null key");
-   if (m->n >= m->N >> 1) {
+   if (m->n >= m->N/4*3 /*load factor 75%*/) {
       pmap_rehash(m, v, vsiz);
       assert(m->n < m->N);
    }
