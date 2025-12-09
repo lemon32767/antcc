@@ -45,23 +45,22 @@ void _assertfmt(const char *file, int line, const char *func, const char *expr);
 #define assert(x) (void)(!(x) ? _assertfmt(__FILE__,__LINE__,__func__,#x), *(volatile int *)0 : 0)
 #endif
 
-static inline uint
-hashs(uint h, const char *s)
+static inline size_t
+hashs(size_t h, const char *s)
 {
    while (*s) h = (uchar)*s++ + h*65599;
    return h;
 }
-static inline uint
-hashb(uint h, const void *d, uint n)
+static inline size_t
+hashb(size_t h, const void *d, size_t n)
 {
-
    const uchar *b = d;
    while (n--) h = *b++ + h*65599;
    return h;
 }
-static inline uint
+static inline size_t
 ptrhash(const void *p) {
-   return (uint)(size_t)p * 2654435761u;
+   return (size_t)p * 2654435761u;
 }
 static inline uint
 popcnt(uvlong x) {

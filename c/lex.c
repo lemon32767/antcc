@@ -4,22 +4,45 @@
 const char *
 intern(const char *s)
 {
-   static const char *ht[1<<14];
-   static struct { char m[sizeof(struct arena) + (1<<10)]; struct arena *_a; } amem;
+   static uint N, n;
+   static struct ht {
+      const char *s;
+      size_t h;
+   } *ht;
+   static struct { char m[sizeof(struct arena) + (2<<10)]; struct arena *_a; } amem;
    static struct arena *arena;
-   uint h, i, n = arraylength(ht);
 
-   if (!arena) arena = (void *)amem.m, arena->cap = 1<<10;
+   if (!N) {
+      ht = xcalloc((sizeof *ht) * (N = 1<<10));
+      arena = (void *)amem.m, arena->cap = sizeof amem.m - sizeof(struct arena);
+   }
 
-   i = h = hashs(0, s);
-   for (;; ++i) {
-      i &= arraylength(ht) - 1;
-      if (!ht[i]) {
-         return ht[i] = alloccopy(&arena, s, strlen(s)+1, 1);
-      } else if (!strcmp(s, ht[i])) {
-         return ht[i];
+   for (size_t h = hashs(0, s), i = h;;) {
+      i &= N - 1;
+      if (!ht[i].s) { /* insert */
+         if (n < N/4*3 /*load factor 75%*/) {
+            ++n;
+            ht[i].h = h;
+            return ht[i].s = alloccopy(&arena, s, strlen(s)+1, 1);
+         }
+         /* resize */
+         size_t nnew = N * 2;
+         struct ht *new = xcalloc(sizeof *new * nnew);
+         for (uint i = 0; i < N; ++i) { /* rehash */
+            if (!ht[i].s) continue;
+            uint j = ht[i].h;
+            while (new[j &= nnew-1].s) ++j;
+            new[j] = ht[i];
+         }
+         free(ht);
+         ht = new;
+         N = nnew;
+         i = h;
+         continue;
+      } else if (h == ht[i].h && !strcmp(s, ht[i].s)) {
+         return ht[i].s;
       }
-      assert(--n > 0 && "intern full");
+      ++i;
    }
 }
 
@@ -622,9 +645,6 @@ struct macro {
 
 #define isppident(tk) (in_range((tk).t, TKIDENT, TKWEND_))
 
-static vec_of(struct macro) macros;
-static ushort macroht[1<<12];
-
 static bool
 tokequ(const struct token *a, const struct token *b)
 {
@@ -680,20 +700,38 @@ freemac(struct macro *mac)
    free((void *)mac->rlist.tk);
 }
 
+static vec_of(struct macro) macros;
+static ushort *macroht;
+static uint nmacroht;
+
 static struct macro *
 putmac(struct macro *mac)
 {
-   uint h, i, n = arraylength(macroht);
-   struct macro *slot;
-
+   if (!macroht) macroht = xcalloc(sizeof *macroht * (nmacroht = 1<<14));
    assert(mac->name);
-   i = h = ptrhash(mac->name);
-   for (;; ++i) {
-      i &= arraylength(macroht) - 1;
-      if (!macroht[i]) {
-         macroht[i] = macros.n+1;
-         vpush(&macros, *mac);
-         return &macros.p[macros.n - 1];
+   for (size_t h = ptrhash(mac->name), i = h;;) {
+      struct macro *slot;
+      i &= nmacroht - 1;
+      if (!macroht[i]) { /* insert */
+         if (macros.n < nmacroht/4*3 /*load factor 75%*/) {
+            macroht[i] = macros.n+1;
+            vpush(&macros, *mac);
+            return &macros.p[macros.n - 1];
+         }
+         /* resize */
+         size_t nnew = nmacroht * 2;
+         ushort *new = xcalloc(sizeof *new * nnew);
+         for (size_t i = 0; i < nmacroht; ++i) { /* rehash */
+            if (!macroht[i]) continue;
+            size_t h = ptrhash(macros.p[macroht[i]-1].name);
+            while (new[h &= nnew-1]) ++h;
+            new[h] = macroht[i];
+         }
+         free(macroht);
+         macroht = new;
+         nmacroht = nnew;
+         i = h;
+         continue;
       } else if ((slot = &macros.p[macroht[i]-1])->name == mac->name) {
          if (!macroequ(slot, mac)) {
             if (slot->predefined)
@@ -712,7 +750,7 @@ putmac(struct macro *mac)
          *slot = *mac;
          return slot;
       }
-      assert(--n && "macro limit");
+      ++i;
    }
 }
 
@@ -725,7 +763,7 @@ delmac(const char *name)
    for (;; ++i) {
       struct macro *slot;
 
-      i &= arraylength(macroht) - 1;
+      i &= nmacroht - 1;
       if (!macroht[i]) {
          return;
       } else if ((slot = &macros.p[macroht[i]-1])->name == name) {
@@ -739,11 +777,11 @@ delmac(const char *name)
 static struct macro *
 findmac(const char *name)
 {
-   uint h, i, n = arraylength(macroht);
+   uint h, i, n = nmacroht;
 
    i = h = ptrhash(name);
    for (; n--; ++i) {
-      i &= arraylength(macroht) - 1;
+      i &= nmacroht - 1;
       if (!macroht[i]) {
          return NULL;
       } else if (macros.p[macroht[i]-1].name == name) {
