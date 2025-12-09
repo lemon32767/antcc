@@ -63,6 +63,7 @@ str2idx(const char *s)
    static pmap_of(uint) ht;
    uint *p, i;
 
+   if (!ht.v) pmap_init(&ht, 1<<8);
    if ((p = pmap_get(&ht, s))) return *p;
    if (!strs.n) vpush(&strs, 0);
    i = strs.n;
