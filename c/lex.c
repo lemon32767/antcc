@@ -2021,11 +2021,11 @@ addpredefmacros(struct arena **tmparena)
    if (ppcmdline.n) {
       struct memfile *f;
       struct lexer lx[1] = {0};
-      vpushn(&ppcmdline, "\0\0\0\0", 5);
       lx->fileid = getpredeffile(&f, "<command line>");
       assert(!f->p);
-      lx->dat = f->p = ppcmdline.p;
       lx->ndat = f->n = ppcmdline.n;
+      vpushn(&ppcmdline, "\0\0\0\0\0\0", 6);
+      lx->dat = f->p = ppcmdline.p;
       lx->tmparena = tmparena;
       lx->chrbuf0 = arraylength(lx->chrbuf);
       lx->firstdirective = 1;
