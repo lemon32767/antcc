@@ -219,7 +219,7 @@ struct mctarg {
    void (*emit)(struct function *);
 };
 
-enum { MAXINSTR = 1<<14 };
+enum { MAXINSTR = 1<<15 };
 
 /** ir.c **/
 extern uchar type2cls[];
