@@ -147,7 +147,7 @@ struct interval {
          fpr : 1; /* needs float register? */
 
    /* sorted ranges array */
-   uchar nrange;
+   uint nrange;
    union {
       struct range _inl[2];
       struct range *_dyn;

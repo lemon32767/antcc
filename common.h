@@ -79,7 +79,7 @@ ispo2(uvlong x) {
 static inline uint
 ilog2(uvlong x) { /* assumes x is a power of 2 */
 #if HAS_BUILTIN(ctz)
-   return __builtin_ctz(x);
+   return __builtin_ctzll(x);
 #else
    uint n = 0;
    while (x >>= 1) ++n;

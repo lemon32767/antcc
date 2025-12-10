@@ -1187,10 +1187,9 @@ emitbranch(uchar **pcode, struct block *blk)
    if (blk->s2) {
       /* conditional branch.. */
       union ref arg = blk->jmp.arg[0];
-      struct instr *ins;
-      struct block *unord;
+      struct block *unord = NULL;
       assert(arg.t == RTMP);
-      ins = &instrtab[arg.i];
+      struct instr *ins = &instrtab[arg.i];
       if ((oiscmp(ins->op) || ins->op == Oand || ins->op == Osub)) {
          if (ins->r.bits != ZEROREF.bits) {
             /* for CMP instr */
