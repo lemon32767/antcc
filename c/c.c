@@ -1270,14 +1270,13 @@ expr2reloc(union ref *psym, vlong *paddend, const struct expr *ex)
    } else if (globsym(psym, ex) && in_range(ex->ty.t, TYARRAY, TYFUNC)) {
       *paddend = 0;
    } else if (ex->t == ESUB && globsym(psym, &ex->sub[0]) && isint(ex->sub[1].ty) && ex->sub[1].t == ENUMLIT) {
-      *paddend = ex->sub[1].i * typesize(ex->sub[0].ty);
+      *paddend = -ex->sub[1].i * typesize(typechild(ex->sub[0].ty));
    } else if (ex->t == EADD) {
-      for (int swp = 0; swp < 2; ++swp) {
-         struct expr *a = &ex->sub[swp], *b = &ex->sub[swp ^ 1];
-         if (globsym(psym, a) && isint(b->ty) && b->t == ENUMLIT) {
-            *paddend = b->i * typesize(a->ty);
-            return;
-         }
+      int swp = ex->sub[0].t == ENUMLIT;
+      struct expr *a = &ex->sub[swp], *b = &ex->sub[swp ^ 1];
+      if (globsym(psym, a) && isint(b->ty) && b->t == ENUMLIT) {
+         *paddend = b->i * typesize(typechild(a->ty));
+         return;
       }
       goto Fail;
    } else Fail: fatal(&ex->span, "internal bug: non static reloc?");
