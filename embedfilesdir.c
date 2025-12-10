@@ -6,7 +6,7 @@ struct embedfile {
    size_t len;
 };
 
-#define S(s) (char [4096]){s}, (sizeof s) - 1
+#define S(s) s"\0\0\0\0\0", (sizeof s) - 1
 
 struct embedfile embedfilesdir[] = {
 {"stddef.h", S("\
