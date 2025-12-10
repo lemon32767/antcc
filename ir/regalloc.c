@@ -296,9 +296,24 @@ pmrec(int i, struct block *blk, int curi, enum irclass *k)
    case PMMOVING:
       c = j;
    Swap:
-      assert(pmove[i].src.t == AREG && pmove[i].dst.t == AREG);
-      insertinstr(blk, curi,
-            mkinstr(Oswap, *k, mkref(RREG, pmove[i].dst.a), mkref(RREG, pmove[i].src.a), .keep = 1));
+      if (pmove[i].src.t == AREG && pmove[i].dst.t == AREG) {
+         insertinstr(blk, curi,
+               mkinstr(Oswap, *k, mkref(RREG, pmove[i].dst.a), mkref(RREG, pmove[i].src.a), .keep = 1));
+      } else {
+         /* FIXME this case should be very uncommon, but this is bad and not portable */
+         struct alloc reg, stk;
+         if (pmove[i].src.t == AREG) {
+            reg = pmove[i].src, stk = pmove[i].dst;
+         } else {
+            stk = pmove[i].src, reg = pmove[i].dst;
+         }
+         assert(reg.t == AREG && stk.t == ASTACK);
+         emitmove(siz2intcls[cls2siz[*k]], areg(mctarg->gprscratch), reg, blk, curi++);
+         union ref t = insertinstr(blk, curi++, mkinstr(Oswap, siz2intcls[cls2siz[*k]],
+                  mkref(RICON, stk.a*8), mkref(RREG, mctarg->gprscratch), .keep = 1));
+         vpush(&stkslotrefs, &instrtab[t.i].l);
+         emitmove(siz2intcls[cls2siz[*k]], reg, areg(mctarg->gprscratch), blk, curi++);
+      }
       break;
    case PMTOMOVE:
       pmove[i].stat = PMMOVING;

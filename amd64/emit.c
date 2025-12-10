@@ -529,7 +529,8 @@ DEFINSTR2(Xmovaps,
 )
 DEFINSTR2(Xxchg,
    {4|8, PGPR, PGPR, "\x87", EN_RR}, /* XCHG r32/64, r32/64 */
-   //{4|8, PGPR, PMEM, "\x87", EN_RM}, /* XCHG r32/64, m32/64 */
+   {4|8, PGPR, PMEM, "\x87", EN_RM}, /* XCHG r32/64, m32/64 */
+   {4|8, PMEM, PGPR, "\x87", EN_MR}, /* XCHG r32/64, m32/64 */
 )
 DEFINSTR2(Xlea,
    {4|8, PGPR, PMEM, "\x8D", EN_RM}, /* LEA r32/64,m32/64 */
@@ -1146,7 +1147,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       break;
    case Oswap:
       if (kisint(cls))
-         Xxchg(pcode, cls, mkregoper(ins->l), mkregoper(ins->r));
+         Xxchg(pcode, cls, ref2oper(ins->l), mkregoper(ins->r));
       else {
          struct oper l = mkregoper(ins->l), r = mkregoper(ins->r);
          Xxor(pcode, cls, l, r);
