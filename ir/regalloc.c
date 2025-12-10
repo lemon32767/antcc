@@ -831,7 +831,7 @@ linearscan(struct rega *ra)
             handled = it;
             if (it->alloc.t == AREG) {
                ra->free |= 1<<it->alloc.a;
-               //DBG("   unblock %s\n", mctarg->rnames[it->reg]);
+               //DBG("   unblock %s %X\n", mctarg->rnames[it->alloc.a], ra->free);
             } else if (it->alloc.t == ASTACK) {
                freestk(ra, it->alloc.a);
             }
@@ -905,12 +905,14 @@ linearscan(struct rega *ra)
                rsclr(&free, it->alloc.a);
             }
          }
-         /* for 2-address instrs, exclude reg from 2nd arg */
+         /* for 2-address instrs, exclude reg from 2nd arg (unless arg#1 == arg#2) */
          if (ins->inplace && opnarg[ins->op] == 2) {
             int xreg;
             if (ins->r.t == RREG) rsclr(&free, ins->r.i);
-            else if (ins->r.t == RTMP && (xreg = instrtab[ins->r.i].reg))
-               rsclr(&free, xreg-1);
+            else if (ins->r.t == RTMP && (xreg = instrtab[ins->r.i].reg)) {
+               if (ins->r.bits != ins->l.bits)
+                  rsclr(&free, xreg-1);
+            }
          }
 
          if (!free) {
