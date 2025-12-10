@@ -3484,8 +3484,9 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          l = genload(fn, ex->ty, adr, ex->qual & QVOLATILE);
          if ((op != Oadd && op != Osub) || cls != KPTR) {
             l = cvt(fn, ty, sub[0].ty, l);
-            r = cvt(fn, ex->ty, sub[1].ty, r);
-            q = irbinop(fn, op, cls, l, r);
+            r = cvt(fn, ty, sub[1].ty, r);
+            q = irbinop(fn, op, type2cls[ty.t], l, r);
+            q = cvt(fn, ex->ty, ty, q);
          } else {
             q = genptroff(fn, op, typesize(typechild(ex->ty)), l, sub[1].ty, r);
          }
