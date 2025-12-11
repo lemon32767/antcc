@@ -26,9 +26,7 @@ hashtd(const struct typedata *td)
       h = hashb(h, (t = td->kandr, &t), sizeof t);
       h = hashb(h, (t = td->variadic, &t), sizeof t);
       for (int i = 0; i < td->nmemb; ++i) {
-         uchar q = tdgetqual(td->quals, i);
          h = hashb(h, &td->param[i], sizeof *td->param);
-         h = hashb(h, &q, sizeof q);
       }
       break;
    default:
@@ -56,9 +54,7 @@ tdequ(const struct typedata *a, const struct typedata *b)
       if (a->variadic != b->variadic) return 0;
       if (a->kandr != b->kandr) return 0;
       for (int i = 0; i < a->nmemb; ++i) {
-         if (!a->quals != !b->quals || a->param[i].bits != b->param[i].bits)
-            return 0;
-         if (a->quals && tdgetqual(a->quals, i) != tdgetqual(b->quals, i))
+         if (a->param[i].bits != b->param[i].bits)
             return 0;
       }
       return 1;
@@ -98,8 +94,6 @@ interntd(const struct typedata *td)
          case TYFUNC:
             if (slot->param)
                slot->param = alloccopy(&datarena, td->param, nmemb * sizeof *slot->param, 0);
-            if (slot->quals)
-               slot->quals = alloccopy(&datarena, td->quals, tdqualsiz(nmemb), 1);
          }
          return i;
       } else if (tdequ(slot, td)) {
@@ -179,9 +173,9 @@ mkarrtype(union type t, int qual, uint n)
 }
 
 union type
-mkfntype(union type ret, uint n, const union type *par, const uchar *qual, bool kandr, bool variadic)
+mkfntype(union type ret, uint n, const union type *par, bool kandr, bool variadic)
 {
-   struct typedata td = { TYFUNC, .ret = ret, .nmemb = n, .param = par, .quals = qual };
+   struct typedata td = { TYFUNC, .ret = ret, .nmemb = n, .param = par };
    td.kandr = kandr, td.variadic = variadic;
    return mktype(TYFUNC, .dat = interntd(&td));
 }

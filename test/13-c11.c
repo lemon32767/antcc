@@ -15,6 +15,11 @@ int foo(int x) {
    else return x;
 }
 
+int s(int n, int x[]);
+int s(int n, int *x);
+int s(int n, int (*const x));
+int s(int n, int x[*]);
+
 struct x{int h:2;} X;
 int main(int argc, char **argv) {
    return foo(0);

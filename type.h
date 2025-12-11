@@ -87,19 +87,8 @@ struct typedata {
    ushort id;
    union {
       union type child;
-      struct { /* functions */
-         const uchar *quals; /* packed N x 2bit array (NULL if no param has quals) */
-         const union type *param;
-      };
+      const union type *param; /* functions */
       struct { /* aggregates */
-        /* struct fieldmap {
-            union {
-               struct field *fs;
-               int *is;
-            };
-            const char **k;
-            uint ;
-         } *fmap; */
          struct namedfield *fld;
       };
       struct { /* enum */
@@ -131,26 +120,12 @@ struct typedata {
 extern struct typedata typedata[];
 extern const char *ttypenames[/*id*/];
 
-#define tdqualsiz(nmemb) ((nmemb)/4 + ((nmemb)%4 != 0))
-static inline int
-tdgetqual(const uchar *pqual, uint idx)
-{
-   return pqual ? pqual[idx/4] >> 2*(idx%4) & 3 : 0;
-}
-static inline void
-tdsetqual(uchar *pqual, uint idx, int qual)
-{
-   assert(pqual);
-   pqual[idx/4] &= ~(3 << (2*(idx%4)));
-   pqual[idx/4] |= (qual&3) << (2*(idx%4));
-}
-
 bool isincomplete(union type);
 uint typesize(union type);
 uint typealign(union type);
 union type mkptrtype(union type, int qual);
 union type mkarrtype(union type t, int qual, uint n);
-union type mkfntype(union type ret, uint n, const union type *, const uchar *qual, bool kandr, bool variadic);
+union type mkfntype(union type ret, uint n, const union type *, bool kandr, bool variadic);
 union type mktagtype(const char *name, struct typedata *td);
 bool getfield(struct fielddata *res, union type, const char *);
 union type completetype(const char *name, int id, struct typedata *td);

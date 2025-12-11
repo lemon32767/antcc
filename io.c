@@ -261,7 +261,7 @@ pritypeafter(struct wbuf *buf, union type ty, int qual)
       td = &typedata[ty.dat];
       n += bputc(buf, '(');
       for (int i = 0; i < td->nmemb; ++i) {
-         n += bfmt(buf, "%tq", td->param[i], tdgetqual(td->quals, i));
+         n += bfmt(buf, "%ty", td->param[i]);
          if (i < td->nmemb - 1 || td->variadic)
             n += bwriteS(buf, ", ");
       }

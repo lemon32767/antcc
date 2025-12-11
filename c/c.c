@@ -115,6 +115,7 @@ struct declstate {
         empty; /* nothing decl (';') */
    const char **pnames; /* param names for function definition */
    struct span *pspans; /* param spans ditto */
+   uchar *pqual; /* param quals ditto */
 };
 static struct decl pdecl(struct declstate *st, struct comp *cm);
 
@@ -701,7 +702,7 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
    if (callee->t == ESYM && ty.t == IMPLICITFUNCTY) { /* implicit function decl.. */
       const char *name = (void *)callee->sym;
       struct decl decl = {
-         (ty = mkfntype(mktype(TYINT), 0, NULL, NULL, /* kandr */ 1, 0)),
+         (ty = mkfntype(mktype(TYINT), 0, NULL, /* kandr */ 1, 0)),
          .scls = SCEXTERN, .span = span, .name = name, .sym = name
       };
       warn(&span, "call to undeclared function '%s'", name);
@@ -898,8 +899,9 @@ static struct expr initializer(struct comp *cm, union type *ty, enum evalmode ev
 /* parse an expression with the given operator precedence */
 /* param ident is a kludge to support block labels without backtracking or extra lookahead
  * see stmt() */
+enum exprctx { EFROMSTMT = 1, EARRAYCOUNT };
 static struct expr
-exprparse(struct comp *cm, int prec, const struct token *ident, bool fromstmt)
+exprparse(struct comp *cm, int prec, const struct token *ident, enum exprctx ctx)
 {
    struct token tk;
    struct span span;
@@ -930,8 +932,14 @@ exprparse(struct comp *cm, int prec, const struct token *ident, bool fromstmt)
 Unary:
    switch (lex(cm, &tk)) {
    /* unary operators (gather) */
+   case '*':
+      if (ctx == EARRAYCOUNT && peek(cm, NULL) == ']') {
+         /* kludge for C99 `int x[*]` (unk VLA size) */
+         return (struct expr) { 0, .span = tk.span };
+      }
+      /* fallthru */
    case '+': case '-': case '~': case '!':
-   case '*': case '&': case TKINC: case TKDEC:
+   case '&': case TKINC: case TKDEC:
    Unops:
       unops[nunop].span = tk.span;
       unops[nunop].t0 = 0;
@@ -1031,7 +1039,7 @@ Unary:
       ex = vaargexpr(cm, &span);
       break;
    default:
-      fatal(&tk.span, "expected %s (near %'tk)", fromstmt ? "statement" : "expression", &tk);
+      fatal(&tk.span, "expected %s (near %'tk)", ctx == EFROMSTMT ? "statement" : "expression", &tk);
    }
 
    ppostfixopers(cm, &ex);
@@ -1150,6 +1158,12 @@ static struct expr
 expr(struct comp *cm)
 {
    return exprparse(cm, bintab['='].prec, NULL, 0); /* non-comma expr */
+}
+
+static struct expr
+arraycountexpr(struct comp *cm)
+{
+   return exprparse(cm, bintab['='].prec, NULL, EARRAYCOUNT); /* non-comma expr, or lone '*' */
 }
 
 static struct expr
@@ -2310,7 +2324,7 @@ static bool usingdeclparamtmp;
 static union type declparamtmp[16];
 static const char *declpnamestmp[16];
 static struct span declpspanstmp[16];
-static uchar declpqualtmp[tdqualsiz(16)];
+static uchar declpqualtmp[16];
 
 static void
 declinsert(struct decllist *list, const struct decllist *node)
@@ -2391,9 +2405,20 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
       if (match(cm, &tk, '[')) {
          node.span = tk.span;
          uint n = 0;
+         int q = 0;
+         bool statik = 0;
+         if (in_range(peek(cm, &tk), TKWBEGIN_, TKWEND_)) {
+            q = cvqual(cm);
+            statik = match(cm, NULL, TKWstatic);
+            q |= cvqual(cm);
+         }
+         (void)q, (void)statik; /* stub */
+
          if (!match(cm, &tk, ']')) {
-            struct expr ex = expr(cm);
-            if (!eval(&ex, EVINTCONST)) {
+            struct expr ex = arraycountexpr(cm);
+            if (!ex.t) { /* treat ['*'] as [0] */
+               n = 0;
+            } else if (!eval(&ex, EVINTCONST)) {
                error(&ex.span, "array length is not an integer constant");
             } else if (typesize(ex.ty) < 8 && ex.i < 0) {
                error(&ex.span, "array length is negative");
@@ -2417,7 +2442,6 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
          vec_of(uchar) qual = {0};
          vec_of(const char *) names = {0};
          vec_of(struct span) spans = {0};
-         bool anyqual = 0;
 
          if (!usingdeclparamtmp) {
             usingdeclparamtmp = 1;
@@ -2456,17 +2480,13 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
                vpush(&params, decl.ty);
                vpush(&names, decl.name);
                vpush(&spans, decl.span);
-               if (decl.qual) {
-                  anyqual = 1;
-                  while (qual.n < tdqualsiz(params.n)) vpush(&qual, 0);
-                  tdsetqual(qual.p, params.n-1, decl.qual);
-               }
+               vpush(&qual, decl.qual);
                if (isincomplete(decl.ty)) {
                   if (params.n > 1 || decl.ty.t != TYVOID
                    || decl.qual || decl.name || peek(cm, &tk) != ')') {
                      error(&decl.span,
                            "function parameter #%d has incomplete type (%tq)",
-                           params.n, decl.ty, tdgetqual(qual.p, params.n-1));
+                           params.n, decl.ty, qual.p[params.n-1]);
                   }
                }
             }
@@ -2481,15 +2501,15 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
          }
          if (node.kandr && ccopt.cstd != STDC89 && params.n > 0) {
             warn(&node.span, "K&R function prototype is deprecated");
-         } else if (params.n == 1 && params.p[0].t == TYVOID && !qual.n && !names.p[0]) { /* (void) */
+         } else if (params.n == 1 && params.p[0].t == TYVOID && !qual.p[0] && !names.p[0]) { /* (void) */
             vfree(&params);
             vfree(&names);
             vfree(&spans);
+            vfree(&qual);
          }
-         if (anyqual) while (qual.n < tdqualsiz(params.n)) vpush(&qual, 0);
          node.t = TYFUNC;
          node.param = params.n ? params.p : NULL;
-         node.pqual = anyqual ? qual.p : NULL;
+         node.pqual = qual.n ? qual.p : NULL;
          node.pnames = params.n ? names.p : NULL;
          node.pspans = params.n ? spans.p : NULL;
          node.npar = params.n;
@@ -2538,15 +2558,16 @@ declarator(struct declstate *st, struct comp *cm, struct span span0) {
             error(&decl.span, "function cannot return array type '%ty'", decl.ty);
          if (l->kandr && ccopt.cstd > STDC89 && (ccopt.cstd >= STDC23 || ccopt.pedant))
             warn(&l->span, "function declaration without a prototype is deprecated");
-         decl.ty = mkfntype(decl.ty, l->npar, l->param, l->pqual, l->kandr, l->variadic);
+         decl.ty = mkfntype(decl.ty, l->npar, l->param, l->kandr, l->variadic);
          if (l->param != declparamtmp) free(l->param);
-         if (l->pqual != declpqualtmp) free(l->pqual);
          if (l->prev == &list && l->npar) { /* last */
             st->pnames = alloccopy(&cm->fnarena, l->pnames, l->npar * sizeof(char *), 0);
             st->pspans = alloccopy(&cm->fnarena, l->pspans, l->npar * sizeof(struct span), 0);
+            st->pqual = l->pqual ? alloccopy(&cm->fnarena, l->pqual, l->npar, 1) : NULL;
             decl.inlin = st->fninline;
             decl.noret = st->fnnoreturn;
          }
+         if (l->pqual != declpqualtmp) free(l->pqual);
          if (l->pnames != declpnamestmp) free(l->pnames);
          if (l->pspans != declpspanstmp) free(l->pspans);
          if (l->param == declparamtmp) usingdeclparamtmp = 0;
@@ -3776,7 +3797,7 @@ stmt(struct comp *cm, struct function *fn)
       } else {
          assert(tk.t == TKIDENT);
          /* kludge for no backtracking and no lookahead */
-         ex = exprparse(cm, 1, &tk, 1);
+         ex = exprparse(cm, 1, &tk, EFROMSTMT);
          stmtterm(cm);
          EMITS expreffects(fn, &ex);
          return fn->curblk == NULL;
@@ -4055,7 +4076,7 @@ stmt(struct comp *cm, struct function *fn)
       stmtterm(cm);
       break;
    default:
-      ex = exprparse(cm, 1, NULL, 1);
+      ex = exprparse(cm, 1, NULL, EFROMSTMT);
       stmtterm(cm);
       EMITS expreffects(fn, &ex);
       break;
@@ -4200,7 +4221,7 @@ block(struct comp *cm, struct function *fn)
 }
 
 static void
-function(struct comp *cm, struct function *fn, const char **pnames, const struct span *pspans)
+function(struct comp *cm, struct function *fn, const char **pnames, const struct span *pspans, uchar *pquals)
 {
    const struct typedata *td = &typedata[fn->fnty.dat];
    const bool doemit = fn->curblk;
@@ -4220,7 +4241,7 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
    /* add parameters to symbol table and create prologue (arguments) block */
    for (int i = 0; i < td->nmemb; ++i) {
       if (pnames[i]) {
-         struct decl arg = { .ty = td->param[i], .qual = tdgetqual(td->quals, i),
+         struct decl arg = { .ty = td->param[i], .qual = pquals ? pquals[i] : 0,
                              .name = pnames[i], .scls = SCAUTO, .span = pspans[i] };
          EMITS {
             if (isscalar(arg.ty)) {
@@ -4334,7 +4355,7 @@ docomp(struct comp *cm)
             decl.isdef = 1;
             putdecl(cm, &decl);
             irinit(&fn);
-            function(cm, &fn, st.pnames, st.pspans);
+            function(cm, &fn, st.pnames, st.pspans, st.pqual);
             if (!nerror && ccopt.dbg.p)
                irdump(&fn);
             irfini(&fn);
