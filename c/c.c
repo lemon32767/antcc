@@ -147,13 +147,12 @@ isdecltok(struct comp *cm)
 /* Environment (scope) management */
 /**********************************/
 
-static struct decl envdeclsbuf[1<<10];
-static vec_of(struct decl) envdecls = VINIT(envdeclsbuf, arraylength(envdeclsbuf));
+static vec_of(struct decl) envdecls;
 struct tagged { /* a tagged type declaration */
    union type ty;
    struct span span;
 };
-static struct tagged envtaggedbuf[1<<10];
+static struct tagged envtaggedbuf[1<<7];
 static vec_of(struct tagged) envtagged = VINIT(envtaggedbuf, arraylength(envtaggedbuf));
 struct env {
    struct env *up;
@@ -162,6 +161,8 @@ struct env {
    /* ditto for envtagged[] */
    ushort tagged, ntagged;
 };
+/* use a hashmap for lookups of top-level declarations, since there's usually many of those */
+static pmap_of(ushort) tldeclmap;
 
 static void
 envdown(struct comp *cm, struct env *e)
@@ -191,7 +192,9 @@ envadddecl(struct env *env, const struct decl *d)
 {
    assert(env->decl + env->ndecl == envdecls.n);
    vpush(&envdecls, *d);
+   assert(envdecls.n < 1<<16);
    ++env->ndecl;
+   if (!env->up) pmap_set(&tldeclmap, d->name, envdecls.n-1);
    return &envdecls.p[envdecls.n - 1];
 }
 
@@ -213,6 +216,7 @@ envaddtagged(struct env *env, union type ty, const struct span *span)
    struct tagged tagged = { ty, *span };
    assert(env->tagged + env->ntagged == envtagged.n);
    vpush(&envtagged, tagged);
+   assert(envtagged.n < 1<<16);
    ++env->ntagged;
    return &envtagged.p[envtagged.n - 1];
 }
@@ -261,8 +265,16 @@ putdecl(struct comp *cm, const struct decl *decl)
 {
    assert(!decl->isbuiltin);
    for (struct env *env = cm->env; env; env = env->up) {
-      for (struct decl *l = NULL; enviterdecl(&l, env);) {
+      struct decl *l;
+      if (!env->up) {
+         ushort *pi = pmap_get(&tldeclmap, decl->name);
+         if (pi) {
+            l = &envdecls.p[*pi];
+            goto Match;
+         }
+      } else for (l = NULL; enviterdecl(&l, env);) {
          if (decl->name == l->name) {
+         Match:
             if ((cm->env->up != NULL && decl->scls == SCSTATIC) || (l->isdef && decl->isdef)) {
                error(&decl->span, "redefinition of '%s'", decl->name);
                note(&l->span, "previously defined here");
@@ -273,6 +285,7 @@ putdecl(struct comp *cm, const struct decl *decl)
                break;
             }
             if (l->isdef && !decl->isdef) return l;
+            break;
          }
       }
       if (decl->scls != SCEXTERN) break;
@@ -285,7 +298,10 @@ finddecl(struct comp *cm, const char *name)
 {
    assert(name);
    for (struct env *e = cm->env; e; e = e->up) {
-      for (struct decl *l = NULL; enviterdecl(&l, e);) {
+      if (!e->up) {
+         ushort *pi = pmap_get(&tldeclmap, name);
+         if (pi) return &envdecls.p[*pi];
+      } else for (struct decl *l = NULL; enviterdecl(&l, e);) {
          if (name == l->name)
             return l;
       }
@@ -4262,7 +4278,11 @@ docomp(struct comp *cm)
    static struct env toplevel;
    struct token tk[1];
 
-   if (!cm->env) cm->env = &toplevel;
+   if (!cm->env) {
+      vinit(&envdecls, NULL, 1<<10);
+      pmap_init(&tldeclmap, 1<<8);
+      cm->env = &toplevel;
+   }
    if (!cvalistty.t) {
       struct typedata td = {
          .t = TYSTRUCT, .siz = targ_valistsize, .align = targ_primalign[TYPTR], .nmemb = 1,
