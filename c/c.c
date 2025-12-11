@@ -443,13 +443,17 @@ subscriptcheck(const struct expr *ex, const struct expr *rhs, const struct span 
    return ty;
 }
 
-static void /* 6.5.3.4 The sizeof operator */
-sizeofcheck(const struct span *span, union type ty)
+static void /* 6.5.3.4 The sizeof and _Alignof operators */
+sizeofalignofcheck(const struct span *span, enum toktag tt, union type ty, const struct expr *ex)
 {
    if (isincomplete(ty))
-      error(span, "cannot apply sizeof to incomplete type '%ty'", ty);
+      error(span, "cannot apply %'tt to incomplete type '%ty'", tt);
    else if (ty.t == TYFUNC)
-      error(span, "cannot apply sizeof to function type '%ty'", ty);
+      error(span, "cannot apply %'tt to function type '%ty'", tt);
+   else if (tt == TKWsizeof && ex && ex->t == EGETF && ex->fld.bitsiz)
+      error(span, "cannot apply %'tt to bitfield", tt);
+   if (tt != TKWsizeof && ex && ccopt.pedant)
+      warn(span, "%'tt applied to an expression is a GNU extension", tt);
 }
 
 static bool /* 6.5.8 Relational operators */
@@ -998,25 +1002,28 @@ Unary:
          ex = mkexpr(ESYM, tk.span, decl->ty, .qual = decl->qual, .sym = decl);
       }
       break;
-   case TKWsizeof:
+   case TKWsizeof: case TKW_Alignof: case TKWalignof:
       span = tk.span;
-      if (!match(cm, NULL, '(')) /* sizeof expr */
+      if (!match(cm, NULL, '(')) /* sizeof/alignof expr */
          goto Unops;
-      else if (isdecltok(cm)) { /* sizeof (type) */
+      else if (isdecltok(cm)) { /* sizeof/alignof (type) */
+         enum toktag tt = tk.t;
          struct declstate st = { DCASTEXPR };
          ty = pdecl(&st, cm).ty;
          peek(cm, &tk);
          if (expect(cm, ')', NULL))
             joinspan(&span.ex, tk.span.ex);
-      } else { /* sizeof expr */
+         sizeofalignofcheck(&span, tt, ty, NULL);
+      } else { /* sizeof/alignof expr */
+         enum toktag tt = tk.t;
          tmp = commaexpr(cm);
          peek(cm, &tk);
          if (expect(cm, ')', NULL))
             joinspan(&span.ex, tk.span.ex);
          ppostfixopers(cm, &tmp);
          ty = tmp.ty;
+         sizeofalignofcheck(&span, tt, ty, &tmp);
       }
-      sizeofcheck(&span, ty);
       ex = mkexpr(ENUMLIT, span, mktype(targ_sizetype), .u = typesize(ty));
       break;
    case TKW__builtin_va_arg:
@@ -1081,8 +1088,8 @@ Unary:
                error(&span, "cannot take address of bitfield");
             ex = mkexpr(EADDROF, span, mkptrtype(ex.ty, ex.qual), .sub = exprdup(cm, &ex));
             break;
-         case TKWsizeof:
-            sizeofcheck(&span, ex.ty);
+         case TKWsizeof: case TKW_Alignof: case TKWalignof:
+            sizeofalignofcheck(&span, unops[nunop].tt, ex.ty, &ex);
             ex = mkexpr(ENUMLIT, span, mktype(targ_sizetype), .u = typesize(ex.ty));
             break;
          default: assert(0);

@@ -87,6 +87,15 @@ typedef __builtin_va_list __gnuc_va_list;\n\
 #define noreturn _Noreturn\n\
 ")},
 
+{"stdalign.h", S("\
+#if __STDC_VERSION__ < 202311L\n\
+#define alignas _Alignas\n\
+#define alignof _Alignof\n\
+#define __alignas_is_defined 1\n\
+#define __alignof_is_defined 1\n\
+#endif\n\
+")},
+
    {NULL}
 };
 

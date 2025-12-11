@@ -16,6 +16,7 @@ typedef unsigned short ushort;
 typedef unsigned long long uvlong;
 typedef   signed long long vlong;
 typedef unsigned uint;
+
 #if __STDC_VERSION__ >= 202311L
 #define NORETURN [[noreturn]]
 #elif __STDC_VERSION__ >= 201112L
@@ -29,6 +30,7 @@ typedef unsigned uint;
 #else
 #define HAS_BUILTIN(_) 0
 #endif
+
 #define static_assert(x) _Static_assert(x, #x)
 #define in_range(x, Lo, Hi) ((uint) (x) - (Lo) <= (Hi) - (Lo)) /* lo <= x <= hi; lo > 0, hi > 0 */
 #define alignup(x, A) (((x) + ((A) - 1)) & -(A))

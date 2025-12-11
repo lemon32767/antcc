@@ -595,8 +595,8 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
                   #include "c/keywords.def"
                   #undef _
                   };
-                  n += bfmt(buf, "%s", tab[tok->t - TKWBEGIN_]);
-                  break;
+                  tok->s = tab[tok->t - TKWBEGIN_];
+                  tok->len = strlen(tok->s);
                }
                goto Tok;
             }
