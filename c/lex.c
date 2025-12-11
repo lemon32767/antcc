@@ -1303,12 +1303,11 @@ tkprec(int tt)
 static vlong
 expr(struct lexer *lx, bool *pu, int prec, bool ignore)
 {
-   vlong x, y;
    struct token tk;
    enum typetag ty;
-   int opprec;
    char unops[16];
    int nunop = 0;
+   vlong x, y;
    bool xu = 0, yu; /* x unsigned?; y unsigned? */
 
 Unary:
@@ -1342,7 +1341,6 @@ Unary:
       break;
    default:
       if (isppident(tk)) {
-         //efmt("in expr>> %s\n", tk.s);
          xu = 0;
          if (!strcmp(tk.s, "defined")) {
             /* 'defined' ppident */
@@ -1359,9 +1357,8 @@ Unary:
             }
             x = findmac(tk.s) != NULL;
          } else {
-            if (tryexpand(lx, &tk)){
-               goto Unary;}
-            //efmt(" << NOT defined %d>> %s %p\n", noexpandmac, tk.s, findmac(tk.s));
+            if (tryexpand(lx, &tk))
+               goto Unary;
             /* non defined pp name -> 0 */
             x = 0;
          }
@@ -1371,22 +1368,35 @@ Unary:
       goto Err;
    }
 
-   while (nunop > 0)
-      switch (unops[--nunop]) {
+   while (nunop > 0) switch (unops[--nunop]) {
       case '-': x = -(uvlong)x; break;
       case '~': x = ~x; break;
       case '!': x = !x; break;
       default: assert(0);
-      }
+   }
 
-   while ((opprec = tkprec(epeek(lx, &tk))) >= prec) {
+   for (int opprec; (opprec = tkprec(epeek(lx, &tk))) >= prec;) {
       elex(lx, &tk);
-      if (tk.t != '?') {
-         bool u;
-         if (tk.t != TKLOGAND && tk.t != TKLOGIOR) {
-            y = expr(lx, &yu, opprec + 1, ignore);
-            u = xu | yu;
+      if (tk.t == TKLOGAND) {
+         x = !!x & !!expr(lx, &yu, opprec+1, ignore || !x);
+         xu = 0;
+      } else if (tk.t == TKLOGIOR) {
+         x = !!x | !!expr(lx, &yu, opprec+1, ignore || x);
+         xu = 0;
+      } else if (tk.t == '?') {
+         struct span span = tk.span;
+         vlong m = expr(lx, &xu, 1, ignore || !x);
+         if (elex(lx, &tk) != ':') {
+            error(&tk.span, "expected ':'");
+            note(&span, "to match conditional expression here");
+            goto Err;
          }
+         y = expr(lx, &yu, 1, ignore || x);
+         x = x ? m : y;
+         xu |= yu;
+      } else {
+         y = expr(lx, &yu, opprec + 1, ignore);
+         bool u = xu | yu;
          switch ((int) tk.t) {
          case   '+': x += (uvlong) y; break;
          case   '-': x -= (uvlong) y; break;
@@ -1406,9 +1416,11 @@ Unary:
                      else if (ignore) x = 0;
                      else goto BadShift;
                      break;
+                     u = xu;
          case TKSHR: if ((uvlong)y < 64) x = u ? (uvlong) x >> y : x >> y;
                      else if (ignore) x = 0;
                      else BadShift: error(&tk.span, "bad shift by %ld", y);
+                     u = xu;
                      break;
          case   '<': x = u ? (uvlong) x < y  : x < y;  u = 0; break;
          case   '>': x = u ? (uvlong) x > y  : x > y;  u = 0; break;
@@ -1416,29 +1428,17 @@ Unary:
          case TKGTE: x = u ? (uvlong) x >= y : x >= y; u = 0; break;
          case TKEQU: x = x == y; u = 0; break;
          case TKNEQ: x = x != y; u = 0; break;
-         case TKLOGAND: x = !!x & !!expr(lx, &yu, opprec+1, ignore || !x); u = 0; break;
-         case TKLOGIOR: x = !!x | !!expr(lx, &yu, opprec+1, ignore || x);  u = 0; break;
          default: assert(0);
          }
          xu = u;
-      } else {
-         struct span span = tk.span;
-         vlong m = expr(lx, &xu, 1, ignore || !x);
-         if (elex(lx, &tk) != ':') {
-            error(&tk.span, "expected ':'");
-            note(&span, "to match conditional expression here");
-            goto Err;
-         }
-         y = expr(lx, &yu, 1, ignore || x);
-         x = x ? m : y;
-         xu |= yu;
       }
    }
-   if (!prec) /* not a sub expr */
+   if (!prec) { /* not a sub expr */
       if (elex(lx, &tk) != '\n' && tk.t != TKEOF) {
          error(&tk.span, "garbage after preprocessor expression");
          ppskipline(lx);
       }
+   }
    if (pu) *pu = xu;
    return x;
 
