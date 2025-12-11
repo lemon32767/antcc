@@ -202,6 +202,9 @@ optparse(char **args)
          }
          /* TODO depfiles */
       } else if (*arg == 'W') {
+         if (!strcmp(arg+1, "error")) {
+            ccopt.werror = 1;
+         }
          /* TODO warning switches */
       } else Bad: warn(NULL, "unrecognized option: %'s", arg-1);
    }

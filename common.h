@@ -129,6 +129,7 @@ struct option {
    bool trigraph;
    bool nocolor;
    bool pie, pic;
+   bool werror;
    union {
       struct {
          bool p : 1, /* after parsing */
