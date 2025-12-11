@@ -83,6 +83,10 @@ typedef __builtin_va_list __gnuc_va_list;\n\
 #define LDBL_TRUE_MIN    4.94066e-324\n\
 ")},
 
+{"stdnoreturn.h", S("\
+#define noreturn _Noreturn\n\
+")},
+
    {NULL}
 };
 

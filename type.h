@@ -5,8 +5,6 @@
 enum qualifier {
    QCONST    = 1<<0,
    QVOLATILE = 1<<1,
-   QNORETURN = 1<<2, /* functions */
-   QINLINE   = 1<<3, /* functions */
 };
 
 enum typetag { /* ordering is important here! */

@@ -98,8 +98,10 @@ enum declkind {
 struct declstate {
    enum declkind kind;
    union type base;
-   enum storageclass scls;
-   enum qualifier qual;
+   uchar scls;
+   uchar qual;
+   bool fnnoreturn : 1,
+        fninline : 1;
    uint align;
    bool base0, /* caller set initial base type, but there may be declspecs to parse */
         more, /* caller should keep calling pdecl to get next decl */
@@ -129,6 +131,7 @@ isdecltok(struct comp *cm)
    case TKWint: case TKWchar: case TKW_Bool: case TKWauto:
    case TKWstruct: case TKWunion: case TKWenum: case TKWtypedef:
    case TKWextern: case TKWstatic: case TKWinline: case TKW_Noreturn:
+   case TKW_Thread_local: case TKWthread_local:
    case TKWconst: case TKWvolatile: case TKWvoid: case TKWfloat:
    case TKWdouble: case TKWregister: case TKW_Static_assert:
    case TKW__typeof__: case TKWtypeof: case TKWtypeof_unqual:
@@ -2048,7 +2051,7 @@ ptypeof(struct comp *cm)
    return ty;
 }
 
-static bool
+static void
 declspec(struct declstate *st, struct comp *cm, struct span *pspan)
 {
    struct token tk;
@@ -2067,27 +2070,45 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
    } arith = 0;
    struct span span = {0};
    union type ty = st->base;
+   bool properdecl = st->kind == DFUNCVAR || st->kind == DTOPLEVEL;
 
    for (bool first = 1;; first = 0) {
+      enum storageclass scls = 0;
       peek(cm, &tk);
       if (first) span = tk.span;
       switch (tk.t) {
-      case TKWconst:
-         st->qual |= QCONST;
-         break;
-      case TKWrestrict:
-         /* unimplemented */
-         /*st->qual |= QRESTRICT;*/
-         break;
-      case TKWvolatile:
-         st->qual |= QVOLATILE;
+      /* storage-class-specifier */
+      case TKWtypedef:  scls = SCTYPEDEF; break;
+      case TKWextern:   scls = SCEXTERN; break;
+      case TKWstatic:   scls = SCSTATIC; break;
+      case TKWauto:     scls = SCAUTO; break;
+      case TKWregister: scls = SCREGISTER; break;
+      case TKWthread_local:
+      case TKW_Thread_local: scls = SCTHREADLOCAL; break;
+
+      /* function-specifier */
+      case TKWinline:
+         if (!properdecl) BadFnSpec: {
+            error(&tk.span, "function specifier %'tk is not allowed here", &tk);
+            break;
+         }
+         st->fninline = 1;
          break;
       case TKW_Noreturn:
-         st->qual |= QNORETURN;
+         if (!properdecl) goto BadFnSpec;
+         st->fnnoreturn = 1;
          break;
-      case TKWinline:
-         st->qual |= QINLINE;
-         break;
+
+      /* alignment-specifier */
+      case TKW_Alignas: assert(!"nyi alignas"); break;
+
+      /* type-qualifier */
+      case TKWconst: st->qual |= QCONST; break;
+      case TKWvolatile: st->qual |= QVOLATILE; break;
+      case TKWrestrict: /* unimplemented */ break;
+      case TKW_Atomic: /* unimplemented */ break;
+
+      /* type-specifier */
       case TKWvoid:
          if (st->base.t) {
          DupBase:
@@ -2158,7 +2179,6 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
          if (!st->base.t && !arith && (decl = finddecl(cm, tk.s))
              && decl->scls == SCTYPEDEF) {
             lex(cm, &tk);
-            if (st->base.t) goto DupBase;
             st->base = decl->ty;
             continue;
          }
@@ -2171,15 +2191,26 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
          error(&tk.span, "%'tk is unsupported", &tk);
          arith = arith ? arith : KINT;
       }
+
+      if ((!properdecl && scls) || (scls == SCAUTO && st->kind == DTOPLEVEL))
+         error(&tk.span, "storage class specifier %'tk is not allowed here", &tk);
+      else
+         st->scls |= scls;
+
       joinspan(&span.ex, tk.span.ex);
       lex(cm, &tk);
    }
 End:
    if (pspan) *pspan = span;
+
+   if (st->scls && properdecl) {
+      if (popcnt(st->scls) > 1)
+         error(&span, "invalid combination of storage class specifiers");
+   }
    if (st->base.t && arith) {
       /* combining arith type specifiers and other types */
    Bad:
-      error(&span, "invalid declaration specifier");
+      error(&span, "invalid type specifiers");
       st->base = mktype(TYINT);
    } else if (!st->base.t && arith) {
       enum typetag t;
@@ -2218,14 +2249,13 @@ End:
       st->base = mktype(t ? t : TYINT);
    } else if (!st->base.t) {
       if (ccopt.cstd < STDC23) {
-         warn(&span, "type implicitly declared as int");
+         if (ccopt.cstd > STDC89)
+            warn(&tk.span, "type implicitly declared as int");
          st->base = mktype(TYINT);
       } else {
-         fatal(&span, "expected declaration type specifier");
+         error(&tk.span, "type specifier missing");
       }
-      return 0;
    }
-   return 1;
 }
 
 /* circular doubly linked list used to parse declarators */
@@ -2263,29 +2293,6 @@ declinsert(struct decllist *list, const struct decllist *node)
 	pnode->prev = list;
 	list->next->prev = pnode;
 	list->next = pnode;
-}
-
-static int
-sclass(struct comp *cm, struct span *span)
-{
-   struct token tk;
-   int sc = 0, first = 1;
-   for (;; lex(cm, &tk)) {
-      switch (peek(cm, &tk)) {
-      case TKWtypedef:  sc |= SCTYPEDEF; break;
-      case TKWextern:   sc |= SCEXTERN; break;
-      case TKWstatic:   sc |= SCSTATIC; break;
-      case TKWauto:     sc |= SCAUTO; break;
-      case TKWregister: sc |= SCREGISTER; break;
-      case TKWthread_local:
-      case TKW_Thread_local:
-         sc |= SCTHREADLOCAL; break;
-      default: return sc;
-      }
-      if (first) *span = tk.span;
-      else joinspan(&span->ex, tk.span.ex);
-      first = 0;
-   }
 }
 
 static int
@@ -2393,47 +2400,61 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
          node.span = tk.span;
          node.kandr = 0;
          node.variadic = 0;
+         if (ccopt.cstd < STDC23 && !isdecltok(cm)) {
+            node.kandr = 1;
+         }
 
-         while (!match(cm, &tk, ')')) {
-            struct declstate st = { DFUNCPARAM };
-            struct decl decl;
+         if (!match(cm, &tk, ')')) for (;;) {
             if (match(cm, &tk, TKDOTS)) {
                node.variadic = 1;
                expect(cm, ')', NULL);
                break;
             }
-            decl = pdecl(&st, cm);
-            decl.ty = typedecay(decl.ty);
-            vpush(&params, decl.ty);
-            vpush(&names, decl.name);
-            vpush(&spans, decl.span);
-            if (decl.qual) {
-               anyqual = 1;
-               while (qual.n < tdqualsiz(params.n)) vpush(&qual, 0);
-               tdsetqual(qual.p, params.n-1, decl.qual);
-            }
-            if (isincomplete(decl.ty)) {
-               if (params.n > 1 || decl.ty.t != TYVOID || decl.qual || decl.name) {
-                  error(&decl.span,
-                        "function parameter #%d has incomplete type (%tq)",
-                        params.n, decl.ty, tdgetqual(qual.p, params.n-1));
+            if (node.kandr) {
+               if (match(cm, &tk, TKIDENT)) {
+                  vpush(&params, mktype(TYINT));
+                  vpush(&names, tk.s);
+                  vpush(&spans, tk.span);
+               } else error(&tk.span, "expected identifier");
+            } else if (!isdecltok(cm) && peek(cm, &tk) != TKIDENT) {
+               error(&tk.span, "expected parameter declarator");
+            } else {
+               struct declstate st = { DFUNCPARAM };
+               struct decl decl;
+               decl = pdecl(&st, cm);
+               decl.ty = typedecay(decl.ty);
+               vpush(&params, decl.ty);
+               vpush(&names, decl.name);
+               vpush(&spans, decl.span);
+               if (decl.qual) {
+                  anyqual = 1;
+                  while (qual.n < tdqualsiz(params.n)) vpush(&qual, 0);
+                  tdsetqual(qual.p, params.n-1, decl.qual);
+               }
+               if (isincomplete(decl.ty)) {
+                  if (params.n > 1 || decl.ty.t != TYVOID
+                   || decl.qual || decl.name || peek(cm, &tk) != ')') {
+                     error(&decl.span,
+                           "function parameter #%d has incomplete type (%tq)",
+                           params.n, decl.ty, tdgetqual(qual.p, params.n-1));
+                  }
                }
             }
             peek(cm, &tk);
-            joinspan(&span->ex, tk.span.ex);
-            if (!match(cm, &tk, ',')) {
-               expect(cm, ')', NULL);
+            joinspan(&node.span.ex, tk.span.ex);
+            if (!match(cm, &tk, ',')) { 
+               expect(cm, ')', "or `,'");
                break;
             }
+         } else {
+            if (ccopt.cstd < STDC23) node.kandr = 1;
          }
-         node.kandr = params.n == 0 && ccopt.cstd < STDC23;
-         if (params.n == 1 && params.p[0].t == TYVOID && !qual.n && !names.p[0]) { /* (void) */
+         if (node.kandr && ccopt.cstd != STDC89 && params.n > 0) {
+            warn(&node.span, "K&R function prototype is deprecated");
+         } else if (params.n == 1 && params.p[0].t == TYVOID && !qual.n && !names.p[0]) { /* (void) */
             vfree(&params);
             vfree(&names);
             vfree(&spans);
-         } else if (params.n && params.p[0].t == TYVOID && !qual.n && !names.p[0]) {
-            error(&node.span, "function parameter #1 has incomplete type (%tq)",
-                  params.p[0], tdgetqual(qual.p, 0));
          }
          if (anyqual) while (qual.n < tdqualsiz(params.n)) vpush(&qual, 0);
          node.t = TYFUNC;
@@ -2450,7 +2471,7 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
 
 static struct decl
 declarator(struct declstate *st, struct comp *cm, struct span span0) {
-   struct decl decl = { st->base, st->scls, st->qual, st->align, .span = span0 };
+   struct decl decl = { st->base, st->scls, .qual = st->qual, .align = st->align, .span = span0 };
    struct decllist list = { &list, &list }, *l;
    static bool inidecltmp = 0;
    struct span namespan ={0};
@@ -2493,6 +2514,8 @@ declarator(struct declstate *st, struct comp *cm, struct span span0) {
          if (l->prev == &list && l->npar) { /* last */
             st->pnames = alloccopy(&cm->fnarena, l->pnames, l->npar * sizeof(char *), 0);
             st->pspans = alloccopy(&cm->fnarena, l->pspans, l->npar * sizeof(struct span), 0);
+            decl.inlin = st->fninline;
+            decl.noret = st->fnnoreturn;
          }
          if (l->pnames != declpnamestmp) free(l->pnames);
          if (l->pspans != declpspanstmp) free(l->pspans);
@@ -2544,8 +2567,7 @@ static struct decl
 pdecl(struct declstate *st, struct comp *cm) {
    struct token tk;
    struct decl decl;
-   bool iniallowed = st->kind != DFIELD && st->kind != DFUNCPARAM && st->kind != DCASTEXPR;
-   bool staticassertok = iniallowed;
+   bool properdecl = st->kind == DTOPLEVEL || st->kind == DFUNCVAR;
    bool first = 0;
 
    assert(!st->funcdef);
@@ -2557,7 +2579,7 @@ pdecl(struct declstate *st, struct comp *cm) {
 
    if (st->base0) goto DeclSpec;
    if (!st->base.t) {
-      if (staticassertok && (match(cm, &tk, TKW_Static_assert) || match(cm, &tk, TKWstatic_assert))) {
+      if (properdecl && (match(cm, &tk, TKW_Static_assert) || match(cm, &tk, TKWstatic_assert))) {
          pstaticassert(cm, &tk.span);
          return (struct decl){0};
       }
@@ -2566,50 +2588,31 @@ pdecl(struct declstate *st, struct comp *cm) {
          st->empty = 1;
          return (struct decl){.span = tk.span};
       }
-      peek(cm, &tk);
-      st->scls = sclass(cm, &tk.span);
-      if (popcnt(st->scls) > 1)
-         error(&tk.span, "invalid combination of storage class specifiers");
-      else {
-         int allowed;
-         switch (st->kind) {
-         case DTOPLEVEL: allowed = SCTYPEDEF | SCEXTERN | SCSTATIC | SCTHREADLOCAL; break;
-         case DCASTEXPR: allowed = 0; break;
-         case DFIELD: allowed = 0; break;
-         case DFUNCPARAM: allowed = 0; break;
-         case DFUNCVAR:
-            allowed = SCTYPEDEF | SCREGISTER | SCAUTO | SCEXTERN | SCSTATIC | SCTHREADLOCAL;
-            break;
-         default: assert(0);
-         }
-         if ((st->scls & allowed) != st->scls)
-            error(&tk.span, "this storage class is not allowed in this context");
-         st->scls &= allowed;
-      }
-      peek(cm, &tk);
+
    DeclSpec:
       st->base0 = 0;
-      if (!declspec(st, cm, &decl.span) && st->kind != DTOPLEVEL) {
-         if (lex(cm, &tk) == TKIDENT)
-            error(&tk.span, "unknown type name %'s", tk.s);
-      }
+      declspec(st, cm, &decl.span);
    } else {
       peek(cm, &tk);
       decl.span = tk.span;
    }
-   if (st->scls == SCTYPEDEF) iniallowed = 0;
+   if (st->scls == SCTYPEDEF) properdecl = 0;
 
    if (first && st->tagdecl && match(cm, &tk, ';')) {
-      decl = (struct decl) { st->base, st->scls, st->qual, st->align, .span = decl.span };
+      decl = (struct decl) { st->base, st->scls, st->qual, .align = st->align, .span = decl.span };
       return decl;
    } else if (st->kind == DFIELD && match(cm, &tk, ':')) {
-      decl = (struct decl) { st->base, st->scls, st->qual, st->align, .span = decl.span };
+      decl = (struct decl) { st->base, st->scls, st->qual, .align = st->align, .span = decl.span };
       st->bitf = 1;
       return decl;
    }
    decl = declarator(st, cm, decl.span);
+   if (decl.ty.t != TYFUNC && st->fninline)
+      error(&decl.span, "`inline' used on non-function declaration");
+   if (decl.ty.t != TYFUNC && st->fnnoreturn)
+      error(&decl.span, "`_Noreturn' used on non-function declaration");
 
-   if (iniallowed && match(cm, &tk, '=')) {
+   if (properdecl && match(cm, &tk, '=')) {
       st->varini = 1;
       return decl;
    } else if (first && decl.ty.t == TYFUNC && match(cm, &tk, '{')) {
@@ -3139,8 +3142,8 @@ compilecall(struct function *fn, const struct expr *ex)
    struct instr insnsbuf[10];
    vec_of(struct instr) insns = VINIT(insnsbuf, arraylength(insnsbuf));
 
-   if (ex->sub[0].t == ESYM && ex->sub[0].sym->isbuiltin) {
-      return ex->sub[0].sym->builtin->comp(fn, (struct expr *)ex, 0);
+   if (sub[0].t == ESYM && sub[0].sym->isbuiltin) {
+      return sub[0].sym->builtin->comp(fn, (struct expr *)ex, 0);
    }
    ins.op = Ocall;
    if (isagg(ex->ty)) {
@@ -3161,7 +3164,10 @@ compilecall(struct function *fn, const struct expr *ex)
       addinstr(fn, insns.p[i]);
    vfree(&insns);
    ins.r = mkcallarg(mkirtype(ex->ty), ex->narg, td->variadic ? td->nmemb : td->kandr ? 0 : -1);
-   return addinstr(fn, ins);
+   union ref r = addinstr(fn, ins);
+   if (sub[0].t == ESYM && sub[0].sym->noret) /* trap if noreturn func returns */
+      puttrap(fn);
+   return r;
 }
 
 static union ref

@@ -86,6 +86,8 @@ struct decl {
    union type ty;
    uchar scls;
    uchar qual : 2,
+         noret : 1,
+         inlin : 1,
          isenum : 1,
          isdef : 1,
          isbuiltin : 1;

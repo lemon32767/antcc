@@ -186,7 +186,6 @@ mkfntype(union type ret, uint n, const union type *par, const uchar *qual, bool 
    return mktype(TYFUNC, .dat = interntd(&td));
 }
 
-
 union type
 completetype(const char *name, int id, struct typedata *td)
 {
