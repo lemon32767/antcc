@@ -449,12 +449,12 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
    }
 }
 
-#define DEFINSTR1(X, ...)                                          \
-   static void                                                     \
-   X(uchar **pcode, enum irclass k, struct oper oper)              \
-   {                                                               \
-      static const struct desc tab[] = { __VA_ARGS__ };            \
-      encode(pcode, tab, arraylength(tab), k, oper, mkoper(0,));   \
+#define DEFINSTR1(X, ...)                                    \
+   static void                                               \
+   X(uchar **pcode, enum irclass k, struct oper oper)        \
+   {                                                         \
+      static const struct desc tab[] = { __VA_ARGS__ };      \
+      encode(pcode, tab, countof(tab), k, oper, mkoper(0,)); \
    }
 
 #define DEFINSTR2(X, ...)                                             \
@@ -462,7 +462,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
    X(uchar **pcode, enum irclass k, struct oper dst, struct oper src) \
    {                                                                  \
       static const struct desc tab[] = { __VA_ARGS__ };               \
-      encode(pcode, tab, arraylength(tab), k, dst, src);              \
+      encode(pcode, tab, countof(tab), k, dst, src);                  \
    }
 
 DEFINSTR2(Xmovb,
@@ -500,7 +500,7 @@ static void Xmov(uchar **pcode, enum irclass k, struct oper dst, struct oper src
       [KF32] = 7,
       [KF64] = 10,
    };
-   encode(pcode, all + k2off[k], arraylength(all) - k2off[k], k, dst, src);
+   encode(pcode, all + k2off[k], countof(all) - k2off[k], k, dst, src);
 }
 DEFINSTR2(Xmovsxl,
    {8, PGPR, PMEM, "\x63", EN_RM}, /* MOVSXD r64, m32 */
@@ -702,10 +702,10 @@ Ximul(uchar **pcode, enum irclass k, struct oper dst, struct oper s1, struct ope
    }
    assert(s2.t == OIMM);
    if ((uint)(s2.imm + 128) < 256) {
-      encode(pcode, imm8tab, arraylength(imm8tab), k, dst, s1);
+      encode(pcode, imm8tab, countof(imm8tab), k, dst, s1);
       B(s2.imm);
    } else {
-      encode(pcode, imm32tab, arraylength(imm32tab), k, dst, s1);
+      encode(pcode, imm32tab, countof(imm32tab), k, dst, s1);
       I32(s2.imm);
    }
 }

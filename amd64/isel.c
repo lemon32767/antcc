@@ -640,7 +640,7 @@ amd64_isel(struct function *fn)
       for (i = 0; i < blk->ins.n; ++i) {
          struct instr *ins = &instrtab[blk->ins.p[i]];
          sel(fn, ins, blk, &i);
-         if (ins->op < arraylength(opflags) && kisint(insrescls(*ins))) {
+         if (ins->op < countof(opflags) && kisint(insrescls(*ins))) {
             if (opflags[ins->op] & ZF) iflagsrc = ins - instrtab;
             else if (opflags[ins->op] & CLOBF) iflagsrc = -1;
          }

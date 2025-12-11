@@ -234,7 +234,7 @@ mem2reg(struct function *fn)
 
    FREQUIRE(FNUSE);
 
-   if (fn->nblk <= 64 * arraylength(bsbuf[0])) {
+   if (fn->nblk <= 64 * countof(bsbuf[0])) {
       sb.sealed = bsbuf[0];
       sb.marked = bsbuf[1];
       memset(bsbuf[0], 0, BSSIZE(fn->nblk) * sizeof *bsbuf[0]);

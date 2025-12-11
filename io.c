@@ -810,12 +810,12 @@ getpredeffile(struct memfile **pf, const char *name)
 {
    struct file *f;
    struct fileuid uid;
-   uint h, id, n = arraylength(fileht);
+   uint h, id, n = countof(fileht);
 
    uid.dev = -11;
    uid.ino = hashs(0, name);
    for (id = h = uid.dev ^ uid.ino;; ++id) {
-      id &= arraylength(fileht) - 1;
+      id &= countof(fileht) - 1;
       f = fileht[id];
       if (f && f->uid.dev == uid.dev && f->uid.ino == uid.ino) {
          break;
@@ -842,7 +842,7 @@ openfile(const char **err, struct memfile **pf, const char *path)
    struct stat st;
    struct file *f;
    struct fileuid uid;
-   uint h, id, n = arraylength(fileht);
+   uint h, id, n = countof(fileht);
 
    if (*path == '@' && path[1] == ':') {
       uid.dev = -1;
@@ -855,7 +855,7 @@ openfile(const char **err, struct memfile **pf, const char *path)
       uid.dev = st.st_dev, uid.ino = st.st_ino;
    }
    for (id = h = uid.dev ^ uid.ino;; ++id) {
-      id &= arraylength(fileht) - 1;
+      id &= countof(fileht) - 1;
       f = fileht[id];
       if (f && f->uid.dev == uid.dev && f->uid.ino == uid.ino) {
          break;
@@ -882,14 +882,14 @@ openfile(const char **err, struct memfile **pf, const char *path)
 const char *
 getfilename(int id)
 {
-   assert((uint)id < arraylength(fileht) && fileht[id]);
+   assert((uint)id < countof(fileht) && fileht[id]);
    return fileht[id]->path;
 }
 
 struct memfile *
 getfile(int id)
 {
-   assert((uint)id < arraylength(fileht) && fileht[id]);
+   assert((uint)id < countof(fileht) && fileht[id]);
    return &fileht[id]->f;
 }
 
@@ -898,7 +898,7 @@ addfileline(int id, uint off)
 {
    vec_of(uint) *lineoffs;
 
-   assert((uint)id < arraylength(fileht) && fileht[id]);
+   assert((uint)id < countof(fileht) && fileht[id]);
    lineoffs = (void *)&fileht[id]->lineoffs;
    if (lineoffs->n && off > lineoffs->p[lineoffs->n-1])
       vpush(lineoffs, off);
@@ -910,7 +910,7 @@ getfilepos(int *line, int *col, int id, uint off)
    uint *offs, n;
    int l = 0, h, i = 0;
 
-   assert((uint)id < arraylength(fileht) && fileht[id]);
+   assert((uint)id < countof(fileht) && fileht[id]);
    offs = fileht[id]->lineoffs.p;
    n = fileht[id]->lineoffs.n;
    h = n - 1;
@@ -930,7 +930,7 @@ getfilepos(int *line, int *col, int id, uint off)
 bool
 isoncefile(int id, const char **guard)
 {
-   assert(id < arraylength(fileht) && fileht[id]);
+   assert(id < countof(fileht) && fileht[id]);
    *guard = fileht[id]->guardmac;
    return fileht[id]->once;
 }
@@ -938,7 +938,7 @@ isoncefile(int id, const char **guard)
 void
 markfileonce(int id, const char *guard)
 {
-   assert(id < arraylength(fileht) && fileht[id]);
+   assert(id < countof(fileht) && fileht[id]);
    fileht[id]->once = 1;
    fileht[id]->guardmac = guard;
 }
@@ -946,21 +946,21 @@ markfileonce(int id, const char *guard)
 void
 markfileseen(int id)
 {
-   assert(id < arraylength(fileht) && fileht[id]);
+   assert(id < countof(fileht) && fileht[id]);
    fileht[id]->seen = 1;
 }
 
 bool
 isfileseen(int id)
 {
-   assert(id < arraylength(fileht) && fileht[id]);
+   assert(id < countof(fileht) && fileht[id]);
    return fileht[id]->seen;
 }
 
 void
 closefile(int id)
 {
-   assert(id < arraylength(fileht) && fileht[id]);
+   assert(id < countof(fileht) && fileht[id]);
    mapclose(&fileht[id]->f);
 }
 

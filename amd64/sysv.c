@@ -69,7 +69,7 @@ static int
 abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, union irtype typ)
 {
    static const uchar intregs[] = { RDI, RSI, RDX, RCX, R8, R9 };
-   enum { NINT = arraylength(intregs), NFLT = 8 };
+   enum { NINT = countof(intregs), NFLT = 8 };
    int ret, ni_save, nf_save;
 
    if (!typ.isagg) {

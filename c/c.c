@@ -143,7 +143,7 @@ isdecltok(struct comp *cm)
          kw(__typeof__), kw(typeof), kw(typeof_unqual),
 #undef _
       };
-      return ((uint)tk.t-TKWBEGIN_) < arraylength(kws) && kws[tk.t-TKWBEGIN_];
+      return ((uint)tk.t-TKWBEGIN_) < countof(kws) && kws[tk.t-TKWBEGIN_];
    }
 }
 
@@ -158,7 +158,7 @@ struct tagged { /* a tagged type declaration */
    struct span span;
 };
 static struct tagged envtaggedbuf[1<<7];
-static vec_of(struct tagged) envtagged = VINIT(envtaggedbuf, arraylength(envtaggedbuf));
+static vec_of(struct tagged) envtagged = VINIT(envtaggedbuf, countof(envtaggedbuf));
 struct env {
    struct env *up;
    /* list of decls is implicitly envdecls[decl..ndecl] */
@@ -689,7 +689,7 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
    union type ty = callee->ty;
    const struct typedata *td = NULL;
    struct expr argbuf[10];
-   vec_of(struct expr) args = VINIT(argbuf, arraylength(argbuf));
+   vec_of(struct expr) args = VINIT(argbuf, countof(argbuf));
    bool spanok = joinspan(&span.ex, span_->ex);
    bool printsig = 0;
    const struct builtin *builtin = NULL;
@@ -890,7 +890,7 @@ vaargexpr(struct comp *cm, struct span *span)
 static inline int
 tkprec(int tt)
 {
-   return ((uint)tt < arraylength(bintab)) ?  bintab[tt].prec : 0;
+   return ((uint)tt < countof(bintab)) ?  bintab[tt].prec : 0;
 }
 
 static struct expr initializer(struct comp *cm, union type *ty, enum evalmode ev,
@@ -944,7 +944,7 @@ Unary:
       unops[nunop].span = tk.span;
       unops[nunop].t0 = 0;
       unops[nunop].tt = tk.t;
-      if (++nunop >= arraylength(unops)) {
+      if (++nunop >= countof(unops)) {
          ex = exprparse(cm, 999, NULL, 0);
          break;
       }
@@ -972,7 +972,7 @@ Unary:
          }
          unops[nunop].span = span;
          unops[nunop].ty = decl.ty;
-         if (++nunop >= arraylength(unops)) {
+         if (++nunop >= countof(unops)) {
             ex = exprparse(cm, 999, NULL, 0);
             break;
          }
@@ -1418,7 +1418,7 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
       *init->tail = new;
       init->tail = &new->next;
       if (!bitsiz) for (uint i = off, end = i + typesize(ex->ty); i < end; ++i) {
-         if (BSSIZE(end) > arraylength(init->zero)) break;
+         if (BSSIZE(end) > countof(init->zero)) break;
          bsclr(init->zero, i);
       }
    }
@@ -1439,7 +1439,7 @@ iniwriterec(struct comp *cm, struct initparser *ip, uint off, struct expr *ex)
 static struct initcur *
 iniadvance(struct initparser *ip, struct initcur *c, const struct span *span)
 {
-   if (c - ip->buf >= arraylength(ip->buf) - 1)
+   if (c - ip->buf >= countof(ip->buf) - 1)
       fatal(span, "too many nested initializers");
    return c + 1;
 }
@@ -1519,7 +1519,7 @@ Retry:
       goto Retry;
    } else if (objectp(targ) && targ.bits != ex.ty.bits) {
       struct initcur *next = iniadvance(ip, ip->sub, &ex.span);
-      if (ip->sub - ip->buf == arraylength(ip->buf) - 1)
+      if (ip->sub - ip->buf == countof(ip->buf) - 1)
          fatal(&ex.span, "too many nested initializers");
       ++ip->sub->idx;
       *next = (struct initcur) { targ, .off = ip->sub->off + off };
@@ -1705,7 +1705,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
       return ex;
    }
 
-   assert(arraylength(res.zero) == 1);
+   assert(countof(res.zero) == 1);
    if (ev != EVSTATICINI) {
       memset(res.zero, 0xFF, sizeof res.zero);
    }
@@ -1790,7 +1790,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
          *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, len);
       }
 
-      assert(arraylength(res.zero) == 1);
+      assert(countof(res.zero) == 1);
       siz = typesize(*ty);
       if (siz && siz <= 64)
          res.zero->u &= ~0ull >> (64 - siz);
@@ -1810,7 +1810,7 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
    union type t;
    struct span flexspan;
    struct namedfield fbuf[32];
-   vec_of(struct namedfield) fld = VINIT(fbuf, arraylength(fbuf));
+   vec_of(struct namedfield) fld = VINIT(fbuf, countof(fbuf));
    struct typedata td = {tt};
    bool isunion = tt == TYUNION;
    const char *tag = isunion ? "union" : "struct";
@@ -2445,10 +2445,10 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
 
          if (!usingdeclparamtmp) {
             usingdeclparamtmp = 1;
-            vinit(&params, declparamtmp, arraylength(declparamtmp));
-            vinit(&qual, declpqualtmp, arraylength(declpqualtmp));
-            vinit(&names, declpnamestmp, arraylength(declpnamestmp));
-            vinit(&spans, declpspanstmp, arraylength(declpspanstmp));
+            vinit(&params, declparamtmp, countof(declparamtmp));
+            vinit(&qual, declpqualtmp, countof(declpqualtmp));
+            vinit(&names, declpnamestmp, countof(declpnamestmp));
+            vinit(&spans, declpspanstmp, countof(declpspanstmp));
          }
 
          node.span = tk.span;
@@ -2527,7 +2527,7 @@ declarator(struct declstate *st, struct comp *cm, struct span span0) {
    struct span namespan ={0};
    if (!inidecltmp) {
       inidecltmp = 1;
-      for (int i = 0; i < arraylength(decltmp); ++i) {
+      for (int i = 0; i < countof(decltmp); ++i) {
          decltmp[i].next = declfreelist;
          declfreelist = &decltmp[i];
       }
@@ -2859,7 +2859,7 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
       uint align = typealign(t);
       struct bitset azero[1] = {0};
 
-      if (BSSIZE(siz) <= arraylength(ini->zero)) {
+      if (BSSIZE(siz) <= countof(ini->zero)) {
          for (int i = 0; i < siz; i += align) {
             for (int j = 0; j < align; ++j) {
                if (bstest(ini->zero, i + j)) {
@@ -2868,9 +2868,9 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
                }
             }
          }
-         if (bscount(azero, arraylength(azero)) < 32) {
+         if (bscount(azero, countof(azero)) < 32) {
             /* write individual zeros at non initialized gaps */
-            for (uint i = 0; bsiter(&i, azero, arraylength(azero)) && i < siz; i += align) {
+            for (uint i = 0; bsiter(&i, azero, countof(azero)) && i < siz; i += align) {
                adr = irbinop(fn, Oadd, KPTR, dst, mkref(RICON, i));
                addinstr(fn, mkinstr(Ostore8 + ilog2(align), 0, .l = adr, .r = ZEROREF));
             }
@@ -3166,7 +3166,7 @@ static union ref
 condexprvalue(struct function *fn, const struct expr *ex, bool discard)
 {
    union ref refbuf[8];
-   struct condphis phis = { ex->t == ECOND ? ex->ty : mktype(TYBOOL), VINIT(refbuf, arraylength(refbuf)) };
+   struct condphis phis = { ex->t == ECOND ? ex->ty : mktype(TYBOOL), VINIT(refbuf, countof(refbuf)) };
    struct block *dst = newblk(fn);
    condexprrec(fn, ex, discard ? NULL : &phis, dst);
    useblk(fn, dst);
@@ -3191,7 +3191,7 @@ compilecall(struct function *fn, const struct expr *ex)
    struct expr *sub = ex->sub;
    const struct typedata *td = &typedata[sub[0].ty.dat];
    struct instr insnsbuf[10];
-   vec_of(struct instr) insns = VINIT(insnsbuf, arraylength(insnsbuf));
+   vec_of(struct instr) insns = VINIT(insnsbuf, countof(insnsbuf));
 
    if (sub[0].t == ESYM && sub[0].sym->isbuiltin) {
       return sub[0].sym->builtin->comp(fn, (struct expr *)ex, 0);
@@ -3701,7 +3701,7 @@ genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
    struct switchstmt *stsave = cm->switchstmt, st = {0};
    enum irclass k = type2cls[scalartypet(ex->ty)];
    struct swcase casebuf[8];
-   vinit(&st.cases, casebuf, arraylength(casebuf));
+   vinit(&st.cases, casebuf, countof(casebuf));
 
    assert(k);
    end = newblk(fn);

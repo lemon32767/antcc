@@ -82,7 +82,7 @@ fixlive(struct function *fn)
    struct bitset definedbuf[4] = {0};
    struct bitset *defined = definedbuf;
 
-   if (BSSIZE(ninstr) >= arraylength(definedbuf))
+   if (BSSIZE(ninstr) >= countof(definedbuf))
       defined = xcalloc(sizeof *defined * BSSIZE(ninstr));
    npendingphi = 0;
 
@@ -1241,7 +1241,7 @@ regalloc(struct function *fn)
    fn->regusage = 0;
    fn->stksiz = alignup(fn->stksiz, 8);
    fn->isleaf = 1;
-   vinit(&stkslotrefs, stkslotrefsbuf, arraylength(stkslotrefsbuf));
+   vinit(&stkslotrefs, stkslotrefsbuf, countof(stkslotrefsbuf));
 
    /* put into reverse post order */
    sortrpo(fn);

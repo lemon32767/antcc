@@ -253,7 +253,7 @@ void
 abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 {
    union ref retmem;
-   struct abiargsvec abiargs = {VINIT(abiargsbuf, arraylength(abiargsbuf))};
+   struct abiargsvec abiargs = {VINIT(abiargsbuf, countof(abiargsbuf))};
    bool sretarghidden = 0;
    int ni, nf, ns, vararg, nret = 0;
    struct call *call = &calltab.p[ins->r.i];
@@ -363,7 +363,7 @@ abi0(struct function *fn)
 {
    uint nparam = typedata[fn->fnty.dat].nmemb;
    const union type *paramty = typedata[fn->fnty.dat].param;
-   struct abiargsvec abiargs = {VINIT(abiargsbuf, arraylength(abiargsbuf))};
+   struct abiargsvec abiargs = {VINIT(abiargsbuf, countof(abiargsbuf))};
    int rvovar = -1;
    int ni = 0, nf = 0, ns = 0, istart = 0;
    uchar r2off;

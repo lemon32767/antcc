@@ -66,9 +66,9 @@ tdequ(const struct typedata *a, const struct typedata *b)
 static ushort
 interntd(const struct typedata *td)
 {
-   uint h, i, n = arraylength(typedata);
+   uint h, i, n = countof(typedata);
    for (i = h = hashtd(td); n--; ++i) {
-      struct typedata *slot = &typedata[i &= arraylength(typedata) - 1];
+      struct typedata *slot = &typedata[i &= countof(typedata) - 1];
       if (!slot->t) {
          uint nmemb;
          static struct arena *datarena;
@@ -185,7 +185,7 @@ completetype(const char *name, int id, struct typedata *td)
 {
    assert(td->t == TYENUM || td->t == TYSTRUCT || td->t == TYUNION);
    td->id = id;
-   assert(id < arraylength(ttypenames) && "too many tag types");
+   assert(id < countof(ttypenames) && "too many tag types");
    if (ttypenames[id])
       assert(ttypenames[id] == name && "bad redefn");
    else

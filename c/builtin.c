@@ -24,12 +24,12 @@ callcheck(const struct span *span, int nparam, const union type *param, int narg
    return ok;
 }
 
-#define DEF_FNLIKE_SEMA(name, retty, ...)                                          \
-   static bool                                                                     \
-   name##_sema(struct comp *cm, struct expr *ex) {                                 \
-      union type par[] = { {{0}}, __VA_ARGS__ };                                   \
-      ex->ty = retty;                                                              \
-      return callcheck(&ex->span, arraylength(par)-1, par+1, ex->narg, ex->sub+1); \
+#define DEF_FNLIKE_SEMA(name, retty, ...)                                      \
+   static bool                                                                 \
+   name##_sema(struct comp *cm, struct expr *ex) {                             \
+      union type par[] = { {{0}}, __VA_ARGS__ };                               \
+      ex->ty = retty;                                                          \
+      return callcheck(&ex->span, countof(par)-1, par+1, ex->narg, ex->sub+1); \
    }
 
 static bool
@@ -111,7 +111,7 @@ static const struct {
 void
 putbuiltins(struct env *env)
 {
-   for (int i = 0; i < arraylength(tab); ++i) {
+   for (int i = 0; i < countof(tab); ++i) {
       const char *intern(const char *);
       envadddecl(env, &(struct decl) {
          .name = intern(tab[i].name),
@@ -124,7 +124,7 @@ putbuiltins(struct env *env)
 bool
 hasbuiltin(const char *name, uint len)
 {
-   for (int i = 0; i < arraylength(tab); ++i)
+   for (int i = 0; i < countof(tab); ++i)
       if (!strncmp(name, tab[i].name, len))
          return 1;
    return 0;

@@ -113,7 +113,7 @@ optparse(char **args)
 
    while ((arg = *++args)) {
       if (*arg++ != '-' || !*arg) {
-         assert(task.ninf < arraylength(task.inf) && "too many infiles");
+         assert(task.ninf < countof(task.inf) && "too many infiles");
          task.inf[task.ninf] = arg[-1] != '-' ? arg-1 : "/dev/stdin";
          task.inft[task.ninf] = ft ? ft : ftdetect(arg-1);
          ++task.ninf;
@@ -263,7 +263,7 @@ tempfile(const char *path, const char *ext)
 
 static int cc1(const char *out, const char *in);
 
-static const char *tempobj[arraylength(task.inf)], *tempout;
+static const char *tempobj[countof(task.inf)], *tempout;
 static void
 mktemps(void) {
    for (int i = 0; i < task.ninf; ++i) {
@@ -324,7 +324,7 @@ dolink(void)
    static const char *cmdbuf[10];
    pid_t p;
    int wstat;
-   vec_of(const char *) cmd = VINIT(cmdbuf, arraylength(cmdbuf));
+   vec_of(const char *) cmd = VINIT(cmdbuf, countof(cmdbuf));
 
    /* TODO don't depend on external c compiler, find lib and runtime paths and
     * invoke linker directly.. */
@@ -484,7 +484,7 @@ sysinclpaths(void)
       "/usr/local/include",
       "/usr/include"
    };
-   for (int i = 0; i < arraylength(paths); ++i)
+   for (int i = 0; i < countof(paths); ++i)
       addinclpath(paths[i]);
 }
 

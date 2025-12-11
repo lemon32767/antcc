@@ -43,13 +43,13 @@ irinit(struct function *fn)
 
    ninstr = 0;
    instrfreelist = -1;
-   vinit(&calltab, callsbuf, arraylength(callsbuf));
+   vinit(&calltab, callsbuf, countof(callsbuf));
    for (int i = 0; i < phitab.n; ++i) xbfree(phitab.p[i]);
-   vinit(&phitab, phisbuf, arraylength(phisbuf));
-   if (!dattab.p) vinit(&dattab, datsbuf, arraylength(datsbuf));
-   if (naddrht >= arraylength(addrht)/2)
+   vinit(&phitab, phisbuf, countof(phisbuf));
+   if (!dattab.p) vinit(&dattab, datsbuf, countof(datsbuf));
+   if (naddrht >= countof(addrht)/2)
       memset(addrht, naddrht = 0, sizeof addrht);
-   if (nconht >= arraylength(conht)/2)
+   if (nconht >= countof(conht)/2)
       memset(conht, nconht = 0, sizeof conht);
    if (!type2cls[TYINT]) {
       for (int i = TYBOOL; i <= TYUVLONG; ++i) {
@@ -75,9 +75,9 @@ static int
 addaddr(const struct addr *addr)
 {
    uint h = hashb(0, addr, sizeof *addr);
-   uint i = h, n = arraylength(addrht);
+   uint i = h, n = countof(addrht);
    for (;; ++i) {
-      i &= arraylength(addrht) - 1;
+      i &= countof(addrht) - 1;
       if (!addrht[i].base.bits && !addrht[i].index.bits) {
          addrht[i] = *addr;
          ++naddrht;
@@ -93,10 +93,10 @@ static int
 addcon(const struct xcon *con)
 {
    uint h = hashb(0, con, sizeof *con);
-   uint i = h, n = arraylength(conht);
+   uint i = h, n = countof(conht);
    assert(con->issym || con->isdat || con->cls);
    for (;; ++i) {
-      i &= arraylength(conht) - 1;
+      i &= countof(conht) - 1;
       if (!conht[i].issym && !conht[i].isdat && !conht[i].cls) {
          conht[i] = *con;
          ++nconht;
@@ -346,7 +346,7 @@ allocinstr(void)
       t = instrfreelist;
       memcpy(&instrfreelist, &instrtab[t], sizeof(int));
    } else {
-      assert(ninstr < arraylength(instrtab));
+      assert(ninstr < countof(instrtab));
       t = ninstr++;
    }
    if (instruse[t] != instrusebuf[t])
@@ -361,11 +361,11 @@ adduse(struct block *ublk, int ui, union ref r) {
    struct use user = { ublk, ui };
 
    if (r.t != RTMP) return;
-   if (instrnuse[r.i] < arraylength(instrusebuf[r.i])) {
+   if (instrnuse[r.i] < countof(instrusebuf[r.i])) {
       instruse[r.i][instrnuse[r.i]++] = user;
-   } else if (instrnuse[r.i] == arraylength(*instrusebuf)) {
+   } else if (instrnuse[r.i] == countof(*instrusebuf)) {
       struct use *use = NULL;
-      xbgrow(&use, arraylength(*instrusebuf) + 2);
+      xbgrow(&use, countof(*instrusebuf) + 2);
       memcpy(use, instruse[r.i], sizeof(*instrusebuf));
       use[instrnuse[r.i]++] = user;
       instruse[r.i] = use;
@@ -389,7 +389,7 @@ deluse(struct block *ublk, int ui, union ref r) {
    return 0;
 
 Shrink:
-   if (instrnuse[r.i] == arraylength(*instrusebuf) + 1) {
+   if (instrnuse[r.i] == countof(*instrusebuf) + 1) {
       struct use *use = instruse[r.i];
       instruse[r.i] = instrusebuf[r.i];
       memcpy(instruse[r.i], use, sizeof *instrusebuf);

@@ -54,7 +54,7 @@ identkeyword(struct token *tk, const char *s, int len)
 #include "keywords.def"
 #undef _
    };
-   int l = 0, h = arraylength(kwtab) - 1, i, cmp;
+   int l = 0, h = countof(kwtab) - 1, i, cmp;
 
    tk->extwarn = 0;
    tk->blue = 0;
@@ -87,7 +87,7 @@ fillchrbuf(struct lexer *lx)
 {
    const uchar *p = lx->dat + lx->idx;
    int i = lx->chrbuf0, idx = lx->idx, c;
-   int rem = arraylength(lx->chrbuf) - i;
+   int rem = countof(lx->chrbuf) - i;
    assert(rem >= 0);
    if (rem > 0) {
       for (int j = 0; j < rem; ++j) {
@@ -98,7 +98,7 @@ fillchrbuf(struct lexer *lx)
    lx->chrbuf0 = 0;
    i = rem;
 
-   for (; i < arraylength(lx->chrbuf); ++i) {
+   for (; i < countof(lx->chrbuf); ++i) {
       int n;
       /* skip backslash-newline */
       while ((n = 2, (p[0] == '\\') & (p[1] == '\n')) || (ccopt.trigraph && !memcmp(p, "\?\?/\n", n = 4))) {
@@ -140,7 +140,7 @@ next(struct lexer *lx)
 {
    int c;
 
-   if (lx->chrbuf0 >= arraylength(lx->chrbuf))
+   if (lx->chrbuf0 >= countof(lx->chrbuf))
       fillchrbuf(lx);
    lx->chridx = lx->chridxbuf[lx->chrbuf0];
    c = lx->chrbuf[lx->chrbuf0];
@@ -152,8 +152,8 @@ next(struct lexer *lx)
 static int
 peek(struct lexer *lx, int off)
 {
-   assert(off < arraylength(lx->chrbuf));
-   if (lx->chrbuf0 + off >= arraylength(lx->chrbuf))
+   assert(off < countof(lx->chrbuf));
+   if (lx->chrbuf0 + off >= countof(lx->chrbuf))
       fillchrbuf(lx);
    return lx->chrbuf[lx->chrbuf0 + off];
 }
@@ -581,7 +581,7 @@ Begin:
          int n = 0;
          tmp[n++] = c;
          while (isppnum(tmp[n-1], peek(lx, 0))) {
-            assert(n < arraylength(tmp)-1 && "too big");
+            assert(n < countof(tmp)-1 && "too big");
             tmp[n++] = next(lx);
          }
          tmp[n] = 0;
@@ -599,7 +599,7 @@ Begin:
          int n = 0;
          tmp[n++] = c;
          while (!aissep(c = peek(lx, 0))) {
-            assert(n < arraylength(tmp)-1 && "too big");
+            assert(n < countof(tmp)-1 && "too big");
             tmp[n++] = next(lx);
          }
          tmp[n] = 0;
@@ -831,7 +831,7 @@ tokpaste(struct lexer *lx, struct token *dst, const struct token *l, const struc
       };
       struct span span = l->span;
 
-      for (int i = 0; i < arraylength(tab); ++i)
+      for (int i = 0; i < countof(tab); ++i)
          if (tab[i].s[0] == l->t && tab[i].s[1] == r->t)
             return dst->t = tab[i].t, 1;
 
@@ -971,7 +971,7 @@ pushmacstk(struct lexer *lx, const struct span *span, const struct macrostack *m
 {
    struct macrostack *l = lx->macstk;
    if (!l) l = mstk;
-   else if ((++l == mstk+arraylength(mstk))) fatal(span, "macro depth limit reached");
+   else if ((++l == mstk+countof(mstk))) fatal(span, "macro depth limit reached");
    l->rlist = m->rlist;
    l->macno = m->macno;
    l->idx = 0;
@@ -1079,7 +1079,7 @@ expandfnmacro(struct lexer *lx, struct span *span, struct macro *mac)
             excessspan = tk.span;
             toomany = 1;
          } else if (i < mac->nparam - mac->variadic) {
-            assert(i < arraylength(args) || "too many args in fn-like macro");
+            assert(i < countof(args) || "too many args in fn-like macro");
             args[i].idx = cur;
             args[i].n = len;
             cur = argsbuf.n;
@@ -1295,7 +1295,7 @@ tkprec(int tt)
       [TKLOGIOR] = 3,
       ['?']   = 2,
    };
-   if ((uint)tt < arraylength(tab))
+   if ((uint)tt < countof(tab))
       return tab[tt] - 1;
    return -1;
 }
@@ -1314,7 +1314,7 @@ Unary:
    switch (elex(lx, &tk)) {
    case '-': case '~': case '!':
       unops[nunop++] = tk.t;
-      if (nunop >= arraylength(unops)) {
+      if (nunop >= countof(unops)) {
          x = expr(lx, &xu, 999, ignore);
          break;
       }
@@ -1467,7 +1467,7 @@ static void
 ppif(struct lexer *lx, const struct span *span)
 {
    vlong v = expr(lx, NULL, 0, 0);
-   assert(nppcnd < arraylength(ppcndstk) && "too many nested #if");
+   assert(nppcnd < countof(ppcndstk) && "too many nested #if");
    ppcndstk[nppcnd].ifspan = span->sl;
    ppcndstk[nppcnd].filedepth = includedepth;
    ppcndstk[nppcnd].cnd = v ? PPCNDTRUE : PPCNDFALSE;
@@ -1486,7 +1486,7 @@ ppifxdef(struct lexer *lx, bool defp, const struct span *span)
       return;
    }
    if (!defp && lx->firstdirective) lx->inclguard = tk.s;
-   assert(nppcnd < arraylength(ppcndstk) && "too many nested #if");
+   assert(nppcnd < countof(ppcndstk) && "too many nested #if");
    ppcndstk[nppcnd].ifspan = span->sl;
    ppcndstk[nppcnd].filedepth = includedepth;
    ppcndstk[nppcnd].cnd = (findmac(tk.s) == NULL) ^ defp ? PPCNDTRUE : PPCNDFALSE;
@@ -1734,7 +1734,7 @@ findppcmd(const struct token *tk)
       "undef",
       "warning",
    };
-   int l = 0, h = arraylength(tab) - 1, i, cmp;
+   int l = 0, h = countof(tab) - 1, i, cmp;
    const char *s = tk->s;
 
    if (tk->t == TKWif) return PPIF;
@@ -1805,7 +1805,7 @@ lex(struct lexer *lx, struct token *tk_)
                case PPIF: /* increment nesting level */
                case PPIFDEF:
                case PPIFNDEF:
-                  assert(nppcnd < arraylength(ppcndstk) && "too many nested #if");
+                  assert(nppcnd < countof(ppcndstk) && "too many nested #if");
                   ppcndstk[nppcnd].ifspan = tk->span.sl;
                   ppcndstk[nppcnd].cnd = PPCNDTAKEN;
                   ppcndstk[nppcnd++].elsep = 0;
@@ -2006,7 +2006,7 @@ addpredefmacros(struct arena **tmparena)
    case STDC23: tok_ver.s = "202311L"; break;
    }
    tok_ver.len = 7;
-   for (int i = 0; i < arraylength(macs); ++i) {
+   for (int i = 0; i < countof(macs); ++i) {
       macs[i].name = intern(macs[i].name);
       putmac(&macs[i]);
    }
@@ -2027,7 +2027,7 @@ addpredefmacros(struct arena **tmparena)
       vpushn(&ppcmdline, "\0\0\0\0\0\0", 6);
       lx->dat = f->p = ppcmdline.p;
       lx->tmparena = tmparena;
-      lx->chrbuf0 = arraylength(lx->chrbuf);
+      lx->chrbuf0 = countof(lx->chrbuf);
       lx->firstdirective = 1;
       while (!lx->eof) lex(lx, NULL);
    }
@@ -2059,7 +2059,7 @@ initlexer(struct lexer *lx, const char **err, const char *file)
    lx->dat = f->p;
    lx->ndat = f->n;
    lx->tmparena = &tmparena;
-   lx->chrbuf0 = arraylength(lx->chrbuf);
+   lx->chrbuf0 = countof(lx->chrbuf);
    lx->firstdirective = 1;
    lx->nppcnd0 = nppcnd;
    return getfilename(fileid) != file ? LXFILESEEN : LXOK;

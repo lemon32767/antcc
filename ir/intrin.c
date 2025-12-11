@@ -50,7 +50,7 @@ lowerintrin(struct function *fn)
 {
    struct block *blk = fn->entry;
    static struct arg argsbuf[64];
-   vec_of(struct arg) args = VINIT(argsbuf, arraylength(argsbuf));
+   vec_of(struct arg) args = VINIT(argsbuf, countof(argsbuf));
 
    do {
       for (int i = 0; i < blk->ins.n; ++i) {
@@ -58,7 +58,7 @@ lowerintrin(struct function *fn)
          if (ins->op == Oarg)
             vpush(&args, ((struct arg){ &ins->r, &ins->l }));
          else if (ins->op == Ocall)
-            vinit(&args, argsbuf, arraylength(argsbuf));
+            vinit(&args, argsbuf, countof(argsbuf));
          else if (ins->op == Ointrin) {
             int arg0 = i - args.n;
             assert(calltab.p[ins->r.i].narg == args.n);
@@ -67,7 +67,7 @@ lowerintrin(struct function *fn)
                   delinstr(blk, arg0);
             else
                abi0_call(fn, ins, blk, &i);
-            vinit(&args, argsbuf, arraylength(argsbuf));
+            vinit(&args, argsbuf, countof(argsbuf));
          }
       }
       assert(args.n == 0);
