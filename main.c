@@ -136,6 +136,8 @@ optparse(char **args)
          else goto Bad;
       } else if (!strcmp(arg, "pedantic")) {
          ccopt.pedant = 1;
+      } else if (!strcmp(arg, "trigraphs")) {
+         ccopt.trigraph = 1;
       } else if (*arg == 'd' && arg[1]) {
          /* see common.h§struct option */
          while (*++arg) switch (*arg | 32) {

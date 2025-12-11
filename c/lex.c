@@ -85,7 +85,6 @@ ident:
 static void
 fillchrbuf(struct lexer *lx)
 {
-   bool trigraph = ccopt.trigraph;
    const uchar *p = lx->dat + lx->idx;
    int i = lx->chrbuf0, idx = lx->idx, c;
    int rem = arraylength(lx->chrbuf) - i;
@@ -101,14 +100,15 @@ fillchrbuf(struct lexer *lx)
 
    for (; i < arraylength(lx->chrbuf); ++i) {
       int n;
-      while (!memcmp(p, "\\\n", n = 2) || (trigraph && !memcmp(p, "\?\?/\n", n = 4))) {
+      /* skip backslash-newline */
+      while ((n = 2, (p[0] == '\\') & (p[1] == '\n')) || (ccopt.trigraph && !memcmp(p, "\?\?/\n", n = 4))) {
          idx += n;
          p += n;
          addfileline(lx->fileid, idx);
       }
       if (idx >= lx->ndat) {
          c = TKEOF;
-      } else if (trigraph && ((p[0] == '?') & (p[1] == '?'))) {
+      } else if (ccopt.trigraph && ((p[0] == '?') & (p[1] == '?'))) {
          switch (p[2]) {
          case '=':  c = '#'; break;
          case '(':  c = '['; break;
