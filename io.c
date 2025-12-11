@@ -1042,7 +1042,7 @@ vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
          note(&(struct span){ span->sl }, "expanded from here");
 }
 
-void
+void _Noreturn
 fatal(const struct span *span, const char *fmt, ...)
 {
    va_list ap;

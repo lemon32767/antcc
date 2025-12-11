@@ -389,7 +389,7 @@ void markfileonce(int id, const char *guard);
 void markfileseen(int id);
 bool isfileseen(int id);
 void closefile(int id);
-void fatal(const struct span *, const char *, ...);
+_Noreturn void fatal(const struct span *, const char *, ...);
 void error(const struct span *, const char *, ...);
 void warn(const struct span *, const char *, ...);
 void note(const struct span *, const char *, ...);
