@@ -16,7 +16,13 @@ typedef unsigned short ushort;
 typedef unsigned long long uvlong;
 typedef   signed long long vlong;
 typedef unsigned uint;
-
+#if __STDC_VERSION__ >= 202311L
+#define NORETURN [[noreturn]]
+#elif __STDC_VERSION__ >= 201112L
+#define NORETURN _Noreturn
+#else
+#define NORETURN
+#endif
 
 #ifdef __has_builtin
 #define HAS_BUILTIN(b) __has_builtin(__builtin_##b)
@@ -389,7 +395,7 @@ void markfileonce(int id, const char *guard);
 void markfileseen(int id);
 bool isfileseen(int id);
 void closefile(int id);
-_Noreturn void fatal(const struct span *, const char *, ...);
+NORETURN void fatal(const struct span *, const char *, ...);
 void error(const struct span *, const char *, ...);
 void warn(const struct span *, const char *, ...);
 void note(const struct span *, const char *, ...);
