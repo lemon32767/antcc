@@ -260,19 +260,22 @@ static struct decl *
 putdecl(struct comp *cm, const struct decl *decl)
 {
    assert(!decl->isbuiltin);
-   for (struct decl *l = NULL; enviterdecl(&l, cm->env);) {
-      if (decl->name == l->name) {
-         if ((cm->env->up != NULL && decl->scls == SCSTATIC) || (l->isdef && decl->isdef)) {
-            error(&decl->span, "redefinition of '%s'", decl->name);
-            note(&l->span, "previously defined here");
-            break;
-         } else if (!redeclarationok(l, decl)) {
-            error(&decl->span, "incompatible redeclaration of '%s'", decl->name);
-            note(&l->span, "previously declared here");
-            break;
+   for (struct env *env = cm->env; env; env = env->up) {
+      for (struct decl *l = NULL; enviterdecl(&l, env);) {
+         if (decl->name == l->name) {
+            if ((cm->env->up != NULL && decl->scls == SCSTATIC) || (l->isdef && decl->isdef)) {
+               error(&decl->span, "redefinition of '%s'", decl->name);
+               note(&l->span, "previously defined here");
+               break;
+            } else if (!redeclarationok(l, decl)) {
+               error(&decl->span, "incompatible redeclaration of '%s'", decl->name);
+               note(&l->span, "previously declared here");
+               break;
+            }
+            if (l->isdef && !decl->isdef) return l;
          }
-         if (l->isdef && !decl->isdef) return l;
       }
+      if (decl->scls != SCEXTERN) break;
    }
    return envadddecl(cm->env, decl);
 }
@@ -1736,7 +1739,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
    dumpini(ip);
 
    if (ev == EVSTATICINI) {
-      return (struct expr){0};
+      return (struct expr){.span = span};
    } else {
       uint siz;
       if (isincomplete(*ty)) {
@@ -2442,7 +2445,7 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
             }
             peek(cm, &tk);
             joinspan(&node.span.ex, tk.span.ex);
-            if (!match(cm, &tk, ',')) { 
+            if (!match(cm, &tk, ',')) {
                expect(cm, ')', "or `,'");
                break;
             }
@@ -4123,8 +4126,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                } else if (decl.scls == SCEXTERN) {
                   struct span span = decl.span;
                   joinspan(&span.ex, ini.span.ex);
-                  error(&span,
-                        "declaration of block local with extern linkage cannot have an initializer");
+                  error(&span, "block local 'extern' variable cannot have an initializer");
                }
             } else if (decl.scls == SCSTATIC) {
                /* zero-initialized static */
@@ -4245,7 +4247,7 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
             /* it may not actually be reachable after constant-folding
              * peephole optimizations (from code like assert(0 && "x")) */
             if (blkreachable(fn, fn->curblk)) {
-               warn(&cm->fnblkspan, "non-void function may not return a value");
+               warn(&cm->fnblkspan, "non-void function '%s' may not return a value", fn->name);
             }
          }
          putreturn(fn, NOREF, NOREF);
@@ -4310,7 +4312,12 @@ docomp(struct comp *cm)
             if (st.varini) {
                if (isagg(d->ty) && isincomplete(d->ty))
                   error(&d->span, "initialization of variable with incomplete type '%ty'", d->ty);
-               (void) initializer(cm, &d->ty, EVSTATICINI, decl.scls != SCSTATIC, decl.qual, decl.sym);
+               struct expr ini = initializer(cm, &d->ty, EVSTATICINI, decl.scls != SCSTATIC, decl.qual, decl.sym);
+               if (decl.scls == SCEXTERN && !noscls) {
+                  struct span span = decl.span;
+                  joinspan(&span.ex, ini.span.ex);
+                  warn(&span, "'extern' variable has initializer");
+               }
                pdecl(&st, cm);
             } else if (decl.ty.t != TYFUNC && decl.scls != SCTYPEDEF && (decl.scls != SCEXTERN || noscls)) {
                /* tentative definitions */
