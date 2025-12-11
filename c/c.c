@@ -1256,30 +1256,29 @@ globsym(union ref *psym, const struct expr *ex)
 
 }
 
-static void
-expr2reloc(union ref *psym, vlong *paddend, const struct expr *ex)
+static vlong /* -> returns addend */
+expr2reloc(union ref *psym, const struct expr *ex)
 {
    if (ex->t == EADDROF && globsym(psym, ex->sub)) {
-      *paddend = 0;
+      return 0;
    } else if (isptrcvt(ex->ty) && globsym(psym, ex)) {
-      *paddend = 0;
+      return 0;
    } else if (ex->t == EADDROF && ex->sub->t == EGETF && globsym(psym, ex->sub->sub)) {
-      *paddend = ex->sub->fld.off;
+      return ex->sub->fld.off;
    } else if (ex->t == EGETF && ex->ty.t == TYARRAY && globsym(psym, ex->sub)) {
-      *paddend = ex->sub->fld.off;
+      return ex->sub->fld.off;
    } else if (globsym(psym, ex) && in_range(ex->ty.t, TYARRAY, TYFUNC)) {
-      *paddend = 0;
+      return 0;
    } else if (ex->t == ESUB && globsym(psym, &ex->sub[0]) && isint(ex->sub[1].ty) && ex->sub[1].t == ENUMLIT) {
-      *paddend = -ex->sub[1].i * typesize(typechild(ex->sub[0].ty));
+      return -ex->sub[1].i * typesize(typechild(ex->sub[0].ty));
    } else if (ex->t == EADD) {
       int swp = ex->sub[0].t == ENUMLIT;
       struct expr *a = &ex->sub[swp], *b = &ex->sub[swp ^ 1];
       if (globsym(psym, a) && isint(b->ty) && b->t == ENUMLIT) {
-         *paddend = b->i * typesize(typechild(a->ty));
-         return;
+         return b->i * typesize(typechild(a->ty));
       }
-      goto Fail;
-   } else Fail: fatal(&ex->span, "internal bug: non static reloc?");
+   }
+   fatal(&ex->span, "internal bug: non static reloc?");
 }
 
 static bool
@@ -1345,9 +1344,7 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
          memcpy(p, ex->s.p, n);
       } else {
          union ref sym;
-         vlong addend;
-         //efmt("<<> %ty <- %ty\n", ty, ex->ty);
-         expr2reloc(&sym, &addend, ex);
+         vlong addend = expr2reloc(&sym, ex);
          assert(sym.t == RXCON);
          if (!ip->dyn) {
             assert(ip->sec != Srodata || rodatarelocok());
