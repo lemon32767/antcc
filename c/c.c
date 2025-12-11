@@ -124,22 +124,26 @@ static struct decl *finddecl(struct comp *cm, const char *name);
 static bool
 isdecltok(struct comp *cm)
 {
-   struct decl *decl;
    struct token tk;
-   switch (peek(cm, &tk)) {
-   case TKWsigned: case TKWunsigned: case TKWshort: case TKWlong:
-   case TKWint: case TKWchar: case TKW_Bool: case TKWauto:
-   case TKWstruct: case TKWunion: case TKWenum: case TKWtypedef:
-   case TKWextern: case TKWstatic: case TKWinline: case TKW_Noreturn:
-   case TKW_Thread_local: case TKWthread_local:
-   case TKWconst: case TKWvolatile: case TKWvoid: case TKWfloat:
-   case TKWdouble: case TKWregister: case TKW_Static_assert:
-   case TKW__typeof__: case TKWtypeof: case TKWtypeof_unqual:
-      return 1;
-   case TKIDENT:
-      return (decl = finddecl(cm, tk.s)) && decl->scls == SCTYPEDEF;
+   if (peek(cm, &tk) == TKIDENT) {
+      struct decl *decl = finddecl(cm, tk.s);
+      return decl && decl->scls == SCTYPEDEF;
+   } else {
+      static const char kws[] = {
+#define kw(x) [TKW##x-TKWBEGIN_] = 1
+         kw(auto), kw(extern), kw(static), kw(register), kw(typedef),
+         kw(_Thread_local), kw(thread_local), kw(_Static_assert),
+         kw(inline), kw(_Noreturn),
+         kw(const), kw(volatile), kw(restrict), kw(_Atomic),
+         kw(void), kw(float), kw(double),
+         kw(signed), kw(unsigned), kw(short), kw(long),
+         kw(int), kw(char), kw(_Bool), kw(bool),
+         kw(struct), kw(union), kw(enum),
+         kw(__typeof__), kw(typeof), kw(typeof_unqual),
+#undef _
+      };
+      return ((uint)tk.t-TKWBEGIN_) < arraylength(kws) && kws[tk.t-TKWBEGIN_];
    }
-   return 0;
 }
 
 
