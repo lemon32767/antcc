@@ -523,7 +523,7 @@ main(int argc, char **argv)
    /* setup defaults */
    detectcolor();
    sysinclpaths();
-   ccopt.cstd = STDC99;
+   ccopt.cstd = STDC11;
    ccopt.pie = 1;
    ccopt.dbgout = &bstdout;
 
