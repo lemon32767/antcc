@@ -1,7 +1,7 @@
 #include "common.h"
 #include "type.h"
 
-extern const struct mctarg t_amd64_sysv;
+extern const struct mctarg t_x86_64_sysv;
 static const struct targ {
    const char *name;
    struct { uchar longsize, vlongsize, ptrsize, valistsize; };
@@ -11,7 +11,7 @@ static const struct targ {
    const struct mctarg *mctarg;
    enum mcisa isa;
 } targs[] = {
-   { "amd64-sysv", {8, 8, 8, 24}, {8, 8, 8, 8}, 1, TYULONG, TYLONG, TYINT, &t_amd64_sysv, ISamd64 },
+   { "x86_64-sysv", {8, 8, 8, 24}, {8, 8, 8, 8}, 1, TYULONG, TYLONG, TYINT, &t_x86_64_sysv, ISx86_64 },
    { "i686-sysv",  {4, 8, 4,  8}, {4, 4, 4, 4}, 1, TYUINT,  TYINT,  TYINT }
 };
 

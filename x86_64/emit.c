@@ -972,7 +972,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
 
    switch (ins->op) {
    default:
-      fatal(NULL, "amd64: in %y; unimplemented instr '%s'", fn->name, opnames[ins->op]);
+      fatal(NULL, "x86_64: in %y; unimplemented instr '%s'", fn->name, opnames[ins->op]);
    case Onop: break;
    case Ostore8:  cls = KI32, X = Xmovb; goto Store;
    case Ostore16: cls = KI32, X = Xmovw; goto Store;
@@ -1378,7 +1378,7 @@ emitbin(struct function *fn)
 }
 
 void
-amd64_emit(struct function *fn)
+x86_64_emit(struct function *fn)
 {
    fn->stksiz = alignup(fn->stksiz, 8);
    if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);

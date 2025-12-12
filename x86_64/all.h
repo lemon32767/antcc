@@ -12,7 +12,7 @@ enum reg {
 #undef R
 };
 
-void amd64_isel(struct function *);
-void amd64_emit(struct function *);
+void x86_64_isel(struct function *);
+void x86_64_emit(struct function *);
 
 /* vim:set ts=3 sw=3 expandtab: */

@@ -43,7 +43,7 @@ elfinit(void)
    hdr.i_abiversion = 0;
    hdr.h32.type = ET_REL;
    switch (targ_mcisa) {
-   case ISamd64: hdr.h32.machine = EM_X86_64; break;
+   case ISx86_64: hdr.h32.machine = EM_X86_64; break;
    }
    hdr.h32.version = ELFVERSION;
    if (targ_64bit) {
@@ -127,7 +127,7 @@ elfaddsym(const char *nam, int info, enum section sect, uvlong value, uvlong siz
 }
 
 static const ushort relktab[][NRELOCKIND] = {
-   [ISamd64] = {
+   [ISx86_64] = {
       [REL_ABS64]   = 1, /* R_X86_64_64 */
       [REL_ABS32]   = 10, /* R_X86_64_32 */
       [REL_ABS32S]  = 11, /* R_X86_64_32S */
@@ -356,7 +356,7 @@ wordalign(struct wbuf *out, int align)
    while (off++ & (align - 1)) ioputc(out, 0);
 }
 
-static const bool userelatab[] = { [ISamd64] = 1 };
+static const bool userelatab[] = { [ISx86_64] = 1 };
 
 void
 elffini(struct wbuf *out)

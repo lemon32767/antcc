@@ -619,7 +619,7 @@ seljmp(struct function *fn, struct block *blk)
 }
 
 void
-amd64_isel(struct function *fn)
+x86_64_isel(struct function *fn)
 {
    extern int ninstr;
    struct block *blk = fn->entry;

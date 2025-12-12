@@ -156,7 +156,7 @@ extern struct inclpaths {
 /* Target */
 /**********/
 
-enum mcisa { ISamd64 };
+enum mcisa { ISx86_64 };
 extern const struct mctarg *mctarg;
 extern enum mcisa targ_mcisa;
 void targ_init(const char *);

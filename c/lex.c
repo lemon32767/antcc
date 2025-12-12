@@ -1956,7 +1956,7 @@ addpredefmacros(struct arena **tmparena)
    }
 
    switch (targ_mcisa) {
-   case ISamd64:
+   case ISx86_64:
       putdef1("__x86_64__");
       putdef1("__x86_64");
       break;

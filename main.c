@@ -535,7 +535,7 @@ main(int argc, char **argv)
    optparse(argv);
 
    /* global init */
-   task.targ = task.targ ? task.targ : "amd64-sysv";
+   task.targ = task.targ ? task.targ : "x86_64-sysv";
    targ_init(task.targ);
 
    return driver();
