@@ -953,8 +953,12 @@ Unary:
    /* might be unary op (cast) or primary expr */
    case '(':
       if (!isdecltok(cm)) { /* (expr) */
+         struct span span = tk.span;
          ex = commaexpr(cm);
-         expect(cm, ')', NULL);
+         joinspan(&span.ex, ex.span.ex);
+         peek(cm, &tk);
+         if (expect(cm, ')', NULL)) joinspan(&span.ex, tk.span.ex);
+         ex.span = span;
       } else { /* (type) expr */
          struct declstate st = { DCASTEXPR };
          struct decl decl = pdecl(&st, cm);
@@ -3686,11 +3690,29 @@ loopbody(struct comp *cm, struct function *fn, struct block *brk, struct block *
 struct swcase {
    vlong val;
    struct block *blk;
+   struct span span;
 };
 struct switchstmt {
    struct block *bdefault;
+   union type condtype;
    vec_of(struct swcase) cases;
 };
+
+static int
+cmpswcase(const void *aa, const void *bb)
+{
+   const struct swcase *a = aa, *b = bb;
+   vlong v1 = a->val, v2 = b->val;
+   if (v1 != v2) return v1 < v2 ? -1 : 1;
+   return (a > b) - (a < b); /* preserve original order */
+}
+
+static void
+swsortcases(struct swcase *cs, uint n)
+{
+   void qsort(void *, size_t n, size_t size, int (*)(const void *, const void *));
+   qsort(cs, n, sizeof *cs, cmpswcase);
+}
 
 static bool
 genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
@@ -3698,7 +3720,7 @@ genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
    union ref sel;
    bool doemit = fn->curblk;
    struct block *begin = NULL, *end = NULL, *breaksave = cm->breakto;
-   struct switchstmt *stsave = cm->switchstmt, st = {0};
+   struct switchstmt *stsave = cm->switchstmt, st = {.condtype = ex->ty};
    enum irclass k = type2cls[scalartypet(ex->ty)];
    struct swcase casebuf[8];
    vinit(&st.cases, casebuf, countof(casebuf));
@@ -3722,21 +3744,31 @@ genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
 
    EMITS putbranch(fn, end);
    useblk(fn, begin);
+   swsortcases(st.cases.p, st.cases.n);
    doemit = 1;
    if (!st.bdefault) st.bdefault = end;
    /* TODO: optimize instead of generating the equivalent of if == .. else if .. chain
-    *       1. sort by case values (also for easy duplicates checking)
+    *    XX 1. sort by case values (also for easy duplicates checking)
     *       2. contiguous ranges (case a..b:  ->  x >= && x <= b)
     *       3. binary search
-    *       4. jump tables? (harder)
+    *       4. jump tables? (harder, backend refactoring)
     */
+   vlong prev;
    for (int i = 0; i < st.cases.n; ++i) {
-      struct swcase c = st.cases.p[i];
+      const struct swcase *c = &st.cases.p[i];
+      if (i > 0) {
+         assert(c->val >= prev);
+         if (c->val == prev) {
+            error(&c->span, "duplicate case value");
+            note(&c[-1].span, "previously defined here");
+         }
+      }
       EMITS {
          struct block *next = i < st.cases.n - 1 ? newblk(fn) : st.bdefault;
-         putcondbranch(fn, irbinop(fn, Oequ, k, sel, mkintcon(k, c.val)), c.blk, next);
+         putcondbranch(fn, irbinop(fn, Oequ, k, sel, mkintcon(k, c->val)), c->blk, next);
          if (next != st.bdefault) useblk(fn, next);
       }
+      prev = c->val;
    }
    vfree(&st.cases);
    if (fn->curblk != end) {
@@ -3773,13 +3805,22 @@ stmt(struct comp *cm, struct function *fn)
          /* case <expr> ':' */
          if (!cm->switchstmt) error(&tk.span, "'case' outside of switch statement");
          ex = constantexpr(cm);
-         if (!eval(&ex, EVINTCONST)) error(&ex.span, "not an integer constant expression");
+         if (!eval(&ex, EVINTCONST))
+            error(&ex.span, "not an integer constant expression");
+         else if (cm->switchstmt && ex.ty.bits != cm->switchstmt->condtype.bits) {
+            struct expr tmp = ex;
+            ex = mkexpr(ECAST, ex.span, cm->switchstmt->condtype, .sub = &tmp);
+            bool ok = eval(&ex, EVINTCONST);
+            assert(ok && "cast const int?");
+            if (ex.i != tmp.i)
+               warn(&ex.span, "overflow converting case value to switch condition type");
+         }
          expect(cm, ':', NULL);
          begin = newblk(fn);
          EMITS putbranch(fn, begin);
          useblk(fn, begin);
          if (cm->switchstmt)
-            vpush(&cm->switchstmt->cases, ((struct swcase) {ex.i, fn->curblk}));
+            vpush(&cm->switchstmt->cases, ((struct swcase) {ex.i, fn->curblk, ex.span}));
       } else if (tk.t == TKWdefault) {
          /* default ':' */
          if (!cm->switchstmt) error(&tk.span, "'default' outside of switch statement");
