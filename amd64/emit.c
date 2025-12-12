@@ -1012,7 +1012,11 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       if (kisflt(cls)) {
          Xaddf(pcode, cls, dst, mkimmdatregoper(ins->r));
       } else if (ins->reg-1 == dst.reg) { /* two-address add */
-         Xadd(pcode, cls, dst, ref2oper(ins->r));
+         src = ref2oper(ins->r);
+         if (src.t == OIMM && src.imm < 0) /* ADD -imm -> SUB imm, for niceness */
+            Xsub(pcode, cls, dst, (src.imm = -src.imm, src));
+         else
+            Xadd(pcode, cls, dst, src);
       } else if (isregref(ins->r) && ins->reg-1 == mkregoper(ins->r).reg) {
          /* also two-address after swapping operands */
          Xadd(pcode, cls, reg2oper(ins->reg-1), mkimmdatregoper(ins->l));
