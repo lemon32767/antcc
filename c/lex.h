@@ -58,7 +58,7 @@ struct token {
    uchar extwarn : 1; /* warn this keyword token is an extension */
    union {
       uint len;
-      struct { ushort macidx, argidx; };
+      ushort argidx;
    };
    struct span span;
    union {

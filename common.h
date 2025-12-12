@@ -273,14 +273,17 @@ struct pmapbase { void **k; uint n, N; };
 void pmap_init_(struct pmapbase *, void **v, uint vsiz, uint N);
 int pmap_get_(struct pmapbase *, const void *k);
 int pmap_set_(struct pmapbase *, void **v, uint vsiz, const void *k);
+void pmap_del_(struct pmapbase *, const void *k);
+extern char pmap_tombstone_[];
 #define pmap_free(m) (free((m)->mb.k), memset((m), 0, sizeof *(m)))
 #define pmap_init(m, N) (pmap_free(m), pmap_init_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, (N)))
 #define pmap_get(m, k) (((m)->tmp = pmap_get_(&(m)->mb, k)) < 0 ? NULL : &(m)->v[(m)->tmp])
 #define pmap_set(m, k, x) ((m)->tmp = pmap_set_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, k), \
                            (m)->v[(m)->tmp] = (x))
+#define pmap_del(m, k) pmap_del_(&(m)->mb, k)
 #define pmap_each(m,kx,pvx) \
-   for (int _i = 0; _i < (m)->mb.N && ((kx) = (m)->mb.k[_i], (pvx) = &(m)->v[_i], 1); ++_i) \
-      if (kx)
+   for (size_t _i = 0; _i < (m)->mb.N && ((kx) = (m)->mb.k[_i], (pvx) = &(m)->v[_i], 1); ++_i) \
+      if (kx && kx != pmap_tombstone_)
 
 /** bitset **/
 struct bitset { uvlong u; };

@@ -249,16 +249,19 @@ pmap_init_(struct pmapbase *m, void **v, uint vsiz, uint N)
    m->N = N;
 }
 
-int pmap_get_(struct pmapbase *m, const void *k)
+int
+pmap_get_(struct pmapbase *m, const void *k)
 {
    assert(k && "null key");
    if (!m->N) return -1;
-   for (int i = ptrhash(k);; ++i) {
+   for (size_t i = ptrhash(k);; ++i) {
       i &= m->N - 1;
       if (m->k[i] == k) return i;
       if (!m->k[i]) return -1;
    }
 }
+
+char pmap_tombstone_[1];
 
 static void
 pmap_rehash(struct pmapbase *m, void **v, uint vsiz)
@@ -275,7 +278,7 @@ pmap_rehash(struct pmapbase *m, void **v, uint vsiz)
    newk = xcalloc(sizk + sizv);
    newv = (char *)newk + sizk;
    for (i = 0; i < m->N; ++i) {
-      if (!m->k[i])
+      if (!m->k[i] || m->k[i] == pmap_tombstone_)
          continue;
       j = ptrhash(k = m->k[i]);
       for (;; ++j) {
@@ -293,22 +296,38 @@ pmap_rehash(struct pmapbase *m, void **v, uint vsiz)
    m->N = N2;
 }
 
-int pmap_set_(struct pmapbase *m, void **v, uint vsiz, const void *k)
+int
+pmap_set_(struct pmapbase *m, void **v, uint vsiz, const void *k)
 {
    assert(k && "null key");
    if (m->n >= m->N/4*3 /*load factor 75%*/) {
       pmap_rehash(m, v, vsiz);
       assert(m->n < m->N);
    }
-   for (int i = ptrhash(k);; ++i) {
+   for (size_t i = ptrhash(k);; ++i) {
       i &= m->N - 1;
       if (m->k[i] == k)
          return i;
-      if (!m->k[i]) {
+      if (!m->k[i] || m->k[i] == pmap_tombstone_) {
          m->k[i] = (void *)k;
          ++m->n;
          return i;
       }
+   }
+}
+
+void
+pmap_del_(struct pmapbase *m, const void *k)
+{
+   assert(k && "null key");
+   for (size_t i = ptrhash(k);; ++i) {
+      i &= m->N - 1;
+      if (m->k[i] == k) {
+         m->k[i] = pmap_tombstone_;
+         --m->n;
+         return;
+      } else if (!m->k[i])
+         return;
    }
 }
 
