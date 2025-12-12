@@ -462,12 +462,12 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          ins->inplace = 1;
          struct instr sub = *ins;
          rswap(sub.l, sub.r);
-         ins->op = Oneg;
+         ins->op = op = Oneg;
          ins->l = insertinstr(blk, (*curi)++, sub);
          ins->r = NOREF;
          goto ALU;
       } else if (kisint(ins->cls) && isintcon(ins->r)) {
-         ins->op = Oadd;
+         ins->op = op = Oadd;
          ins->r = mkintcon(concls(ins->r), -intconval(ins->r));
       } else {
          goto ALU;
