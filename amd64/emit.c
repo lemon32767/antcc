@@ -222,11 +222,12 @@ enum operenc {
 struct desc {
    uchar psiz; /* subset of {1,2,4,8} */
    uchar ptd, pts; /* bitsets of enum operpat */
-   const char *opc; /* opcode bytes */
+   uchar nopc; /* countof opc */
+   const char opc[8]; /* opcode bytes */
    uchar operenc; /* enum operenc */
    uchar ext; /* ModR/M.reg opc extension */
-   bool r8 : 1; /* uses 8bit register */
-   bool norexw : 1; /* do not use REX.W even if size is 64 bits */
+   bool r8; /* uses 8bit register */
+   bool norexw; /* do not use REX.W even if size is 64 bits */
 };
 
 /* match operand against pattern */
@@ -270,13 +271,10 @@ static void
 encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct oper dst, struct oper src)
 {
    const uchar *opc;
-   int nopc, mod, rex;
-   const char *sym;
-   uchar reg;
+   int nopc;
    struct oper mem;
-   bool sib = 0;
+   enum reg reg;
    const struct desc *en = NULL;
-
    for (int i = 0; i < ntab; ++i) {
       if ((tab[i].psiz & cls2siz[k]) && opermatch(tab[i].ptd, dst) && opermatch(tab[i].pts, src)) {
          en = &tab[i];
@@ -288,11 +286,11 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
    if (en->ptd == PFPR) dst.reg &= 15;
    if (en->pts == PFPR) src.reg &= 15;
    opc = (uchar *)en->opc;
-   nopc = strlen(en->opc);
+   nopc = en->nopc;
    /* mandatory prefixes go before REX */
    if (*opc == 0x66 || *opc == 0xF2 || *opc == 0xF3)
       B(*opc++), --nopc;
-   rex = in_range(k, KI64, KPTR) << 3; /* REX.W */
+   int rex = in_range(k, KI64, KPTR) << 3; /* REX.W */
    if (en->norexw) rex = 0;
    switch (en->operenc) {
    case EN_RR: /* mod = 11; reg = dst; rm = src */
@@ -360,6 +358,8 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
          }
          I32(0);
       } else {
+         int mod;
+         bool sib = 0;
          if (mem.base == RBP) {
             if (!usebp) {
                /* if RBP isn't being set up (leaf functions with no stack allocations),
@@ -370,7 +370,6 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
                mem.disp += rbpoff;
             }
          }
-
          if (mem.base != NOBASE) {
             if (mem.index == NOINDEX && mem.shift == 0) sib = 0;
             else sib = 1;
@@ -436,7 +435,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       if (rex) B(0x40 | rex);
       D(opc, nopc);
       assert(dst.t == OSYM);
-      sym = xcon2sym(dst.con);
+      const char *sym = xcon2sym(dst.con);
       if (sym != curfnsym) {
          enum relockind r = (ccopt.pie|ccopt.pic) ? REL_PLT32 : REL_PCREL32;
          objreloc(sym, r, Stext, *pcode - objout.textbegin, -4);
@@ -465,34 +464,35 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       encode(pcode, tab, countof(tab), k, dst, src);                  \
    }
 
+#define O(s) (sizeof s)-1,s
 DEFINSTR2(Xmovb,
-   {-1, PMEM, PGPR, "\x88", EN_MR,  .r8=1}, /* MOV m8, r8 */
-   {-1, PMEM, PI8,  "\xC6", EN_MI8, .r8=1}, /* MOV m8, imm8 */
-   {-1, PMEM, PU8,  "\xC6", EN_MI8, .r8=1}, /* MOV m8, imm8 */
+   {-1, PMEM, PGPR, O("\x88"), EN_MR,  .r8=1}, /* MOV m8, r8 */
+   {-1, PMEM, PI8,  O("\xC6"), EN_MI8, .r8=1}, /* MOV m8, imm8 */
+   {-1, PMEM, PU8,  O("\xC6"), EN_MI8, .r8=1}, /* MOV m8, imm8 */
 )
 DEFINSTR2(Xmovw,
-   {-1, PMEM, PGPR, "\x66\x89", EN_MR},   /* MOV m16, r16 */
-   {-1, PMEM, PI16, "\x66\xC7", EN_MI16}, /* MOV m16, imm16 */
-   {-1, PMEM, PU16, "\x66\xC7", EN_MI16}, /* MOV m16, imm16 */
+   {-1, PMEM, PGPR, O("\x66\x89"), EN_MR},   /* MOV m16, r16 */
+   {-1, PMEM, PI16, O("\x66\xC7"), EN_MI16}, /* MOV m16, imm16 */
+   {-1, PMEM, PU16, O("\x66\xC7"), EN_MI16}, /* MOV m16, imm16 */
 )
 static void Xmov(uchar **pcode, enum irclass k, struct oper dst, struct oper src)
 {
    static const struct desc all[] = {
-      {4  , PGPR, PI32, "\xB8",     EN_OI}, /* MOV r32, imm */
-      {4|8, PGPR, PGPR, "\x8B",     EN_RR}, /* MOV r32/64, r32/64 */
-      {4|8, PMEM, PGPR, "\x89",     EN_MR}, /* MOV m32/64, r32/64 */
-      {4|8, PGPR, PMEM, "\x8B",     EN_RM}, /* MOV r32/64, m32/64 */
-      {4|8, PMEM, PI32, "\xC7",     EN_MI32}, /* MOV m32/64, imm */
-      {  8, PGPR, PU32, "\xB8",     EN_OI, .norexw=1}, /* MOV r64, uimm */
-      {  8, PGPR, PI32, "\xC7",     EN_RI32}, /* MOV r64, imm */
-      {4, PFPR, PFPR, "\x0F\x28", EN_RR}, /* MOVPS xmm, xmm */
-      {4, PFPR, PMEM, "\xF3\x0F\x10", EN_RM}, /* MOVSS xmm, m32 */
-      {4, PMEM, PFPR, "\xF3\x0F\x11", EN_MR}, /* MOVSS m32, xmm */
-      {8, PFPR, PFPR, "\x0F\x28", EN_RR}, /* MOVPS xmm, xmm */
-      {8, PFPR, PMEM, "\xF2\x0F\x10", EN_RM}, /* MOVSD xmm, m64 */
-      {8, PMEM, PFPR, "\xF2\x0F\x11", EN_MR}, /* MOVSS m64, xmm */
-      {4|8, PFPR, PGPR, "\x66\x0F\x6E", EN_RR},  /* MOVD/Q xmm, r64/32 */
-      {4|8, PGPR, PFPR, "\x66\x0F\x7E", EN_RRX}, /* MOVD/Q r64/32, xmm */
+      {4  , PGPR, PI32, O("\xB8"),     EN_OI}, /* MOV r32, imm */
+      {4|8, PGPR, PGPR, O("\x8B"),     EN_RR}, /* MOV r32/64, r32/64 */
+      {4|8, PMEM, PGPR, O("\x89"),     EN_MR}, /* MOV m32/64, r32/64 */
+      {4|8, PGPR, PMEM, O("\x8B"),     EN_RM}, /* MOV r32/64, m32/64 */
+      {4|8, PMEM, PI32, O("\xC7"),     EN_MI32}, /* MOV m32/64, imm */
+      {  8, PGPR, PU32, O("\xB8"),     EN_OI, .norexw=1}, /* MOV r64, uimm */
+      {  8, PGPR, PI32, O("\xC7"),     EN_RI32}, /* MOV r64, imm */
+      {4  , PFPR, PFPR, O("\x0F\x28"), EN_RR}, /* MOVPS xmm, xmm */
+      {4  , PFPR, PMEM, O("\xF3\x0F\x10"), EN_RM}, /* MOVSS xmm, m32 */
+      {4  , PMEM, PFPR, O("\xF3\x0F\x11"), EN_MR}, /* MOVSS m32, xmm */
+      {8  , PFPR, PFPR, O("\x0F\x28"), EN_RR}, /* MOVPS xmm, xmm */
+      {8  , PFPR, PMEM, O("\xF2\x0F\x10"), EN_RM}, /* MOVSD xmm, m64 */
+      {8  , PMEM, PFPR, O("\xF2\x0F\x11"), EN_MR}, /* MOVSS m64, xmm */
+      {4|8, PFPR, PGPR, O("\x66\x0F\x6E"), EN_RR},  /* MOVD/Q xmm, r64/32 */
+      {4|8, PGPR, PFPR, O("\x66\x0F\x7E"), EN_RRX}, /* MOVD/Q r64/32, xmm */
    };
    static const uchar k2off[] = {
       [KI32] = 0,
@@ -503,209 +503,210 @@ static void Xmov(uchar **pcode, enum irclass k, struct oper dst, struct oper src
    encode(pcode, all + k2off[k], countof(all) - k2off[k], k, dst, src);
 }
 DEFINSTR2(Xmovsxl,
-   {8, PGPR, PMEM, "\x63", EN_RM}, /* MOVSXD r64, m32 */
-   {8, PGPR, PGPR, "\x63", EN_RR}, /* MOVSXD r64, r32 */
-   {4, PGPR, PMEM, "\x8B", EN_RM}, /* MOV r32, m32 */
-   {4, PGPR, PGPR, "\x8B", EN_RR}, /* MOV r32, r32 */
+   {8, PGPR, PMEM, O("\x63"), EN_RM}, /* MOVSXD r64, m32 */
+   {8, PGPR, PGPR, O("\x63"), EN_RR}, /* MOVSXD r64, r32 */
+   {4, PGPR, PMEM, O("\x8B"), EN_RM}, /* MOV r32, m32 */
+   {4, PGPR, PGPR, O("\x8B"), EN_RR}, /* MOV r32, r32 */
 )
 DEFINSTR2(Xmovsxw,
-   {4|8, PGPR, PMEM, "\x0F\xBF", EN_RM}, /* MOVSX r64, m16 */
-   {4|8, PGPR, PGPR, "\x0F\xBF", EN_RR}, /* MOVSX r64, r16 */
+   {4|8, PGPR, PMEM, O("\x0F\xBF"), EN_RM}, /* MOVSX r64, m16 */
+   {4|8, PGPR, PGPR, O("\x0F\xBF"), EN_RR}, /* MOVSX r64, r16 */
 )
 DEFINSTR2(Xmovsxb,
-   {4|8, PGPR, PMEM, "\x0F\xBE", EN_RM}, /* MOVSX r64, m8 */
-   {4|8, PGPR, PGPR, "\x0F\xBE", EN_RR, .r8=1}, /* MOVSX r64, r8 */
+   {4|8, PGPR, PMEM, O("\x0F\xBE"), EN_RM}, /* MOVSX r64, m8 */
+   {4|8, PGPR, PGPR, O("\x0F\xBE"), EN_RR, .r8=1}, /* MOVSX r64, r8 */
 )
 DEFINSTR2(Xmovzxw,
-   {4|8, PGPR, PMEM, "\x0F\xB7", EN_RM}, /* MOVZX r64, m16 */
-   {4|8, PGPR, PGPR, "\x0F\xB7", EN_RR}, /* MOVZX r64, r16 */
+   {4|8, PGPR, PMEM, O("\x0F\xB7"), EN_RM}, /* MOVZX r64, m16 */
+   {4|8, PGPR, PGPR, O("\x0F\xB7"), EN_RR}, /* MOVZX r64, r16 */
 )
 DEFINSTR2(Xmovzxb,
-   {4|8, PGPR, PMEM, "\x0F\xB6", EN_RM}, /* MOVZX r64, m8 */
-   {4|8, PGPR, PGPR, "\x0F\xB6", EN_RR, .r8=1}, /* MOVZX r64, r8 */
+   {4|8, PGPR, PMEM, O("\x0F\xB6"), EN_RM}, /* MOVZX r64, m8 */
+   {4|8, PGPR, PGPR, O("\x0F\xB6"), EN_RR, .r8=1}, /* MOVZX r64, r8 */
 )
 DEFINSTR2(Xmovaps,
-   {-1, PMEM, PFPR, "\x0F\x29", EN_MR}, /* MOVAPS mem, xmm */
+   {-1, PMEM, PFPR, O("\x0F\x29"), EN_MR}, /* MOVAPS mem, xmm */
 )
 DEFINSTR2(Xxchg,
-   {4|8, PGPR, PGPR, "\x87", EN_RR}, /* XCHG r32/64, r32/64 */
-   {4|8, PGPR, PMEM, "\x87", EN_RM}, /* XCHG r32/64, m32/64 */
-   {4|8, PMEM, PGPR, "\x87", EN_MR}, /* XCHG r32/64, m32/64 */
+   {4|8, PGPR, PGPR, O("\x87"), EN_RR}, /* XCHG r32/64, r32/64 */
+   {4|8, PGPR, PMEM, O("\x87"), EN_RM}, /* XCHG r32/64, m32/64 */
+   {4|8, PMEM, PGPR, O("\x87"), EN_MR}, /* XCHG r32/64, m32/64 */
 )
 DEFINSTR2(Xlea,
-   {4|8, PGPR, PMEM, "\x8D", EN_RM}, /* LEA r32/64,m32/64 */
-   {  8, PGPR, PSYM, "\x8D", EN_RM}, /* LEA rel32 */
+   {4|8, PGPR, PMEM, O("\x8D"), EN_RM}, /* LEA r32/64,m32/64 */
+   {  8, PGPR, PSYM, O("\x8D"), EN_RM}, /* LEA rel32 */
 )
 DEFINSTR2(Xadd,
-   {4|8, PGPR, PGPR, "\x03", EN_RR},   /* ADD r32/64, r32/64 */
-   {4|8, PGPR, P1,   "\xFF", EN_R, .ext=0}, /* INC r32/64 */
-   {4|8, PGPR, PN1,  "\xFF", EN_R, .ext=1}, /* DEC r32/64 */
-   {4|8, PGPR, PI8,  "\x83", EN_RI8},  /* ADD r32/64, imm8 */
-   {4|8, PRAX, PI32, "\x05", EN_I32},  /* ADD eax/rax, imm */
-   {4|8, PGPR, PI32, "\x81", EN_RI32}, /* ADD r32/64, imm */
-   {  8, PGPR, PMEM, "\x03", EN_RM},   /* ADD r64, m64 */
+   {4|8, PGPR, PGPR, O("\x03"), EN_RR},   /* ADD r32/64, r32/64 */
+   {4|8, PGPR, P1,   O("\xFF"), EN_R, .ext=0}, /* INC r32/64 */
+   {4|8, PGPR, PN1,  O("\xFF"), EN_R, .ext=1}, /* DEC r32/64 */
+   {4|8, PGPR, PI8,  O("\x83"), EN_RI8},  /* ADD r32/64, imm8 */
+   {4|8, PRAX, PI32, O("\x05"), EN_I32},  /* ADD eax/rax, imm */
+   {4|8, PGPR, PI32, O("\x81"), EN_RI32}, /* ADD r32/64, imm */
+   {  8, PGPR, PMEM, O("\x03"), EN_RM},   /* ADD r64, m64 */
 )
 DEFINSTR2(Xaddf,
-   {4, PFPR, PFPR, "\xF3\x0F\x58", EN_RR}, /* ADDSS xmm, xmm */
-   {8, PFPR, PFPR, "\xF2\x0F\x58", EN_RR}, /* ADDSD xmm, xmm */
-   {4, PFPR, PMEM, "\xF3\x0F\x58", EN_RM}, /* ADDSS xmm, m32 */
-   {8, PFPR, PMEM, "\xF2\x0F\x58", EN_RM}, /* ADDSD xmm, m64 */
+   {4, PFPR, PFPR, O("\xF3\x0F\x58"), EN_RR}, /* ADDSS xmm, xmm */
+   {8, PFPR, PFPR, O("\xF2\x0F\x58"), EN_RR}, /* ADDSD xmm, xmm */
+   {4, PFPR, PMEM, O("\xF3\x0F\x58"), EN_RM}, /* ADDSS xmm, m32 */
+   {8, PFPR, PMEM, O("\xF2\x0F\x58"), EN_RM}, /* ADDSD xmm, m64 */
 )
 DEFINSTR2(Xsub,
-   {4|8, PGPR, PGPR, "\x2B", EN_RR},           /* SUB r32/64, r32/64 */
-   {4|8, PGPR, P1,   "\xFF", EN_R, .ext=1},    /* DEC r32/64 */
-   {4|8, PGPR, PN1,  "\xFF", EN_R, .ext=0},    /* INC r32/64 */
-   {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=5},  /* SUB r32/64, imm8 */
-   {4|8, PRAX, PI32, "\x2D", EN_I32},          /* SUB eax/rax, imm */
-   {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=5}, /* SUB r32/64, imm */
-   {  8, PGPR, PMEM, "\x2B", EN_RM},           /* SUB r64, m64 */
+   {4|8, PGPR, PGPR, O("\x2B"), EN_RR},           /* SUB r32/64, r32/64 */
+   {4|8, PGPR, P1,   O("\xFF"), EN_R, .ext=1},    /* DEC r32/64 */
+   {4|8, PGPR, PN1,  O("\xFF"), EN_R, .ext=0},    /* INC r32/64 */
+   {4|8, PGPR, PI8,  O("\x83"), EN_RI8, .ext=5},  /* SUB r32/64, imm8 */
+   {4|8, PRAX, PI32, O("\x2D"), EN_I32},          /* SUB eax/rax, imm */
+   {4|8, PGPR, PI32, O("\x81"), EN_RI32, .ext=5}, /* SUB r32/64, imm */
+   {  8, PGPR, PMEM, O("\x2B"), EN_RM},           /* SUB r64, m64 */
 )
 DEFINSTR2(Xsubf,
-   {4, PFPR, PFPR, "\xF3\x0F\x5C", EN_RR}, /* SUBSS xmm, xmm */
-   {8, PFPR, PFPR, "\xF2\x0F\x5C", EN_RR}, /* SUBSD xmm, xmm */
-   {4, PFPR, PMEM, "\xF3\x0F\x5C", EN_RM}, /* SUBSS xmm, m32 */
-   {8, PFPR, PMEM, "\xF2\x0F\x5C", EN_RM}, /* SUBSD xmm, m64 */
+   {4, PFPR, PFPR, O("\xF3\x0F\x5C"), EN_RR}, /* SUBSS xmm, xmm */
+   {8, PFPR, PFPR, O("\xF2\x0F\x5C"), EN_RR}, /* SUBSD xmm, xmm */
+   {4, PFPR, PMEM, O("\xF3\x0F\x5C"), EN_RM}, /* SUBSS xmm, m32 */
+   {8, PFPR, PMEM, O("\xF2\x0F\x5C"), EN_RM}, /* SUBSD xmm, m64 */
 )
 DEFINSTR2(Xmulf,
-   {4, PFPR, PFPR, "\xF3\x0F\x59", EN_RR}, /* MULSS xmm, xmm */
-   {8, PFPR, PFPR, "\xF2\x0F\x59", EN_RR}, /* MULSD xmm, xmm */
-   {4, PFPR, PMEM, "\xF3\x0F\x59", EN_RM}, /* MULSS xmm, m32 */
-   {8, PFPR, PMEM, "\xF2\x0F\x59", EN_RM}, /* MULSD xmm, m64 */
+   {4, PFPR, PFPR, O("\xF3\x0F\x59"), EN_RR}, /* MULSS xmm, xmm */
+   {8, PFPR, PFPR, O("\xF2\x0F\x59"), EN_RR}, /* MULSD xmm, xmm */
+   {4, PFPR, PMEM, O("\xF3\x0F\x59"), EN_RM}, /* MULSS xmm, m32 */
+   {8, PFPR, PMEM, O("\xF2\x0F\x59"), EN_RM}, /* MULSD xmm, m64 */
 )
 DEFINSTR2(Xdivf,
-   {4, PFPR, PFPR, "\xF3\x0F\x5E", EN_RR}, /* DIVSS xmm, xmm */
-   {8, PFPR, PFPR, "\xF2\x0F\x5E", EN_RR}, /* DIVSD xmm, xmm */
-   {4, PFPR, PMEM, "\xF3\x0F\x5E", EN_RM}, /* DIVSS xmm, m32 */
-   {8, PFPR, PMEM, "\xF2\x0F\x5E", EN_RM}, /* DIVSD xmm, m64 */
+   {4, PFPR, PFPR, O("\xF3\x0F\x5E"), EN_RR}, /* DIVSS xmm, xmm */
+   {8, PFPR, PFPR, O("\xF2\x0F\x5E"), EN_RR}, /* DIVSD xmm, xmm */
+   {4, PFPR, PMEM, O("\xF3\x0F\x5E"), EN_RM}, /* DIVSS xmm, m32 */
+   {8, PFPR, PMEM, O("\xF2\x0F\x5E"), EN_RM}, /* DIVSD xmm, m64 */
 )
 DEFINSTR2(Xand,
-   {4|8, PGPR, PGPR, "\x23", EN_RR},           /* AND r32/64, r32/64 */
-   {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=4},  /* AND r32/64, imm8 */
-   {4|8, PRAX, PI32, "\x25", EN_I32},          /* AND eax/rax, imm */
-   {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=4}, /* AND r32/64, imm */
-   {  8, PGPR, PMEM, "\x23", EN_RM},           /* AND r64, m64 */
+   {4|8, PGPR, PGPR, O("\x23"), EN_RR},           /* AND r32/64, r32/64 */
+   {4|8, PGPR, PI8,  O("\x83"), EN_RI8, .ext=4},  /* AND r32/64, imm8 */
+   {4|8, PRAX, PI32, O("\x25"), EN_I32},          /* AND eax/rax, imm */
+   {4|8, PGPR, PI32, O("\x81"), EN_RI32, .ext=4}, /* AND r32/64, imm */
+   {  8, PGPR, PMEM, O("\x23"), EN_RM},           /* AND r64, m64 */
 )
 DEFINSTR2(Xior,
-   {4|8, PGPR, PGPR, "\x0B", EN_RR},           /* OR r32/64, r32/64 */
-   {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=1},  /* OR r32/64, imm8 */
-   {4|8, PRAX, PI32, "\x0D", EN_I32},          /* OR eax/rax, imm */
-   {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=1}, /* OR r32/64, imm */
-   {  8, PGPR, PMEM, "\x0B", EN_RM},           /* OR r64, m64 */
-   {4|8, PFPR, PFPR, "\x0F\x57", EN_RR},       /* ORPS xmm, xmm */
+   {4|8, PGPR, PGPR, O("\x0B"), EN_RR},           /* OR r32/64, r32/64 */
+   {4|8, PGPR, PI8,  O("\x83"), EN_RI8, .ext=1},  /* OR r32/64, imm8 */
+   {4|8, PRAX, PI32, O("\x0D"), EN_I32},          /* OR eax/rax, imm */
+   {4|8, PGPR, PI32, O("\x81"), EN_RI32, .ext=1}, /* OR r32/64, imm */
+   {  8, PGPR, PMEM, O("\x0B"), EN_RM},           /* OR r64, m64 */
+   {4|8, PFPR, PFPR, O("\x0F\x57"), EN_RR},       /* ORPS xmm, xmm */
 )
 DEFINSTR2(Xxor,
-   {4|8, PGPR, PGPR, "\x33", EN_RR},           /* XOR r32/64, r32/64 */
-   {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=6},  /* XOR r32/64, imm8 */
-   {4|8, PRAX, PI32, "\x35", EN_I32},          /* XOR eax/rax, imm */
-   {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=6}, /* XOR r32/64, imm */
-   {  8, PGPR, PMEM, "\x33", EN_RM},           /* XOR r64, m64 */
-   {4|8, PFPR, PFPR, "\x0F\x57", EN_RR},       /* XORPS xmm, xmm */
-   {4|8, PFPR, PMEM, "\x0F\x57", EN_RM},       /* XORPS xmm, m128 */
+   {4|8, PGPR, PGPR, O("\x33"), EN_RR},           /* XOR r32/64, r32/64 */
+   {4|8, PGPR, PI8,  O("\x83"), EN_RI8, .ext=6},  /* XOR r32/64, imm8 */
+   {4|8, PRAX, PI32, O("\x35"), EN_I32},          /* XOR eax/rax, imm */
+   {4|8, PGPR, PI32, O("\x81"), EN_RI32, .ext=6}, /* XOR r32/64, imm */
+   {  8, PGPR, PMEM, O("\x33"), EN_RM},           /* XOR r64, m64 */
+   {4|8, PFPR, PFPR, O("\x0F\x57"), EN_RR},       /* XORPS xmm, xmm */
+   {4|8, PFPR, PMEM, O("\x0F\x57"), EN_RM},       /* XORPS xmm, m128 */
 )
 DEFINSTR2(Xshl,
-   {4|8, PGPR, P1,   "\xD1", EN_R, .ext=4},   /* SHL r32/64, 1 */
-   {4|8, PGPR, PI32, "\xC1", EN_RI8, .ext=4}, /* SHL r32/64, imm */
-   {4|8, PGPR, PRCX, "\xD3", EN_R, .ext=4},   /* SHL r32/64, CL */
+   {4|8, PGPR, P1,   O("\xD1"), EN_R, .ext=4},   /* SHL r32/64, 1 */
+   {4|8, PGPR, PI32, O("\xC1"), EN_RI8, .ext=4}, /* SHL r32/64, imm */
+   {4|8, PGPR, PRCX, O("\xD3"), EN_R, .ext=4},   /* SHL r32/64, CL */
 )
 DEFINSTR2(Xsar,
-   {4|8, PGPR, P1,   "\xD1", EN_R, .ext=7},   /* SAR r32/64, 1 */
-   {4|8, PGPR, PI32, "\xC1", EN_RI8, .ext=7}, /* SAR r32/64, imm */
-   {4|8, PGPR, PRCX, "\xD3", EN_R, .ext=7},   /* SAR r32/64, CL */
+   {4|8, PGPR, P1,   O("\xD1"), EN_R, .ext=7},   /* SAR r32/64, 1 */
+   {4|8, PGPR, PI32, O("\xC1"), EN_RI8, .ext=7}, /* SAR r32/64, imm */
+   {4|8, PGPR, PRCX, O("\xD3"), EN_R, .ext=7},   /* SAR r32/64, CL */
 )
 DEFINSTR2(Xshr,
-   {4|8, PGPR, P1,   "\xD1", EN_R, .ext=5},   /* SHR r32/64, 1 */
-   {4|8, PGPR, PI32, "\xC1", EN_RI8, .ext=5}, /* SHR r32/64, imm */
-   {4|8, PGPR, PRCX, "\xD3", EN_R, .ext=5},   /* SHR r32/64, CL */
+   {4|8, PGPR, P1,   O("\xD1"), EN_R, .ext=5},   /* SHR r32/64, 1 */
+   {4|8, PGPR, PI32, O("\xC1"), EN_RI8, .ext=5}, /* SHR r32/64, imm */
+   {4|8, PGPR, PRCX, O("\xD3"), EN_R, .ext=5},   /* SHR r32/64, CL */
 )
 DEFINSTR2(Xcvtss2sd,
-   {-1,  PFPR, PFPR, "\xF3\x0F\x5A", EN_RR}, /* CVTSS2SD xmm, xmm */
-   {-1,  PFPR, PMEM, "\xF3\x0F\x5A", EN_RM}, /* CVTSS2SD xmm, m32/64 */
+   {-1,  PFPR, PFPR, O("\xF3\x0F\x5A"), EN_RR}, /* CVTSS2SD xmm, xmm */
+   {-1,  PFPR, PMEM, O("\xF3\x0F\x5A"), EN_RM}, /* CVTSS2SD xmm, m32/64 */
 )
 DEFINSTR2(Xcvtsd2ss,
-   {-1,  PFPR, PFPR, "\xF2\x0F\x5A", EN_RR}, /* CVTSD2SS xmm, xmm */
-   {-1,  PFPR, PMEM, "\xF2\x0F\x5A", EN_RM}, /* CVTSD2SS xmm, m32/64 */
+   {-1,  PFPR, PFPR, O("\xF2\x0F\x5A"), EN_RR}, /* CVTSD2SS xmm, xmm */
+   {-1,  PFPR, PMEM, O("\xF2\x0F\x5A"), EN_RM}, /* CVTSD2SS xmm, m32/64 */
 )
 DEFINSTR2(Xcvtsi2ss,
-   {-1,  PFPR, PGPR, "\xF3\x0F\x2A", EN_RR}, /* CVTSI2SS xmm, r32/64 */
-   {-1,  PFPR, PMEM, "\xF3\x0F\x2A", EN_RM}, /* CVTSI2SS xmm, m32/64 */
+   {-1,  PFPR, PGPR, O("\xF3\x0F\x2A"), EN_RR}, /* CVTSI2SS xmm, r32/64 */
+   {-1,  PFPR, PMEM, O("\xF3\x0F\x2A"), EN_RM}, /* CVTSI2SS xmm, m32/64 */
 )
 DEFINSTR2(Xcvtsi2sd,
-   {-1,  PFPR, PGPR, "\xF2\x0F\x2A", EN_RR}, /* CVTSI2SD xmm, r32/64 */
-   {-1,  PFPR, PMEM, "\xF2\x0F\x2A", EN_RM}, /* CVTSI2SD xmm, m32/64 */
+   {-1,  PFPR, PGPR, O("\xF2\x0F\x2A"), EN_RR}, /* CVTSI2SD xmm, r32/64 */
+   {-1,  PFPR, PMEM, O("\xF2\x0F\x2A"), EN_RM}, /* CVTSI2SD xmm, m32/64 */
 )
 DEFINSTR2(Xcvttss2si,
-   {-1,  PGPR, PFPR, "\xF3\x0F\x2C", EN_RR}, /* CVTTSS2SI r32/64, xmm */
-   {-1,  PGPR, PMEM, "\xF3\x0F\x2C", EN_RM}, /* CVTTSS2SI r32/64, m32 */
+   {-1,  PGPR, PFPR, O("\xF3\x0F\x2C"), EN_RR}, /* CVTTSS2SI r32/64, xmm */
+   {-1,  PGPR, PMEM, O("\xF3\x0F\x2C"), EN_RM}, /* CVTTSS2SI r32/64, m32 */
 )
 DEFINSTR2(Xcvttsd2si,
-   {-1,  PGPR, PFPR, "\xF2\x0F\x2C", EN_RR}, /* CVTTSD2SI r32/64, xmm */
-   {-1,  PGPR, PMEM, "\xF2\x0F\x2C", EN_RM}, /* CVTTSD2SI r32/64, m32 */
+   {-1,  PGPR, PFPR, O("\xF2\x0F\x2C"), EN_RR}, /* CVTTSD2SI r32/64, xmm */
+   {-1,  PGPR, PMEM, O("\xF2\x0F\x2C"), EN_RM}, /* CVTTSD2SI r32/64, m32 */
 )
 DEFINSTR1(Xneg,
-   {4|8, PGPR, 0, "\xF7", EN_R, .ext=3} /* NEG r32/64 */
+   {4|8, PGPR, 0, O("\xF7"), EN_R, .ext=3} /* NEG r32/64 */
 )
 DEFINSTR1(Xnot,
-   {4|8, PGPR, 0, "\xF7", EN_R, .ext=2} /* NOT r32/64 */
+   {4|8, PGPR, 0, O("\xF7"), EN_R, .ext=2} /* NOT r32/64 */
 )
 DEFINSTR1(Xidiv,
-   {4|8, PGPR, 0, "\xF7", EN_R, .ext=7}, /* IDIV r32/64 */
-   {4|8, PMEM, 0, "\xF7", EN_M, .ext=7}, /* IDIV m32/64 */
+   {4|8, PGPR, 0, O("\xF7"), EN_R, .ext=7}, /* IDIV r32/64 */
+   {4|8, PMEM, 0, O("\xF7"), EN_M, .ext=7}, /* IDIV m32/64 */
 )
 DEFINSTR1(Xdiv,
-   {4|8, PGPR, 0, "\xF7", EN_R, .ext=6}, /* DIV r32/64 */
-   {4|8, PMEM, 0, "\xF7", EN_M, .ext=6}, /* DIV m32/64 */
+   {4|8, PGPR, 0, O("\xF7"), EN_R, .ext=6}, /* DIV r32/64 */
+   {4|8, PMEM, 0, O("\xF7"), EN_M, .ext=6}, /* DIV m32/64 */
 )
 DEFINSTR1(Xcall,
-   {-1, PSYM, 0, "\xE8", EN_R32, .norexw=1}, /* CALL rel32 */
-   {-1, PGPR, 0, "\xFF", EN_R, .ext=2, .norexw=1}, /* CALL r64 */
-   {-1, PMEM, 0, "\xFF", EN_M, .ext=2, .norexw=1}, /* CALL m64 */
+   {-1, PSYM, 0, O("\xE8"), EN_R32, .norexw=1}, /* CALL rel32 */
+   {-1, PGPR, 0, O("\xFF"), EN_R, .ext=2, .norexw=1}, /* CALL r64 */
+   {-1, PMEM, 0, O("\xFF"), EN_M, .ext=2, .norexw=1}, /* CALL m64 */
 )
 DEFINSTR2(Xcmp,
-   {4|8, PGPR, PGPR, "\x3B", EN_RR},           /* CMP r32/64, r32/64 */
-   {4|8, PGPR, PI8,  "\x83", EN_RI8, .ext=7},  /* CMP r32/64, imm8 */
-   {4|8, PRAX, PI32, "\x3D", EN_I32},          /* CMP eax/rax, imm */
-   {4|8, PGPR, PI32, "\x81", EN_RI32, .ext=7}, /* CMP r32/64, imm */
-   {  8, PGPR, PMEM, "\x3B", EN_RM},           /* CMP r64, m64 */
-   {4  , PFPR, PFPR, "\x0F\x2E", EN_RR},       /* UCOMISS xmm, xmm */
-   {4  , PFPR, PMEM, "\x0F\x2E", EN_RM},       /* UCOMISS xmm, m32 */
-   {  8, PFPR, PFPR, "\x66\x0F\x2E", EN_RR},   /* UCOMISD xmm, xmm */
-   {  8, PFPR, PMEM, "\x66\x0F\x2E", EN_RM},   /* UCOMISD xmm, m64 */
+   {4|8, PGPR, PGPR, O("\x3B"), EN_RR},           /* CMP r32/64, r32/64 */
+   {4|8, PGPR, PI8,  O("\x83"), EN_RI8, .ext=7},  /* CMP r32/64, imm8 */
+   {4|8, PRAX, PI32, O("\x3D"), EN_I32},          /* CMP eax/rax, imm */
+   {4|8, PGPR, PI32, O("\x81"), EN_RI32, .ext=7}, /* CMP r32/64, imm */
+   {  8, PGPR, PMEM, O("\x3B"), EN_RM},           /* CMP r64, m64 */
+   {4  , PFPR, PFPR, O("\x0F\x2E"), EN_RR},       /* UCOMISS xmm, xmm */
+   {4  , PFPR, PMEM, O("\x0F\x2E"), EN_RM},       /* UCOMISS xmm, m32 */
+   {  8, PFPR, PFPR, O("\x66\x0F\x2E"), EN_RR},   /* UCOMISD xmm, xmm */
+   {  8, PFPR, PMEM, O("\x66\x0F\x2E"), EN_RM},   /* UCOMISD xmm, m64 */
 )
 DEFINSTR2(Xtest,
-   {4|8, PRAX, PI8,  "\xA8", EN_I8},  /* TEST AL, imm8 */
-   {4,   PRAX, PI32, "\xA9", EN_I32}, /* TEST EAX, imm32 */
-   {  8, PRAX, PU32, "\xA9", EN_I32}, /* TEST EAX, imm32 */
-   {  8, PRAX, PI32, "\xA9", EN_I32}, /* TEST RAX, imm32 */
-   {4|8, PGPR, PI8,  "\xF6", EN_RI8, .r8=1,.norexw=1},  /* TEST r8, imm8 */
-   {4|8, PGPR, PI32, "\xF7", EN_RI32, .ext=0}, /* TEST r32/64, imm32 */
-   {4|8, PGPR, PGPR, "\x85", EN_RR},   /* TEST r32/64, r32/64 */
-   {4|8, PGPR, PMEM, "\x85", EN_RM},   /* TEST r32/64, m32/64 */
+   {4|8, PRAX, PI8,  O("\xA8"), EN_I8},  /* TEST AL, imm8 */
+   {4,   PRAX, PI32, O("\xA9"), EN_I32}, /* TEST EAX, imm32 */
+   {  8, PRAX, PU32, O("\xA9"), EN_I32}, /* TEST EAX, imm32 */
+   {  8, PRAX, PI32, O("\xA9"), EN_I32}, /* TEST RAX, imm32 */
+   {4|8, PGPR, PI8,  O("\xF6"), EN_RI8, .r8=1,.norexw=1},  /* TEST r8, imm8 */
+   {4|8, PGPR, PI32, O("\xF7"), EN_RI32, .ext=0}, /* TEST r32/64, imm32 */
+   {4|8, PGPR, PGPR, O("\x85"), EN_RR},   /* TEST r32/64, r32/64 */
+   {4|8, PGPR, PMEM, O("\x85"), EN_RM},   /* TEST r32/64, m32/64 */
 )
 
 DEFINSTR2(Ximul2,
-   {4|8, PGPR, PGPR, "\x0F\xAF", EN_RR}, /* IMUL r32/64, r32/64 */
-   {4|8, PGPR, PMEM, "\x0F\xAF", EN_RM}, /* IMUL r32/64, m32/64 */
+   {4|8, PGPR, PGPR, O("\x0F\xAF"), EN_RR}, /* IMUL r32/64, r32/64 */
+   {4|8, PGPR, PMEM, O("\x0F\xAF"), EN_RM}, /* IMUL r32/64, m32/64 */
 )
+static const struct desc imul3_imm8tab[] = {
+   {4|8, PGPR, PGPR, O("\x6B"), EN_RR}, /* IMUL r32/64, r32/64, (imm8) */
+   {4|8, PGPR, PMEM, O("\x6B"), EN_RM}, /* IMUL r32/64, m32/64, (imm8) */
+}, imul3_imm32tab[] = {
+   {4|8, PGPR, PGPR, O("\x69"), EN_RR}, /* IMUL r32/64, r32/64, (imm32) */
+   {4|8, PGPR, PMEM, O("\x69"), EN_RM}, /* IMUL r32/64, m32/64, (imm32) */
+};
+#undef O
 static void
 Ximul(uchar **pcode, enum irclass k, struct oper dst, struct oper s1, struct oper s2)
 {
-   static const struct desc imm8tab[] = {
-      {4|8, PGPR, PGPR, "\x6B", EN_RR}, /* IMUL r32/64, r32/64, (imm8) */
-      {4|8, PGPR, PMEM, "\x6B", EN_RM}, /* IMUL r32/64, m32/64, (imm8) */
-   }, imm32tab[] = {
-      {4|8, PGPR, PGPR, "\x69", EN_RR}, /* IMUL r32/64, r32/64, (imm32) */
-      {4|8, PGPR, PMEM, "\x69", EN_RM}, /* IMUL r32/64, m32/64, (imm32) */
-   };
    if (!memcmp(&dst, &s1, sizeof dst) && s2.t != OIMM) {
       Ximul2(pcode, k, dst, s2);
       return;
    }
    assert(s2.t == OIMM);
    if ((uint)(s2.imm + 128) < 256) {
-      encode(pcode, imm8tab, countof(imm8tab), k, dst, s1);
+      encode(pcode, imul3_imm8tab, countof(imul3_imm8tab), k, dst, s1);
       B(s2.imm);
    } else {
-      encode(pcode, imm32tab, countof(imm32tab), k, dst, s1);
+      encode(pcode, imul3_imm32tab, countof(imul3_imm32tab), k, dst, s1);
       I32(s2.imm);
    }
 }
