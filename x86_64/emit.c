@@ -130,17 +130,7 @@ mkmemoper(union ref r)
       return mkoper(OMEM, .base = wop.reg, .index = NOINDEX);
    } else if (r.t == RADDR) {
       const struct addr *addr = &addrht[r.i];
-      struct oper mem;
-
       assert(addr->shift <= 3);
-      if (addr->base.t == RTMP && ioper(addr->base.i).t == OMEM) {
-         mem = ioper(addr->base.i);
-         if (addr->index.bits) addmemoper(&mem, mkregoper(addr->index));
-         assert(!mem.shift);
-         mem.shift = addr->shift;
-         addmemoper(&mem, mkoper(OIMM, .imm = addr->disp));
-         return mem;
-      }
       if (isaddrcon(addr->base,0)) {
          return mkoper(OSYM, .con = addr->base.i,
                              .cindex = addr->index.bits ? mkregoper(addr->index).reg : NOINDEX,
@@ -353,7 +343,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
             /* var(,%reg,shift) */
             assert(!ccopt.pic && !ccopt.pie && "cannot encode [RIP-rel + REG] for position independent");
             B(/*mod 0*/ (reg & 7) << 3 | RSP);
-            B(mem.cshift << 6 | mem.cindex << 3 | RBP); /* SIB [index*s + disp32] */
+            B(mem.cshift << 6 | ((mem.cindex & 7) << 3) | RBP); /* SIB [index*s + disp32] */
             objreloc(xcon2sym(mem.con), REL_ABS32S, Stext, *pcode - objout.textbegin, mem.disp);
          }
          I32(0);
