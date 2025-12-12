@@ -334,11 +334,10 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
             /* %rip(var) */
             static uchar offs[NOPERENC] = { [EN_MI8] = 1, [EN_MI16] = 2, [EN_MI32] = 4 };
             enum relockind r =
-               (!conht[mem.con].deref && ccopt.pic) ? (rex ? REL_GOTPCRELX : REL_GOTPCRELX_REX)
+               (!conht[mem.con].deref && ccopt.pic) ? (rex ? REL_GOTPCRELX_REX : REL_GOTPCRELX)
                                                     : REL_PCREL32;
-            int off = -4 - offs[en->operenc];
             B(/*mod 0*/ (reg & 7) << 3 | RBP);
-            objreloc(xcon2sym(mem.con), r, Stext, *pcode - objout.textbegin, mem.disp + off);
+            objreloc(xcon2sym(mem.con), r, Stext, *pcode - objout.textbegin, mem.disp - 4 - offs[en->operenc]);
          } else {
             /* var(,%reg,shift) */
             assert(!ccopt.pic && !ccopt.pie && "cannot encode [RIP-rel + REG] for position independent");
@@ -457,13 +456,11 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
 #define O(s) (sizeof s)-1,s
 DEFINSTR2(Xmovb,
    {-1, PMEM, PGPR, O("\x88"), EN_MR,  .r8=1}, /* MOV m8, r8 */
-   {-1, PMEM, PI8,  O("\xC6"), EN_MI8, .r8=1}, /* MOV m8, imm8 */
-   {-1, PMEM, PU8,  O("\xC6"), EN_MI8, .r8=1}, /* MOV m8, imm8 */
+   {-1, PMEM, PI32,  O("\xC6"), EN_MI8, .r8=1}, /* MOV m8, imm8 */
 )
 DEFINSTR2(Xmovw,
    {-1, PMEM, PGPR, O("\x66\x89"), EN_MR},   /* MOV m16, r16 */
-   {-1, PMEM, PI16, O("\x66\xC7"), EN_MI16}, /* MOV m16, imm16 */
-   {-1, PMEM, PU16, O("\x66\xC7"), EN_MI16}, /* MOV m16, imm16 */
+   {-1, PMEM, PI32, O("\x66\xC7"), EN_MI16}, /* MOV m16, imm16 */
 )
 static void Xmov(uchar **pcode, enum irclass k, struct oper dst, struct oper src)
 {
