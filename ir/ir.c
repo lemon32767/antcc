@@ -605,8 +605,10 @@ irfini(struct function *fn)
 
    abi0(fn);
    lowerintrin(fn);
-   mem2reg(fn);
-   copyopt(fn);
+   if (ccopt.o > OPT0) {
+      mem2reg(fn);
+      copyopt(fn);
+   }
    if (ccopt.dbg.o) {
       bfmt(ccopt.dbgout, "<< Before isel >>\n");
       irdump(fn);

@@ -132,6 +132,10 @@ struct option {
    bool nocolor;
    bool pie, pic;
    bool werror;
+   enum optz {
+      OPT0 = -1,
+      OPT1 = 1,
+   } o;
    union {
       struct {
          bool p : 1, /* after parsing */

@@ -185,6 +185,10 @@ optparse(char **args)
          }
       } else if (*arg == 'g') {
          /* TODO debug info */
+      } else if (*arg == 'O') {
+         if (!arg[1] || (uint)arg[1] - '1' < 9) ccopt.o = OPT1;
+         else if (arg[1] == '0') ccopt.o = OPT0;
+         else goto Bad;
       } else if (*arg == 'D' || *arg == 'U') {
          void cpppredef(bool undef, const char *cmd);
          const char *def = arg[1] ? arg+1 : *++args;
@@ -510,6 +514,8 @@ prihelp(void)
         " -llib  \tLink with library\n"
         " -fpie  \tEmit code for position independent executable\n"
         " -fpic  \tEmit position independent code\n"
+        " -O0    \tTurn off optimizations\n"
+        " -O1    \tTurn on more optimizations\n"
         " -x[c|o] \tSpecify type of next input file (C, object)\n"
    );
 }

@@ -1,3 +1,4 @@
+/* CFLAGS: -O0 */
 /* EXPECT:
 1.3
 5
