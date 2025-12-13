@@ -3816,21 +3816,25 @@ stmt(struct comp *cm, struct function *fn)
                warn(&ex.span, "overflow converting case value to switch condition type");
          }
          expect(cm, ':', NULL);
-         begin = newblk(fn);
-         EMITS putbranch(fn, begin);
-         useblk(fn, begin);
+         if (!fn->curblk || (fn->curblk->phi.n > 0 || fn->curblk->ins.n > 0)) {
+            begin = newblk(fn);
+            EMITS putbranch(fn, begin);
+            useblk(fn, begin);
+         }
          if (cm->switchstmt)
             vpush(&cm->switchstmt->cases, ((struct swcase) {ex.i, fn->curblk, ex.span}));
       } else if (tk.t == TKWdefault) {
          /* default ':' */
          if (!cm->switchstmt) error(&tk.span, "'default' outside of switch statement");
          expect(cm, ':', NULL);
-         begin = newblk(fn);
-         EMITS putbranch(fn, begin);
-         useblk(fn, begin);
+         if (!fn->curblk || (fn->curblk->phi.n > 0 || fn->curblk->ins.n > 0)) {
+            begin = newblk(fn);
+            EMITS putbranch(fn, begin);
+            useblk(fn, begin);
+         }
          if (cm->switchstmt) {
             if (cm->switchstmt->bdefault) error(&tk.span, "multiple 'default' labels in one switch");
-            cm->switchstmt->bdefault = begin;
+            cm->switchstmt->bdefault = fn->curblk;
          }
       } else if (tk.t == TKIDENT && match(cm, NULL, ':')) {
          /* <label> ':' */
