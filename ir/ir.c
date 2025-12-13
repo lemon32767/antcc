@@ -94,7 +94,7 @@ addcon(const struct xcon *con)
 {
    uint h = hashb(0, con, sizeof *con);
    uint i = h, n = countof(conht);
-   assert(con->issym || con->isdat || con->cls);
+   assert((con->issym ^ con->isdat && !(con->isdat && con->isfunc)) || con->cls);
    for (;; ++i) {
       i &= countof(conht) - 1;
       if (!conht[i].issym && !conht[i].isdat && !conht[i].cls) {
@@ -138,9 +138,9 @@ mkfltcon(enum irclass k, double f)
 }
 
 union ref
-mksymref(const char *s)
+mksymref(const char *s, bool isfunc)
 {
-   struct xcon con = { .issym = 1, .sym = s };
+   struct xcon con = { .issym = 1, .sym = s, .isfunc = isfunc };
    return mkref(RXCON, addcon(&con));
 }
 

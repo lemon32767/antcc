@@ -2755,7 +2755,7 @@ expraddr(struct function *fn, const struct expr *ex)
          assert(decl->id >= 0);
          return mkref(RTMP, decl->id);
       case SCEXTERN: case SCNONE: case SCSTATIC:
-         return mksymref(decl->sym);
+         return mksymref(decl->sym, decl->ty.t == TYFUNC);
       default:
          assert(0);
       }
@@ -2798,7 +2798,7 @@ expraddr(struct function *fn, const struct expr *ex)
          ip->off = objnewdat(sym, ip->sec, 0, typesize(ty), typealign(ty));
          if (!iniwriterec(NULL, ip, 0, (struct expr *)ex))
             error(&ex->span, "cannot not evaluate expression statically");
-         return mksymref(sym);
+         return mksymref(sym, 0);
       }
    case ESEQ:
       expreffects(fn, &ex->sub[0]);
@@ -2888,7 +2888,7 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
          addinstr(fn, mkarginstr(cls2type(KPTR), dst));
          addinstr(fn, mkarginstr(cls2type(KI32), ZEROREF));
          addinstr(fn, mkarginstr(cls2type(type2cls[targ_sizetype]), mkintcon(type2cls[targ_sizetype], siz)));
-         call.l = mksymref("memset");
+         call.l = mksymref("memset", 1);
          call.r = mkcallarg(cls2type(KPTR), 3, -1);
          addinstr(fn, call);
       }

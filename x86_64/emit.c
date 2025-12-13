@@ -333,9 +333,11 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
          if (mem.cindex == NOINDEX) {
             /* %rip(var) */
             static uchar offs[NOPERENC] = { [EN_MI8] = 1, [EN_MI16] = 2, [EN_MI32] = 4 };
-            enum relockind r =
-               (!conht[mem.con].deref && ccopt.pic) ? (rex ? REL_GOTPCRELX_REX : REL_GOTPCRELX)
-                                                    : REL_PCREL32;
+            enum relockind r;
+            if ((!conht[mem.con].deref && ccopt.pic) || conht[mem.con].isfunc)
+               r = (rex ? REL_GOTPCRELX_REX : REL_GOTPCRELX);
+            else
+               r = REL_PCREL32;
             B(/*mod 0*/ (reg & 7) << 3 | RBP);
             objreloc(xcon2sym(mem.con), r, Stext, *pcode - objout.textbegin, mem.disp - 4 - offs[en->operenc]);
          } else {
@@ -521,7 +523,7 @@ DEFINSTR2(Xxchg,
 )
 DEFINSTR2(Xlea,
    {4|8, PGPR, PMEM, O("\x8D"), EN_RM}, /* LEA r32/64,m32/64 */
-   {  8, PGPR, PSYM, O("\x8D"), EN_RM}, /* LEA rel32 */
+   {  8, PGPR, PSYM, O("\x8D"), EN_RM}, /* LEA r32/64,rel32 */
 )
 DEFINSTR2(Xadd,
    {4|8, PGPR, PGPR, O("\x03"), EN_RR},   /* ADD r32/64, r32/64 */
@@ -862,7 +864,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       }
       /* normal (not 2-address) case */
    Lea:
-      if (isaddrcon(addr->base,0) && ccopt.pic) {
+      if (isaddrcon(addr->base,0) && (ccopt.pic || conht[addr->base.i].isfunc)) {
          assert(!addr->disp && !addr->index.bits);
          val = addr->base;
          goto GOTLoad;
@@ -872,7 +874,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       /* dst = 0 -> xor dst, dst; but only if it is ok to clobber flags */
       Xxor(pcode, kisint(cls) ? KI32 : cls, dst, dst);
    } else if (isaddrcon(val,0)) {
-      if (ccopt.pic) GOTLoad:
+      if (ccopt.pic || conht[val.i].isfunc) GOTLoad:
          /* for  mov reg, [rip(sym@GOTPCREL)] */
          Xmov(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));
       else

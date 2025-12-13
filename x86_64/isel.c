@@ -310,7 +310,7 @@ fuseaddr(union ref *r, struct block *blk, int *curi)
    if (r->t != RTMP) return 0;
    if (!aadd(&addr, blk, curi, *r)) return 0;
 
-   if (isaddrcon(addr.base,0) && (ccopt.pic || (ccopt.pie && addr.index.bits))) {
+   if (isaddrcon(addr.base,0) && (ccopt.pic || (ccopt.pie && addr.index.bits) || conht[addr.base.i].isfunc)) {
       /* pic needs to load from GOT */
       /* pie cannot encode RIP-relative address with index register */
       /*     first load symbol address into a temp register */
