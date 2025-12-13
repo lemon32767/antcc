@@ -116,7 +116,7 @@ fixlive(struct function *fn)
    } while ((blk = blk->lnext) != fn->entry);
 
    if (ccopt.dbg.l) {
-      DBG("<< After liveness fixup >>\n");
+      efmt("<< After liveness fixup >>\n");
       irdump(fn);
    }
    if (defined != definedbuf) free(defined);
@@ -262,7 +262,7 @@ emitmove(enum irclass k, struct alloc dst, struct alloc src, struct block *blk, 
       else
          reg = kisint(k) ? mctarg->gprscratch : mctarg->fprscratch;
       mv.reg = reg+1;
-      addstkslotref(insertinstr(blk, curi, mv).i, src.a*8);
+      addstkslotref(insertinstr(blk, curi++, mv).i, src.a*8);
    } else reg = src.a;
    if (dst.t == ASTACK) {
       mv = mkinstr(Ostore8+ilog2(cls2siz[k]), 0, .r = mkref(RREG, reg));
@@ -1255,7 +1255,7 @@ regalloc(struct function *fn)
    fillblkids(fn);
 
    if (ccopt.dbg.r) {
-      DBG("<< Before linear scan >>\n");
+      bfmt(ccopt.dbgout, "<< Before linear scan >>\n");
       irdump(fn);
    }
 
@@ -1292,7 +1292,7 @@ regalloc(struct function *fn)
    vfree(&stkslotrefs);
 
    if (ccopt.dbg.r) {
-      DBG("<< After regalloc >>\n");
+      bfmt(ccopt.dbgout, "<< After regalloc >>\n");
       irdump(fn);
    }
 }

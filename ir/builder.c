@@ -218,8 +218,7 @@ useblk(struct function *fn, struct block *blk)
       blk->lnext = fn->entry;
       blk->lprev = fn->entry->lprev;
       blk->lprev->lnext = blk;
-      blk->id = blk->lprev->id + 1;
-      ++fn->nblk;
+      blk->id = ++fn->nblk;
       fn->entry->lprev = blk;
    }
    fn->curblk = blk;
