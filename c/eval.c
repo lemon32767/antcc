@@ -177,12 +177,27 @@ isaddrconst(struct expr *ex)
       return 1;
    if (isglobsym(ex) && in_range(ex->ty.t, TYARRAY, TYFUNC))
       return 1;
-   if (ex->t == ESUB)
-      return isglobsym(&ex->sub[0]) && isint(ex->sub[1].ty) && eval(&ex->sub[1], EVSTATICINI);
-   if (ex->t == EADD) {
+   if (ex->t == ESUB) {
+      if (isaddrconst(&ex->sub[0]) && isint(ex->sub[1].ty) && eval(&ex->sub[1], EVSTATICINI)) {
+         assert(ex->sub[1].t == ENUMLIT);
+         if (eval(&ex->sub[0], EVSTATICINI) && ex->sub[0].t == ENUMLIT) {
+            /* handles (char *)10 - 5 */
+            ex->u = ex->sub[0].u - ex->sub[1].u * typesize(typechild(ex->sub[0].ty));
+            ex->t = ENUMLIT;
+         }
+         return 1;
+      }
+   } else if (ex->t == EADD) {
       for (int swp = 0; swp < 2; ++swp)
-         if (isglobsym(&ex->sub[swp]) && isint(ex->sub[swp^1].ty) && eval(&ex->sub[swp^1], EVSTATICINI))
+         if (isaddrconst(&ex->sub[swp]) && isint(ex->sub[swp^1].ty) && eval(&ex->sub[swp^1], EVSTATICINI)) {
+            assert(ex->sub[swp^1].t == ENUMLIT);
+            if (eval(&ex->sub[swp], EVSTATICINI) && ex->sub[swp].t == ENUMLIT) {
+               /* handles (char *)1234 + 5678 */
+               ex->u = ex->sub[swp].u + ex->sub[swp^1].u * typesize(typechild(ex->sub[swp].ty));
+               ex->t = ENUMLIT;
+            }
             return 1;
+         }
    }
    return 0;
 }

@@ -3,6 +3,7 @@
 1.3
 5
 ok
+0x55, 0x6, 5
 */
 
 const void *const relro = &relro;
@@ -22,9 +23,17 @@ int (*(getputs(void)))(const char *) {
    return t;
 }
 
+static char *int2ptr[] = {
+   (void *)&*((char*)0 + 0x55),
+   (void *)&((short*)0)[0x3],
+   (void *)&*((char*)7 - 2),
+};
+
 #include <stdio.h>
+#include <stdint.h>
 int main() {
    printf("%g\n", get_value(2));
    printf("%d\n", ou(2));
    getputs()("ok");
+   printf("%p, %p, %d\n", int2ptr[0], int2ptr[1], (int)(intptr_t)int2ptr[2]);
 }

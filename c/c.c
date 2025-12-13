@@ -788,7 +788,7 @@ ppostfixopers(struct comp *cm, struct expr *ex)
       rhs = commaexpr(cm);
       span = ex->span;
       if (!joinspan(&span.ex, tk.span.ex) || !joinspan(&span.ex, ex->span.ex)
-       || (peek(cm, &tk2), !joinspan(&span.ex, tk.span.ex)))
+       || (peek(cm, &tk), !joinspan(&span.ex, tk.span.ex)))
          span = tk.span;
       expect(cm, ']', NULL);
 
