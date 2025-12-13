@@ -11,3 +11,6 @@ cd ..
 
 echo "--- Lua 5.4.0 ---"
 ./lua.sh
+
+echo "--- c-testsuite ---"
+./c-testsuite.sh
