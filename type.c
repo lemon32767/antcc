@@ -250,9 +250,11 @@ assigncompat(union type dst, union type src)
    if (dst.t == TYPTR && src.t == TYPTR) {
       ds = typechild(dst);
       ss = typechild(src);
-      return ds.bits == ss.bits || ss.t == TYVOID || ds.t == TYVOID;
-   }
-   if (dst.t == TYBOOL && src.t == TYPTR)
+      if (ds.bits == ss.bits) return 1;
+      if (ss.t == TYVOID || ds.t == TYVOID) return 1;
+      if (ss.t == TYCHAR  && in_range(ds.t, TYUCHAR, TYSCHAR)) return 1;
+      if (ds.t == TYCHAR  && in_range(ss.t, TYUCHAR, TYSCHAR)) return 1;
+   } else if (dst.t == TYBOOL && src.t == TYPTR)
       return 1;
    return 0;
 }
