@@ -6,7 +6,7 @@
 
 
 void elfinit(void);
-enum section elfhassym(const char *);
+enum section elfhassym(const char *, uint *value);
 void elfaddsym(const char *, int info, enum section, uvlong value, uvlong size);
 void elfreloc(const char *sym, enum relockind, enum section, uint off, vlong addend);
 void elffini(struct wbuf *);
@@ -40,38 +40,44 @@ objdeffunc(const char *nam, bool globl, uint off, uint siz)
 }
 
 enum section
-objhassym(const char *name)
+objhassym(const char *name, uint *off)
 {
-   return elfhassym(name);
+   return elfhassym(name, off);
 }
 
 uint
 objnewdat(const char *name, enum section sec, bool globl, uint siz, uint align)
 {
+   struct objfile *o = &objout;
    uint off;
-
    assert(siz && align && ispo2(align));
-
    switch (sec) {
    default: assert(0);
+   case Stext:
+      assert(align <= targ_primsizes[TYPTR]);
+      assert(o->textend - siz > o->code);
+      while ((o->code - o->textbegin) & (align - 1)) ++o->code;
+      off = o->code - o->textbegin;
+      o->code += siz;
+      break;
    case Srodata:
-      if (align > objout.rodataalign) objout.rodataalign = align;
-      while (objout.rodata.n & (align - 1)) vpush(&objout.rodata, 0);
-      off = objout.rodata.n;
-      vresize(&objout.rodata, objout.rodata.n + siz);
-      memset(objout.rodata.p+off, 0, siz);
+      if (align > o->rodataalign) o->rodataalign = align;
+      while (o->rodata.n & (align - 1)) vpush(&o->rodata, 0);
+      off = o->rodata.n;
+      vresize(&o->rodata, o->rodata.n + siz);
+      memset(o->rodata.p+off, 0, siz);
       break;
    case Sdata:
-      if (align > objout.dataalign) objout.dataalign = align;
-      while (objout.data.n & (align - 1)) vpush(&objout.data, 0);
-      off = objout.data.n;
-      vresize(&objout.data, objout.data.n + siz);
-      memset(objout.data.p+off, 0, siz);
+      if (align > o->dataalign) o->dataalign = align;
+      while (o->data.n & (align - 1)) vpush(&o->data, 0);
+      off = o->data.n;
+      vresize(&o->data, o->data.n + siz);
+      memset(o->data.p+off, 0, siz);
       break;
    case Sbss:
-      if (align > objout.bssalign) objout.bssalign = align;
-      off = alignup(objout.nbss, align);
-      objout.nbss = off + siz;
+      if (align > o->bssalign) o->bssalign = align;
+      off = alignup(o->nbss, align);
+      o->nbss = off + siz;
       break;
    }
 

@@ -118,8 +118,6 @@ mkimmdatregoper(union ref r)
    return ref2oper(r);
 }
 
-static int rbpoff;
-
 static struct oper
 mkmemoper(union ref r)
 {
@@ -252,6 +250,7 @@ opermatch(enum operpat pat, struct oper oper)
 #define DS(S) D(S, sizeof S - 1)
 
 static bool usebp; /* use RBP? */
+static int rbpoff;
 static const char *curfnsym;
 static uchar *fnstart;
 
@@ -333,21 +332,29 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
          if (mem.cindex == NOINDEX) {
             /* %rip(var) */
             static uchar offs[NOPERENC] = { [EN_MI8] = 1, [EN_MI16] = 2, [EN_MI32] = 4 };
-            enum relockind r;
-            if ((!conht[mem.con].deref && ccopt.pic) || conht[mem.con].isfunc)
-               r = (rex ? REL_GOTPCRELX_REX : REL_GOTPCRELX);
-            else
-               r = REL_PCREL32;
+            uint addr;
+            int disp = mem.disp - 4 - offs[en->operenc];
+            const char *sym = xcon2sym(mem.con);
             B(/*mod 0*/ (reg & 7) << 3 | RBP);
-            objreloc(xcon2sym(mem.con), r, Stext, *pcode - objout.textbegin, mem.disp - 4 - offs[en->operenc]);
+            if (objhassym(sym, &addr) == Stext) {
+               I32(addr - (*pcode - objout.textbegin) + disp);
+            } else {
+               enum relockind r;
+               if ((!conht[mem.con].deref && ccopt.pic) || conht[mem.con].isfunc)
+                  r = (rex ? REL_GOTPCRELX_REX : REL_GOTPCRELX);
+               else
+                  r = REL_PCREL32;
+               objreloc(xcon2sym(mem.con), r, Stext, *pcode - objout.textbegin, disp);
+               I32(0);
+            }
          } else {
             /* var(,%reg,shift) */
             assert(!ccopt.pic && !ccopt.pie && "cannot encode [RIP-rel + REG] for position independent");
             B(/*mod 0*/ (reg & 7) << 3 | RSP);
             B(mem.cshift << 6 | ((mem.cindex & 7) << 3) | RBP); /* SIB [index*s + disp32] */
             objreloc(xcon2sym(mem.con), REL_ABS32S, Stext, *pcode - objout.textbegin, mem.disp);
+            I32(0);
          }
-         I32(0);
       } else {
          int mod;
          bool sib = 0;
@@ -427,13 +434,15 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       D(opc, nopc);
       assert(dst.t == OSYM);
       const char *sym = xcon2sym(dst.con);
-      if (sym != curfnsym) {
+      uint addr;
+      if (sym == curfnsym) {
+         I32(fnstart - *pcode - 4);
+      } else if (objhassym(sym, &addr) == Stext) {
+         I32(addr - (*pcode - objout.textbegin) - 4);
+      } else {
          enum relockind r = (ccopt.pie|ccopt.pic) ? REL_PLT32 : REL_PCREL32;
          objreloc(sym, r, Stext, *pcode - objout.textbegin, -4);
          I32(0);
-      } else {
-         /* self-recursive call */
-         I32(fnstart - *pcode - 4);
       }
       break;
    }
@@ -864,7 +873,8 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       }
       /* normal (not 2-address) case */
    Lea:
-      if (isaddrcon(addr->base,0) && (ccopt.pic || conht[addr->base.i].isfunc)) {
+      if (isaddrcon(addr->base,0) && (ccopt.pic || conht[addr->base.i].isfunc)
+       && !objhassym(xcon2sym(addr->base.i), NULL)) {
          assert(!addr->disp && !addr->index.bits);
          val = addr->base;
          goto GOTLoad;
@@ -874,12 +884,15 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       /* dst = 0 -> xor dst, dst; but only if it is ok to clobber flags */
       Xxor(pcode, kisint(cls) ? KI32 : cls, dst, dst);
    } else if (isaddrcon(val,0)) {
-      if (ccopt.pic || conht[val.i].isfunc) GOTLoad:
+      if ((ccopt.pic || conht[val.i].isfunc)
+       && !objhassym(xcon2sym(val.i), NULL)) {
+      GOTLoad:
          /* for  mov reg, [rip(sym@GOTPCREL)] */
          Xmov(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));
-      else
+      } else {
          /* for  lea reg, [rip(sym)] */
          Xlea(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));
+      }
    } else if (val.t == RXCON && in_range(concls(val), KI64, KPTR)) {
       /* movabs */
       assert(dst.t == OREG && in_range(dst.reg, RAX, R15));

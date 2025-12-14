@@ -147,7 +147,8 @@ mksymref(const char *s, bool isfunc)
 union ref
 mkdatref(const char *name, union type ctype, uint siz, uint align, const void *bytes, uint n, bool deref)
 {
-   struct irdat dat = { .ctype = ctype, .align = align, .siz = siz, .name = name, .section = Srodata };
+   struct irdat dat = { .ctype = ctype, .align = align, .siz = siz, .name = name };
+   dat.section = align >= 4 && align <= targ_primsizes[TYPTR] && siz <= 16 ? Stext : Srodata;
 
    assert(n <= siz && siz && align);
    if (!name) {
@@ -155,14 +156,15 @@ mkdatref(const char *name, union type ctype, uint siz, uint align, const void *b
       char buf[32];
       struct wbuf wbuf = MEMBUF(buf, sizeof buf);
 
-      bfmt(&wbuf, ".L.%d", dattab.n);
+      bfmt(&wbuf, ".L%c.%d", dat.section == Stext ? 'L' : 'D', dattab.n);
       ioputc(&wbuf, 0);
       assert(!wbuf.err);
       dat.name = name = intern(buf);
    }
    dat.off = objnewdat(name, dat.section, 0, siz, align);
-   memcpy(objout.rodata.p+dat.off, bytes, n);
-   memset(objout.rodata.p+dat.off+n, 0, siz - n);
+   uchar *p = (dat.section == Stext ? objout.textbegin : objout.rodata.p) + dat.off;
+   if (n) memcpy(p, bytes, n);
+   if (dat.section != Stext) memset(p+n, 0, siz - n);
    vpush(&dattab, dat);
    return mkref(RXCON, addcon(&(struct xcon){.isdat = 1, .deref = deref, .dat = dattab.n - 1}));
 }

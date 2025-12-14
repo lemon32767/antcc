@@ -4308,8 +4308,8 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
       if (!ifunc) ifunc = intern("__func__");
       union type ty = mkarrtype(mktype(TYCHAR), QCONST, strlen(fn->name) + 1);
       const char *sym = mkhiddensym(fn->name, ifunc, 1);
-      uint off = objnewdat(sym, Srodata, 0, typesize(ty), typealign(ty));
-      uchar *p = objout.rodata.p + off;
+      uint off = objnewdat(sym, Stext, 0, typesize(ty), typealign(ty));
+      uchar *p = objout.textbegin + off;
       memcpy(p, fn->name, typearrlen(ty)-1);
       putdecl(cm, &(struct decl) {
          .ty = ty, .qual = QCONST,
@@ -4418,7 +4418,7 @@ docomp(struct comp *cm)
                pdecl(&st, cm);
             } else if (decl.ty.t != TYFUNC && decl.scls != SCTYPEDEF && (decl.scls != SCEXTERN || noscls)) {
                /* tentative definitions */
-               if (!objhassym(decl.sym)) {
+               if (!objhassym(decl.sym, NULL)) {
                   uint size = typesize(d->ty);
                   if (isincomplete(d->ty)) {
                      if (d->ty.t == TYARRAY) {

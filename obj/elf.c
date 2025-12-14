@@ -91,16 +91,23 @@ enum {
    BSS_SHNDX    = 4,
 };
 
+static const char sect2ndx[] = {
+   [Snone] = SHN_UND,
+   [Stext] = TEXT_SHNDX, [Srodata] = RODATA_SHNDX,
+   [Sdata] = DATA_SHNDX, [Sbss] = BSS_SHNDX,
+}, shndx2sect[] = {
+   [SHN_UND] = Snone,
+   [TEXT_SHNDX] = Stext, [RODATA_SHNDX] = Srodata,
+   [DATA_SHNDX] = Sdata, [BSS_SHNDX] = Sbss,
+};
+
 enum section
-elfhassym(const char *nam)
+elfhassym(const char *nam, uint *value)
 {
    struct sym *sym = findsym(nam);
-   if (sym) switch (sym->shndx) {
-   case SHN_UND: return Snone;
-   case TEXT_SHNDX: return Stext;
-   case RODATA_SHNDX: return Srodata;
-   case DATA_SHNDX: return Sdata;
-   case BSS_SHNDX: return Sbss;
+   if (sym) {
+      if (value) *value = sym->value;
+      return shndx2sect[sym->shndx];
    }
    return Snone;
 }
@@ -115,13 +122,7 @@ elfaddsym(const char *nam, int info, enum section sect, uvlong value, uvlong siz
    }
    sym->bind = info >> 4;
    sym->type = info & 0xF;
-   switch (sect) {
-   case Snone:   sym->shndx = SHN_UND; break;
-   case Stext:   sym->shndx = TEXT_SHNDX; break;
-   case Srodata: sym->shndx = RODATA_SHNDX; break;
-   case Sdata:   sym->shndx = DATA_SHNDX; break;
-   case Sbss:    sym->shndx = BSS_SHNDX; break;
-   }
+   sym->shndx = sect2ndx[sect];
    sym->value = value;
    sym->size = size;
    if (sym == &sym0) {
