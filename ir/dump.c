@@ -9,7 +9,7 @@ static struct wbuf *out = &bstdout;
 static bool
 prilitdat(const struct irdat *dat, const char *prefix)
 {
-   uchar *p = (dat->section == Sdata ? objout.data.p : objout.rodata.p) + dat->off; 
+   uchar *p = (dat->section == Sdata ? objout.data.p : objout.rodata.p) + dat->off;
    if (dat->ctype.t == TYARRAY && typechild(dat->ctype).t == TYCHAR && dat->siz-1 < 60 && p[dat->siz-1] == 0) {
       bfmt(out, "%s%'S", prefix, p, dat->siz-1);
    } else if (dat->ctype.t == TYFLOAT) {
@@ -25,7 +25,7 @@ prilitdat(const struct irdat *dat, const char *prefix)
 static void
 pridat(const struct irdat *dat)
 {
-   uchar *p = (dat->section == Sdata ? objout.data.p : objout.rodata.p) + dat->off; 
+   uchar *p = (dat->section == Sdata ? objout.data.p : objout.rodata.p) + dat->off;
    enum {
       MINZERO = 4,
       MAXLINE = 60,

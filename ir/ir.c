@@ -148,7 +148,7 @@ union ref
 mkdatref(const char *name, union type ctype, uint siz, uint align, const void *bytes, uint n, bool deref)
 {
    struct irdat dat = { .ctype = ctype, .align = align, .siz = siz, .name = name };
-   dat.section = align >= 4 && align <= targ_primsizes[TYPTR] && siz <= 16 ? Stext : Srodata;
+   dat.section = objout.code && align >= 4 && align <= targ_primsizes[TYPTR] && siz <= 16 ? Stext : Srodata;
 
    assert(n <= siz && siz && align);
    if (!name) {
