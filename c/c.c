@@ -1775,11 +1775,11 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
          p = sec == Srodata ? objout.rodata.p : objout.data.p;
          memcpy(p + off, ip->ddat.p, ip->ddat.n);
          memset(p + off + ip->ddat.n, 0, typesize(*ty) - ip->ddat.n);
-         vfree(&ip->ddat);
          for (struct dreloc *rel = ip->drel; rel; rel = rel->link) {
             objreloc(rel->sym, targ_64bit ? REL_ABS64 : REL_ABS32, sec, off + rel->off, rel->addend);
          }
       }
+      vfree(&ip->ddat);
    }
    dumpini(ip);
 
