@@ -43,7 +43,7 @@ static union ref
 va_start_comp(struct function *fn, struct expr *ex, bool discard)
 {
    assert(ex->t == ECALL && ex->narg == 1);
-   assert(ex->sub[1].ty.bits == cvalistty.bits);
+   assert(typedecay(ex->sub[1].ty).bits == typedecay(cvalistty).bits);
    if (!typedata[fn->fnty.dat].variadic)
       error(&ex->span, "va_start used in non-variadic function");
    addinstr(fn, mkinstr(Ovastart, 0, compileexpr(fn, &ex->sub[1], 0)));
@@ -71,10 +71,11 @@ static union ref
 va_copy_comp(struct function *fn, struct expr *ex, bool discard)
 {
    union irtype typ = mkirtype(cvalistty.t == TYARRAY ? typechild(cvalistty) : cvalistty);
-   assert(ex->sub[1].ty.bits == cvalistty.bits);
-   assert(ex->sub[2].ty.bits == cvalistty.bits);
-   addinstr(fn, mkarginstr(typ, compileexpr(fn, &ex->sub[1], 0)));
-   addinstr(fn, mkarginstr(typ, compileexpr(fn, &ex->sub[2], 0)));
+   for (int i = 1; i < 2; ++i)
+      assert(typedecay(ex->sub[i].ty).bits == typedecay(cvalistty).bits);
+   union ref dst = compileexpr(fn, &ex->sub[1], 0), src = compileexpr(fn, &ex->sub[2], 0);
+   addinstr(fn, mkarginstr(typ, dst));
+   addinstr(fn, mkarginstr(typ, src));
    addinstr(fn, mkintrin(INstructcopy, 0, 2));
    return NOREF;
 }
