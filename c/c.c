@@ -4015,6 +4015,7 @@ stmt(struct comp *cm, struct function *fn)
             useblk(fn, tr);
          }
       }
+      atmpp = NULL;
       if (!match(cm, NULL, ')')) { /* iter */
          /* since exarena is free'd at the end of each stmt, create a new temporary
           * arena to parse this expression because loop body statements would free it
@@ -4037,7 +4038,6 @@ stmt(struct comp *cm, struct function *fn)
             useblk(fn, end);
             expreffects(fn, &ex);
             putbranch(fn, begin);
-            freearena(&atmpp);
          } else if (!terminates) putbranch(fn, begin);
          if (fl->npred > 0) {
             useblk(fn, fl);
@@ -4046,6 +4046,7 @@ stmt(struct comp *cm, struct function *fn)
             terminates = 1;
          }
       }
+      if (atmpp && atmpp != cm->exarena) freearena(&atmpp);
       envup(cm);
       break;
    case TKWswitch:
