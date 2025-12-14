@@ -794,11 +794,19 @@ struct fileuid {
    long dev, ino;
 };
 
+/* one entry per #line */
+struct linemap {
+   int phys;
+   int toline;
+   const char *tofile;
+};
+
 static struct file {
    struct fileuid uid;
    const char *path;
    struct memfile f;
    vec_of(uint) lineoffs;
+   vec_of(struct linemap) linemap;
    bool once;
    bool seen;
    const char *guardmac;
@@ -880,10 +888,12 @@ openfile(const char **err, struct memfile **pf, const char *path)
 }
 
 const char *
-getfilename(int id)
+getfilename(int id, uint atoff)
 {
    assert((uint)id < countof(fileht) && fileht[id]);
-   return fileht[id]->path;
+   if (!fileht[id]->linemap.n || !atoff)
+      return fileht[id]->path;
+   return getfilepos(NULL, NULL, id, atoff);
 }
 
 struct memfile *
@@ -896,26 +906,40 @@ getfile(int id)
 void
 addfileline(int id, uint off)
 {
-   vec_of(uint) *lineoffs;
-
    assert((uint)id < countof(fileht) && fileht[id]);
-   lineoffs = (void *)&fileht[id]->lineoffs;
+   vec_of(uint) *lineoffs = (void *)&fileht[id]->lineoffs;
    if (lineoffs->n && off > lineoffs->p[lineoffs->n-1])
       vpush(lineoffs, off);
 }
 
 void
-getfilepos(int *line, int *col, int id, uint off)
+setfileline(int id, uint off, int line, const char *file)
 {
-   uint *offs, n;
-   int l = 0, h, i = 0;
-
    assert((uint)id < countof(fileht) && fileht[id]);
-   offs = fileht[id]->lineoffs.p;
-   n = fileht[id]->lineoffs.n;
-   h = n - 1;
-   
+   vec_of(struct linemap) *linemap = (void *)&fileht[id]->linemap;
+   vec_of(uint) *lineoffs = (void *)&fileht[id]->lineoffs;
+   int phys = 2;
+   for (int i = lineoffs->n-1; i >= 0; --i) {
+      if (lineoffs->p[i] < off) {
+         phys = i+2;
+         break;
+      }
+   }
+   if (linemap->n > 0) {
+      assert(linemap->p[linemap->n-1].phys < phys);
+      if (!file) file = linemap->p[linemap->n-1].tofile;
+   }
+   vpush(linemap, ((struct linemap){ phys, line, file }));
+}
+
+const char *
+getfilepos(int *pline, int *pcol, int id, uint off)
+{
+   assert((uint)id < countof(fileht) && fileht[id]);
+   uint *offs = fileht[id]->lineoffs.p;
+   uint n = fileht[id]->lineoffs.n;
    /* binary search over offsets array */
+   int l = 0, h = n - 1, i = 0;
    while (l <= h) {
       i = (l + h) / 2;
       if (offs[i] < off) l = i + 1;
@@ -923,8 +947,27 @@ getfilepos(int *line, int *col, int id, uint off)
       else break;
    }
    i -= offs[i] > off;
-   if (line) *line = i + 1;
-   if (col) *col = off - offs[i] + 1;
+   int line = i + 1, col = off - offs[i] + 1;
+   const char *file = fileht[id]->path;
+   vec_of(struct linemap) *linemap = (void *)&fileht[id]->linemap;
+   if (linemap->n) {
+      /* binary search over linemap array */
+      l = 0, h = linemap->n - 1, i = 0;
+      while (l <= h) {
+         i = (l + h) / 2;
+         if (linemap->p[i].phys < line) l = i + 1;
+         else if (linemap->p[i].phys > line) h = i - 1;
+         else break;
+      }
+      i -= linemap->p[i].phys > line;
+      if (i >= 0) {
+         line = linemap->p[i].toline + (line - linemap->p[i].phys);
+         if (linemap->p[i].tofile) file = linemap->p[i].tofile;
+      }
+   }
+   if (pline) *pline = line;
+   if (pcol) *pcol = col;
+   return file;
 }
 
 bool
@@ -978,8 +1021,8 @@ vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
    if (span) {
       loc = span->ex.len ? &span->ex : &span->sl;
       f = getfile(loc->file);
-      getfilepos(&line, &col, loc->file, loc->off);
-      efmt("%s:%d:%d: ", getfilename(loc->file), line, col);
+      const char *file = getfilepos(&line, &col, loc->file, loc->off);
+      efmt("%s:%d:%d: ", file, line, col);
    }
    efmt(color[kind]);
    efmt("%s: %g.", label[kind]);

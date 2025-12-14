@@ -895,6 +895,7 @@ static void
 expecteol(struct lexer *lx, const char *ppname)
 {
    struct token tk;
+   assert(!lx->macstk);
    if (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
       (ccopt.pedant ? error : warn)(&tk.span, "extra tokens after #%s", ppname);
       ppskipline(lx);
@@ -1580,7 +1581,7 @@ ppinclude(struct lexer *lx, const struct span *span0)
          if (tk.s[0] == '/') goto NotFound;
 
          /* try relative to current file's directory */
-         base = getfilename(lx->fileid);
+         base = getfilename(lx->fileid, 0);
          for (end = base; *end != 0; ++end) {}
          for (--end; *end != '/' && end != base; --end) {}
          if (*end == '/') ++end;
@@ -1612,6 +1613,68 @@ ppinclude(struct lexer *lx, const struct span *span0)
       error(&tk.span, "expected \"header\" or <header>");
       ppskipline(lx);
       return;
+   }
+}
+
+static void
+ppline(struct lexer *lx, struct token *tk0)
+{
+   struct token tk, tks[2];
+   int ntk = 0;
+   struct span span = tk0->span;
+   bool ext = 0;
+   if (tk0->t == TKNUMLIT) { /* handles GNU-style post preprocessing directive '# n ...' */
+      tks[ntk++] = *tk0;
+      ext = 1;
+   }
+   while (ntk < 2) {
+      if (lx->macstk && advancemacro(lx, &tk)) {
+         tks[ntk++] = tk;
+         if (lx->macstk->idx >= lx->macstk->rlist.n) popmac(lx);
+      } else if (!lx->macstk && (lex0(lx, &tk) == '\n' || tk.t == TKEOF)) {
+         break;
+      } else if (isppident(tk) && tryexpand(lx, &tk)) {
+         continue;
+      } else {
+         tks[ntk++] = tk;
+      }
+   }
+   uvlong lineno = 0;
+   char *file = NULL;
+   if (ntk > 0 && tks[0].t == TKNUMLIT) {
+      if (!parsenumlit(&lineno, NULL, &tks[0], 1) || (lineno == 0 && !ext))
+         goto BadNum;
+      if (lineno >= 1<<(32-SPANFILEBITS)) {
+         warn(&tks[0].span, "ignoring #line number that is too big");
+         lineno = 0;
+         goto Err;
+      }
+   } else {
+   BadNum:
+      error(ntk ? &tks[0].span : &span, "#line requires a positive integer argument");
+   Err:
+      if (lx->macstk || (tk.t != '\n' && tk.t != TKEOF)) ppskipline(lx);
+      return;
+   }
+   if (ntk > 1) {
+      if (tks[1].t == TKSTRLIT && !tks[1].wide) {
+         file = alloc(&globarena, tks[1].len+1, 0);
+         memcpy(file, tks[1].s, tks[1].len);
+         file[tks[1].len] = 0;
+      } else {
+         error(&tks[1].span, "invalid filename for #line directive");
+      }
+   }
+   if (lineno) setfileline(lx->fileid, lx->chridx, lineno, file);
+   if (lx->macstk) {
+      span.sl.off = span.ex.off = lx->chridx;
+      span.sl.len = span.ex.len = 1;
+      ppskipline(lx);
+      if (!ext)
+         (ccopt.pedant ? error : warn)(&span, "extra tokens after #line");
+   } else if (tk.t != '\n' && tk.t != TKEOF) {
+      if (ext) ppskipline(lx);
+      else expecteol(lx, "line");
    }
 }
 
@@ -1726,8 +1789,8 @@ lex(struct lexer *lx, struct token *tk_)
       while ((t = lex0(lx, tk)) == '\n') linebegin = 1;
       if (t == '#' && linebegin) {
          if (lex0(lx, tk) == '\n') { }
-         else if (isppident(*tk)) {
-            lastcmd = findppcmd(tk);
+         else if (tk->t == TKNUMLIT  || isppident(*tk)) {
+            lastcmd = tk->t == TKNUMLIT ? PPLINE : findppcmd(tk);
             if (nppcnd == lx->nppcnd0) lx->inclguard = NULL;
             if (!skip) {
                switch (lastcmd) {
@@ -1743,7 +1806,7 @@ lex(struct lexer *lx, struct token *tk_)
                case PPELSE:     ppelse(lx, &tk->span); break;
                case PPENDIF:    ppendif(lx, &tk->span); break;
                case PPINCLUDE:  ppinclude(lx, &tk->span); break;
-               case PPLINE:     break;
+               case PPLINE:     ppline(lx, tk); break;
                case PPPRAGMA:   pppragma(lx, &tk->span); break;
                case PPWARNING:  ppdiag(lx, &tk->span, 0); break;
                case PPERROR:    ppdiag(lx, &tk->span, 1); break;
@@ -1845,7 +1908,7 @@ static void
 mac__file__handler(struct lexer *lx, struct token *tk)
 {
    tk->t = TKSTRLIT;
-   tk->s = getfilename(lx->fileid);
+   tk->s = getfilename(lx->fileid, lx->chridx);
    tk->wide = 0;
    tk->len = strlen(tk->s);
 }
@@ -2011,7 +2074,7 @@ initlexer(struct lexer *lx, const char **err, const char *file)
    lx->chrbuf0 = countof(lx->chrbuf);
    lx->firstdirective = 1;
    lx->nppcnd0 = nppcnd;
-   return getfilename(fileid) != file ? LXFILESEEN : LXOK;
+   return getfilename(fileid, 0) != file ? LXFILESEEN : LXOK;
 }
 
 /* callback to let lexer release temp memory for arena allocated token data */
@@ -2029,15 +2092,17 @@ lexerdump(struct lexer *lx, struct wbuf *out)
 {
    struct token prev = {0}, tok;
    int file = lx->fileid, line = 1, col = 1;
-   bfmt(out, "# %d %'s\n", 1, getfilename(file));
+   const char *lastfile = getfilename(file, 0);
+   bfmt(out, "# %d %'s\n", 1, lastfile);
    while (lex(lx, &tok) != TKEOF) {
       int tkline, tkcol;
-      getfilepos(&tkline, &tkcol, tok.span.ex.file, tok.span.ex.off);
-      if (tok.span.ex.file != file) {
+      const char *fname = getfilepos(&tkline, &tkcol, tok.span.ex.file, tok.span.ex.off);
+      if (tok.span.ex.file != file || fname != lastfile) {
          file = tok.span.ex.file;
-         bfmt(out, "\n# %d %'s\n", tkline, getfilename(file));
+         bfmt(out, "\n# %d %'s\n", tkline, fname);
          col = 1;
          lexerfreetemps(lx);
+         lastfile = fname;
       } else if (line < tkline && tkline - line < 5) {
          do
             ioputc(out, '\n');
