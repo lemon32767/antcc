@@ -19,7 +19,8 @@ targ2hosttype(enum typetag t)
       S(long long, TYVLONG)
 #undef U
 #undef S
-   } else if (isfltt(t)) return t;
+   } else if (t == TYLDOUBLE) return TYDOUBLE;
+   else if (isfltt(t)) return t;
    return 0;
 }
 
