@@ -892,6 +892,15 @@ ppdefine(struct lexer *lx)
 }
 
 static void
+expecteol(struct lexer *lx, const char *ppname)
+{
+   struct token tk;
+   if (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
+      (ccopt.pedant ? error : warn)(&tk.span, "extra tokens after #%s", ppname);
+      ppskipline(lx);
+   }
+}
+static void
 ppundef(struct lexer *lx)
 {
    struct token tk;
@@ -902,6 +911,7 @@ ppundef(struct lexer *lx)
       ppskipline(lx);
       return;
    }
+   expecteol(lx, "undef");
    delmac(tk.s);
 }
 
@@ -1430,6 +1440,7 @@ ppifxdef(struct lexer *lx, bool defp, const struct span *span)
       ppskipline(lx);
       return;
    }
+   expecteol(lx, defp ? "ifdef" : "ifndef");
    if (!defp && lx->firstdirective) lx->inclguard = tk.s;
    assert(nppcnd < countof(ppcndstk) && "too many nested #if");
    ppcndstk[nppcnd].ifspan = span->sl;
@@ -1482,6 +1493,7 @@ ppelifxdef(struct lexer *lx, bool defp, const struct span *span)
       ppskipline(lx);
       return;
    }
+   expecteol(lx, defp ? "elifdef" : "elifndef");
    switch (cnd->cnd) {
    case PPCNDTRUE: cnd->cnd = PPCNDTAKEN; break;
    case PPCNDFALSE: cnd->cnd = (findmac(tk.s) == NULL) ^ defp ? PPCNDTRUE : PPCNDFALSE; break;
@@ -1492,11 +1504,7 @@ ppelifxdef(struct lexer *lx, bool defp, const struct span *span)
 static void
 ppendif(struct lexer *lx, const struct span *span)
 {
-   struct token tk;
-   if (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
-      error(&tk.span, "garbage after #endif");
-      ppskipline(lx);
-   }
+   expecteol(lx, "endif");
    if (!nppcnd) {
       error(span, "#endif without matching #if");
       return;
@@ -1507,12 +1515,8 @@ ppendif(struct lexer *lx, const struct span *span)
 static void
 ppelse(struct lexer *lx, const struct span *span)
 {
-   struct token tk;
    struct ppcnd *cnd;
-   if (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
-      error(&tk.span, "garbage after #else");
-      ppskipline(lx);
-   }
+   expecteol(lx, "else");
    if (!nppcnd) {
       error(span, "#else without matching #if");
       return;
@@ -1564,6 +1568,8 @@ ppinclude(struct lexer *lx, const struct span *span0)
    if (in_range(lex0(lx, &tk), TKPPHDRH, TKPPHDRQ)) {
       char *path = NULL;
       const char *base, *end;
+
+      expecteol(lx, "include");
       joinspan(&span.ex, tk.span.ex);
       if (tk.t == TKPPHDRQ) {
          /* try raw path: absolute or relative to working dir */
@@ -1601,10 +1607,11 @@ ppinclude(struct lexer *lx, const struct span *span0)
       path[tk.len+2] = 0;
       if (tryinclude(lx, &span, path)) return;
    NotFound:
-      fatal(&tk.span, "file not found: %'S", tk.s, tk.len);
+      error(&tk.span, "file not found: %'S", tk.s, tk.len);
    } else {
-      error(&tk.span, "garbage after #include");
+      error(&tk.span, "expected \"header\" or <header>");
       ppskipline(lx);
+      return;
    }
 }
 
@@ -1621,10 +1628,7 @@ pppragma(struct lexer *lx, const struct span *span0)
       ppskipline(lx);
       return;
    }
-   if (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
-      warn(&tk.span, "garbage after pragma ignored");
-      ppskipline(lx);
-   }
+   expecteol(lx, "pragma");
 }
 
 static void
@@ -1793,6 +1797,7 @@ lex(struct lexer *lx, struct token *tk_)
             memcpy(lx, lx->save, sizeof *lx);
             free(sv);
             --includedepth;
+            linebegin = 1;
             lx->firstdirective = 0;
          } else {
             if (nppcnd == lx->nppcnd0) lx->inclguard = NULL;
