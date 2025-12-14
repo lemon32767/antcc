@@ -20,13 +20,17 @@ struct sym {
           size;
 };
 static vec_of(struct sym) symtab;
+static pmap_of(ushort) symht;
 static uint ntextrel, nrodatarel, ndatarel;
 struct reloc {
    uchar section;
    ushort kind;
-   uint sym;
    uint off;
    vlong addend;
+   union {
+      uint symidx;
+      const char *symname;
+   };
 };
 static vec_of(struct reloc) relocs;
 
@@ -53,8 +57,9 @@ elfinit(void)
       hdr.h32.ehsize = sizeof(struct elf32hdr);
       hdr.h32.shentsize = sizeof(struct elf32shdr);
    }
-   vpush(&symtab, ((struct sym) { 0 }));
-   vpush(&symtab, ((struct sym) { .type = STT_FILE, .shndx = SHN_ABS }));
+   vinit(&strs, NULL, 4<<10);
+   vpush(&symtab, ((struct sym){0}));
+   vpush(&symtab, ((struct sym){ .type = STT_FILE, .shndx = SHN_ABS}));
 }
 
 uint
@@ -73,12 +78,10 @@ str2idx(const char *s)
 }
 
 static struct sym *
-findsym(uint name)
+findsym(const char *s)
 {
-   for (int i = 0; i < symtab.n; ++i)
-      if (symtab.p[i].name == name)
-         return &symtab.p[i];
-   return NULL;
+   ushort *idx = pmap_get(&symht, s);
+   return idx ? &symtab.p[*idx] : NULL;
 }
 
 enum {
@@ -91,7 +94,7 @@ enum {
 enum section
 elfhassym(const char *nam)
 {
-   struct sym *sym = findsym(str2idx(nam));
+   struct sym *sym = findsym(nam);
    if (sym) switch (sym->shndx) {
    case SHN_UND: return Snone;
    case TEXT_SHNDX: return Stext;
@@ -105,12 +108,10 @@ elfhassym(const char *nam)
 void
 elfaddsym(const char *nam, int info, enum section sect, uvlong value, uvlong size)
 {
-   uint str = str2idx(nam);
-   struct sym *sym = findsym(str), sym0 = {0};
-
+   struct sym *sym = findsym(nam), sym0;
    if (!sym) {
       sym = &sym0;
-      sym->name = str;
+      sym->name = str2idx(nam);
    }
    sym->bind = info >> 4;
    sym->type = info & 0xF;
@@ -123,7 +124,11 @@ elfaddsym(const char *nam, int info, enum section sect, uvlong value, uvlong siz
    }
    sym->value = value;
    sym->size = size;
-   if (sym == &sym0) vpush(&symtab, sym0);
+   if (sym == &sym0) {
+      assert(symtab.n < 1<<16);
+      pmap_set(&symht, nam, symtab.n);
+      vpush(&symtab, sym0);
+   }
 }
 
 static const ushort relktab[][NRELOCKIND] = {
@@ -141,7 +146,6 @@ static const ushort relktab[][NRELOCKIND] = {
 void
 elfreloc(const char *sym, enum relockind kind, enum section section, uint off, vlong addend)
 {
-   uint snam = str2idx(sym);
    switch (section) {
    default: assert(0);
    case Stext:   ++ntextrel; break;
@@ -149,7 +153,7 @@ elfreloc(const char *sym, enum relockind kind, enum section section, uint off, v
    case Sdata:   ++ndatarel; break;
    }
    assert(kind < NRELOCKIND);
-   vpush(&relocs, ((struct reloc) { section, relktab[targ_mcisa][kind], snam, off, addend }));
+   vpush(&relocs, ((struct reloc) { section, relktab[targ_mcisa][kind], off, addend, .symname = sym }));
 }
 
 static void
@@ -316,18 +320,18 @@ putreloc(struct wbuf *out, const struct reloc *rel, bool userela)
    if (userela) {
       if (targ_64bit) {
          elf64putrela(out, &(struct elf64rela) {
-               rel->off, ELF64_R_INFO(rel->sym, rel->kind), rel->addend });
+               rel->off, ELF64_R_INFO(rel->symidx, rel->kind), rel->addend });
       } else {
          elf32putrela(out, &(struct elf32rela) {
-               rel->off, ELF32_R_INFO(rel->sym, rel->kind), rel->addend });
+               rel->off, ELF32_R_INFO(rel->symidx, rel->kind), rel->addend });
       }
    } else {
       if (targ_64bit) {
          elf64putrel(out, &(struct elf64rel) {
-               rel->off, ELF64_R_INFO(rel->sym, rel->kind) });
+               rel->off, ELF64_R_INFO(rel->symidx, rel->kind) });
       } else {
          elf32putrel(out, &(struct elf32rel) {
-               rel->off, ELF32_R_INFO(rel->sym, rel->kind) });
+               rel->off, ELF32_R_INFO(rel->symidx, rel->kind) });
       }
    }
 }
@@ -340,9 +344,10 @@ putreloc(struct wbuf *out, const struct reloc *rel, bool userela)
  * 4. undefined globals
  */
 static int
-symcmp(const void *L, const void *R)
+symcmp(const void *aa, const void *bb)
 {
-   const struct sym *l = L, *r = R;
+   const ushort *a = aa, *b = bb;
+   const struct sym *l = &symtab.p[*a], *r = &symtab.p[*b];
    int tmp;
    if ((tmp = l->bind - r->bind)) return tmp; /* locals prio */
    if ((tmp = r->shndx - l->shndx)) return tmp; /* section prio (real sections > SHN_UND) */
@@ -377,17 +382,27 @@ elffini(struct wbuf *out)
    }
 
    symtab.p[1].name = str2idx(objout.infile);
-   qsort(symtab.p+2, symtab.n-2, sizeof *symtab.p, symcmp);
+   /* create a mapping of original symbol index -> sorted symtab index */
+   uint ndefsym = symtab.n;
+   ushort ssbuf[2<<10],
+          *sortedsyms = ndefsym*2 < countof(ssbuf) ? ssbuf : xmalloc(sizeof *sortedsyms * ndefsym*2),
+          *defsym2idx = sortedsyms + ndefsym;
+   for (int i = 0; i < ndefsym; ++i) sortedsyms[i] = i;
+   qsort(sortedsyms+2, ndefsym-2, sizeof *sortedsyms, symcmp);
+   for (int i = 0; i < ndefsym; ++i) defsym2idx[sortedsyms[i]] = i;
+
    /* fixup relocs */
    for (int i = 0; i < relocs.n; ++i) {
       struct reloc *rel = &relocs.p[i];
-      struct sym *sym;
-      sym = findsym(rel->sym);
-      if (sym) rel->sym = sym - symtab.p;
-      else {
-         sym = &(struct sym) { rel->sym, .bind = STB_GLOBAL, .type = STT_NOTYPE, .shndx = SHN_UND };
-         rel->sym = symtab.n;
-         vpush(&symtab, *sym);
+      struct sym *sym = findsym(rel->symname);
+      if (sym) {
+         uint idx = sym - symtab.p;
+         rel->symidx = idx < ndefsym ? defsym2idx[idx] : idx;
+      } else {
+         assert(symtab.n < 1<<16);
+         vpush(&symtab, ((struct sym) { str2idx(rel->symname), .bind = STB_GLOBAL, .type = STT_NOTYPE, .shndx = SHN_UND }));
+         pmap_set(&symht, rel->symname, symtab.n-1);
+         rel->symidx = symtab.n-1;
       }
       if (!userela) {
          uchar *p;
@@ -461,10 +476,11 @@ elffini(struct wbuf *out)
    /* symtab */
    wordalign(out, align);
    for (int i = 0; i < symtab.n; ++i) {
-      struct sym *sym = &symtab.p[i];
+      struct sym *sym = &symtab.p[i < ndefsym ? sortedsyms[i] : i];
       if (sym->bind == STB_LOCAL) ++nlocal;
       putsym(out, sym);
    }
+   if (sortedsyms != ssbuf) free(sortedsyms);
 
    /* rel.* */
    assert(relocs.n == ntextrel + nrodatarel + ndatarel);

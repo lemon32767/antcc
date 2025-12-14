@@ -1,7 +1,11 @@
 #!/bin/env sh
 
 set -eo pipefail
-cc=gcc
+if [ -x $CC ]; then
+    cc=gcc
+else
+    cc=$CC
+fi
 cflags="-std=c11"
 src=$(grep -o '\([_A-Za-z0-9/]\)\+\.c' < Makefile)
 X() {
