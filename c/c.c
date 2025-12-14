@@ -2429,7 +2429,7 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
             } else if (ex.u > (1ull << (8*sizeof n)) - 1) {
                error(&ex.span, "array too long (%ul)", ex.u);
             } else if (ex.u == 0) {
-               error(&ex.span, "array cannot have zero length");
+               warn(&ex.span, "array cannot have zero length");
             } else {
                n = ex.u;
             }
