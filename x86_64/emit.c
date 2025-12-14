@@ -1034,6 +1034,8 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       dst = mkregoper(ins->l);
       if (kisflt(cls)) {
          Xsubf(pcode, cls, dst, mkimmdatregoper(ins->r));
+      } else if (!ins->reg) {
+         Xcmp(pcode, cls, mkregoper(ins->l), mkimmdatregoper(ins->r));
       } else if (ins->reg-1 == dst.reg) { /* two-address */
          Xsub(pcode, cls, dst, ref2oper(ins->r));
       } else {
