@@ -97,7 +97,7 @@ interntd(const struct typedata *td)
          }
          return i;
       } else if (tdequ(slot, td)) {
-         if (td->t == TYSTRUCT || td->t == TYUNION)
+         if (td->t == TYSTRUCT || td->t == TYUNION || td->t == TYENUM)
             goto Copy;
          return i;
       }
@@ -114,6 +114,8 @@ isincomplete(union type t)
    case TYSTRUCT:
    case TYUNION:
       return typedata[t.dat].nmemb == 0;
+   case TYENUM:
+      return !typedata[t.dat].backing;
    }
    return 0;
 }
@@ -124,7 +126,7 @@ typesize(union type t)
    if (isprim(t) || t.t == TYPTR) return targ_primsizes[t.t];
    switch (t.t) {
    case TYENUM:
-      return targ_primsizes[t.backing];
+      return targ_primsizes[typedata[t.dat].backing];
    case TYARRAY:
       if (t.flag & TFCHLDPRIM)
          return targ_primsizes[t.child] * t.arrlen;
@@ -142,7 +144,7 @@ typealign(union type t)
    if (isprim(t) || t.t == TYPTR) return targ_primalign[t.t];
    switch (t.t) {
    case TYENUM:
-      return targ_primalign[t.backing];
+      return targ_primalign[typedata[t.dat].backing];
    case TYARRAY:
       return typealign(typechild(t));
    case TYSTRUCT:
@@ -190,7 +192,7 @@ completetype(const char *name, int id, struct typedata *td)
       assert(ttypenames[id] == name && "bad redefn");
    else
       ttypenames[id] = name;
-   return mktype(td->t, .dat = interntd(td));
+   return mktype(td->t, .dat = interntd(td), .backing = td->t == TYENUM ? td->backing : 0);
 }
 
 union type
@@ -244,16 +246,18 @@ typedecay(union type t)
 bool /* 6.5.16.1 Simple assignment Constraints */
 assigncompat(union type dst, union type src)
 {
-   union type ds, ss;
    if (dst.bits == src.bits) return 1;
    if (isarith(dst) && isarith(src)) return 1;
    if (dst.t == TYPTR && src.t == TYPTR) {
-      ds = typechild(dst);
-      ss = typechild(src);
-      if (ds.bits == ss.bits) return 1;
-      if (ss.t == TYVOID || ds.t == TYVOID) return 1;
-      if (ss.t == TYCHAR  && in_range(ds.t, TYUCHAR, TYSCHAR)) return 1;
-      if (ds.t == TYCHAR  && in_range(ss.t, TYUCHAR, TYSCHAR)) return 1;
+      union type ds = typechild(dst), ss = typechild(src);
+      if (ds.bits == ss.bits) return 1; /* T* with different qualifiers */
+      if (ss.t == TYVOID || ds.t == TYVOID) return 1; /* T* <-> void* */
+      enum typetag dt = scalartypet(ds), /* handle enums */
+                   st = scalartypet(ss);
+      if (!dt || !st) return 0; /* unequal incomplete enums */
+      /* plain char exception */
+      if (st == TYCHAR && in_range(dt, TYUCHAR, TYSCHAR)) return 1;
+      if (dt == TYCHAR && in_range(st, TYUCHAR, TYSCHAR)) return 1;
    } else if (dst.t == TYBOOL && src.t == TYPTR)
       return 1;
    return 0;

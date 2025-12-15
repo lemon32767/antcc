@@ -329,9 +329,10 @@ gettagged(struct comp *cm, struct span *span, enum typetag tt, const char *name,
          }
       }
    }
+   if (tt == TYENUM && ccopt.pedant) {
+      warn(span, "forward-declared enum is an extension");
+   }
 Break2:
-   if (tt == TYENUM)
-      return mktype(0);
    td.t = tt;
    return envaddtagged(cm->env, mktagtype(name, &td), span)->ty;
 }
@@ -383,8 +384,10 @@ assigncheck(union type t, const struct expr *src)
          warn(&src->span, "usage of '%ty' discards pointer qualifiers", src->ty);
       }
       return 1;
-   }
-   if (t.t == TYPTR && iszero(*src)) return 1;
+   } else if (t.t == TYPTR && srcty.t == TYPTR) {
+      warn(&src->span, "converting between incompatible pointer types '%ty' -> '%ty'", srcty, t);
+      return 1;
+   } else if (t.t == TYPTR && iszero(*src)) return 1;
    return 0;
 }
 
@@ -448,9 +451,9 @@ static void /* 6.5.3.4 The sizeof and _Alignof operators */
 sizeofalignofcheck(const struct span *span, enum toktag tt, union type ty, const struct expr *ex)
 {
    if (isincomplete(ty))
-      error(span, "cannot apply %'tt to incomplete type '%ty'", tt);
+      error(span, "cannot apply %'tt to incomplete type '%ty'", tt, ty);
    else if (ty.t == TYFUNC)
-      error(span, "cannot apply %'tt to function type '%ty'", tt);
+      error(span, "cannot apply %'tt to function type '%ty'", tt, ty);
    else if (tt == TKWsizeof && ex && ex->t == EGETF && ex->fld.bitsiz)
       error(span, "cannot apply %'tt to bitfield", tt);
    if (tt != TKWsizeof && ex && ccopt.pedant)
@@ -514,7 +517,7 @@ condtype(const struct expr *a, const struct expr *b)
 static void
 bintypeerr(const struct span *span, enum toktag tt, union type lhs, union type rhs)
 {
-   error(span, "bad operands to %tt: '%ty', '%ty'", tt, lhs, rhs);
+   error(span, "bad operands to %tt ('%ty', '%ty')", tt, lhs, rhs);
 }
 
 enum binopclass { /* binary operator type-checking classes */
@@ -1962,7 +1965,7 @@ inttyminmax(vlong *min, uvlong *max, enum typetag tt)
  * prefers to use unsigned types when possible). should add support for -fshort-enums
  */
 static union type
-buildenum(struct comp *cm, const char *name, const struct span *span)
+buildenum(struct comp *cm, const char *name, const struct span *span, int id)
 {
    struct token tk;
    vlong tymin, minv = 0;
@@ -2027,7 +2030,10 @@ buildenum(struct comp *cm, const char *name, const struct span *span)
    if (td.backing >= TYVLONG && !somelonglong && ccopt.cstd == STDC89 && ccopt.pedant)
       warn(span, "enum backing type is '%ty' in %M", mktype(td.backing));
 
-   ty = mktagtype(name, &td);
+   if (id != -1)
+      ty = completetype(name, id, &td);
+   else
+      ty = mktagtype(name, &td);
    ty.backing = td.backing;
    return ty;
 }
@@ -2051,29 +2057,23 @@ tagtype(struct comp *cm, enum toktag kind)
          return mktype(0);
       }
       t = gettagged(cm, &span, tt, tag, /* def? */ peek(cm, NULL) == ';');
-      if (tt == TYENUM && !t.t) {
-         error(&tk.span, "cannot forward-declare enum");
-         return mktype(TYINT);
-      }
    } else {
-      if (tt != TYENUM) {
-         if (tag) {
-            t = deftagged(cm, &span, tt, tag, mktype(0));
-            if (t.t != tt || !isincomplete(t)) {
-               if (t.t != tt)
-                  error(&tk.span,
-                        "defining tagged type %'tk as %tt clashes with previous definition",
-                        &tk, kind);
-               else
-                  error(&tk.span, "redefinition of '%tt %s'", kind, tag, mktype(0));
-               note(&span, "previous definition:");
-            }
+      if (tag) {
+         t = deftagged(cm, &span, tt, tag, mktype(0));
+         if (t.t != tt || !isincomplete(t)) {
+            if (t.t != tt)
+               error(&tk.span,
+                     "defining tagged type %'tk as %tt clashes with previous definition",
+                     &tk, kind);
+            else
+               error(&tk.span, "redefinition of '%tt %s'", kind, tag);
+            note(&span, "previous definition:");
          }
-         t = buildagg(cm, tt, tag, tag ? typedata[t.dat].id : -1);
-      } else {
-         t = buildenum(cm, tag, &span);
-         if (tag) deftagged(cm, &span, TYENUM, tag, t);
       }
+      if (tt == TYENUM)
+         t = buildenum(cm, tag, &span, tag ? typedata[t.dat].id : -1);
+      else
+         t = buildagg(cm, tt, tag, tag ? typedata[t.dat].id : -1);
    }
 
    if (t.t != tt) {
@@ -2485,11 +2485,9 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
                vpush(&names, decl.name);
                vpush(&spans, decl.span);
                vpush(&qual, decl.qual);
-               if (isincomplete(decl.ty)) {
-                  if (params.n > 1 || decl.ty.t != TYVOID
-                   || decl.qual || decl.name || peek(cm, &tk) != ')') {
-                     error(&decl.span,
-                           "function parameter #%d has incomplete type (%tq)",
+               if (decl.ty.t == TYVOID) {
+                  if (params.n > 1 || decl.qual || decl.name || peek(cm, &tk) != ')') {
+                     error(&decl.span, "function parameter #%d has void type",
                            params.n, decl.ty, qual.p[params.n-1]);
                   }
                }

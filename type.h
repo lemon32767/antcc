@@ -136,7 +136,7 @@ union type cvtarith(union type a, union type b);
 static inline union type
 typechild(union type t)
 {
-   if (t.t == TYENUM) return mktype(t.backing);
+   if (t.t == TYENUM) return mktype(t.backing ? t.backing : typedata[t.dat].backing);
    if (t.flag & TFCHLDPRIM) return mktype(t.child);
    if (t.flag & TFCHLDISDAT) {
       union type chld = mktype(typedata[t.dat].t, .dat = t.dat);
@@ -148,7 +148,7 @@ typechild(union type t)
 static inline enum typetag
 scalartypet(union type t)
 {
-   if (t.t == TYENUM) return t.backing;
+   if (t.t == TYENUM) return t.backing ? t.backing : typedata[t.dat].backing;
    if (isptrcvt(t)) return TYPTR;
    return t.t;
 }
