@@ -4396,6 +4396,10 @@ docomp(struct comp *cm)
             fn.fnty = decl.ty;
             if (td->ret.t != TYVOID && isincomplete(td->ret))
                error(&decl.span, "function definition with incomplete return type '%ty'", td->ret);
+            for (int i = 0; i < td->nmemb; ++i) {
+               if (td->param[i].t != TYVOID && isincomplete(td->param[i]))
+                  error(&st.pspans[i], "parameter has incomplete type '%ty'", td->param[i]);
+            }
             fn.retty = td->ret;
             decl.isdef = 1;
             putdecl(cm, &decl);
