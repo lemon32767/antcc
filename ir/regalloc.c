@@ -116,7 +116,7 @@ fixlive(struct function *fn)
    } while ((blk = blk->lnext) != fn->entry);
 
    if (ccopt.dbg.l) {
-      efmt("<< After liveness fixup >>\n");
+      bfmt(ccopt.dbgout, "<< After liveness fixup >>\n");
       irdump(fn);
    }
    if (defined != definedbuf) free(defined);
@@ -581,6 +581,10 @@ buildintervals(struct rega *ra)
    struct block *blk, *last;
    struct bitset **livein = alloc(ra->arena, ra->fn->nblk * sizeof *livein, 0);
    size_t bssize = BSSIZE(ninstr);
+   struct loops {
+      struct loops *link;
+      struct block *hdr, *end;
+   } *loops = NULL;
    for (int i = 0; i < ra->fn->nblk; ++i)
       livein[i] = allocz(ra->arena, bssize * sizeof *livein[i], 0);
    ra->intervals.temps = allocz(ra->arena, ninstr * sizeof *ra->intervals.temps, 0);
@@ -731,10 +735,21 @@ buildintervals(struct rega *ra)
       for (int i = 0; i < blk->npred; ++i) {
          struct block *pred = blkpred(blk, i);
          if (pred->id > blk->id)
-         loopend = loopend && loopend->id > pred->id ? loopend : pred;
+            loopend = loopend && loopend->id > pred->id ? loopend : pred;
       }
       if (loopend) {
-         // DBG("i'm loop header - @%d (to @%d)\n", blk->id, loopend->id);
+         if (loops) DBG("@lp @%d\n", blk->id);
+         for (struct loops *l = loops; l; l = l->link) {
+            /* a nested loop might end later than loopend, which lengthens this outer loop. */
+            /* XXX is this correct? proper loop analysis might be required */
+            if (l->hdr->id > loopend->id) break;
+            DBG("  check <@%d-@%d>\n", l->hdr->id, l->end->id);
+            if (l->hdr->id > blk->id && l->hdr->id < loopend->id && l->end->id > loopend->id)
+               loopend = l->end;
+         }
+         DBG("i'm loop header - @%d (to @%d)\n", blk->id, loopend->id);
+         /* append to loop list */
+         loops = alloccopy(ra->arena, &(struct loops) { loops, blk, loopend }, sizeof *loops, 0);
          for (uint opd = 0; bsiter(&opd, live, bssize); ++opd) {
             // DBG("  i have live %%%d\n", opd);
             addrange(&ra->intervals, opd, (struct range){blk->inumstart, loopend->inumstart + loopend->ins.n+1}, -1);
@@ -747,21 +762,23 @@ buildintervals(struct rega *ra)
       }
    } while ((blk = blk->lprev) != last);
 
-   for (int var = 0; var < ninstr; ++var) {
-      struct interval *it = &ra->intervals.temps[var];
-      if (!it->nrange) continue;
-      DBG("lifetime of %%%d: ", var);
-      for (int i = 0; i < it->nrange; ++i) {
-         struct range r = itrange(it, i);
-         DBG("[%d,%d)%s", r.from, r.to, i < it->nrange-1 ? ", " : "");
+   if (ccopt.dbg.r) {
+      for (int var = 0; var < ninstr; ++var) {
+         struct interval *it = &ra->intervals.temps[var];
+         if (!it->nrange) continue;
+         DBG("lifetime of %%%d: ", var);
+         for (int i = 0; i < it->nrange; ++i) {
+            struct range r = itrange(it, i);
+            DBG("[%d,%d)%s", r.from, r.to, i < it->nrange-1 ? ", " : "");
+         }
+         DBG("\n");
       }
-      DBG("\n");
-   }
-   for (struct fixinterval *fx = ra->intervals.fixed; fx; fx = fx->next) {
-      DBG("fixed {");
-      for (int r = 0; rsiter(&r, fx->rs); ++r)
-         DBG("%s,", mctarg->rnames[r]);
-      DBG("}: [%d,%d)\n", fx->range.from, fx->range.to);
+      for (struct fixinterval *fx = ra->intervals.fixed; fx; fx = fx->next) {
+         DBG("fixed {");
+         for (int r = 0; rsiter(&r, fx->rs); ++r)
+            DBG("%s,", mctarg->rnames[r]);
+         DBG("}: [%d,%d)\n", fx->range.from, fx->range.to);
+      }
    }
 }
 
