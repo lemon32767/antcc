@@ -385,7 +385,7 @@ assigncheck(union type t, const struct expr *src)
       }
       return 1;
    } else if (t.t == TYPTR && srcty.t == TYPTR) {
-      warn(&src->span, "converting between incompatible pointer types '%ty' -> '%ty'", srcty, t);
+      warn(&src->span, "converting between incompatible pointer types ('%ty' -> '%ty')", srcty, t);
       return 1;
    } else if (t.t == TYPTR && iszero(*src)) return 1;
    return 0;
@@ -488,12 +488,12 @@ equalitycheck(const struct expr *a, const struct expr *b)
    union type t1 = a->ty, t2 = b->ty;
    if (isarith(t1) && isarith(t2)) return 1;
    if (isptrcvt(t1) && isptrcvt(t2)) {
-      t1 = typedecay(t1);
-      t2 = typedecay(t2);
+      t1 = typedecay(t1), t2 = typedecay(t2);
+      /* comparing .dat works for both TFCHLDPRIM and not, (checks equal child types)
+       * quals are ignored either way */
       return t1.dat == t2.dat || typechild(t1).t == TYVOID || typechild(t2).t == TYVOID;
    }
-   if (isptrcvt(t1) && isnullpo(b)) return 1;
-   return isptrcvt(t2) && isnullpo(a);
+   return (isptrcvt(t1) && isnullpo(b)) || (isptrcvt(t2) && isnullpo(a));
 }
 
 static union type /* 6.5.15 Conditional operator */
@@ -503,8 +503,7 @@ condtype(const struct expr *a, const struct expr *b)
    if (isarith(t1) && isarith(t2)) return cvtarith(t1, t2);
    if (t1.bits == t2.bits) return t1;
    if (t1.t == TYPTR && t2.t == TYPTR) {
-      s1 = typechild(t1);
-      s2 = typechild(t2);
+      s1 = typechild(t1), s2 = typechild(t2);
       if (s1.bits == s2.bits || s2.t == TYVOID || s1.t == TYVOID) {
          return mkptrtype(s1.t == TYVOID ? s1 : s2, (t1.flag | t2.flag) & TFCHLDQUAL);
       }
@@ -635,25 +634,35 @@ bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct e
       assert(ty.t);
       break;
    case BCSHFT: /* 6.5.7 Bitwise shift operators */
-      if (!isint(ty) || !isint(rhs->ty))
+      if (!isint(ty) || !isint(rhs->ty)) {
+         ty = mktype(TYINT);
          goto Error;
+      }
       ty.t = intpromote(ty.t);
       assert(ty.t);
       break;
    case BCEQL:
-      if (!equalitycheck(lhs, rhs))
-         goto Error;
       ty = mktype(TYINT);
+      if (!equalitycheck(lhs, rhs)) {
+         if (isptrcvt(lhs->ty) && isptrcvt(rhs->ty))
+            warn(span, "comparison of distinct pointer types ('%ty' and '%ty')", lhs->ty, rhs->ty);
+         else
+            goto Error;
+      }
       break;
    case BCCMP:
-      if (!relationalcheck(lhs, rhs))
-         goto Error;
       ty = mktype(TYINT);
+      if (!relationalcheck(lhs, rhs)) {
+         if (isptrcvt(lhs->ty) && isptrcvt(rhs->ty))
+            warn(span, "comparison of distinct pointer types ('%ty' and '%ty')", lhs->ty, rhs->ty);
+         else
+            goto Error;
+      }
       break;
    case BCLOG: /* 6.5.13-14 Logical AND/OR operator */
+      ty = mktype(TYINT);
       if (!isscalar(typedecay(ty)) || !isscalar(typedecay(rhs->ty)))
          goto Error;
-      ty = mktype(TYINT);
       break;
    }
    return (k & BCSET) || !ty.t ? lhs->ty : ty;

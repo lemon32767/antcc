@@ -213,7 +213,8 @@ pritypebefore(struct wbuf *buf, union type ty, int qual)
    case TYPTR:
       chld = typechild(ty);
       n = pritypebefore(buf, chld, ty.flag & TFCHLDQUAL);
-      n += bputc(buf, ' ');
+      if (!isptrcvtt(chld.t))
+         n += bputc(buf, ' ');
       if (chld.t == TYARRAY || chld.t == TYFUNC)
          n += bputc(buf, '(');
       n += bputc(buf, '*');
