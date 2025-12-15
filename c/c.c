@@ -2740,6 +2740,8 @@ mkhiddensym(const char *fnname, const char *name, int id)
 static void geninit(struct function *fn, union type t, union ref dst, const struct expr *src);
 static union ref condexprvalue(struct function *fn, const struct expr *ex, bool discard);
 
+static const char *istr__func__;
+
 union ref
 expraddr(struct function *fn, const struct expr *ex)
 {
@@ -2755,6 +2757,13 @@ expraddr(struct function *fn, const struct expr *ex)
          assert(decl->id >= 0);
          return mkref(RTMP, decl->id);
       case SCEXTERN: case SCNONE: case SCSTATIC:
+         if (!decl->sym) { /* lazy __func__ */
+            assert(decl->name == istr__func__);
+            decl->sym = mkhiddensym(fn->name, "__func__", 1);
+            uint off = objnewdat(decl->sym, objout.code ? Stext : Srodata, 0, typesize(decl->ty), typealign(decl->ty));
+            uchar *p = objout.code ? objout.textbegin + off : objout.rodata.p + off;
+            memcpy(p, fn->name, typearrlen(decl->ty)-1);
+         }
          return mksymref(decl->sym, decl->ty.t == TYFUNC);
       default:
          assert(0);
@@ -4303,21 +4312,12 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
       }
    }
 
-   /* __func__ */
-   {
-      static const char *ifunc;
-      if (!ifunc) ifunc = intern("__func__");
-      union type ty = mkarrtype(mktype(TYCHAR), QCONST, strlen(fn->name) + 1);
-      const char *sym = mkhiddensym(fn->name, ifunc, 1);
-      uint off = objnewdat(sym, objout.code ? Stext : Srodata, 0, typesize(ty), typealign(ty));
-      uchar *p = objout.code ? objout.textbegin + off : objout.rodata.p + off;
-      memcpy(p, fn->name, typearrlen(ty)-1);
-      putdecl(cm, &(struct decl) {
-         .ty = ty, .qual = QCONST,
-         .name = ifunc, .scls = SCSTATIC, .span = (peek(cm, &tk), tk.span),
-         .sym = sym,
-      });
-   }
+   /* put __func__, though its data is generated lazily in expraddr() */
+   putdecl(cm, &(struct decl) {
+      .ty = mkarrtype(mktype(TYCHAR), QCONST, strlen(fn->name) + 1), .qual = QCONST,
+      .name = istr__func__, .scls = SCSTATIC, .span = (peek(cm, &tk), tk.span),
+   });
+
    /* end prologue */
    EMITS {
       struct block *blk;
@@ -4356,6 +4356,7 @@ docomp(struct comp *cm)
    static struct env toplevel;
    struct token tk[1];
 
+   istr__func__ = intern("__func__");
    if (!cm->env) {
       vinit(&envdecls, NULL, 1<<10);
       pmap_init(&tldeclmap, 1<<8);
