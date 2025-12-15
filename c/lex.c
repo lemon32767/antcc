@@ -46,38 +46,39 @@ intern(const char *s)
    }
 }
 
-static bool
+static void
 identkeyword(struct token *tk, const char *s, int len)
 {
-   static const struct { const char *s; enum toktag t; enum cstd cstd; } kwtab[] = {
-#define _(kw, cstd) { #kw, TKW##kw, cstd },
+   static const struct {
+      const char *s;
+      struct kw { uchar t, cstd : 4, ext : 1; } kw;
+   } kwtab[] = {
+#define _(kw, cstd) { #kw, {TKW##kw, cstd} },
 #include "keywords.def"
 #undef _
    };
-   int l = 0, h = countof(kwtab) - 1, i, cmp;
-
-   tk->extwarn = 0;
-   tk->blue = 0;
-   if (len > TKWMAXLEN_) goto ident;
-   /* binary search over sorted array */
-   while (l <= h) {
-      i = (l + h) / 2;
-      cmp = strcmp(kwtab[i].s, s);
-      if (cmp < 0) l = i + 1;
-      else if (cmp > 0) h = i - 1;
-      else if (kwtab[i].cstd <= ccopt.cstd || kwtab[i].s[0] == '_') {
+   static pmap_of(struct kw) kwmap;
+   if (!kwmap.v) {
+      pmap_init(&kwmap, 128);
+      for (int i = 0; i < countof(kwtab); ++i) {
          /* allow future keywords but only if they begin with _ */
-         tk->t = kwtab[i].t;
-         tk->s = kwtab[i].s;
-         tk->len = strlen(tk->s);
-         return kwtab[i].cstd <= ccopt.cstd;
-      } else break;
+         if (kwtab[i].kw.cstd <= ccopt.cstd || *s == '_') {
+            struct kw kw = kwtab[i].kw;
+            kw.ext = kwtab[i].kw.cstd > ccopt.cstd;
+            pmap_set(&kwmap, intern(kwtab[i].s), kw);
+         }
+      }
    }
-ident:
-   tk->t = TKIDENT;
-   tk->s = intern(s);
+   tk->blue = 0;
    tk->len = len;
-   return 1;
+   struct kw *kw = pmap_get(&kwmap, tk->s = intern(s));
+   if (kw) {
+      tk->t = kw->t;
+      tk->extwarn = kw->ext;
+   } else {
+      tk->t = TKIDENT;
+      tk->extwarn = 0;
+   }
 }
 
 /* fill internal circular character buffer with input after translation phase 1 & 2
@@ -603,8 +604,7 @@ Begin:
             tmp[n++] = next(lx);
          }
          tmp[n] = 0;
-         if (!identkeyword(tk, tmp, n) && ccopt.pedant)
-            tk->extwarn = 1;
+         identkeyword(tk, tmp, n);
          goto End;
       }
    case 0: if (lx->idx >= lx->ndat) RET(TKEOF);

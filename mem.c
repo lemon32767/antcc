@@ -241,6 +241,7 @@ imap_set_(struct imapbase *m, void **v, uint vsiz, short k)
 void
 pmap_init_(struct pmapbase *m, void **v, uint vsiz, uint N)
 {
+   assert(ispo2(N));
    uint sizk = N*sizeof*m->k,
         sizv = N*vsiz;
 

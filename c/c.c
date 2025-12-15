@@ -44,7 +44,7 @@ lexc(struct comp *cm, struct token *tk)
       }
       vfree(&rest);
    }
-   if (in_range(t, TKWBEGIN_, TKWEND_) && (tk = tk ? tk : tk_)->extwarn) {
+   if (ccopt.pedant && in_range(t, TKWBEGIN_, TKWEND_) && (tk = tk ? tk : tk_)->extwarn) {
       static struct bitset already[BSSIZE(TKWEND_-TKWBEGIN_+1)];
       if (!bstest(already, t-TKWBEGIN_)) {
          bsset(already, t-TKWBEGIN_);
