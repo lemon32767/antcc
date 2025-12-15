@@ -29,7 +29,7 @@ struct reloc {
    vlong addend;
    union {
       uint symidx;
-      const char *symname;
+      internstr symname;
    };
 };
 static vec_of(struct reloc) relocs;
@@ -78,7 +78,7 @@ str2idx(const char *s)
 }
 
 static struct sym *
-findsym(const char *s)
+findsym(internstr s)
 {
    ushort *idx = pmap_get(&symht, s);
    return idx ? &symtab.p[*idx] : NULL;
@@ -102,7 +102,7 @@ static const char sect2ndx[] = {
 };
 
 enum section
-elfhassym(const char *nam, uint *value)
+elfhassym(internstr nam, uint *value)
 {
    struct sym *sym = findsym(nam);
    if (sym) {
@@ -113,12 +113,12 @@ elfhassym(const char *nam, uint *value)
 }
 
 void
-elfaddsym(const char *nam, int info, enum section sect, uvlong value, uvlong size)
+elfaddsym(internstr nam, int info, enum section sect, uvlong value, uvlong size)
 {
    struct sym *sym = findsym(nam), sym0;
    if (!sym) {
       sym = &sym0;
-      sym->name = str2idx(nam);
+      sym->name = str2idx(&nam->c);
    }
    sym->bind = info >> 4;
    sym->type = info & 0xF;
@@ -145,7 +145,7 @@ static const ushort relktab[][NRELOCKIND] = {
 };
 
 void
-elfreloc(const char *sym, enum relockind kind, enum section section, uint off, vlong addend)
+elfreloc(internstr sym, enum relockind kind, enum section section, uint off, vlong addend)
 {
    switch (section) {
    default: assert(0);
@@ -401,7 +401,7 @@ elffini(struct wbuf *out)
          rel->symidx = idx < ndefsym ? defsym2idx[idx] : idx;
       } else {
          assert(symtab.n < 1<<16);
-         vpush(&symtab, ((struct sym) { str2idx(rel->symname), .bind = STB_GLOBAL, .type = STT_NOTYPE, .shndx = SHN_UND }));
+         vpush(&symtab, ((struct sym) { str2idx(&rel->symname->c), .bind = STB_GLOBAL, .type = STT_NOTYPE, .shndx = SHN_UND }));
          pmap_set(&symht, rel->symname, symtab.n-1);
          rel->symidx = symtab.n-1;
       }

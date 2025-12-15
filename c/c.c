@@ -113,13 +113,13 @@ struct declstate {
                  call pdecl() to advance state before checking .more */
         tagdecl, /* declarator is a tagged type */
         empty; /* nothing decl (';') */
-   const char **pnames; /* param names for function definition */
+   internstr *pnames; /* param names for function definition */
    struct span *pspans; /* param spans ditto */
    uchar *pqual; /* param quals ditto */
 };
 static struct decl pdecl(struct declstate *st, struct comp *cm);
 
-static struct decl *finddecl(struct comp *cm, const char *name);
+static struct decl *finddecl(struct comp *cm, internstr name);
 
 /* next token starts a decl? */
 static bool
@@ -127,7 +127,7 @@ isdecltok(struct comp *cm)
 {
    struct token tk;
    if (peek(cm, &tk) == TKIDENT) {
-      struct decl *decl = finddecl(cm, tk.s);
+      struct decl *decl = finddecl(cm, tk.name);
       return decl && decl->scls == SCTYPEDEF;
    } else {
       static const char kws[] = {
@@ -299,7 +299,7 @@ putdecl(struct comp *cm, const struct decl *decl)
 }
 
 static struct decl *
-finddecl(struct comp *cm, const char *name)
+finddecl(struct comp *cm, internstr name)
 {
    assert(name);
    for (struct env *e = cm->env; e; e = e->up) {
@@ -315,7 +315,7 @@ finddecl(struct comp *cm, const char *name)
 }
 
 static union type
-gettagged(struct comp *cm, struct span *span, enum typetag tt, const char *name, bool dodef)
+gettagged(struct comp *cm, struct span *span, enum typetag tt, internstr name, bool dodef)
 {
    struct typedata td = {0};
    assert(name);
@@ -338,7 +338,7 @@ Break2:
 }
 
 static union type
-deftagged(struct comp *cm, struct span *span, enum typetag tt, const char *name, union type ty)
+deftagged(struct comp *cm, struct span *span, enum typetag tt, internstr name, union type ty)
 {
    struct typedata td = {0};
    assert(name);
@@ -703,7 +703,7 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
    }
 
    if (callee->t == ESYM && ty.t == IMPLICITFUNCTY) { /* implicit function decl.. */
-      const char *name = (void *)callee->sym;
+      internstr name = (void *)callee->sym;
       struct decl decl = {
          (ty = mkfntype(mktype(TYINT), 0, NULL, /* kandr */ 1, 0)),
          .scls = SCEXTERN, .span = span, .name = name, .sym = name
@@ -841,8 +841,8 @@ ppostfixopers(struct comp *cm, struct expr *ex)
                ex->ty.t == TYPTR && isagg(typechild(ex->ty)) ? "; did you mean to use '->'?" : "");
       } else {
          struct fielddata fld = {.t = mktype(TYINT)};
-         if (*tk2.s && !getfield(&fld, ex->ty, tk2.s))
-            error(&span, "'%ty' has no such field: '%s'", ex->ty, tk2.s);
+         if (*tk2.s && !getfield(&fld, ex->ty, tk2.name))
+            error(&span, "'%ty' has no such field: '%s'", ex->ty, tk2.name);
          if (ex->t == EGETF && ex->qual == fld.qual) { /* accumulate */
             ex->span = span;
             ex->ty = fld.t;
@@ -897,7 +897,7 @@ tkprec(int tt)
 }
 
 static struct expr initializer(struct comp *cm, union type *ty, enum evalmode ev,
-                               bool globl, enum qualifier qual, const char *name);
+                               bool globl, enum qualifier qual, internstr name);
 
 /* parse an expression with the given operator precedence */
 /* param ident is a kludge to support block labels without backtracking or extra lookahead
@@ -1000,10 +1000,10 @@ Unary:
       break;
    case TKIDENT:
    Ident:
-      decl = finddecl(cm, tk.s);
+      decl = finddecl(cm, tk.name);
       if (!decl) {
          if (peek(cm, NULL) == '(') { /* implicit function decl? */
-            ex = mkexpr(ESYM, tk.span, mktype(IMPLICITFUNCTY), .sym = (void *)tk.s);
+            ex = mkexpr(ESYM, tk.span, mktype(IMPLICITFUNCTY), .sym = (void *)tk.name);
          } else {
             error(&tk.span, "undeclared identifier %'tk", &tk);
             ex = mkexpr(ESYM, tk.span, mktype(TYINT), .sym = NULL);
@@ -1256,7 +1256,7 @@ struct initparser {
          vec_of(uchar) ddat;
          struct dreloc {
             struct dreloc *link;
-            const char *sym;
+            internstr sym;
             vlong addend;
             uint off;
          } *drel;
@@ -1566,7 +1566,7 @@ Retry:
 }
 
 static int
-aggdesignator(struct initparser *ip, union type ty, const char *name, const struct span *span)
+aggdesignator(struct initparser *ip, union type ty, internstr name, const struct span *span)
 {
    const struct typedata *td = &typedata[ty.dat];
    for (int i = 0; i < td->nmemb; ++i) {
@@ -1645,15 +1645,14 @@ designators(struct initparser *ip, struct comp *cm)
             error(&span, "member designator used with non-aggregate type '%ty'", ip->sub->ty);
          else if (tk.t == TKIDENT) {
             int idx;
-               //if (!strcmp(tk.s, "_vb")) __asm__("int3;nop");
             for (;;) {
-               idx = aggdesignator(ip, ip->sub->ty, tk.s, &span);
+               idx = aggdesignator(ip, ip->sub->ty, tk.name, &span);
                if (idx >= 0 || ip->sub == ip->cur) break;
                --ip->sub;
             }
             ip->sub->idx = idx;
             if (idx < 0)
-               error(&span, "%ty has no such field: '%s'", ip->cur->ty, tk.s);
+               error(&span, "%ty has no such field: '%s'", ip->cur->ty, tk.name);
             dumpini(ip);
          }
          some = 1;
@@ -1668,7 +1667,7 @@ designators(struct initparser *ip, struct comp *cm)
 
 static struct expr
 initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
-            enum qualifier qual, const char *sym)
+            enum qualifier qual, internstr sym)
 {
    struct token tk;
    struct span span;
@@ -1811,7 +1810,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
 /*****************/
 
 static union type
-buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
+buildagg(struct comp *cm, enum typetag tt, internstr name, int id)
 {
    struct token tk;
    union type t;
@@ -1850,7 +1849,7 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
          bitsiz = 0;
          if (st.bitf) {
             struct expr ex = constantexpr(cm);
-            const char *name = decl.name ? decl.name : "<anonymous>";
+            const char *name = decl.name ? &decl.name->c : "<anonymous>";
             if (!isint(decl.ty)) {
                error(&decl.span, "bit-field '%s' has non-integer type '%ty'", name, decl.ty);
             } else if (!isint(ex.ty)) {
@@ -1931,7 +1930,7 @@ buildagg(struct comp *cm, enum typetag tt, const char *name, int id)
    if (td.flexi && ccopt.cstd < STDC99 && ccopt.pedant)
       warn(&flexspan, "flexible array member in %M is an extension");
    if (fld.n == 0) {
-      struct namedfield dummy = { "", { mktype(TYCHAR), 0 }};
+      struct namedfield dummy = { intern(""), { mktype(TYCHAR), 0 }};
       error(&tk.span, "%s cannot have zero members", tag);
       vpush(&fld, dummy);
       td.siz = td.align = 1;
@@ -1965,7 +1964,7 @@ inttyminmax(vlong *min, uvlong *max, enum typetag tt)
  * prefers to use unsigned types when possible). should add support for -fshort-enums
  */
 static union type
-buildenum(struct comp *cm, const char *name, const struct span *span, int id)
+buildenum(struct comp *cm, internstr name, const struct span *span, int id)
 {
    struct token tk;
    vlong tymin, minv = 0;
@@ -2003,7 +2002,7 @@ buildenum(struct comp *cm, const char *name, const struct span *span, int id)
       else if (issigned(ty) && iota < minv)
          minv = iota;
 
-      decl.name = tk.s;
+      decl.name = tk.name;
       decl.ty = ty;
       decl.isenum = 1;
       decl.value = iota++;
@@ -2045,11 +2044,11 @@ tagtype(struct comp *cm, enum toktag kind)
    union type t;
    struct span span;
    enum typetag tt = kind == TKWenum ? TYENUM : kind == TKWstruct ? TYSTRUCT : TYUNION;
-   const char *tag = NULL;
+   internstr tag = NULL;
 
    peek(cm, &tk);
    if (match(cm, &tk, TKIDENT))
-      tag = tk.s;
+      tag = tk.name;
    span = tk.span;
    if (!match(cm, NULL, '{')) {
       if (!tag) {
@@ -2224,7 +2223,7 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
          st->base = ty;
          continue;
       case TKIDENT:
-         if (!st->base.t && !arith && (decl = finddecl(cm, tk.s))
+         if (!st->base.t && !arith && (decl = finddecl(cm, tk.name))
              && decl->scls == SCTYPEDEF) {
             lex(cm, &tk);
             st->base = decl->ty;
@@ -2315,7 +2314,7 @@ static struct decllist {
       uint len; /* TYARRAY */
       struct { /* TYFUNC */
          union type *param;
-         const char **pnames;
+         internstr *pnames;
          struct span *pspans;
          uchar *pqual;
          short npar;
@@ -2326,7 +2325,7 @@ static struct decllist {
 } decltmp[64], *declfreelist;
 static bool usingdeclparamtmp;
 static union type declparamtmp[16];
-static const char *declpnamestmp[16];
+static internstr declpnamestmp[16];
 static struct span declpspanstmp[16];
 static uchar declpqualtmp[16];
 
@@ -2354,7 +2353,7 @@ cvqual(struct comp *cm)
 }
 
 static void
-decltypes(struct comp *cm, struct decllist *list, const char **name, struct span *span, struct span *namespan)
+decltypes(struct comp *cm, struct decllist *list, internstr *name, struct span *span, struct span *namespan)
 {
    struct token tk;
    struct decllist *ptr, node;
@@ -2395,7 +2394,7 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
       if (!name)
          error(&tk.span, "unexpected identifier in type name");
       else {
-         *name = tk.s;
+         *name = tk.name;
          *namespan = tk.span;
       }
       lex(cm, &tk);
@@ -2444,7 +2443,7 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
       } else if (match(cm, &tk, '(')) Func: {
          vec_of(union type) params = {0};
          vec_of(uchar) qual = {0};
-         vec_of(const char *) names = {0};
+         vec_of(internstr) names = {0};
          vec_of(struct span) spans = {0};
 
          if (!usingdeclparamtmp) {
@@ -2471,7 +2470,7 @@ decltypes(struct comp *cm, struct decllist *list, const char **name, struct span
             if (node.kandr) {
                if (match(cm, &tk, TKIDENT)) {
                   vpush(&params, mktype(TYINT));
-                  vpush(&names, tk.s);
+                  vpush(&names, tk.name);
                   vpush(&spans, tk.span);
                } else error(&tk.span, "expected identifier");
             } else if (!isdecltok(cm) && peek(cm, &tk) != TKIDENT) {
@@ -2720,7 +2719,7 @@ structreturn(struct function *fn, const struct expr *src)
 
 static union ref compilecall(struct function *fn, const struct expr *ex);
 
-static const char *
+static internstr
 mkhiddensym(const char *fnname, const char *name, int id)
 {
    char buf[200];
@@ -2738,7 +2737,7 @@ mkhiddensym(const char *fnname, const char *name, int id)
 static void geninit(struct function *fn, union type t, union ref dst, const struct expr *src);
 static union ref condexprvalue(struct function *fn, const struct expr *ex, bool discard);
 
-static const char *istr__func__;
+static internstr istr__func__, istr_main, istr_memset;
 
 union ref
 expraddr(struct function *fn, const struct expr *ex)
@@ -2757,7 +2756,7 @@ expraddr(struct function *fn, const struct expr *ex)
       case SCEXTERN: case SCNONE: case SCSTATIC:
          if (!decl->sym) { /* lazy __func__ */
             assert(decl->name == istr__func__);
-            decl->sym = mkhiddensym(fn->name, "__func__", 1);
+            decl->sym = mkhiddensym(&fn->name->c, &intern("__func__")->c, 1);
             uint off = objnewdat(decl->sym, objout.code ? Stext : Srodata, 0, typesize(decl->ty), typealign(decl->ty));
             uchar *p = objout.code ? objout.textbegin + off : objout.rodata.p + off;
             memcpy(p, fn->name, typearrlen(decl->ty)-1);
@@ -2798,7 +2797,7 @@ expraddr(struct function *fn, const struct expr *ex)
          static int id;
          struct initparser ip[1] = {0};
          union type ty = ex->ty;
-         const char *sym = mkhiddensym(NULL, ".LC", ++id);
+         internstr sym = mkhiddensym(NULL, ".LC", ++id);
          ip->sec = Sdata; /* TODO put in rodata if possible */
          ip->ev = EVSTATICINI;
          assert(!isincomplete(ty));
@@ -2895,7 +2894,7 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
          addinstr(fn, mkarginstr(cls2type(KPTR), dst));
          addinstr(fn, mkarginstr(cls2type(KI32), ZEROREF));
          addinstr(fn, mkarginstr(cls2type(type2cls[targ_sizetype]), mkintcon(type2cls[targ_sizetype], siz)));
-         call.l = mksymref("memset", 1);
+         call.l = mksymref(istr_memset, 1);
          call.r = mkcallarg(cls2type(KPTR), 3, -1);
          addinstr(fn, call);
       }
@@ -3622,7 +3621,7 @@ static void localdecl(struct comp *cm, struct function *fn, bool forinit);
 
 struct label {
    struct label *link;
-   const char *name;
+   internstr name;
    struct block *blk;
    struct span usespan;
    /* if usespan.ex.len == 0, this label is resolved and blk is the block that
@@ -3632,7 +3631,7 @@ struct label {
 };
 
 static struct label *
-findlabel(struct comp *cm, const char *name)
+findlabel(struct comp *cm, internstr name)
 {
    for (struct label *l = cm->labels; l; l = l->link)
       if (l->name == name) return l;
@@ -3640,7 +3639,7 @@ findlabel(struct comp *cm, const char *name)
 }
 
 static void
-deflabel(struct comp *cm, struct function *fn, const struct span *span, const char *name)
+deflabel(struct comp *cm, struct function *fn, const struct span *span, internstr name)
 {
    struct label *label = findlabel(cm, name);
    if (label && label->usespan.ex.len == 0) {
@@ -3845,7 +3844,7 @@ stmt(struct comp *cm, struct function *fn)
          }
       } else if (tk.t == TKIDENT && match(cm, NULL, ':')) {
          /* <label> ':' */
-         deflabel(cm, fn, &tk.span, tk.s);
+         deflabel(cm, fn, &tk.span, tk.name);
       } else {
          assert(tk.t == TKIDENT);
          /* kludge for no backtracking and no lookahead */
@@ -4083,10 +4082,10 @@ stmt(struct comp *cm, struct function *fn)
       lex(cm, &tk);
       peek(cm, &tk);
       if (expect(cm, TKIDENT, NULL)) {
-         struct label *label = findlabel(cm, tk.s);
+         struct label *label = findlabel(cm, tk.name);
          if (!label) {
             /* create reloc list */
-            struct label l = { cm->labels, tk.s, fn->curblk, tk.span };
+            struct label l = { cm->labels, tk.name, fn->curblk, tk.span };
             assert(l.usespan.ex.len);
             cm->labels = alloccopy(fn->arena, &l, sizeof l, 0);
             fn->curblk = NULL;
@@ -4151,12 +4150,12 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
    if (!forini && match(cm, &tk, TKIDENT)) {
       if (match(cm, NULL, ':')) {
          /* <label> ':' */
-         deflabel(cm, fn, &tk.span, tk.s);
+         deflabel(cm, fn, &tk.span, tk.name);
          stmt(cm, fn);
          return;
       }
       /* finddecl() -> non null because localdecl() is called when isdecltok() */
-      st.base = finddecl(cm, tk.s)->ty;
+      st.base = finddecl(cm, tk.name)->ty;
       st.base0 = 1;
    }
    do {
@@ -4171,7 +4170,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
          case SCSTATIC:
             if (forini)
                error(&decl.span, "static declaration in 'for' loop initializer");
-            decl.sym = mkhiddensym(fn->name, decl.name, ++staticid);
+            decl.sym = mkhiddensym(&fn->name->c, &decl.name->c, ++staticid);
             goto Initz;
          case SCNONE:
             if (decl.ty.t == TYFUNC) {
@@ -4274,7 +4273,7 @@ block(struct comp *cm, struct function *fn)
 }
 
 static void
-function(struct comp *cm, struct function *fn, const char **pnames, const struct span *pspans, uchar *pquals)
+function(struct comp *cm, struct function *fn, internstr *pnames, const struct span *pspans, uchar *pquals)
 {
    const struct typedata *td = &typedata[fn->fnty.dat];
    const bool doemit = fn->curblk;
@@ -4312,7 +4311,7 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
 
    /* put __func__, though its data is generated lazily in expraddr() */
    putdecl(cm, &(struct decl) {
-      .ty = mkarrtype(mktype(TYCHAR), QCONST, strlen(fn->name) + 1), .qual = QCONST,
+      .ty = mkarrtype(mktype(TYCHAR), QCONST, strlen(&fn->name->c) + 1), .qual = QCONST,
       .name = istr__func__, .scls = SCSTATIC, .span = (peek(cm, &tk), tk.span),
    });
 
@@ -4331,7 +4330,7 @@ function(struct comp *cm, struct function *fn, const char **pnames, const struct
       }
    }
    if (fn->curblk) {
-      if (!strcmp(fn->name, "main") && fn->retty.t == TYINT) {
+      if (fn->retty.t == TYINT && fn->name == istr_main) {
          /* implicit return 0 for main function (ISO C standard behavior) */
          putreturn(fn, ZEROREF, NOREF);
       } else {
@@ -4355,6 +4354,8 @@ docomp(struct comp *cm)
    struct token tk[1];
 
    istr__func__ = intern("__func__");
+   istr_main = intern("main");
+   istr_memset = intern("memset");
    if (!cm->env) {
       vinit(&envdecls, NULL, 1<<10);
       pmap_init(&tldeclmap, 1<<8);
@@ -4363,7 +4364,7 @@ docomp(struct comp *cm)
    if (!cvalistty.t) {
       struct typedata td = {
          .t = TYSTRUCT, .siz = targ_valistsize, .align = targ_primalign[TYPTR], .nmemb = 1,
-         .fld = &(struct namedfield){"-", {mkarrtype(mktype(TYPTR), 0, 3)}}
+         .fld = &(struct namedfield){intern("-"), {mkarrtype(mktype(TYPTR), 0, 3)}}
       };
       cvalistty = mkarrtype(mktagtype(intern("__builtin_va_list"), &td), 0, 1);
    }

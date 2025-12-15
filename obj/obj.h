@@ -22,10 +22,10 @@ enum relockind {
 enum section { Snone, Stext, Srodata, Sdata, Sbss };
 
 void objini(const char *infile, const char *outfile);
-void objdeffunc(const char *nam, bool globl, uint off, uint siz);
-enum section objhassym(const char *name, uint *off);
-uint objnewdat(const char *name, enum section, bool globl, uint siz, uint align);
-void objreloc(const char *sym, enum relockind, enum section, uint off, vlong addend);
+void objdeffunc(internstr nam, bool globl, uint off, uint siz);
+enum section objhassym(internstr name, uint *off);
+uint objnewdat(internstr name, enum section, bool globl, uint siz, uint align);
+void objreloc(internstr sym, enum relockind, enum section, uint off, vlong addend);
 void objfini(void);
 
 /* vim:set ts=3 sw=3 expandtab: */

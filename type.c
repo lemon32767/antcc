@@ -1,7 +1,7 @@
 #include "type.h"
 
 struct typedata typedata[1<<13];
-const char *ttypenames[1<<10];
+internstr ttypenames[1<<10];
 
 static ushort
 hashtd(const struct typedata *td)
@@ -183,7 +183,7 @@ mkfntype(union type ret, uint n, const union type *par, bool kandr, bool variadi
 }
 
 union type
-completetype(const char *name, int id, struct typedata *td)
+completetype(internstr name, int id, struct typedata *td)
 {
    assert(td->t == TYENUM || td->t == TYSTRUCT || td->t == TYUNION);
    td->id = id;
@@ -196,14 +196,14 @@ completetype(const char *name, int id, struct typedata *td)
 }
 
 union type
-mktagtype(const char *name, struct typedata *td)
+mktagtype(internstr name, struct typedata *td)
 {
    static int id;
    return completetype(name, id++, td);
 }
 
 static bool
-getfieldrec(struct fielddata *res, uint off, const struct typedata *td, const char *name)
+getfieldrec(struct fielddata *res, uint off, const struct typedata *td, internstr name)
 {
 Begin:
    for (int i = 0; i < td->nmemb; ++i) {
@@ -227,7 +227,7 @@ Begin:
 }
 
 bool
-getfield(struct fielddata *res, union type ty, const char *name)
+getfield(struct fielddata *res, union type ty, internstr name)
 {
    assert(isagg(ty));
    return getfieldrec(res, 0, &typedata[ty.dat], name);

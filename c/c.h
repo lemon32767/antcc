@@ -92,9 +92,9 @@ struct decl {
          isdef : 1,
          isbuiltin : 1;
    struct span span;
-   const char *name;
+   internstr name;
    union {
-      const char *sym;
+      internstr sym;
       struct { ushort align; int id; };
       vlong value;
       const struct builtin *builtin;

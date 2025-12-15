@@ -26,7 +26,7 @@ identkeyword(struct token *tk, const char *s, int len)
    }
    tk->blue = 0;
    tk->len = len;
-   struct kw *kw = pmap_get(&kwmap, tk->s = intern(s));
+   struct kw *kw = pmap_get(&kwmap, tk->name = intern(s));
    if (kw) {
       tk->t = kw->t;
       tk->extwarn = kw->ext;
@@ -580,7 +580,7 @@ End:
 /****************/
 
 struct macro {
-   const char **param;
+   internstr *param;
    struct span0 span;
    uchar nparam;
    bool predef : 1,
@@ -608,7 +608,7 @@ tokequ(const struct token *a, const struct token *b)
       if (a->len != b->len) return 0;
       return !memcmp(a->s, b->s, a->len);
    } else if (a->t == TKIDENT) {
-      return a->s == b->s;
+      return a->name == b->name;
    } else if (a->t == TKPPMACARG || a->t == TKPPMACSTR) {
       return a->argidx == b->argidx;
    }
@@ -656,7 +656,7 @@ freemac(struct macro *mac)
 static pmap_of(struct macro) macroht;
 
 static void
-putmac(const char *name, struct macro *mac)
+putmac(internstr name, struct macro *mac)
 {
    static short id;
    if (!macroht.v) pmap_init(&macroht, 1<<10);
@@ -681,7 +681,7 @@ putmac(const char *name, struct macro *mac)
 }
 
 static void
-delmac(const char *name)
+delmac(internstr name)
 {
    struct macro *slot = pmap_get(&macroht, name);
    if (!slot) return;
@@ -690,7 +690,7 @@ delmac(const char *name)
 }
 
 static struct macro *
-findmac(const char *name)
+findmac(internstr name)
 {
    return pmap_get(&macroht, name);
 }
@@ -759,7 +759,7 @@ static void
 ppdefine(struct lexer *lx)
 {
    struct token tk0, tk;
-   const char *mname;
+   internstr mname;
    struct macro mac = {0};
    vec_of(struct token) rlist = {0};
 
@@ -769,12 +769,12 @@ ppdefine(struct lexer *lx)
       ppskipline(lx);
       return;
    }
-   mname = tk0.s;
+   mname = tk0.name;
    mac.span = tk0.span.sl;
 
    if (match(lx, '(')) {
       /* gather params for function-like macro */
-      vec_of(const char *) params = {0};
+      vec_of(internstr) params = {0};
       vinit(&params, NULL, 4);
       mac.fnlike = 1;
       while (lex0(lx, &tk) != ')') {
@@ -791,7 +791,7 @@ ppdefine(struct lexer *lx)
             lex0(lx, &tk);
          }
          if (isppident(tk))
-            vpush(&params, tk.s);
+            vpush(&params, tk.name);
          else if (tk.t == TKDOTS) {
             mac.variadic = 1;
             vpush(&params, intern("__VA_ARGS__"));
@@ -812,7 +812,7 @@ ppdefine(struct lexer *lx)
          warn(&tk.span, "no whitespace after macro name");
       if (mac.fnlike && isppident(tk)) {
          for (int i = 0; i < mac.nparam; ++i) {
-            if (tk.s == mac.param[i]) {
+            if (tk.name == mac.param[i]) {
                tk.argidx = i;
                if (rlist.n > 0 && rlist.p[rlist.n - 1].t == '#') {
                   tk.t = TKPPMACSTR;
@@ -868,7 +868,7 @@ ppundef(struct lexer *lx)
       return;
    }
    expecteol(lx, "undef");
-   delmac(tk.s);
+   delmac(tk.name);
 }
 
 static struct macrostack {
@@ -906,14 +906,14 @@ popmac(struct lexer *lx)
    } while ((stk = lx->macstk) && stk->idx >= stk->rlist.n && !stk->stop);
 }
 
-static void expandfnmacro(struct lexer *lx, struct span *span, const char *mname, struct macro *mac);
+static void expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro *mac);
 
 static bool
 tryexpand(struct lexer *lx, struct token *tk)
 {
    struct span span = tk->span;
    struct macro *mac = NULL;
-   const char *mname = tk->s;
+   internstr mname = tk->name;
 
    if (!isppident(*tk) || !(mac = findmac(mname)) || tk->blue)
       return 0;
@@ -962,7 +962,7 @@ tryexpand(struct lexer *lx, struct token *tk)
 }
 
 static void
-expandfnmacro(struct lexer *lx, struct span *span, const char *mname, struct macro *mac)
+expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro *mac)
 {
    vec_of(struct token) argsbuf = {0}, /* argument tokens pre-expansion */
                         rlist2 = {0}; /* macro replacement list with arguments subsituted */
@@ -1266,7 +1266,7 @@ Unary:
                error(&tk.span, "expected `)'");
                goto Err;
             }
-            x = findmac(tk.s) != NULL;
+            x = findmac(tk.name) != NULL;
          } else {
             if (tryexpand(lx, &tk))
                goto Unary;
@@ -1397,11 +1397,11 @@ ppifxdef(struct lexer *lx, bool defp, const struct span *span)
       return;
    }
    expecteol(lx, defp ? "ifdef" : "ifndef");
-   if (!defp && lx->firstdirective) lx->inclguard = tk.s;
+   if (!defp && lx->firstdirective) lx->inclguard = tk.name;
    assert(nppcnd < countof(ppcndstk) && "too many nested #if");
    ppcndstk[nppcnd].ifspan = span->sl;
    ppcndstk[nppcnd].filedepth = includedepth;
-   ppcndstk[nppcnd].cnd = (findmac(tk.s) == NULL) ^ defp ? PPCNDTRUE : PPCNDFALSE;
+   ppcndstk[nppcnd].cnd = (findmac(tk.name) == NULL) ^ defp ? PPCNDTRUE : PPCNDFALSE;
    ppcndstk[nppcnd++].elsep = 0;
 }
 
@@ -1452,7 +1452,7 @@ ppelifxdef(struct lexer *lx, bool defp, const struct span *span)
    expecteol(lx, defp ? "elifdef" : "elifndef");
    switch (cnd->cnd) {
    case PPCNDTRUE: cnd->cnd = PPCNDTAKEN; break;
-   case PPCNDFALSE: cnd->cnd = (findmac(tk.s) == NULL) ^ defp ? PPCNDTRUE : PPCNDFALSE; break;
+   case PPCNDFALSE: cnd->cnd = (findmac(tk.name) == NULL) ^ defp ? PPCNDTRUE : PPCNDFALSE; break;
    case PPCNDTAKEN: assert(0);
    }
 }
@@ -1975,8 +1975,7 @@ addpredefmacros(struct arena **tmparena)
    }
    tok_ver.len = 7;
    for (int i = 0; i < countof(macs); ++i) {
-      macs[i].name = intern(macs[i].name);
-      putmac(macs[i].name, &macs[i].m);
+      putmac(intern(macs[i].name), &macs[i].m);
    }
 
    switch (targ_mcisa) {
@@ -2015,7 +2014,7 @@ initlexer(struct lexer *lx, const char **err, const char *file)
    int fileid = openfile(err, &f, file);
    if (fileid < 0)
       return LXERR;
-   const char *guard;
+   internstr guard;
    if (isfileseen(fileid) && isoncefile(fileid, &guard) && (!guard || findmac(guard))) {
       //efmt("skipping %s .. guard %s\n", file, guard ? guard : "<none>");
       return LXFILESKIP;

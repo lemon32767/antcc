@@ -251,7 +251,7 @@ opermatch(enum operpat pat, struct oper oper)
 
 static bool usebp; /* use RBP? */
 static int rbpoff;
-static const char *curfnsym;
+static internstr curfnsym;
 static uchar *fnstart;
 
 /* Given an instruction description table, find the first entry that matches
@@ -334,7 +334,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
             static uchar offs[NOPERENC] = { [EN_MI8] = 1, [EN_MI16] = 2, [EN_MI32] = 4 };
             uint addr;
             int disp = mem.disp - 4 - offs[en->operenc];
-            const char *sym = xcon2sym(mem.con);
+            internstr sym = xcon2sym(mem.con);
             B(/*mod 0*/ (reg & 7) << 3 | RBP);
             if (objhassym(sym, &addr) == Stext) {
                I32(addr - (*pcode - objout.textbegin) + disp);
@@ -433,7 +433,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       if (rex) B(0x40 | rex);
       D(opc, nopc);
       assert(dst.t == OSYM);
-      const char *sym = xcon2sym(dst.con);
+      internstr sym = xcon2sym(dst.con);
       uint addr;
       if (sym == curfnsym) {
          I32(fnstart - *pcode - 4);

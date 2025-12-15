@@ -37,12 +37,12 @@ void *
 }
 
 /** string interning **/
-const char *
+internstr
 intern(const char *s)
 {
    static uint N, n;
    static struct ht {
-      const char *s;
+      internstr s;
       size_t h;
    } *ht;
    static struct { char m[sizeof(struct arena) + (2<<10)]; struct arena *_a; } amem;
@@ -75,7 +75,7 @@ intern(const char *s)
          N = nnew;
          i = h;
          continue;
-      } else if (h == ht[i].h && !strcmp(s, ht[i].s)) {
+      } else if (h == ht[i].h && !strcmp(s, &ht[i].s->c)) {
          return ht[i].s;
       }
       ++i;

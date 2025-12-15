@@ -6,9 +6,9 @@
 
 
 void elfinit(void);
-enum section elfhassym(const char *, uint *value);
-void elfaddsym(const char *, int info, enum section, uvlong value, uvlong size);
-void elfreloc(const char *sym, enum relockind, enum section, uint off, vlong addend);
+enum section elfhassym(internstr , uint *value);
+void elfaddsym(internstr , int info, enum section, uvlong value, uvlong size);
+void elfreloc(internstr sym, enum relockind, enum section, uint off, vlong addend);
 void elffini(struct wbuf *);
 
 struct objfile objout;
@@ -30,7 +30,7 @@ objini(const char *infile, const char *outfile)
 }
 
 void
-objdeffunc(const char *nam, bool globl, uint off, uint siz)
+objdeffunc(internstr nam, bool globl, uint off, uint siz)
 {
    switch (mctarg->objkind) {
    case OBJELF:
@@ -40,13 +40,13 @@ objdeffunc(const char *nam, bool globl, uint off, uint siz)
 }
 
 enum section
-objhassym(const char *name, uint *off)
+objhassym(internstr name, uint *off)
 {
    return elfhassym(name, off);
 }
 
 uint
-objnewdat(const char *name, enum section sec, bool globl, uint siz, uint align)
+objnewdat(internstr name, enum section sec, bool globl, uint siz, uint align)
 {
    struct objfile *o = &objout;
    uint off;
@@ -90,7 +90,7 @@ objnewdat(const char *name, enum section sec, bool globl, uint siz, uint align)
 }
 
 void
-objreloc(const char *sym, enum relockind reloc, enum section section, uint off, vlong addend)
+objreloc(internstr sym, enum relockind reloc, enum section section, uint off, vlong addend)
 {
    switch (mctarg->objkind) {
    case OBJELF:

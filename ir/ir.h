@@ -22,14 +22,14 @@ struct irdat {
    union type ctype;
    uint siz;
    uint off;
-   const char *name;
+   internstr name;
 };
 
 struct xcon {
    bool issym, isdat, isfunc, deref;
    uchar cls;
    union {
-      const char *sym;
+      internstr sym;
       int dat;
       vlong i;
       double f;
@@ -163,7 +163,7 @@ enum {
 };
 struct function {
    struct arena **arena;
-   const char *name;
+   internstr name;
    struct block *entry, *curblk;
    struct use *use;
    short *nuse;
@@ -250,9 +250,9 @@ union ref mkfltcon(enum irclass, double);
 #define isaddrcon(r,derefok) ((r).t == RXCON && !conht[(r).i].cls && (derefok || !conht[(r).i].deref))
 #define intconval(r) ((r).t == RICON ? (r).i : conht[(r).i].i)
 #define fltconval(r) ((r).t == RICON ? (r).i : conht[(r).i].f)
-union ref mksymref(const char *, bool isfunc);
-union ref mkdatref(const char *name, union type ctype, uint siz, uint align, const void *, uint n, bool deref);
-const char *xcon2sym(int ref);
+union ref mksymref(internstr, bool isfunc);
+union ref mkdatref(internstr name, union type ctype, uint siz, uint align, const void *, uint n, bool deref);
+internstr xcon2sym(int ref);
 struct instr mkalloca(uint siz, uint align);
 union ref mkcallarg(union irtype ret, uint narg, int vararg);
 #define mkintrin(B, C, N) mkinstr(Ointrin, C, {{.t=RICON,B}}, mkcallarg((union irtype){{0}},N,-1))

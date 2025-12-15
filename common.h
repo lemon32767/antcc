@@ -179,7 +179,8 @@ void free(void *);
 #define xrealloc(p,n) xrealloc(p, n, __func__)
 
 /* string interning */
-const char *intern(const char *);
+typedef const struct internstr {char c;} *internstr;
+internstr intern(const char *);
 
 /* growable buffer that stores its capacity in the allocated memory */
 #define xbnew_(n) (void *)(1 + (size_t *)xcalloc(sizeof(size_t) + (n)))
@@ -404,8 +405,8 @@ struct memfile *getfile(int id);
 void addfileline(int id, uint off);
 void setfileline(int id, uint off, int line, const char *file);
 const char *getfilepos(int *line, int *col, int id, uint off);
-bool isoncefile(int id, const char **guard);
-void markfileonce(int id, const char *guard);
+bool isoncefile(int id, internstr *guard);
+void markfileonce(int id, internstr guard);
 void markfileseen(int id);
 bool isfileseen(int id);
 void closefile(int id);

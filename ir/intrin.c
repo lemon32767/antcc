@@ -24,7 +24,7 @@ intrin(struct block *blk, int *curi, enum intrin in, struct arg *args, int narg,
          /* memcpy */
          *args[1].ty = *args[0].ty = mktyperef(cls2type(KPTR));
          insertinstr(blk, (*curi)++, mkarginstr(cls2type(cls), mkintcon(cls, td->siz)));
-         *this = mkinstr(Ocall, 0, mksymref("memcpy", 1), this->r);
+         *this = mkinstr(Ocall, 0, mksymref(intern("memcpy"), 1), this->r);
          calltab.p[this->r.i].narg = 3;
          calltab.p[this->r.i].ret = cls2type(0);
          return 0;

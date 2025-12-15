@@ -62,6 +62,7 @@ struct token {
    };
    struct span span;
    union {
+      internstr name;
       const char *s;
       const ushort *ws16;
       const uint   *ws32;
@@ -101,7 +102,7 @@ struct lexer {
    struct arena **tmparena;
    bool firstdirective;
    ushort nppcnd0;
-   const char *inclguard;
+   internstr inclguard;
 };
 
 enum initlexer {

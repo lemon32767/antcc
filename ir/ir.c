@@ -138,14 +138,14 @@ mkfltcon(enum irclass k, double f)
 }
 
 union ref
-mksymref(const char *s, bool isfunc)
+mksymref(internstr s, bool isfunc)
 {
    struct xcon con = { .issym = 1, .sym = s, .isfunc = isfunc };
    return mkref(RXCON, addcon(&con));
 }
 
 union ref
-mkdatref(const char *name, union type ctype, uint siz, uint align, const void *bytes, uint n, bool deref)
+mkdatref(internstr name, union type ctype, uint siz, uint align, const void *bytes, uint n, bool deref)
 {
    struct irdat dat = { .ctype = ctype, .align = align, .siz = siz, .name = name };
    dat.section = objout.code && align >= 4 && align <= targ_primsizes[TYPTR] && siz <= 16 ? Stext : Srodata;
@@ -168,7 +168,7 @@ mkdatref(const char *name, union type ctype, uint siz, uint align, const void *b
    return mkref(RXCON, addcon(&(struct xcon){.isdat = 1, .deref = deref, .dat = dattab.n - 1}));
 }
 
-const char *
+internstr
 xcon2sym(int ref)
 {
    struct xcon con = conht[ref];

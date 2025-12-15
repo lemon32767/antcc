@@ -66,7 +66,7 @@ union type {
 #define mktype(...)   ((union type) {{ __VA_ARGS__ }})
 
 struct enumvar {
-   const char *name;
+   internstr name;
    union { vlong i; uvlong u; };
 };
 
@@ -78,7 +78,7 @@ struct fielddata {
          qual : 2;
 };
 struct namedfield {
-   const char *name;
+   internstr name;
    struct fielddata f;
 };
 
@@ -118,7 +118,7 @@ struct typedata {
 };
 
 extern struct typedata typedata[];
-extern const char *ttypenames[/*id*/];
+extern internstr ttypenames[/*id*/];
 
 bool isincomplete(union type);
 uint typesize(union type);
@@ -126,9 +126,9 @@ uint typealign(union type);
 union type mkptrtype(union type, int qual);
 union type mkarrtype(union type t, int qual, uint n);
 union type mkfntype(union type ret, uint n, const union type *, bool kandr, bool variadic);
-union type mktagtype(const char *name, struct typedata *td);
-bool getfield(struct fielddata *res, union type, const char *);
-union type completetype(const char *name, int id, struct typedata *td);
+union type mktagtype(internstr name, struct typedata *td);
+bool getfield(struct fielddata *res, union type, internstr);
+union type completetype(internstr name, int id, struct typedata *td);
 union type typedecay(union type);
 bool assigncompat(union type dst, union type src);
 enum typetag intpromote(enum typetag);

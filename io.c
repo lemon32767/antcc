@@ -226,7 +226,7 @@ pritypebefore(struct wbuf *buf, union type ty, int qual)
    case TYSTRUCT:
       s = "struct";
    Tagged:
-      n = bfmt(buf, "%s %s", s, (s2 = ttypenames[typedata[ty.dat].id]) ? s2 : "(anonymous)");
+      n = bfmt(buf, "%s %s", s, (s2 = &ttypenames[typedata[ty.dat].id]->c) ? s2 : "(anonymous)");
       return n + priquals(buf, qual);
    case TYUNION:
       s = "union";
@@ -530,7 +530,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             case TKPPMACARG:
             case TKIDENT:
                if (quote) n += bputc(buf, '`');
-               n += bfmt(buf, "%s", tok->s);
+               n += bfmt(buf, "%s", tok->name);
                if (quote) n += bputc(buf, '\'');
                break;
             case TKEOF:
@@ -562,7 +562,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             default:
                if (quote) n += bputc(buf, '`');
                if (in_range(tok->t, TKWBEGIN_, TKWEND_)) {
-                  iowrite(buf, tok->s, tok->len);
+                  iowrite(buf, tok->name, tok->len);
                   n += tok->len;
                } else if (aisprint(tok->t)) {
                   n += bputc(buf, tok->t);
@@ -809,7 +809,7 @@ static struct file {
    vec_of(struct linemap) linemap;
    bool once;
    bool seen;
-   const char *guardmac;
+   internstr guardmac;
 } *fileht[1<<SPANFILEBITS];
 static int nfiles;
 
@@ -971,7 +971,7 @@ getfilepos(int *pline, int *pcol, int id, uint off)
 }
 
 bool
-isoncefile(int id, const char **guard)
+isoncefile(int id, internstr *guard)
 {
    assert(id < countof(fileht) && fileht[id]);
    *guard = fileht[id]->guardmac;
@@ -979,7 +979,7 @@ isoncefile(int id, const char **guard)
 }
 
 void
-markfileonce(int id, const char *guard)
+markfileonce(int id, internstr guard)
 {
    assert(id < countof(fileht) && fileht[id]);
    fileht[id]->once = 1;
