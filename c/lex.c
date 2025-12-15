@@ -1768,6 +1768,7 @@ lex(struct lexer *lx, struct token *tk_)
    struct token tkx[1], *tk;
    int t;
 
+Begin:
    assert(tk_ != &lx->peektok);
    tk = tk_ ? tk_ : tkx;
    if (lx->peektok.t) {
@@ -1778,10 +1779,9 @@ lex(struct lexer *lx, struct token *tk_)
 
    if (lx->macstk) {
       if (!advancemacro(lx, tk))
-         return lex(lx, tk_);
+         goto Begin;
       return tk->t;
    }
-
    bool linebegin = 1,
         skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
    enum directive lastcmd = 0;
@@ -1789,7 +1789,7 @@ lex(struct lexer *lx, struct token *tk_)
       while ((t = lex0(lx, tk)) == '\n') linebegin = 1;
       if (t == '#' && linebegin) {
          if (lex0(lx, tk) == '\n') { }
-         else if (tk->t == TKNUMLIT  || isppident(*tk)) {
+         else if (tk->t == TKNUMLIT || isppident(*tk)) {
             lastcmd = tk->t == TKNUMLIT ? PPLINE : findppcmd(tk);
             if (nppcnd == lx->nppcnd0) lx->inclguard = NULL;
             if (!skip) {
@@ -1844,9 +1844,10 @@ lex(struct lexer *lx, struct token *tk_)
       } else {
          lx->firstdirective = 0;
          linebegin = 0;
-         if (skip && tk->t != TKEOF) continue;
+         if (skip && tk->t != TKEOF)
+            continue;
          if (tryexpand(lx, tk))
-            return lex(lx, tk_);
+            goto Begin;
          if (t == TKEOF && nppcnd && ppcndstk[nppcnd-1].filedepth == includedepth) {
             struct span span = { ppcndstk[nppcnd-1].ifspan };
             error(&span, "#if is not matched by #endif");
@@ -1857,7 +1858,7 @@ lex(struct lexer *lx, struct token *tk_)
                markfileonce(lx->fileid, lx->inclguard);
             }
             struct lexer *sv = lx->save;
-            memcpy(lx, lx->save, sizeof *lx);
+            memcpy(lx, sv, sizeof *lx);
             free(sv);
             --includedepth;
             linebegin = 1;
@@ -2041,7 +2042,7 @@ addpredefmacros(struct arena **tmparena)
       lx->tmparena = tmparena;
       lx->chrbuf0 = countof(lx->chrbuf);
       lx->firstdirective = 1;
-      while (!lx->eof) lex(lx, NULL);
+      while (lex(lx, NULL) != TKEOF) ;
    }
 }
 
