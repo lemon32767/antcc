@@ -113,7 +113,6 @@ void
 putbuiltins(struct env *env)
 {
    for (int i = 0; i < countof(tab); ++i) {
-      const char *intern(const char *);
       envadddecl(env, &(struct decl) {
          .name = intern(tab[i].name),
          .isbuiltin = 1,

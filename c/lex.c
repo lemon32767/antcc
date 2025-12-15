@@ -1,51 +1,6 @@
 #include "lex.h"
 #include <string.h>
 
-const char *
-intern(const char *s)
-{
-   static uint N, n;
-   static struct ht {
-      const char *s;
-      size_t h;
-   } *ht;
-   static struct { char m[sizeof(struct arena) + (2<<10)]; struct arena *_a; } amem;
-   static struct arena *arena;
-
-   if (!N) {
-      ht = xcalloc((sizeof *ht) * (N = 1<<10));
-      arena = (void *)amem.m, arena->cap = sizeof amem.m - sizeof(struct arena);
-   }
-
-   for (size_t h = hashs(0, s), i = h;;) {
-      i &= N - 1;
-      if (!ht[i].s) { /* insert */
-         if (n < N/4*3 /*load factor 75%*/) {
-            ++n;
-            ht[i].h = h;
-            return ht[i].s = alloccopy(&arena, s, strlen(s)+1, 1);
-         }
-         /* resize */
-         size_t nnew = N * 2;
-         struct ht *new = xcalloc(sizeof *new * nnew);
-         for (uint i = 0; i < N; ++i) { /* rehash */
-            if (!ht[i].s) continue;
-            uint j = ht[i].h;
-            while (new[j &= nnew-1].s) ++j;
-            new[j] = ht[i];
-         }
-         free(ht);
-         ht = new;
-         N = nnew;
-         i = h;
-         continue;
-      } else if (h == ht[i].h && !strcmp(s, ht[i].s)) {
-         return ht[i].s;
-      }
-      ++i;
-   }
-}
-
 static void
 identkeyword(struct token *tk, const char *s, int len)
 {

@@ -152,7 +152,6 @@ mkdatref(const char *name, union type ctype, uint siz, uint align, const void *b
 
    assert(n <= siz && siz && align);
    if (!name) {
-      extern const char *intern(const char *);
       char buf[32];
       struct wbuf wbuf = MEMBUF(buf, sizeof buf);
 

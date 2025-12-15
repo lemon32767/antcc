@@ -36,8 +36,53 @@ void *
    return p;
 }
 
-/* vec: when .dyn, buf is dynamic allocated, otherwise an user provided buf */
+/** string interning **/
+const char *
+intern(const char *s)
+{
+   static uint N, n;
+   static struct ht {
+      const char *s;
+      size_t h;
+   } *ht;
+   static struct { char m[sizeof(struct arena) + (2<<10)]; struct arena *_a; } amem;
+   static struct arena *arena;
 
+   if (!N) {
+      ht = xcalloc((sizeof *ht) * (N = 1<<10));
+      arena = (void *)amem.m, arena->cap = sizeof amem.m - sizeof(struct arena);
+   }
+
+   for (size_t h = hashs(0, s), i = h;;) {
+      i &= N - 1;
+      if (!ht[i].s) { /* insert */
+         if (n < N/4*3 /*load factor 75%*/) {
+            ++n;
+            ht[i].h = h;
+            return ht[i].s = alloccopy(&arena, s, strlen(s)+1, 1);
+         }
+         /* resize */
+         size_t nnew = N * 2;
+         struct ht *new = xcalloc(sizeof *new * nnew);
+         for (uint i = 0; i < N; ++i) { /* rehash */
+            if (!ht[i].s) continue;
+            uint j = ht[i].h;
+            while (new[j &= nnew-1].s) ++j;
+            new[j] = ht[i];
+         }
+         free(ht);
+         ht = new;
+         N = nnew;
+         i = h;
+         continue;
+      } else if (h == ht[i].h && !strcmp(s, ht[i].s)) {
+         return ht[i].s;
+      }
+      ++i;
+   }
+}
+
+/** vec **/
 void
 vinit_(struct vecbase *v, void *inlbuf, uint cap, uint siz)
 {
@@ -96,6 +141,7 @@ vresize_(struct vecbase *v, uint siz, uint N)
    v->n = N;
 }
 
+/** arena **/
 struct arena *
 newarena(uint chunksiz)
 {
@@ -155,6 +201,7 @@ freearena(struct arena **par)
    }
 }
 
+/** integer hashmap **/
 void
 imap_init_(struct imapbase *m, void **v, uint vsiz, uint N)
 {
@@ -238,6 +285,7 @@ imap_set_(struct imapbase *m, void **v, uint vsiz, short k)
    }
 }
 
+/** pointer hashmap **/
 void
 pmap_init_(struct pmapbase *m, void **v, uint vsiz, uint N)
 {

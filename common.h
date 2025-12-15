@@ -178,6 +178,9 @@ void free(void *);
 #define xcalloc(n) xcalloc(n, __func__)
 #define xrealloc(p,n) xrealloc(p, n, __func__)
 
+/* string interning */
+const char *intern(const char *);
+
 /* growable buffer that stores its capacity in the allocated memory */
 #define xbnew_(n) (void *)(1 + (size_t *)xcalloc(sizeof(size_t) + (n)))
 #define xbcap_(p) ((size_t *)(p))[-1]

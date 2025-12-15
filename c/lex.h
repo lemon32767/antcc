@@ -111,7 +111,6 @@ enum initlexer {
    LXERR,
 };
 
-const char *intern(const char *);
 int lex(struct lexer *, struct token *);
 int lexpeek(struct lexer *, struct token *);
 enum typetag parsenumlit(uvlong *, double *, const struct token *, bool ispp);
