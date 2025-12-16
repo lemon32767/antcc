@@ -1288,14 +1288,7 @@ emitbin(struct function *fn)
    struct block *blk;
    uchar **pcode = &objout.code;
    int npush = 0;
-   uint epilogueaddr = 0;
    bool saverestore;
-
-   if (nblkaddr < fn->nblk) {
-      blkaddr = xrealloc(blkaddr, fn->nblk * sizeof *blkaddr);
-      nblkaddr = fn->nblk;
-   }
-   memset(blkaddr, 0, nblkaddr * sizeof *blkaddr);
 
    nops(pcode, 16);
    fnstart = *pcode;
@@ -1335,6 +1328,37 @@ emitbin(struct function *fn)
          DS("\x48\x81\xEC"), I32(fn->stksiz);
    }
 
+   if (*pcode - fnstart > 6) {
+      /* largue prologue -> largue epilogue -> transform to use single exit point */
+      struct block *exit = NULL;
+      blk = fn->entry->lprev;
+      do {
+         if (blk->jmp.t == Jret) {
+            if (!exit) {
+               if (blk->ins.n == 0) {
+                  exit = blk;
+                  continue;
+               } else {
+                  useblk(fn, exit = newblk(fn));
+                  exit->jmp.t = Jret;
+               }
+            }
+            blk->jmp.t = Jb;
+            memset(blk->jmp.arg, 0, sizeof blk->jmp.arg);
+            blk->s1 = exit;
+         } else if (exit) {
+            /* thread jumps to the exit block */
+            if (blk->s1 && !blk->s1->ins.n && blk->s1->s1 == exit && !blk->s1->s2) blk->s1 = exit;
+            if (blk->s2 && !blk->s2->ins.n && blk->s2->s1 == exit && !blk->s2->s2) blk->s2 = exit;
+         }
+      } while ((blk = blk->lprev) != fn->entry);
+   }
+
+   if (nblkaddr < fn->nblk) {
+      blkaddr = xrealloc(blkaddr, (nblkaddr = fn->nblk) * sizeof *blkaddr);
+   }
+   memset(blkaddr, 0, nblkaddr * sizeof *blkaddr);
+
    blk = fn->entry;
    do {
       struct blkaddr *bb = &blkaddr[blk->id];
@@ -1356,24 +1380,12 @@ emitbin(struct function *fn)
       }
       if (blk->jmp.t == Jret) {
          /* epilogue */
-         uint here = *pcode - fnstart;
-         if (epilogueaddr) {
-            int disp = epilogueaddr - (here + 2);
-            if ((uint)(disp + 128) < 256) {/* can use 1-byte displacement? */
-               B(0xEB), B(disp); /* JMP rel8 */
-            } else {
-               B(0xE9), I32(disp - 3); /* JMP rel32 */
-            }
-         } else {
-            if (fn->stksiz && (saverestore || !usebp))
-               Xadd(pcode, KPTR, mkoper(OREG, .reg = RSP), mkoper(OIMM, .imm = fn->stksiz));
-            if (saverestore) {
-               epilogueaddr = here;
-               calleerestore(pcode, fn);
-            }
-            if (usebp) B(0xC9); /* leave */
-            B(0xC3); /* ret */
-         }
+         if (fn->stksiz && (saverestore || !usebp))
+            Xadd(pcode, KPTR, mkoper(OREG, .reg = RSP), mkoper(OIMM, .imm = fn->stksiz));
+         if (saverestore)
+            calleerestore(pcode, fn);
+         if (usebp) B(0xC9); /* leave */
+         B(0xC3); /* ret */
       } else if (blk->jmp.t == Jtrap) {
          DS("\x0F\x0B"); /* UD2 */
       } else emitbranch(pcode, blk);

@@ -1233,6 +1233,8 @@ fini(struct rega *ra)
             freeblk(fn, blk);
             --id;
          }
+      } else if (allnops) {
+         vfree(&blk->ins);
       }
    } while ((blk = blk->lnext) != fn->entry);
 }
