@@ -33,16 +33,11 @@ struct ssabuilder {
 static union ref readvar(struct ssabuilder *, int var, enum irclass, struct block *);
 
 static union ref
-deltrivialphis(struct ssabuilder *sb, struct block *blk, union ref phiref)
+deltrivialphis(struct ssabuilder *sb, int var, struct block *blk, union ref phiref)
 {
-   union ref **pcurdefs;
-   int var;
-   struct use *use, *uend;
+   assert(instrtab[phiref.i].op == Ophi);
    union ref *args = phitab.p[instrtab[phiref.i].l.i];
    union ref same = {0};
-
-   assert(instrtab[phiref.i].op == Ophi);
-
    for (int i = 0; i < blk->npred; ++i) {
       if (args[i].bits == same.bits || args[i].bits == phiref.bits) {
          continue; /* unique value or self-reference */
@@ -57,12 +52,11 @@ deltrivialphis(struct ssabuilder *sb, struct block *blk, union ref phiref)
 
    /* replace uses */
    replcuses(phiref, same);
-   imap_each(&sb->curdefs, var, pcurdefs) {
-      (void)var;
-      for (int i = blk->id; i < sb->nblk; ++i) {
-         if ((*pcurdefs)[i].bits == phiref.bits)
-            (*pcurdefs)[i] = same;
-      }
+   union ref **pcurdefs = imap_get(&sb->curdefs, var);
+   assert (pcurdefs);
+   for (int i = blk->id; i < sb->nblk; ++i) {
+      if ((*pcurdefs)[i].bits == phiref.bits)
+         (*pcurdefs)[i] = same;
    }
 
    /* stops infinite recursion and marks phi for removal */
@@ -70,10 +64,10 @@ deltrivialphis(struct ssabuilder *sb, struct block *blk, union ref phiref)
 
    /* recursively try to remove all phi users as they might have become trivial */
 Redo:
-   for (use = instruse[phiref.i], uend = use + instrnuse[phiref.i]; use < uend; ++use) {
+   for (struct use *use = instruse[phiref.i], *uend = use + instrnuse[phiref.i]; use < uend; ++use) {
       if (use->u != USERJUMP && instrtab[use->u].op == Ophi && use->u != phiref.i) {
          union ref it = mkref(RTMP, use->u);
-         union ref vphi2 = deltrivialphis(sb, use->blk, it);
+         union ref vphi2 = deltrivialphis(sb, var, use->blk, it);
          if (vphi2.bits != it.bits) {
             same = vphi2;
             /* deletion happened so phiref use may have changed */
@@ -96,7 +90,7 @@ addphiargs(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk, 
       adduse(blk, phiref.i, args[i]);
    }
    instrtab[phiref.i].r.bits = 0;
-   return deltrivialphis(sb, blk, phiref);
+   return deltrivialphis(sb, var, blk, phiref);
 }
 
 static void
