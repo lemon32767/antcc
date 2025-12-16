@@ -194,7 +194,7 @@ allocstk(struct rega *ra)
 
    for (int i = 0; i < BSSIZE(MAXSPILL); ++i) {
       if (ra->freestk[i].u != 0) {
-         s = i*64 + lowestsetbit(ra->freestk[i].u);
+         s = i*BSNBIT + lowestsetbit(ra->freestk[i].u);
          break;
       }
    }

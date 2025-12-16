@@ -294,26 +294,26 @@ extern char pmap_tombstone_[];
       if (kx && kx != pmap_tombstone_)
 
 /** bitset **/
-struct bitset { uvlong u; };
-enum { BSNBIT = 8 * sizeof(uvlong) };
-#define BSSIZE(nbit) ((nbit) / BSNBIT + ((nbit) % BSNBIT != 0))
+struct bitset { size_t u; };
+enum { BSNBIT = 8 * sizeof(struct bitset) };
+#define BSSIZE(nbit) ((nbit)/BSNBIT + ((nbit)%BSNBIT != 0))
 
 static inline bool
 bstest(const struct bitset *bs, uint i)
 {
-   return bs[i / BSNBIT].u >> i % BSNBIT & 1;
+   return bs[i/BSNBIT].u >> i%BSNBIT & 1;
 }
 
 static inline void
 bsset(struct bitset *bs, uint i)
 {
-   bs[i / BSNBIT].u |= 1ull << i % BSNBIT;
+   bs[i/BSNBIT].u |= 1ull << i%BSNBIT;
 }
 
 static inline void
 bsclr(struct bitset *bs, uint i)
 {
-   bs[i / BSNBIT].u &= ~(1ull << i % BSNBIT);
+   bs[i/BSNBIT].u &= ~(1ull << i%BSNBIT);
 }
 
 static inline void
@@ -345,9 +345,15 @@ bscount(struct bitset bs[/*siz*/], uint siz)
 static inline bool
 bsiter(uint *i, struct bitset bs[/*siz*/], uint siz)
 {
-   for (; *i < siz*BSNBIT; ++*i)
-      if (bstest(bs, *i)) return 1;
-   return 0;
+   uint k = *i/BSNBIT, j = *i%BSNBIT;
+   if (k >= siz) return 0;
+   size_t t = bs[k].u & ~(((size_t)1 << j) - 1);
+   while (!t) {
+      if (++k >= siz) return 0;
+      t = bs[k].u;
+   }
+   *i = k*BSNBIT + lowestsetbit(t);
+   return 1;
 }
 #define bs_each(T, var, bs, siz) for (T (var) = 0; bsiter(&(var), (bs), (siz)); ++(var))
 
