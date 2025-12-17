@@ -1,4 +1,5 @@
 #include "common.h"
+#include "hostconfig.h"
 #include "obj/obj.h"
 #include <errno.h>
 #include <stdlib.h>
@@ -165,6 +166,10 @@ optparse(char **args)
          if (!strcmp(flag, "pie") || !strcmp(flag, "PIE")) ccopt.pie = set;
          else if (!strcmp(flag, "pic") || !strcmp(flag, "PIC")) ccopt.pic = set;
          else goto Bad;
+      } else if (!strcmp(arg, "target") || !strcmp(arg, "-target")) {
+         const char *s = *++args;
+         if (!s) fatal(NULL, "missing target name");
+         task.targ = s;
       } else if (*arg == 'l') {
          vpush(&task.linkargs, arg-1);
       } else if (!strcmp(arg, "v") || !strcmp(arg, "-verbose")) {
@@ -249,7 +254,7 @@ tempfile(const char *path, const char *ext)
    while (*path)
       if (*path++ == '/')
          file = path;
-   bfmt(&fbuf, "%s/cc%x@%u@", tmpdir, id, id2++);
+   bfmt(&fbuf, "%s/antcc-%x@%u@", tmpdir, id, id2++);
    while (*file++) {
       char c = file[-1];
       if (in_range(c, 'a', 'z') || in_range(c, 'A', 'Z') || in_range(c, '0', '9')
@@ -322,18 +327,78 @@ compileobjs(void)
    }
 }
 
+#include <fcntl.h>
+
+static bool
+hasprog(const char *prog)
+{
+   pid_t p;
+   if ((p = fork()) < 0) {
+      return 0;
+   } else if (p == 0) {
+      int nulfd = open("/dev/null", O_WRONLY);
+      if (nulfd < 0) return 0;
+      for (int fd = 0; fd <= 2; ++fd) {
+         dup2(fd, nulfd);
+         close(fd);
+      }
+      const char *cmd[] = {"/bin/env", prog, NULL};
+      if (execv(*cmd, (char **)cmd)) {
+         close(nulfd);
+         error(NULL, "execv: %s", strerror(errno));
+         exit(125);
+      }
+   }
+   int wstat;
+   waitpid(p, &wstat, 0);
+   if (!WIFEXITED(wstat)) return 0;
+   return WEXITSTATUS(wstat) < 125;
+}
+
+struct cmdargs { vec_of(const char *); };
+
+static void
+findlinkcmd(struct cmdargs *cmd)
+{
+   if (task.targ && (target.os != HOST_OS || target.arch != HOST_ARCH || target.abi != HOST_ABI)) {
+      static const char *ccs[] = {"cc", "gcc", "clang"};
+      char cross[1024];
+      for (int i = 0; i < countof(ccs); ++i) {
+         struct wbuf wbuf = MEMBUF(cross, sizeof cross);
+         int n = bfmt(&wbuf, "%s-%s", task.targ, ccs[i]);
+         assert(n < sizeof cross-1);
+         cross[n] = 0;
+         if (hasprog(cross)) {
+            vpush(cmd, alloccopy(&globarena, cross, n, 1));
+            return;
+         }
+      }
+      if (hasprog("zig")) {
+         vpush(cmd, "zig");
+         vpush(cmd, "cc");
+         vpush(cmd, "-target");
+         vpush(cmd, task.targ);
+      } else {
+         fatal(NULL, "cannot link to cross-compilation target: no appropiate toolchain installed");
+      }
+   } else {
+      vpush(cmd, "cc");
+   }
+}
+
 static int
 dolink(void)
 {
-   static const char *cmdbuf[10];
+   const char *cmdbuf[100];
    pid_t p;
    int wstat;
-   vec_of(const char *) cmd = VINIT(cmdbuf, countof(cmdbuf));
+   struct cmdargs cmd = VINIT(cmdbuf, countof(cmdbuf));
 
-   /* TODO don't depend on external c compiler, find lib and runtime paths and
-    * invoke linker directly.. */
-
-   vpush(&cmd, "/bin/gcc");
+   vpush(&cmd, "/bin/env");
+   findlinkcmd(&cmd);
+   if (!strcmp(cmd.p[1], "zig")) {
+      note(NULL, "using 'zig cc' as a cross-compiler");
+   }
    if (task.outft == OFTdll) {
       vpush(&cmd, "-shared");
    } else if (task.outft == OFTexe) {
@@ -361,25 +426,30 @@ dolink(void)
    }
    vpush(&cmd, NULL);
    if ((p = fork()) < 0) {
-      error(NULL, "fork(): %s\n", strerror(errno));
+      error(NULL, "fork: %s\n", strerror(errno));
       exit(1);
    } else if (p == 0) {
-      if (!execv(cmd.p[0], (char **)cmd.p)) {
-         error(NULL, "execv(): %s\n", strerror(errno));
+      if (execv(cmd.p[0], (char **)cmd.p)) {
+         error(NULL, "execv: %s\n", strerror(errno));
          exit(1);
       }
    }
    vfree(&cmd);
    waitpid(p, &wstat, 0);
    if (!WIFEXITED(wstat)) return 127;
-   return WEXITSTATUS(wstat);
+   if (WEXITSTATUS(wstat) != 0) {
+      error(NULL, "link command failed");
+      return 1;
+   }
+   return 0;
 }
-
-#include <fcntl.h> /* open */
 
 static int
 dorun(void)
 {
+   if (target.arch != HOST_ARCH || target.os != HOST_OS) {
+      warn(NULL, "'-run' with cross-compiled binary");
+   }
    if (task.verbose) {
       efmt("> exec %s", task.out);
       for (char **s = task.runargs; *s; ++s)
@@ -388,18 +458,18 @@ dorun(void)
    }
    int fd = open(task.out, O_RDONLY);
    if (fd < 0) {
-      error(NULL, "open(): %s\n", strerror(errno));
+      error(NULL, "open: %s\n", strerror(errno));
       return 1;
    }
    if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0) {
-      error(NULL, "fcntl(): %s\n", strerror(errno));
+      error(NULL, "fcntl: %s\n", strerror(errno));
       return 1;
    }
    cleantemps();
    extern char **environ;
    int fexecve(int fd, char *const argv[], char *const envp[]);
    fexecve(fd, task.runargs - 1, environ);
-   error(NULL, "fexecv(): %s\n", strerror(errno));
+   error(NULL, "fexecv: %s\n", strerror(errno));
    return 1;
 }
 
@@ -485,8 +555,7 @@ static void
 sysinclpaths(void)
 {
    static const char *paths[] = {
-      "/usr/local/include",
-      "/usr/include"
+      HOST_INCLUDE_DIRS
    };
    for (int i = 0; i < countof(paths); ++i)
       addinclpath(paths[i]);
@@ -541,8 +610,9 @@ main(int argc, char **argv)
    optparse(argv);
 
    /* global init */
-   task.targ = task.targ ? task.targ : "x86_64-sysv";
    targ_init(task.targ);
+   if (!target.arch)
+      fatal(NULL, "unsupported target: %s", task.targ ? task.targ : "(host)");
 
    return driver();
 }

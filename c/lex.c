@@ -1963,7 +1963,6 @@ addpredefmacros(struct arena **tmparena)
       { "__has_builtin", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_builtin }},
       { "__STDC__", { .predef = 1, .rlist = { &tok_1, 1 } }},
       { "__STDC_VERSION__", { .predef = 1, .rlist = { &tok_ver, 1 } }},
-      { "__STDC_HOSTED__", { .predef = 1, .rlist = { &tok_1, 1 } }},
       { "__antcc__", { .predef = 1, .rlist = { &tok_1, 1 } }},
    };
    switch (ccopt.cstd) {
@@ -1978,10 +1977,25 @@ addpredefmacros(struct arena **tmparena)
       putmac(intern(macs[i].name), &macs[i].m);
    }
 
-   switch (targ_mcisa) {
+   switch (target.arch) {
+   default: assert(0);
    case ISx86_64:
       putdef1("__x86_64__");
       putdef1("__x86_64");
+      break;
+   }
+
+   if (target.os != OSunknown) putdef1("__STDC_HOSTED__");
+   switch (target.os) {
+   default: assert(0);
+   case OSunknown: break;
+   case OSlinux:
+      putdef1("__linux__");
+      putdef1("__linux");
+      putdef1("linux");
+      putdef1("unix");
+      putdef1("__unix");
+      putdef1("__unix__");
       break;
    }
 

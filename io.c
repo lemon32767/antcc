@@ -1094,7 +1094,7 @@ fatal(const struct span *span, const char *fmt, ...)
    va_start(ap, fmt);
    vdiag(span, DGERROR, fmt, ap);
    va_end(ap);
-   efmt("Aborting due to previous error.\n");
+   if (span) efmt("Aborting due to previous error.\n");
    exit(1);
 }
 

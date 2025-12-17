@@ -3,31 +3,77 @@
 
 extern const struct mctarg t_x86_64_sysv;
 static const struct targ {
-   const char *name;
+   struct { enum mcarch arch; uint oss, abis; };
    struct { uchar longsize, vlongsize, ptrsize, valistsize; };
    struct { uchar longalign, vlongalign, doublealign, ptralign; };
    bool charsigned;
    uchar sizetype, ptrdifftype, wchartype;
    const struct mctarg *mctarg;
-   enum mcisa isa;
 } targs[] = {
-   { "x86_64-sysv", {8, 8, 8, 24}, {8, 8, 8, 8}, 1, TYULONG, TYLONG, TYINT, &t_x86_64_sysv, ISx86_64 },
-   { "i686-sysv",  {4, 8, 4,  8}, {4, 4, 4, 4}, 1, TYUINT,  TYINT,  TYINT }
+   { {ISx86_64, -1, 1<<ABIgnu | 1<<ABImusl}, {8,8,8,24}, {8,8,8,8}, 1, TYULONG, TYLONG, TYINT, &t_x86_64_sysv },
 };
 
+struct targtriple target;
 uchar targ_primsizes[TYPTR+1];
 uchar targ_primalign[TYPTR+1];
 uint targ_valistsize;
 enum typetag targ_sizetype, targ_ptrdifftype, targ_wchartype;
 bool targ_charsigned, targ_bigendian, targ_64bit;
-enum mcisa targ_mcisa;
+enum mcarch targ_arch;
 const struct mctarg *mctarg;
+
+static bool
+matchstr(const char **s, const char *pat)
+{
+   const char *p;
+   for (p = *s; *pat; ++p, ++pat) {
+      if (*pat == '$') { if (*p) return 0; else break; }
+      else if (*p != *pat) return 0;
+   }
+   *s = p;
+   return 1;
+}
+
+static bool
+parsetriple(struct targtriple *trg, const char *str)
+{
+   if (matchstr(&str, "x86_64-")) {
+      trg->arch = ISx86_64;
+   } else return 0;
+
+   if (matchstr(&str, "unknown-") || matchstr(&str, "pc-")) {}
+
+   if (matchstr(&str, "linux-")) {
+      trg->os = OSlinux;
+   } else if (matchstr(&str, "linux$")) {
+      trg->os = OSlinux;
+      trg->abi = ABIgnu;
+   } else return 0;
+
+   if (matchstr(&str, "gnu")) {
+      trg->abi = ABIgnu;
+   } else if (matchstr(&str, "musl")) {
+      trg->abi = ABImusl;
+   } else return 0;
+
+   return 1;
+}
+
+#include "hostconfig.h"
 
 void
 targ_init(const char *starg)
 {
    const struct targ *t = &targs[0];
    uchar *sizes = targ_primsizes, *align = targ_primalign;
+
+   if (!starg) {
+      target.arch = HOST_ARCH;
+      target.os = HOST_OS;
+      target.abi = HOST_ABI;
+   } else if (!parsetriple(&target, starg)) {
+      fatal(NULL, "unrecognized target: %s", starg);
+   }
 
    sizes[TYBOOL] = sizes[TYCHAR] = sizes[TYSCHAR] = sizes[TYUCHAR] = 1;
    sizes[TYSHORT] = sizes[TYUSHORT] = 2;
@@ -52,4 +98,5 @@ targ_init(const char *starg)
    targ_bigendian = 0;
    targ_64bit = t->ptrsize == 8;
    mctarg = t->mctarg;
+   targ_arch = ISx86_64;
 }

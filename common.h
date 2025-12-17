@@ -160,9 +160,13 @@ extern struct inclpaths {
 /* Target */
 /**********/
 
-enum mcisa { ISx86_64 };
+struct targtriple {
+   enum mcarch { ISxxx, ISx86_64 } arch;
+   enum mcos { OSunknown, OSlinux } os;
+   enum mcabi { ABInone, ABIgnu, ABImusl } abi;
+};
 extern const struct mctarg *mctarg;
-extern enum mcisa targ_mcisa;
+extern struct targtriple target;
 void targ_init(const char *);
 
 /*********/
