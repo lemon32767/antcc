@@ -2387,6 +2387,7 @@ decltypes(struct comp *cm, struct decllist *list, internstr *name, struct span *
          node.param = NULL;
          node.pqual = NULL;
          node.pnames = NULL;
+         node.pspans = NULL;
          node.variadic = 0;
          node.kandr = 1;
          node.npar = 0;
