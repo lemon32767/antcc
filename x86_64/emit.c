@@ -1339,7 +1339,12 @@ emitbin(struct function *fn)
                   exit = blk;
                   continue;
                } else {
-                  useblk(fn, exit = newblk(fn));
+                  exit = newblk(fn);
+                  exit->lnext = blk->lnext;
+                  exit->lprev = blk;
+                  blk->lnext = exit;
+                  exit->lnext->lprev = exit;
+                  exit->id = fn->nblk++;
                   exit->jmp.t = Jret;
                }
             }
