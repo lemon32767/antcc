@@ -780,14 +780,15 @@ ppdefine(struct lexer *lx)
       while (lex0(lx, &tk) != ')') {
          if (mac.variadic) {
             error(&tk.span, "expected `)' after `...'");
-            if (tk.t == TKEOF)
-               return;
+            if (tk.t == TKEOF || tk.t == '\n') return;
             else break;
          }
          if (params.n > 0) {
-            if (tk.t != ',')
+            if (tk.t != ',') {
                error(&tk.span, "expected `,' or `)'");
-            if (tk.t == TKEOF) return;
+               if (tk.t == TKEOF || tk.t == '\n') return;
+               else break;
+            }
             lex0(lx, &tk);
          }
          if (isppident(tk))
@@ -797,8 +798,8 @@ ppdefine(struct lexer *lx)
             vpush(&params, intern("__VA_ARGS__"));
          } else {
             error(&tk.span, "expected parameter name or `)'");
-            if (tk.t == TKEOF)
-               return;
+            if (tk.t == TKEOF || tk.t == '\n') return;
+            else break;
          }
       }
       if (!params.n) vfree(&params);
