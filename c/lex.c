@@ -781,13 +781,16 @@ ppdefine(struct lexer *lx)
          if (mac.variadic) {
             error(&tk.span, "expected `)' after `...'");
             if (tk.t == TKEOF || tk.t == '\n') return;
-            else break;
+            break;
          }
          if (params.n > 0) {
-            if (tk.t != ',') {
+            if (tk.t == TKDOTS) { /* GNU extension 'args...' */
+               mac.variadic = 1;
+               continue;
+            } if (tk.t != ',') {
                error(&tk.span, "expected `,' or `)'");
                if (tk.t == TKEOF || tk.t == '\n') return;
-               else break;
+               break;
             }
             lex0(lx, &tk);
          }
@@ -799,7 +802,7 @@ ppdefine(struct lexer *lx)
          } else {
             error(&tk.span, "expected parameter name or `)'");
             if (tk.t == TKEOF || tk.t == '\n') return;
-            else break;
+            break;
          }
       }
       if (!params.n) vfree(&params);

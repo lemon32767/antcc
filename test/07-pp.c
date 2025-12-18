@@ -6,6 +6,7 @@ Foo,5 9 1506
 join: "x ## y"
 wide   L"abc123 猫,€á💫",  U+1f98b
 Output ends here
+ok ...
 */
 
 #include "07-pp.h"
@@ -30,6 +31,8 @@ char p[] = join(x, y); // equivalent to   char p[] = "x ## y";
 u\
 t\
 s
+
+#define gnu_ext(a, c...) a(c)
 
 #ifdef CMD_WORKING
 int
@@ -60,6 +63,7 @@ S\
                * escapes the 0, ending the string early.
                */
 );
+   gnu_ext(printf, "ok %s\n", "...");
 
    CAT(ret,urn) 0;
 }
