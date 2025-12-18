@@ -72,5 +72,3 @@ _(vastart,   1)
 _(vaarg,     2)
 /* machine-specific instructions */
 _(xvaprologue, 1)
-_(xsave,     1)
-_(xrestore,  1)

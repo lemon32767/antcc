@@ -478,7 +478,7 @@ driver(void)
 {
    void cpp(struct wbuf *, const char *);
    if (task.verbose)
-      efmt("# Target: %s\n", task.targ);
+      efmt("# Target: %s\n", task.targ ? task.targ : "(host)");
    if (task.outft == OFTobj) {
       assert(task.ninf == 1);
       if (*task.inft != IFTc)

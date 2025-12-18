@@ -1164,12 +1164,6 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
          Xxor(pcode, cls, l, r);
       }
       break;
-   case Oxsave:
-      Xpush(pcode, mkregoper(ins->l).reg);
-      break;
-   case Oxrestore:
-      Xpop(pcode, mkregoper(ins->l).reg);
-      break;
    case Ocall:
       Xcall(pcode, KPTR, ref2oper(ins->l));
       break;

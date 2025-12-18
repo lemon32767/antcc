@@ -144,8 +144,8 @@ struct range { ushort from, to; };
 struct interval {
    struct interval *next; /* for linked list of active,inactive,handled sets in linear scan */
    struct alloc alloc;
-   schar rhint : 7, /* register hint */
-         fpr : 1; /* needs float register? */
+   schar rhint : 7; /* register hint */
+   bool fpr : 1; /* needs float register? */
 
    /* sorted ranges array */
    uint nrange;
@@ -665,9 +665,9 @@ buildintervals(struct rega *ra)
             assert(ins->l.t == RREG);
             if (ins->l.bits == ins->r.bits) {/* special case `move Rx,Rx`: clobber reg, not a real use */
                usereg(ra, ins->l.i, blk, pos);
+               assert(defreg(ra, ins->l.i, pos));
                //DBG("@ %d clob %s\n", pos, mctarg->rnames[ins->l.i]);
-            }
-            if (!defreg(ra, ins->l.i, pos)) {
+            } else if (!defreg(ra, ins->l.i, pos)) {
                if (ins->keep) { /* clobber here */
                   usereg(ra, ins->l.i, blk, pos);
                   assert(defreg(ra, ins->l.i, pos));
@@ -678,6 +678,8 @@ buildintervals(struct rega *ra)
                    * and %2 is dead, the move to RCX can be killed */
                   *ins = mkinstr(Onop,0,);
                }
+            } else {
+               rsset(&ra->fn->regusage, ins->l.i);
             }
             if (ins->l.bits == ins->r.bits)
                continue;
@@ -850,7 +852,8 @@ linearscan(struct rega *ra)
    struct intervals *intervals = &ra->intervals;
    int nunhandled = 0;
    struct interval **unhandled = NULL;
-   struct interval *active = NULL, *inactive = NULL, *handled = NULL;
+   struct interval *actives[2] = {0}, /* gpr set and fpr set */
+                   *inactives[2] = {0};
 
    if (!intervals->count) return;
    /* sort intervals */
@@ -872,16 +875,14 @@ linearscan(struct rega *ra)
       int pos = itrange(current, 0).from;
 
       /* Expire old intervals */
-
+      struct interval **active = &actives[current->fpr], **inactive = &inactives[current->fpr];
       /* check for intervals in active that are handled or inactive */
-      for (struct interval **lnk = &active, *it = *lnk, *next; (next = it?it->next:0), it; it = next) {
+      for (struct interval **lnk = active, *it = *lnk, *next; (next = it?it->next:0), it; it = next) {
          //DBG("< im active %%%d\n", intervals->temps.mb.k[it - intervals->temps.v]);
          /* ends before position? */
          if (itrange(it, it->nrange-1).to <= pos) {
             /* move from active to handled */
             *lnk = next;
-            it->next = handled;
-            handled = it;
             if (it->alloc.t == AREG) {
                ra->free |= 1<<it->alloc.a;
                //DBG("   unblock %s %X\n", mctarg->rnames[it->alloc.a], ra->free);
@@ -893,8 +894,8 @@ linearscan(struct rega *ra)
          if (!itcontainspos(it, pos)) {
             /* move from active to inactive */
             *lnk = next;
-            it->next = inactive;
-            inactive = it;
+            it->next = *inactive;
+            *inactive = it;
             if (it->alloc.t == AREG) {
                ra->free |= 1<<it->alloc.a;
                DBG(" >> %%%zd unblock %s\n", it-ra->intervals.temps, mctarg->rnames[it->alloc.a]);
@@ -903,14 +904,12 @@ linearscan(struct rega *ra)
       }
 
       /* check for intervals in inactive that are handled or active */
-      for (struct interval **lnk = &inactive, *it = *lnk, *next; (next = it?it->next:0), it; it = next) {
+      for (struct interval **lnk = inactive, *it = *lnk, *next; (next = it?it->next:0), it; it = next) {
          //DBG("< im inactive %%%d\n", intervals->temps.mb.k[it - intervals->temps.v]);
          /* ends before position? */
          if (itrange(it, it->nrange-1).to <= pos) {
             /* move from inactive to handled */
             *lnk = next;
-            it->next = handled;
-            handled = it;
             if (it->alloc.t == ASTACK) {
                freestk(ra, it->alloc.a);
             }
@@ -919,8 +918,8 @@ linearscan(struct rega *ra)
          if (itcontainspos(it, pos)) {
             /* move from inactive to active */
             *lnk = next;
-            it->next = active;
-            active = it;
+            it->next = *active;
+            *active = it;
             if (it->alloc.t == AREG) {
                assert(rstest(ra->free, it->alloc.a));
                ra->free &= ~(1<<it->alloc.a);
@@ -932,7 +931,8 @@ linearscan(struct rega *ra)
       /* find a register for current */
       {
          int this = current - intervals->temps;
-         regset free = ra->free & (current->fpr ? fpregset : gpregset);
+         regset avail = ra->free & (current->fpr ? fpregset : gpregset),
+                excl = 0;
          struct instr *ins = &instrtab[this];
          int reg = 0;
          int end = itrange(current, current->nrange-1).to;
@@ -949,33 +949,34 @@ linearscan(struct rega *ra)
 
             for (int i = 0; i < current->nrange; ++i) {
                if (rangeoverlap(fxit->range, itrange(current, i))) {
-                  free &=~ fxit->rs;
+                  excl |= fxit->rs;
                }
             }
          }
          /* exclude regs from overlapping inactive intervals */
-         for (struct interval *it = inactive; it; it = it->next) {
+         for (struct interval *it = *inactive; it; it = it->next) {
             if (it->alloc.t == AREG && intervaloverlap(it, current)) {
-               rsclr(&free, it->alloc.a);
+               rsset(&excl, it->alloc.a);
             }
          }
          /* for 2-address instrs, exclude reg from 2nd arg (unless arg#1 == arg#2) */
          if (ins->inplace && opnarg[ins->op] == 2) {
             int xreg;
-            if (ins->r.t == RREG) rsclr(&free, ins->r.i);
+            if (ins->r.t == RREG) rsset(&excl, ins->r.i);
             else if (ins->r.t == RTMP && (xreg = instrtab[ins->r.i].reg)) {
                if (ins->r.bits != ins->l.bits)
-                  rsclr(&free, xreg-1);
+                  rsset(&excl, xreg-1);
             }
          }
+         avail &= ~excl;
 
-         if (!free) {
-            /* spill */
+         if (!avail) {
+            /* spill current */
             current->alloc = allocstk(ra);
             DBG("%%%d got stk%d\n", this, current->alloc.a);
             /* move current to active */
-            current->next = active;
-            active = current;
+            current->next = *active;
+            *active = current;
             continue;
          }
 
@@ -983,7 +984,7 @@ linearscan(struct rega *ra)
          if (current->rhint >= 0)
             DBG("have hint %s for %%%zd\n",
                   mctarg->rnames[current->rhint], current - intervals->temps);
-         if (current->rhint >= 0 && rstest(free, current->rhint)) {
+         if (current->rhint >= 0 && rstest(avail, current->rhint)) {
             DBG(" (used hint)\n");
             reg = current->rhint;
             goto GotReg;
@@ -991,28 +992,28 @@ linearscan(struct rega *ra)
             /* for two-address instructions, try to use the reg of left arg */
             if (ins->op != Ophi && (opnarg[ins->op] == 1 || (opnarg[ins->op] == 2 && ins->inplace))) {
                DBG(" %%%d try %d,%d\n", this, ins->l.t,ins->l.i);
-               if (ins->l.t == RREG && rstest(free, reg = ins->l.i))
+               if (ins->l.t == RREG && rstest(avail, reg = ins->l.i))
                   goto GotReg;
                if (ins->l.t == RTMP)
                if ((reg = instrtab[ins->l.i].reg-1) >= 0)
-               if (rstest(free, reg))
+               if (rstest(avail, reg))
                   goto GotReg;
             /* for phi, try to use reg of any arg */
             } else if (ins->op == Ophi) {
                union ref *arg = phitab.p[ins->l.i];
                for (int i = 0; i < xbcap(arg); ++i) {
-                  if (arg->t == RREG && rstest(free, reg = arg->i)) goto GotReg;
+                  if (arg->t == RREG && rstest(avail, reg = arg->i)) goto GotReg;
                   if (arg->t == RTMP)
                   if ((reg = instrtab[arg->i].reg-1) >= 0)
-                  if (rstest(free, reg))
+                  if (rstest(avail, reg))
                      goto GotReg;
                }
             }
 
             /* prefer caller-saved registers */
-            if (free &~ mctarg->rcallee) free &=~ mctarg->rcallee;
+            if (avail &~ mctarg->rcallee) avail &=~ mctarg->rcallee;
 
-            for (reg = 0; !rstest(free, reg); ++reg);
+            reg = lowestsetbit(avail);
          }
       GotReg:
          current->alloc = areg(reg);
@@ -1022,10 +1023,15 @@ linearscan(struct rega *ra)
          rsset(&ra->fn->regusage, reg);
 
          //if current has a register assigned then add current to active
-         current->next = active;
-         active = current;
+         current->next = *active;
+         *active = current;
       }
    }
+   DBG("regusage: ");
+   for (int r = 0; r < MAXREGS; ++r) {
+      if (rstest(ra->fn->regusage, r)) DBG(" %s ", mctarg->rnames[r]);
+   }
+   DBG("\n");
 }
 
 /* replace temps with physical regs, add loads & stores for spilled temps */
@@ -1034,6 +1040,9 @@ devirt(struct rega *ra, struct block *blk)
 {
    bool allnops = 1;
    struct function *fn = ra->fn;
+   struct alloc spillsave[4] = {0};
+   memset(ra->freestk, 0, BSSIZE(MAXSPILL) * sizeof *ra->freestk);
+
    for (int curi = 0; curi < blk->ins.n; ++curi) {
       int temp = blk->ins.p[curi];
       struct instr *ins = &instrtab[temp];
@@ -1085,10 +1094,10 @@ devirt(struct rega *ra, struct block *blk)
                /* ref was spilled, gen load to scratch register and use it */
                struct instr ld = {.cls = insrescls(instrtab[r->i])};
                int reg = kisint(ld.cls) ? mctarg->gprscratch : mctarg->fprscratch;
-               bool dosave;
+               bool dosave = 0;
                /* pick scratch register, or any register that doesn't conflict with this instr's srcs/dst */
                if (nspill > 0) {
-                  regset avail = kisflt(ld.cls) ? fpregset : gpregset;
+                  regset avail = (kisflt(ld.cls) ? fpregset : gpregset) &~ mctarg->rglob;
                   if (ins->reg) rsclr(&avail, ins->reg-1);
                   for (int j = 0; j < nargref; ++j) {
                      struct interval *it;
@@ -1099,11 +1108,13 @@ devirt(struct rega *ra, struct block *blk)
                      }
                   }
                   assert(avail != 0);
-                  if (reg &~ (fn->regusage | mctarg->rcallee)) reg &= ~(fn->regusage | mctarg->rcallee);
+                  if (avail &~ (fn->regusage | mctarg->rcallee)) avail &= ~(fn->regusage | mctarg->rcallee);
                   reg = lowestsetbit(avail);
                   /* if not the designated scratch register, we need to save+restore */
-                  if ((dosave = rstest(fn->regusage, reg) || rstest(mctarg->rcallee, reg))) {
-                     insertinstr(blk, curi++, mkinstr(Oxsave, 0, .l = mkref(RREG, reg)));
+                  if (rstest(fn->regusage, reg) || rstest(mctarg->rcallee, reg)) {
+                     dosave = 1;
+                     if (!spillsave[nspill-1].t) spillsave[nspill-1] = allocstk(ra);
+                     emitmove(isgpr(reg) ? KPTR : KF64, spillsave[nspill-1], areg(reg), blk, curi++);
                   }
                }
                ld.reg = reg+1;
@@ -1111,7 +1122,7 @@ devirt(struct rega *ra, struct block *blk)
                addstkslotref(insertinstr(blk, curi++, ld).i, alloc->a*8);
                *r = mkref(RREG, reg);
                if (nspill > 0 && dosave) {
-                  insertinstr(blk, curi+1, mkinstr(Oxrestore, 0, .l = mkref(RREG, reg)));
+                  emitmove(isgpr(reg) ? KPTR : KF64, areg(reg), spillsave[nspill-1], blk, curi+1);
                }
                ++nspill;
             } else if ((tr = instrtab[r->i].reg)) {
@@ -1141,15 +1152,18 @@ devirt(struct rega *ra, struct block *blk)
             bool dosave = 0;
             int reg = kisint(insrescls(*ins)) ? mctarg->gprscratch : mctarg->fprscratch;
             if (nspill > 0) {
-               for (reg = kisflt(cls) ? mctarg->fpr0 : mctarg->gpr0;; ++reg) {
-                  for (int j = 0; j < nargref; ++j)
-                     if (argref[j]->t == RREG && argref[j]->i == reg) goto NotThis;
-                  break;
-               NotThis:;
+               regset avail = (kisflt(cls) ? fpregset : gpregset) &~ mctarg->rglob;
+               for (int j = 0; j < nargref; ++j) {
+                  if (argref[j]->t == RREG) rsclr(&avail, argref[j]->i);
                }
+               assert(avail != 0);
+               if (avail &~ (fn->regusage | mctarg->rcallee)) avail &= ~(fn->regusage | mctarg->rcallee);
                /* if not the designated scratch register, we need to save+restore */
-               if ((dosave = rstest(fn->regusage, reg) || rstest(mctarg->rcallee, reg))) {
-                  insertinstr(blk, curi++, mkinstr(Oxsave, 0, .l = mkref(RREG, reg)));
+               reg = lowestsetbit(avail);
+               if (rstest(fn->regusage, reg) || rstest(mctarg->rcallee, reg)) {
+                  dosave = 1;
+                  if (!spillsave[nspill-1].t) spillsave[nspill-1] = allocstk(ra);
+                  emitmove(isgpr(reg) ? KPTR : KF64, spillsave[nspill-1], areg(reg), blk, curi++);
                   curi0 = curi;
                }
             }
@@ -1158,7 +1172,7 @@ devirt(struct rega *ra, struct block *blk)
                   insertinstr(blk, ++curi, mkinstr(store, 0, .r = mkref(RREG, reg))).i,
                   alloc->a*8);
             if (nspill > 0 && dosave) {
-               insertinstr(blk, ++curi, mkinstr(Oxrestore, 0, .l = mkref(RREG, reg)));
+               emitmove(isgpr(reg) ? KPTR : KF64, areg(reg), spillsave[nspill-1], blk, ++curi);
             }
          }
       }
