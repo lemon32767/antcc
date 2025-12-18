@@ -133,6 +133,7 @@ struct alloc { ushort t : 2, a : 14; };
 #define afree() ((struct alloc) { ADEAD })
 #define areg(r) ((struct alloc) { AREG, (r) })
 #define astack(s) ((struct alloc) { ASTACK, (s) })
+#define aeql(a, b) (*(ushort *)&(a) == *(ushort *)&(b))
 
 enum { MAXSPILL = 512 };
 
@@ -221,8 +222,6 @@ freestk(struct rega *ra, int slot)
 
 /* Parallel moves algorithm from QBE: https://c9x.me/git/qbe.git/tree/rega.c?id=e493a7f23352f51acc0a1e12284ab19d7894488a#n201 */
 
-#define mkmove(k, rd, rs) mkinstr(Omove, k, mkref(RREG, rd), mkref(RREG, rs))
-
 enum pmstat { PMTOMOVE, PMMOVING, PMDONE };
 static struct pmove {
    uchar k;
@@ -239,6 +238,7 @@ pmadd(enum irclass k, struct alloc dst, struct alloc src)
    pmove[npmove++] = (struct pmove) { k, PMTOMOVE, dst, src };
 }
 
+#define mkmove(k, rd, rs) mkinstr(Omove, k, mkref(RREG, rd), mkref(RREG, rs))
 static void
 emitmove(enum irclass k, struct alloc dst, struct alloc src, struct block *blk, int curi)
 {
@@ -273,22 +273,21 @@ emitmove(enum irclass k, struct alloc dst, struct alloc src, struct block *blk, 
 static int
 pmrec(int i, struct block *blk, int curi, enum irclass *k)
 {
-   int j, c;
-
-   if (!memcmp(&pmove[i].dst, &pmove[i].src, sizeof pmove->dst)) {
-      pmove[i].stat = PMDONE;
+   struct pmove *pm = &pmove[i];
+   if (aeql(pm->dst, pm->src)) {
+      pm->stat = PMDONE;
       return -1;
    }
 
    /* widen when necessary */
-   assert(kisint(pmove[i].k) == kisint(*k));
-   if (cls2siz[pmove[i].k] > cls2siz[*k])
-      *k = pmove[i].k;
+   assert(kisint(pm->k) == kisint(*k));
+   if (cls2siz[pm->k] > cls2siz[*k])
+      *k = pm->k;
 
+   int j, c;
    for (j = 0; j < npmove; ++j) {
-      if (!memcmp(&pmove[j].dst, &pmove[i].src, sizeof pmove->dst)) {
+      if (aeql(pmove[j].dst, pm->src))
          break;
-      }
    }
    if (j == npmove) goto Done;
    switch (pmove[j].stat) {
@@ -296,27 +295,33 @@ pmrec(int i, struct block *blk, int curi, enum irclass *k)
    case PMMOVING:
       c = j;
    Swap:
-      if (pmove[i].src.t == AREG && pmove[i].dst.t == AREG) {
+      if (pm->src.t == AREG && pm->dst.t == AREG) {
          insertinstr(blk, curi,
-               mkinstr(Oswap, *k, mkref(RREG, pmove[i].dst.a), mkref(RREG, pmove[i].src.a), .keep = 1));
-      } else {
-         /* FIXME this case should be very uncommon, but this is bad and not portable */
-         struct alloc reg, stk;
-         if (pmove[i].src.t == AREG) {
-            reg = pmove[i].src, stk = pmove[i].dst;
-         } else {
-            stk = pmove[i].src, reg = pmove[i].dst;
-         }
+               mkinstr(Oswap, *k, mkref(RREG, pm->dst.a), mkref(RREG, pm->src.a), .keep = 1));
+      } else if (pm->src.t != pm->dst.t) {
+         struct alloc reg, stk, regtmp;
+         if (pm->src.t == AREG)
+            reg = pm->src, stk = pm->dst;
+         else
+            stk = pm->src, reg = pm->dst;
          assert(reg.t == AREG && stk.t == ASTACK);
-         emitmove(siz2intcls[cls2siz[*k]], areg(mctarg->gprscratch), reg, blk, curi++);
-         union ref t = insertinstr(blk, curi++, mkinstr(Oswap, siz2intcls[cls2siz[*k]],
-                  mkref(RICON, stk.a*8), mkref(RREG, mctarg->gprscratch), .keep = 1));
-         vpush(&stkslotrefs, &instrtab[t.i].l);
-         emitmove(siz2intcls[cls2siz[*k]], reg, areg(mctarg->gprscratch), blk, curi++);
+         regtmp = areg(kisint(*k) ? mctarg->gprscratch : mctarg->fprscratch);
+         emitmove(*k, regtmp, stk, blk, curi++);
+         insertinstr(blk, curi++, mkinstr(Oswap, *k, mkref(RREG, reg.a), mkref(RREG, regtmp.a), .keep = 1));
+         emitmove(*k, stk, regtmp, blk, curi++);
+      } else {
+         /* FIXME using scratch gpr and fpr for this is hackish */
+         assert(pm->src.t == ASTACK && pm->dst.t == ASTACK);
+         int r1 = mctarg->gprscratch, r2 = mctarg->fprscratch;
+         enum irclass k1 = siz2intcls[cls2siz[*k]], k2 = KF32 + (cls2siz[*k] == 8);
+         emitmove(k1, areg(r1), pm->src, blk, curi++);
+         emitmove(k2, areg(r2), pm->dst, blk, curi++);
+         emitmove(k1, pm->dst, areg(r1), blk, curi++);
+         emitmove(k2, pm->src, areg(r2), blk, curi++);
       }
       break;
    case PMTOMOVE:
-      pmove[i].stat = PMMOVING;
+      pm->stat = PMMOVING;
       c = pmrec(j, blk, curi, k);
       if (c == i) {
          c = -1;
@@ -328,11 +333,11 @@ pmrec(int i, struct block *blk, int curi, enum irclass *k)
    case PMDONE:
    Done:
       c = -1;
-      emitmove(*k, pmove[i].dst, pmove[i].src, blk, curi);
+      emitmove(*k, pm->dst, pm->src, blk, curi);
       break;
    }
 
-   pmove[i].stat = PMDONE;
+   pm->stat = PMDONE;
    return c;
 }
 
