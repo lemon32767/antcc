@@ -275,7 +275,7 @@ vaarg(struct function *fn, struct block *blk, int *curi)
       phi = insertphi(merge, KPTR);
       memcpy(phitab.p[instrtab[phi.i].l.i], phiargs, sizeof phiargs);
       if (!ty.isagg) {
-         instrtab[var] = mkinstr(cls[0] == KI32 ? Oloads32 : Oloadi64, cls[0], phi);
+         instrtab[var] = mkinstr(cls2load[cls[0]], cls[0], phi);
       } else {
          instrtab[var] = mkalloca(8, 8);
          tmp = insertinstr(merge, 1, mkinstr(Oloadi64, KI64, phi));
