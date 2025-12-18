@@ -560,10 +560,19 @@ usereg(struct rega *ra, int reg, struct block *blk, int pos)
 static bool
 defreg(struct rega *ra, int reg, int pos) {
    if (rstest(mctarg->rglob, reg)) return 1;
-   for (struct fixinterval *fxit = ra->intervals.fixed; fxit; fxit = fxit->next) {
+   for (struct fixinterval *prev = NULL, *fxit = ra->intervals.fixed; fxit; prev = fxit, fxit = fxit->next) {
       if (fxit->rs == 1<<reg) {
          if (fxit->range.from <= pos) {
             fxit->range.from = pos;
+            struct fixinterval **at = &ra->intervals.fixed;
+            if ((*at)->range.from > pos) {
+               /* keep sorted */
+               //DBG("moved %s\n", mctarg->rnames[reg]);
+               if (prev) prev->next = fxit->next;
+               while ((*at)->range.from < pos) at = &(*at)->next;
+               fxit->next = *at;
+               *at = fxit;
+            }
             //DBG(">>>def REG %s range %d-%d\n", mctarg->rnames[reg], fxit->range.from, fxit->range.to);
             return 1;
          }
@@ -649,14 +658,21 @@ buildintervals(struct rega *ra)
          /* gather fixed intervals */
          if (ins->op == Omove) {
             assert(ins->l.t == RREG);
-            if (ins->l.bits == ins->r.bits) /* special case `move Rx,Rx`: clobber reg, not a real use */
+            if (ins->l.bits == ins->r.bits) {/* special case `move Rx,Rx`: clobber reg, not a real use */
                usereg(ra, ins->l.i, blk, pos);
+               //DBG("@ %d clob %s\n", pos, mctarg->rnames[ins->l.i]);
+            }
             if (!defreg(ra, ins->l.i, pos)) {
-               /* dead register use. for example if
-                *   move RCX, %1
-                *   %2 = shl 1, RCX
-                * and %2 is dead, the move to RCX can be killed */
-               *ins = mkinstr(Onop,0,);
+               if (ins->keep) { /* clobber here */
+                  usereg(ra, ins->l.i, blk, pos);
+                  assert(defreg(ra, ins->l.i, pos));
+               } else {
+                  /* dead register use. for example if
+                   *   move RCX, %1
+                   *   %2 = shl 1, RCX
+                   * and %2 is dead, the move to RCX can be killed */
+                  *ins = mkinstr(Onop,0,);
+               }
             }
             if (ins->l.bits == ins->r.bits)
                continue;
@@ -917,7 +933,8 @@ linearscan(struct rega *ra)
          int end = itrange(current, current->nrange-1).to;
 
          /* exclude regs from overlapping fixed intervals */
-         for (struct fixinterval *fxit = intervals->fixed; fxit; fxit = fxit->next) {
+         for (struct fixinterval *last = NULL, *fxit = intervals->fixed; fxit; last = fxit, fxit = fxit->next) {
+            if (last) assert(last->range.from <= fxit->range.from && "unsorted fixintervals");
             if (fxit->range.to <= pos) {
                intervals->fixed = fxit->next;
                continue;

@@ -126,6 +126,7 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    int iarg = *curi - 1;
    enum irclass cls;
    uint argstksiz = alignup(call->argstksiz, 16);
+   int nsse = 0;
 
    for (int i = call->narg - 1; i >= 0; --i) {
       struct abiarg abi = call->abiarg[i];
@@ -139,6 +140,7 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       if (!abi.isstk) {
          assert(!abi.ty.isagg);
          *arg = mkinstr(Omove, call->abiarg[i].ty.cls, mkref(RREG, abi.reg), arg->r);
+         if (abi.reg >= XMM0) ++nsse;
       } else {
          union ref adr = mkaddr((struct addr){mkref(RREG, RSP), .disp = abi.stk});
          int iargsave = iarg;
@@ -165,10 +167,9 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    else if (isintcon(ins->l))
       ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->l));
 
-   if (call->vararg >= 0 && ins->l.t == RTMP) {
-      /* variadic calls write number of sse regs used to AL, so mark it as clobbered such that
-       * the function pointer of an indirect calls does not get allocated to RAX by regalloc */
-      insertinstr(blk, (*curi)++, mkinstr(Omove, KPTR, mkref(RREG, RAX), mkref(RREG, RAX)));
+   if (call->vararg >= 0) {
+      /* variadic calls write number of sse regs used to AL */
+      insertinstr(blk, (*curi)++, mkinstr(Omove, KI32, mkref(RREG, RAX), mkref(RICON, nsse), .keep=1));
    }
    cls = ins->cls;
    ins->cls = 0;
