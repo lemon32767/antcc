@@ -224,6 +224,7 @@ enum { MAXINSTR = 1<<15 };
 /** ir.c **/
 extern uchar type2cls[];
 extern uchar cls2siz[];
+extern uchar cls2load[];
 extern const uchar siz2intcls[];
 extern struct instr instrtab[];
 extern struct use *instruse[];

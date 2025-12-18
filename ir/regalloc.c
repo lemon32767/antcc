@@ -1071,10 +1071,6 @@ devirt(struct rega *ra, struct block *blk)
       assert(naddr < 2);
 
       for (int i = 0; i < nargref; ++i) {
-         static uchar cls2load[] = {
-            [KI32] = Oloads32, [KI64] = Oloadi64, [KF32] = Oloadf32, [KF64] = Oloadf64, [KPTR] = 0
-         };
-         cls2load[KPTR] = targ_64bit ? Oloadi64 : Oloads32;
          union ref *r = argref[i];
          int tr;
          if (r->t == RTMP) {

@@ -2,7 +2,11 @@
 #include "../obj/obj.h"
 
 uchar type2cls[NTYPETAG];
-uchar cls2siz[KF64+1];
+uchar cls2siz[] = { [KI32] = 4, [KI64] = 8, [KF32] = 4, [KF64] = 8 };
+uchar cls2load[] = {
+   [KI32] = Oloads32, [KI64] = Oloadi64,
+   [KF32] = Oloadf32, [KF64] = Oloadf64, [KPTR] = -1
+};
 const uchar siz2intcls[] = { [1] = KI32, [2] = KI32, [4] = KI32, [8] = KI64 };
 
 const char *opnames[] = {
@@ -61,9 +65,8 @@ irinit(struct function *fn)
       type2cls[TYLDOUBLE] = KF64;
       type2cls[TYPTR] = KPTR;
       type2cls[TYARRAY] = KPTR;
-      cls2siz[KI32] = cls2siz[KF32] = 4;
-      cls2siz[KI64] = cls2siz[KF64] = 8;
       cls2siz[KPTR] = targ_primsizes[TYPTR];
+      cls2load[KPTR] = targ_64bit ? Oloadi64 : Oloads32;
    }
    fn->entry = fn->curblk = allocz(fn->arena, sizeof(struct block), 0);
    fn->nblk = 1;
