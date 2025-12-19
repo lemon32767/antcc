@@ -908,6 +908,8 @@ tkprec(int tt)
 static struct expr initializer(struct comp *cm, union type *ty, enum evalmode ev,
                                bool globl, enum qualifier qual, internstr name);
 
+static internstr istr__func__, istr_main, istr_memset;
+
 /* parse an expression with the given operator precedence */
 /* param ident is a kludge to support block labels without backtracking or extra lookahead
  * see stmt() */
@@ -1011,7 +1013,13 @@ Unary:
    Ident:
       decl = finddecl(cm, tk.name);
       if (!decl) {
-         if (peek(cm, NULL) == '(') { /* implicit function decl? */
+         if (cm->env->up && tk.name->c == '_' && (!strcmp(&tk.name->c, "__FUNCTION__") || !strcmp(&tk.name->c, "__PRETTY_FUNCTION__"))) {
+            /* hack: treat these identifiers as __func__ synonym to support the GNU extension */
+            warn(&tk.span, "%'tk is a GNU extension", &tk);
+            decl = finddecl(cm, istr__func__);
+            assert(decl && decl->scls == SCSTATIC);
+            goto Sym;
+         } else if (peek(cm, NULL) == '(') { /* implicit function decl? */
             ex = mkexpr(ESYM, tk.span, mktype(IMPLICITFUNCTY), .sym = (void *)tk.name);
          } else {
             error(&tk.span, "undeclared identifier %'tk", &tk);
@@ -1022,7 +1030,7 @@ Unary:
          ex = mkexpr(ESYM, tk.span, decl->ty, .sym = NULL);
       } else if (decl->isenum) {
          ex = mkexpr(ENUMLIT, tk.span, decl->ty, .i = decl->value);
-      } else {
+      } else Sym: {
          ex = mkexpr(ESYM, tk.span, decl->ty, .qual = decl->qual, .sym = decl);
       }
       break;
@@ -2746,8 +2754,6 @@ mkhiddensym(const char *fnname, const char *name, int id)
 
 static void geninit(struct function *fn, union type t, union ref dst, const struct expr *src);
 static union ref condexprvalue(struct function *fn, const struct expr *ex, bool discard);
-
-static internstr istr__func__, istr_main, istr_memset;
 
 union ref
 expraddr(struct function *fn, const struct expr *ex)
