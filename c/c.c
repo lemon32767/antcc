@@ -3441,7 +3441,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       if (ex->ty.t == TYPTR)
          r = mkintcon(type2cls[targ_sizetype], typesize(typechild(ex->ty)));
       else
-         r = mkref(RICON, 1);
+         r = isflt(ex->ty) ? mkfltcon(type2cls[ex->ty.t], 1.0) : mkref(RICON, 1);
       bitsiz = 0;
       if (sub[0].t == EGETF && (bitsiz = sub->fld.bitsiz)) {
          union ref tmp;
@@ -3462,7 +3462,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       if (ex->ty.t == TYPTR)
          r = mkintcon(type2cls[targ_sizetype], typesize(typechild(ex->ty)));
       else
-         r = mkref(RICON, 1);
+         r = isflt(ex->ty) ? mkfltcon(type2cls[ex->ty.t], 1.0) : mkref(RICON, 1);
       if (sub[0].t == EGETF && (bitsiz = sub->fld.bitsiz)) {
          ty = ex->ty;
          goto CompoundBitf;
