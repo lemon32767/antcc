@@ -271,6 +271,7 @@ union ref insertphi(struct block *, enum irclass cls);
 void replcuses(union ref from, union ref to);
 bool deluse(struct block *ublk, int ui, union ref r);
 void deluses(int ins);
+void filluses(struct function *);
 void delinstr(struct block *, int idx);
 void delphi(struct block *, int idx);
 void delnops(struct block *blk);
@@ -300,7 +301,6 @@ bool foldunop(union ref *to, enum op, enum irclass, union ref);
 void irdump(struct function *);
 
 /** ssa.c **/
-void filluses(struct function *);
 void copyopt(struct function *);
 
 /** cfg.c **/
@@ -311,7 +311,7 @@ void filldom(struct function *fn);
 void abi0(struct function *);
 void abi0_call(struct function *, struct instr *, struct block *blk, int *curi);
 
-/** optmem.c **/
+/** mem2reg.c **/
 void mem2reg(struct function *);
 
 /** intrin.c **/
