@@ -1116,6 +1116,7 @@ warn(const struct span *span, const char *fmt, ...)
 {
    va_list ap;
 
+   if (ccopt.wnone) return;
    if (ccopt.werror) ++nerror;
    va_start(ap, fmt);
    vdiag(span, ccopt.werror ? DGERROR : DGWARN, fmt, ap);

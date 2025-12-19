@@ -217,6 +217,9 @@ optparse(char **args)
             ccopt.werror = 1;
          }
          /* TODO warning switches */
+      } else if (*arg == 'w') {
+         ccopt.wnone = 1;
+         /* TODO warning switches */
       } else Bad: warn(NULL, "unrecognized option: %'s", arg-1);
    }
 
@@ -583,9 +586,11 @@ prihelp(void)
         " -llib  \tLink with library\n"
         " -fpie  \tEmit code for position independent executable\n"
         " -fpic  \tEmit position independent code\n"
-        " -O0    \tTurn off optimizations\n"
-        " -O1    \tTurn on more optimizations\n"
+        " -O[0|1..] \tSet optimization level\n"
         " -x[c|o] \tSpecify type of next input file (C, object)\n"
+        " -W[...] \tTurn on warnings (stub)\n"
+        " -Werror \tTurn warnings into errors\n"
+        " -w     \tSuppress warnings\n"
    );
 }
 

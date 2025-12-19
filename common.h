@@ -132,6 +132,7 @@ struct option {
    bool nocolor;
    bool pie, pic;
    bool werror;
+   bool wnone;
    enum optz {
       OPT0 = -1,
       OPT1 = 1,
