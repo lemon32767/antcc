@@ -51,7 +51,7 @@ struct expr {
 };
 
 struct init {
-   struct bitset zero[1]; /* bytes to zero out up to 64 */
+   struct bitset zero[BSSIZE(64)]; /* bytes to zero out up to 64 */
    struct initval {
       struct initval *next;
       uint off;
