@@ -2323,12 +2323,13 @@ End:
 }
 
 /* circular doubly linked list used to parse declarators */
+enum { EARRAYUNSIZED = 0xFF /* for count.t */ };
 static struct decllist {
    struct decllist *prev, *next;
    uchar t; /* TYPTR, TYARRAY or TYFUNC */
    union {
       uchar qual; /* TYPTR */
-      uint len; /* TYARRAY */
+      struct expr count; /* TYARRAY */
       struct { /* TYFUNC */
          union type *param;
          internstr *pnames;
@@ -2425,7 +2426,6 @@ decltypes(struct comp *cm, struct decllist *list, internstr *name, struct span *
    for (;;) {
       if (match(cm, &tk, '[')) {
          node.span = tk.span;
-         uint n = 0;
          int q = 0;
          bool statik = 0;
          if (in_range(peek(cm, &tk), TKWBEGIN_, TKWEND_)) {
@@ -2435,27 +2435,15 @@ decltypes(struct comp *cm, struct decllist *list, internstr *name, struct span *
          }
          (void)q, (void)statik; /* stub */
 
-         if (!match(cm, &tk, ']')) {
-            struct expr ex = arraycountexpr(cm);
-            if (!ex.t) { /* treat ['*'] as [0] */
-               n = 0;
-            } else if (!eval(&ex, EVINTCONST)) {
-               error(&ex.span, "array length is not an integer constant");
-            } else if (typesize(ex.ty) < 8 && ex.i < 0) {
-               error(&ex.span, "array length is negative");
-            } else if (ex.u > (1ull << (8*sizeof n)) - 1) {
-               error(&ex.span, "array too long (%ul)", ex.u);
-            } else if (ex.u == 0) {
-               warn(&ex.span, "array cannot have zero length");
-            } else {
-               n = ex.u;
-            }
+         if (match(cm, &tk, ']')) {
+            node.count.t = EARRAYUNSIZED;
+         } else {
+            node.count = arraycountexpr(cm);
             peek(cm, &tk);
             joinspan(&node.span.ex, tk.span.ex);
             expect(cm, ']', NULL);
          }
          node.t = TYARRAY;
-         node.len = n;
          declinsert(ptr->prev, &node);
          joinspan(&span->ex, node.span.ex);
       } else if (match(cm, &tk, '(')) Func: {
@@ -2568,7 +2556,29 @@ declarator(struct declstate *st, struct comp *cm, struct span span0) {
             error(&l->span, "array has incomplete element type '%ty'", decl.ty);
          else if (decl.ty.t == TYFUNC)
             error(&l->span, "array has element has function type '%ty'", decl.ty);
-         decl.ty = mkarrtype(decl.ty, decl.qual, l->len);
+         if (l->count.t == EARRAYUNSIZED) /* unsized '[]' */
+            decl.ty = mkarrtype(decl.ty, decl.qual, 0);
+         else {
+            uint n = 0;
+            struct expr *ex = &l->count;
+            if (!ex->t) { /* ['*'] */
+               if (l->prev != &list) error(&l->span, "[*] array declarator is not allowed here");
+            } else if (!eval(ex, EVINTCONST)) {
+               error(&ex->span, "array length is not an integer constant");
+            } else if (issigned(ex->ty) && ex->i < 0) {
+               error(&ex->span, "array length is negative");
+            } else if (ex->u > (1ull << (8*sizeof n)) - 1) {
+               error(&ex->span, "array too long (%ul)", ex->u);
+            } else if (ex->u == 0) {
+               /* when struct field, silently accept zero-length as synonym of '[]' for flexible array member */
+               if (l->prev != &list || st->kind != DFIELD) {
+                  warn(&ex->span, "array cannot have zero length");
+               }
+            } else {
+               n = ex->u;
+            }
+            decl.ty = mkarrtype(decl.ty, decl.qual, n);
+         }
          break;
       case TYFUNC:
          if (decl.ty.t == TYFUNC)
