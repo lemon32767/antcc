@@ -429,7 +429,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          rswap(ins->l, ins->r);
       }
       if (ins->l.t != RTMP && ins->l.t != RREG)
-         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
+         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, insrescls(*ins), ins->l));
       else
          fixarg(&ins->l, ins, blk, curi);
       fixarg(&ins->r, ins, blk, curi);
@@ -589,7 +589,7 @@ seljmp(struct function *fn, struct block *blk)
          if (!(opflags[instrtab[c.i].op] & ZF) || blk->ins.n == 0 || c.i != blk->ins.p[blk->ins.n - 1]) {
             struct instr *ins;
             int curi = blk->ins.n;
-            blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, instrtab[c.i].cls, c, ZEROREF));
+            blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, insrescls(instrtab[c.i]), c, ZEROREF));
             ins = &instrtab[blk->jmp.arg[0].i];
             if (kisflt(ins->cls)) {
                ins->r = insertinstr(blk, curi, mkinstr(Ocopy, ins->cls, ZEROREF));
