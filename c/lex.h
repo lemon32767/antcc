@@ -101,7 +101,8 @@ struct lexer {
    bool eof, err;
    struct arena **tmparena;
    bool firstdirective;
-   ushort nppcnd0;
+   short nppcnd0;
+   short inclnerror;
    internstr inclguard;
    uchar chrbuf[1<<10];
    uint chridxbuf[1<<10];
