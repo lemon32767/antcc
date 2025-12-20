@@ -101,7 +101,7 @@ static struct task {
    char **runargs;
    vec_of(const char *) linkargs;
    int ninf;
-   bool verbose, run;
+   bool verbose, run, syntaxonly;
 } task;
 
 static void prihelp(void);
@@ -155,6 +155,8 @@ optparse(char **args)
          if (arg[1]) task.out = arg+1;
          else if (args[1]) task.out = *++args;
          else fatal(NULL, "missing path after `-o`");
+      } else if (!strcmp(arg, "fsyntax-only")) {
+         task.syntaxonly = 1;
       } else if (*arg == 'f') {
          /* -fabc / -fno-abc flags */
          const char *flag = arg+1;
@@ -225,7 +227,7 @@ optparse(char **args)
 
    if (!task.ninf) fatal(NULL, "no input files");
 
-   if (!task.out) {
+   if (!task.out && !task.syntaxonly) {
       switch (task.outft) {
       case OFTdll:
       case OFTexe: if (!task.run) task.out = "a.out"; break;
@@ -306,7 +308,7 @@ compileobjs(void)
    int wstat;
    pid_t p;
 
-   if (!ccopt.dbg.any) mktemps();
+   if (!ccopt.dbg.any && !task.syntaxonly) mktemps();
    for (int i = 0; i < task.ninf; ++i) {
       if (task.inft[i] == IFTc) {
          if ((p = fork()) < 0) {
@@ -324,7 +326,7 @@ compileobjs(void)
       } else if (task.inft[i] == IFTobj || task.inft[i] == IFTar) {
       } else assert(!"not obj");
    }
-   if (!ccopt.dbg.any) {
+   if (!ccopt.dbg.any && !task.syntaxonly) {
       atexit(cleantemps);
       signal(SIGINT, sigcleantemps);
    }
@@ -482,6 +484,8 @@ driver(void)
    void cpp(struct wbuf *, const char *);
    if (task.verbose)
       efmt("# Target: %s\n", task.targ ? task.targ : "(host)");
+   if (task.syntaxonly)
+      task.out = "/dev/null"; // HACK
    if (task.outft == OFTobj) {
       assert(task.ninf == 1);
       if (*task.inft != IFTc)
@@ -522,7 +526,7 @@ driver(void)
       return ok ? 0 : 1;
    } else if (task.outft == OFTexe || task.outft == OFTdll) {
       compileobjs();
-      if (ccopt.dbg.any) return 0;
+      if (ccopt.dbg.any || task.syntaxonly) return 0;
       if (!task.run) return dolink();
       int st = dolink();
       if (st == 0) st = dorun();
@@ -538,9 +542,9 @@ cc1(const char *out, const char *in)
    extern int nerror;
 
    if (task.verbose) efmt("cc1(/*out*/ %'s, /*in*/ %'s)\n", out, in);
-   if (!ccopt.dbg.any) objini(in, out);
+   if (!ccopt.dbg.any && !task.syntaxonly) objini(in, out);
    ccomp(in);
-   if (!ccopt.dbg.any && !nerror) objfini();
+   if (!ccopt.dbg.any && !task.syntaxonly && !nerror) objfini();
    return !!nerror;
 }
 

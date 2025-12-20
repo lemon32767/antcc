@@ -657,7 +657,7 @@ irfini(struct function *fn)
    mctarg->isel(fn);
    regalloc(fn);
    freearena(fn->passarena);
-   if (!ccopt.dbg.any)
+   if (objout.code)
       mctarg->emit(fn);
 
    freearena(fn->passarena);
