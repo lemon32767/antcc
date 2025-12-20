@@ -11,8 +11,8 @@ joinspan(struct span0 *dst, struct span0 snd)
 }
 
 enum toktag { /* single-character tokens' tag value is the character itself */
-   TKEOF = -1,
-   TKXXX,
+   TKEOF = 0xFF,
+   TKXXX = 0,
    TKNUMLIT,
    TKCHRLIT,
    TKSTRLIT,
@@ -47,15 +47,17 @@ enum toktag { /* single-character tokens' tag value is the character itself */
 #define _(kw, stdc) TKW##kw,
 #include "keywords.def"
 #undef _
+   NTOKTAG,
 };
+static_assert(NTOKTAG < 256);
 
 struct token {
-   short t; /* toktag */
-   bool litlit;
-   uchar blue : 1; /* preprocessor token painted blue */
-   uchar wide : 2; /* for CHRLIT & STRLIT; 1 -> 16bit, 2 -> 32bit */
-   uchar wideuni : 1; /* ditto, 0 -> 'L', 1 -> 'u'/'U' (C11) */
-   uchar extwarn : 1; /* warn this keyword token is an extension */
+   uchar t; /* toktag */
+   bool litlit : 1,
+        blue : 1, /* preprocessor token painted blue */
+        extwarn : 1; /* warn this keyword token is an extension */
+   uchar wide : 2, /* for CHRLIT & STRLIT; 1 -> 16bit, 2 -> 32bit */
+         wideuni : 1; /* ditto, 0 -> 'L', 1 -> 'u'/'U' (C11) */
    union {
       uint len;
       ushort argidx;

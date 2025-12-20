@@ -1,41 +1,6 @@
 #include "lex.h"
 #include <string.h>
 
-static void
-identkeyword(struct token *tk, const char *s, int len)
-{
-   static const struct {
-      const char *s;
-      struct kw { uchar t, cstd : 4, ext : 1; } kw;
-   } kwtab[] = {
-#define _(kw, cstd) { #kw, {TKW##kw, cstd} },
-#include "keywords.def"
-#undef _
-   };
-   static pmap_of(struct kw) kwmap;
-   if (!kwmap.v) {
-      pmap_init(&kwmap, 128);
-      for (int i = 0; i < countof(kwtab); ++i) {
-         /* allow future keywords but only if they begin with _ */
-         if (kwtab[i].kw.cstd <= ccopt.cstd || *s == '_') {
-            struct kw kw = kwtab[i].kw;
-            kw.ext = kwtab[i].kw.cstd > ccopt.cstd;
-            pmap_set(&kwmap, intern(kwtab[i].s), kw);
-         }
-      }
-   }
-   tk->blue = 0;
-   tk->len = len;
-   struct kw *kw = pmap_get(&kwmap, tk->name = intern(s));
-   if (kw) {
-      tk->t = kw->t;
-      tk->extwarn = kw->ext;
-   } else {
-      tk->t = TKIDENT;
-      tk->extwarn = 0;
-   }
-}
-
 /* fill internal circular character buffer with input after translation phase 1 & 2
  * (trigraph substitution and backslash-newline deletion */
 static void
@@ -265,7 +230,7 @@ static void
 readstrchrlit(struct lexer *lx, struct token *tk, char delim, int wide)
 {
    int c, i;
-   uchar tmp[80];
+   uchar tmp[200];
    vec_of(uchar) b = VINIT(tmp, sizeof tmp);
    struct span span = {0};
    uint n, beginoff, idx;
@@ -378,7 +343,7 @@ static void
 readheadername(struct lexer *lx, struct token *tk, char delim)
 {
    int c;
-   uchar tmp[80];
+   uchar tmp[200];
    vec_of(uchar) b = VINIT(tmp, sizeof tmp);
    struct span span = {0};
    uint beginoff, idx;
@@ -533,7 +498,7 @@ Begin:
       /* fallthru */
    default:
       if (aisdigit(c)) Numlit: {
-         char tmp[70];
+         char tmp[200];
          int n = 0;
          tmp[n++] = c;
          while (isppnum(tmp[n-1], peek(lx, 0))) {
@@ -551,7 +516,7 @@ Begin:
          }
          RET(TKNUMLIT);
       } else if (c == '_' || aisalpha(c)) {
-         char tmp[70];
+         char tmp[200];
          int n = 0;
          tmp[n++] = c;
          while (!aissep(c = peek(lx, 0))) {
@@ -559,7 +524,10 @@ Begin:
             tmp[n++] = next(lx);
          }
          tmp[n] = 0;
-         identkeyword(tk, tmp, n);
+         tk->t = TKIDENT;
+         tk->blue = 0;
+         tk->len = n;
+         tk->name = intern(tmp);
          goto End;
       }
    case 0: if (lx->idx >= lx->ndat) RET(TKEOF);
@@ -597,8 +565,6 @@ struct macro {
       void (*handlerfn)(struct lexer *, struct token *ret, struct rlist arg);
    };
 };
-
-#define isppident(tk) (in_range((tk).t, TKIDENT, TKWEND_))
 
 static bool
 tokequ(const struct token *a, const struct token *b)
@@ -708,14 +674,14 @@ ppskipline(struct lexer *lx)
 static bool
 tokpaste(struct lexer *lx, struct token *dst, const struct token *l, const struct token *r)
 {
-   char *s;
+   memset(dst, 0, sizeof *dst);
    dst->span = l->span;
    if (dst->span.ex.file == r->span.ex.file && dst->span.ex.off < r->span.ex.off)
       joinspan(&dst->span.ex, r->span.ex);
-   if (isppident(*l) && (isppident(*r) || r->t == TKNUMLIT)) {
+   if (l->t == TKIDENT && (r->t == TKIDENT || r->t == TKNUMLIT)) {
       /* foo ## bar  ;   foo ## 123 */
       dst->t = TKIDENT;
-   } else if (l->t == TKNUMLIT && (isppident(*r) || r->t == TKNUMLIT)) {
+   } else if (l->t == TKNUMLIT && (r->t == TKIDENT || r->t == TKNUMLIT)) {
       /* 0x ## abc   ;   213 ## 456 */
       dst->t = TKNUMLIT;
    } else if (l->t && !r->t) {
@@ -744,14 +710,18 @@ tokpaste(struct lexer *lx, struct token *dst, const struct token *l, const struc
       return 0;
    }
 
-   /* shared for ident,keyword,numlit */
+   char buf[200];
    dst->len = l->len + r->len;
-   s = alloc(lx->tmparena, dst->len + 1, 1);
+   char *s = (dst->t == TKIDENT && dst->len + 1 < sizeof buf) ? buf : alloc(lx->tmparena, dst->len + 1, 1);
    memcpy(s, l->s, l->len);
    memcpy(s + l->len, r->s, r->len);
-   s[l->len + r->len] = 0;
-   if (dst->t == TKIDENT) identkeyword(dst, s, dst->len);
-   else dst->s = s;
+   s[dst->len] = 0;
+   if (dst->t == TKIDENT) {
+      dst->blue = 0;
+      dst->name = intern(s);
+   } else {
+      dst->s = s;
+   }
    return 1;
 }
 
@@ -764,7 +734,7 @@ ppdefine(struct lexer *lx)
    vec_of(struct token) rlist = {0};
 
    lex0(lx, &tk0);
-   if (!isppident(tk0)) {
+   if (tk0.t != TKIDENT) {
       error(&tk0.span, "macro name missing");
       ppskipline(lx);
       return;
@@ -794,7 +764,7 @@ ppdefine(struct lexer *lx)
             }
             lex0(lx, &tk);
          }
-         if (isppident(tk))
+         if (tk.t == TKIDENT)
             vpush(&params, tk.name);
          else if (tk.t == TKDOTS) {
             mac.variadic = 1;
@@ -814,7 +784,7 @@ ppdefine(struct lexer *lx)
    while (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
       if (!rlist.n && !wsseparated(&tk0, &tk))
          warn(&tk.span, "no whitespace after macro name");
-      if (mac.fnlike && isppident(tk)) {
+      if (mac.fnlike && tk.t == TKIDENT) {
          for (int i = 0; i < mac.nparam; ++i) {
             if (tk.name == mac.param[i]) {
                tk.argidx = i;
@@ -866,7 +836,7 @@ ppundef(struct lexer *lx)
    struct token tk;
 
    lex0(lx, &tk);
-   if (!isppident(tk)) {
+   if (tk.t != TKIDENT) {
       error(&tk.span, "macro name missing");
       ppskipline(lx);
       return;
@@ -919,7 +889,7 @@ tryexpand(struct lexer *lx, struct token *tk)
    struct macro *mac = NULL;
    internstr mname = tk->name;
 
-   if (!isppident(*tk) || !(mac = findmac(mname)) || tk->blue)
+   if (tk->t != TKIDENT || !(mac = findmac(mname)) || tk->blue)
       return 0;
 
    /* prevent infinite recursion */
@@ -1098,7 +1068,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
             assert(lx->macstk == l);
             popmac(lx);
          } else { /* PPMACSTR */
-            char tmp[100];
+            char tmp[200];
             struct wbuf buf = MEMBUF(tmp, sizeof tmp);
             int n = 0;
 
@@ -1255,7 +1225,7 @@ Unary:
       xu = isunsignedt(ty);
       break;
    default:
-      if (isppident(tk)) {
+      if (tk.t == TKIDENT) {
          xu = 0;
          if (!strcmp(tk.s, "defined")) {
             /* 'defined' ppident */
@@ -1395,7 +1365,7 @@ ppifxdef(struct lexer *lx, bool defp, const struct span *span)
    struct token tk;
 
    lex0(lx, &tk);
-   if (!isppident(tk)) {
+   if (tk.t != TKIDENT) {
       error(&tk.span, "macro name missing");
       ppskipline(lx);
       return;
@@ -1448,7 +1418,7 @@ ppelifxdef(struct lexer *lx, bool defp, const struct span *span)
       return;
    }
    lex0(lx, &tk);
-   if (!isppident(tk)) {
+   if (tk.t != TKIDENT) {
       error(&tk.span, "macro name missing");
       ppskipline(lx);
       return;
@@ -1592,7 +1562,7 @@ ppline(struct lexer *lx, struct token *tk0)
          if (lx->macstk->idx >= lx->macstk->rlist.n) popmac(lx);
       } else if (!lx->macstk && (lex0(lx, &tk) == '\n' || tk.t == TKEOF)) {
          break;
-      } else if (isppident(tk) && tryexpand(lx, &tk)) {
+      } else if (tk.t == TKIDENT && tryexpand(lx, &tk)) {
          continue;
       } else {
          tks[ntk++] = tk;
@@ -1721,6 +1691,36 @@ findppcmd(const struct token *tk)
    return PPXXX;
 }
 
+static void
+identkeyword(struct token *tk)
+{
+   static const struct {
+      const char *s;
+      struct kw { uchar t, cstd : 4, ext : 1; } kw;
+   } kwtab[] = {
+#define _(kw, cstd) { #kw, {TKW##kw, cstd} },
+#include "keywords.def"
+#undef _
+   };
+   static pmap_of(struct kw) kwmap;
+   if (!kwmap.v) {
+      pmap_init(&kwmap, 128);
+      for (int i = 0; i < countof(kwtab); ++i) {
+         /* allow future keywords but only if they begin with _ */
+         if (kwtab[i].kw.cstd <= ccopt.cstd || kwtab[i].s[0] == '_') {
+            struct kw kw = kwtab[i].kw;
+            kw.ext = kwtab[i].kw.cstd > ccopt.cstd;
+            pmap_set(&kwmap, intern(kwtab[i].s), kw);
+         }
+      }
+   }
+   struct kw *kw = pmap_get(&kwmap, tk->name);
+   if (kw) {
+      tk->t = kw->t;
+      tk->extwarn = kw->ext;
+   }
+}
+
 int
 lex(struct lexer *lx, struct token *tk_)
 {
@@ -1739,6 +1739,7 @@ Begin:
    if (lx->macstk) {
       if (!advancemacro(lx, tk))
          goto Begin;
+      if (tk->t == TKIDENT) identkeyword(tk);
       return tk->t;
    }
    bool linebegin = 1,
@@ -1748,7 +1749,7 @@ Begin:
       while ((t = lex0(lx, tk)) == '\n') linebegin = 1;
       if (t == '#' && linebegin) {
          if (lex0(lx, tk) == '\n') { }
-         else if (tk->t == TKNUMLIT || isppident(*tk)) {
+         else if (tk->t == TKNUMLIT || tk->t == TKIDENT) {
             lastcmd = tk->t == TKNUMLIT ? PPLINE : findppcmd(tk);
             if (nppcnd == lx->nppcnd0) lx->inclguard = NULL;
             if (!skip) {
@@ -1803,7 +1804,7 @@ Begin:
       } else {
          lx->firstdirective = 0;
          linebegin = 0;
-         if (skip && tk->t != TKEOF)
+         if (skip && t != TKEOF)
             continue;
          if (tryexpand(lx, tk))
             goto Begin;
@@ -1824,7 +1825,8 @@ Begin:
             lx->firstdirective = 0;
          } else {
             if (nppcnd == lx->nppcnd0) lx->inclguard = NULL;
-            return t;
+            if (t == TKIDENT) identkeyword(tk);
+            return tk->t;
          }
       }
    }
