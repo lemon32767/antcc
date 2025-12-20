@@ -22,6 +22,11 @@ e:
   x <<= 1;
   goto b;
 }
+void dummy() {
+   for (;;) {
+      ;
+   }
+}
 
 int printf(const char *, ...);
 int main(int n) {

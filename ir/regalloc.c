@@ -1218,11 +1218,14 @@ fini(struct rega *ra)
          bool delet = 1;
          for (int i = 0; i < blk->npred; ++i) {
             struct block *p = blkpred(blk, i);
-            if (p->s2 && !blk->s1)
+            if (p == blk || (p->s2 && !blk->s1))
                delet = 0;
          }
+         startbbvisit();
          for (int i = 0; i < blk->npred; ++i) {
             struct block *p = blkpred(blk, i);
+            if (wasvisited(p)) break;
+            markvisited(p);
             if (!p->s2 && !blk->s1) {
                /* simplify:
                 *
