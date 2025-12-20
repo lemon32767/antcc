@@ -185,7 +185,8 @@ void free(void *);
 
 /* string interning */
 typedef const struct internstr {char c;} *internstr;
-internstr intern(const char *);
+internstr intern_(const char *, uint len);
+#define intern(s) intern_(s, 0)
 
 /* growable buffer that stores its capacity in the allocated memory */
 #define xbnew_(n) (void *)(1 + (size_t *)xcalloc(sizeof(size_t) + (n)))

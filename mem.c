@@ -38,7 +38,7 @@ void *
 
 /** string interning **/
 internstr
-intern(const char *s)
+intern_(const char *s, uint len)
 {
    static uint N, n;
    static struct ht {
@@ -53,13 +53,15 @@ intern(const char *s)
       arena = (void *)amem.m, arena->cap = sizeof amem.m - sizeof(struct arena);
    }
 
-   for (size_t h = hashs(0, s), i = h;;) {
+   for (size_t h = len ? hashb(0, s, len) : hashs(0, s), i = h;;) {
       i &= N - 1;
       if (!ht[i].s) { /* insert */
          if (n < N/4*3 /*load factor 75%*/) {
             ++n;
             ht[i].h = h;
-            return ht[i].s = alloccopy(&arena, s, strlen(s)+1, 1);
+            ht[i].s = alloccopy(&arena, s, (len ? len : strlen(s))+1, 1);
+            if (len) ((char *)ht[i].s)[len] = 0;
+            return ht[i].s;
          }
          /* resize */
          size_t nnew = N * 2;
@@ -75,8 +77,11 @@ intern(const char *s)
          N = nnew;
          i = h;
          continue;
-      } else if (h == ht[i].h && !strcmp(s, &ht[i].s->c)) {
-         return ht[i].s;
+      } else if (h == ht[i].h) {
+         if (!len && !strcmp(s, &ht[i].s->c))
+            return ht[i].s;
+         else if (len && !strncmp(s, &ht[i].s->c, len) && ht[i].s[len].c == 0)
+            return ht[i].s;
       }
       ++i;
    }

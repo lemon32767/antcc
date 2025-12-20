@@ -95,8 +95,6 @@ struct lexer {
    const uchar *dat;
    uint ndat;
    uint idx, chridx;
-   short chrbuf[1<<10];
-   uint chridxbuf[1<<10];
    ushort chrbuf0;
    struct macrostack *macstk;
    struct token peektok;
@@ -105,6 +103,8 @@ struct lexer {
    bool firstdirective;
    ushort nppcnd0;
    internstr inclguard;
+   uchar chrbuf[1<<10];
+   uint chridxbuf[1<<10];
 };
 
 enum initlexer {

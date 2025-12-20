@@ -7,7 +7,7 @@ static void
 fillchrbuf(struct lexer *lx)
 {
    const uchar *p = lx->dat + lx->idx;
-   int i = lx->chrbuf0, idx = lx->idx, c;
+   int i = lx->chrbuf0, idx = lx->idx;
    int rem = countof(lx->chrbuf) - i;
    assert(rem >= 0);
    if (rem > 0) {
@@ -20,15 +20,21 @@ fillchrbuf(struct lexer *lx)
    i = rem;
 
    for (; i < countof(lx->chrbuf); ++i) {
-      int n;
-      /* skip backslash-newline */
-      while ((n = 2, (p[0] == '\\') & (p[1] == '\n')) || (ccopt.trigraph && !memcmp(p, "\?\?/\n", n = 4))) {
-         idx += n;
-         p += n;
+      uchar c;
+      /* skip backslash-newline* */
+      for (;;) {
+         if (p[0] == '\\' && p[1] == '\n') {
+            idx += 2;
+            p += 2;
+         } else if (ccopt.trigraph && !memcmp(p, "\?\?/\n", 4)) {
+            idx += 4;
+            p += 4;
+         } else break;
          addfileline(lx->fileid, idx);
       }
+
       if (idx >= lx->ndat) {
-         c = TKEOF;
+         c = 0;
       } else if (ccopt.trigraph && ((p[0] == '?') & (p[1] == '?'))) {
          switch (p[2]) {
          case '=':  c = '#'; break;
@@ -65,7 +71,7 @@ next(struct lexer *lx)
       fillchrbuf(lx);
    lx->chridx = lx->chridxbuf[lx->chrbuf0];
    c = lx->chrbuf[lx->chrbuf0];
-   lx->eof = c == TKEOF;
+   lx->eof = lx->chridx >= lx->ndat;
    ++lx->chrbuf0;
    return c;
 }
@@ -385,51 +391,66 @@ isppnum(char prev, char c)
 /* special mode to parse header path for #include */
 static bool lexingheadername = 0;
 
+enum { MAXLITLEN = 256 }; /* maximum length of num literals and identifiers */
 static int
 lex0(struct lexer *lx, struct token *tk)
 {
-   int idx, c, q;
-
-#define RET(t_) do { tk->t = (t_); goto End; } while (0)
-
+   int idx,q;
 Begin:
    idx = lx->chridx;
-   switch (c = next(lx)) {
+   if (lx->chrbuf0+4 >= countof(lx->chrbuf))
+      fillchrbuf(lx);
+   lx->chridx = lx->chridxbuf[lx->chrbuf0];
+   uchar *p = &lx->chrbuf[lx->chrbuf0++],
+         c = p[0];
+   switch (c) {
+
+#define RET(t_) do { tk->t = (t_); goto End; } while (0)
+#define TK2(c2,t) if (p[1] == c2) {            \
+      lx->chridx = lx->chridxbuf[lx->chrbuf0]; \
+      ++lx->chrbuf0;                           \
+      RET(t);                                  \
+   }
+#define TK3(c2,c3,t) if (p[1] == c2 && p[2] == c3) { \
+      lx->chridx = lx->chridxbuf[++lx->chrbuf0];     \
+      ++lx->chrbuf0;                                 \
+      RET(t);                                        \
+   }
+
    case ' ': case '\t': case '\f': case '\v': case '\r':
       goto Begin;
       break;
    case '(': case ')': case ',': case ':':
    case ';': case '?': case '[': case ']':
    case '{': case '}': case '~': case '$':
-   case '@': case '`': case '\\': case TKEOF: case '\n':
+   case '@': case '`': case '\\': case '\n':
       RET(c);
    case '!':
-      if (match(lx, '=')) RET(TKNEQ);
+      TK2('=', TKNEQ);
       RET(c);
    case '#':
-      if (match(lx, '#')) RET(TKPPCAT);
+      TK2('#', TKPPCAT);
       RET(c);
    case '+':
-      if (match(lx, '+')) RET(TKINC);
-      if (match(lx, '=')) RET(TKSETADD);
+      TK2('+', TKINC);
+      TK2('=', TKSETADD);
       RET(c);
    case '-':
-      if (match(lx, '-')) RET(TKDEC);
-      if (match(lx, '=')) RET(TKSETSUB);
-      if (match(lx, '>')) RET(TKARROW);
+      TK2('-', TKDEC);
+      TK2('=', TKSETSUB);
+      TK2('>', TKARROW);
       RET(c);
    case '*':
-      if (match(lx, '=')) RET(TKSETMUL);
+      TK2('=', TKSETMUL);
       RET(c);
    case '/':
-      if (match(lx, '=')) RET(TKSETDIV);
+      TK2('=', TKSETDIV);
       if (match(lx, '/')) {
          /* // comment */
          while (!lx->eof && peek(lx, 0) != '\n')
             next(lx);
          goto Begin;
-      }
-      if (match(lx, '*')) {
+      } else if (match(lx, '*')) {
          /* comment */
          while (!(peek(lx, 0) == '*' && peek(lx, 1) == '/')) {
             if (next(lx) == TKEOF) {
@@ -442,13 +463,13 @@ Begin:
       }
       RET(c);
    case '%':
-      if (match(lx, '=')) RET(TKSETREM);
+      TK2('=', TKSETREM);
       RET(c);
    case '^':
-      if (match(lx, '=')) RET(TKSETXOR);
+      TK2('=', TKSETXOR);
       RET(c);
    case '=':
-      if (match(lx, '=')) RET(TKEQU);
+      TK2('=', TKEQU);
       RET(c);
    case '<':
       if (lexingheadername) {
@@ -456,20 +477,22 @@ Begin:
          lexingheadername = 0;
          goto End;
       }
-      if (match(lx, '=')) RET(TKLTE);
-      if (match(lx, '<')) RET(match(lx, '=') ? TKSETSHL : TKSHL);
+      TK2('=', TKLTE);
+      TK3('<','=', TKSETSHL)
+      TK2('<', TKSHL);
       RET(c);
    case '>':
-      if (match(lx, '=')) RET(TKGTE);
-      if (match(lx, '>')) RET(match(lx, '=') ? TKSETSHR : TKSHR);
+      TK2('=', TKGTE);
+      TK3('>','=', TKSETSHR)
+      TK2('>', TKSHR);
       RET(c);
    case '&':
-      if (match(lx, '&')) RET(TKLOGAND);
-      if (match(lx, '=')) RET(TKSETAND);
+      TK2('&', TKLOGAND);
+      TK2('=', TKSETAND);
       RET(c);
    case '|':
-      if (match(lx, '|')) RET(TKLOGIOR);
-      if (match(lx, '=')) RET(TKSETIOR);
+      TK2('|', TKLOGIOR);
+      TK2('=', TKSETIOR);
       RET(c);
    case '"':
       if (lexingheadername) {
@@ -482,12 +505,8 @@ Begin:
       }
       goto End;
    case '.':
-      if (peek(lx, 0) == '.' && peek(lx, 1) == '.') {
-         next(lx), next(lx);
-         RET(TKDOTS);
-      } else if (aisdigit(peek(lx, 0))) {
-         goto Numlit;
-      }
+      TK3('.','.',TKDOTS)
+      if (aisdigit(p[1])) goto Numlit;
       RET(c);
    case 'L':
       if (match(lx, (q = '\'')) || match(lx, (q = '"'))) {
@@ -498,39 +517,46 @@ Begin:
       /* fallthru */
    default:
       if (aisdigit(c)) Numlit: {
-         char tmp[200];
-         int n = 0;
-         tmp[n++] = c;
-         while (isppnum(tmp[n-1], peek(lx, 0))) {
-            assert(n < countof(tmp)-1 && "too big");
-            tmp[n++] = next(lx);
+         --lx->chrbuf0;
+         if (lx->chrbuf0 + MAXLITLEN >= countof(lx->chrbuf))
+            fillchrbuf(lx);
+         uchar *p = &lx->chrbuf[lx->chrbuf0];
+         int n = 1;
+         for (; isppnum(p[n-1], p[n]); ++n) {
+            if (n >= MAXLITLEN) TooLong: {
+               lx->chridx = lx->chridxbuf[lx->chrbuf0+n-1];
+               fatal(&(struct span) {{ idx, lx->chridx - idx, lx->fileid }},
+                     "token is too long");
+            }
          }
-         tmp[n] = 0;
          tk->len = n;
+         lx->chridx = lx->chridxbuf[(lx->chrbuf0 += n) - 1];
          if (n == lx->chridx - idx) {
             tk->litlit = 1;
             tk->s = (char *)&lx->dat[idx];
          } else {
             tk->litlit = 0;
-            tk->s = alloccopy(lx->tmparena, tmp, n, 1);
+            tk->s = alloccopy(lx->tmparena, p, n, 1);
          }
          RET(TKNUMLIT);
       } else if (c == '_' || aisalpha(c)) {
-         char tmp[200];
-         int n = 0;
-         tmp[n++] = c;
-         while (!aissep(c = peek(lx, 0))) {
-            assert(n < countof(tmp)-1 && "too big");
-            tmp[n++] = next(lx);
+         --lx->chrbuf0;
+         if (lx->chrbuf0 + MAXLITLEN >= countof(lx->chrbuf))
+            fillchrbuf(lx);
+         uchar *p = &lx->chrbuf[lx->chrbuf0];
+         int n = 1;
+         for (; !aissep(p[n]); ++n) {
+            if (n >= MAXLITLEN) goto TooLong;
          }
-         tmp[n] = 0;
-         tk->t = TKIDENT;
          tk->blue = 0;
          tk->len = n;
-         tk->name = intern(tmp);
-         goto End;
+         tk->name = intern_((char *)p, n);
+         lx->chridx = lx->chridxbuf[(lx->chrbuf0 += n) - 1];
+         RET(TKIDENT);
       }
+      /* fallthru */
    case 0: if (lx->idx >= lx->ndat) RET(TKEOF);
+#undef TK2
    }
    fatal(&(struct span) {{ idx, lx->chridx - idx, lx->fileid }},
          "unexpected character %'c at %d (%d)", c, idx, lx->idx);
@@ -1320,7 +1346,7 @@ Unary:
    }
    if (!prec) { /* not a sub expr */
       if (elex(lx, &tk) != '\n' && tk.t != TKEOF) {
-         error(&tk.span, "garbage after preprocessor expression");
+         error(&tk.span, "extra tokens after preprocessor expression");
          ppskipline(lx);
       }
    }
