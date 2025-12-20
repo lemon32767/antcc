@@ -221,7 +221,7 @@ addpred(struct block *blk, struct block *p)
    xbpush(&blk->_pred, &blk->npred, p);
 }
 
-static void
+void
 delpred(struct block *blk, struct block *p)
 {
    for (int i = 0; i < blk->npred; ++i) {
@@ -639,6 +639,9 @@ irfini(struct function *fn)
    if (ccopt.o > OPT0) {
       mem2reg(fn);
       copyopt(fn);
+   }
+   if (ccopt.o >= OPT1) {
+      simpl(fn);
    }
    if (ccopt.dbg.o) {
       bfmt(ccopt.dbgout, "<< Before isel >>\n");

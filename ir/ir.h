@@ -275,6 +275,7 @@ void filluses(struct function *);
 void delinstr(struct block *, int idx);
 void delphi(struct block *, int idx);
 void delnops(struct block *blk);
+void delpred(struct block *blk, struct block *p);
 void fillblkids(struct function *);
 #define startbbvisit() (void)(++visitmark)
 #define wasvisited(blk) ((blk)->visit == visitmark)
@@ -310,6 +311,9 @@ void filldom(struct function *fn);
 /** abi0.c **/
 void abi0(struct function *);
 void abi0_call(struct function *, struct instr *, struct block *blk, int *curi);
+
+/** simpl.c **/
+void simpl(struct function *);
 
 /** mem2reg.c **/
 void mem2reg(struct function *);
