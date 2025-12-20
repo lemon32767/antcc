@@ -162,7 +162,7 @@ enum {
    FNDOM   = 1<<3,
 };
 struct function {
-   struct arena **arena;
+   struct arena **arena, **passarena;
    internstr name;
    struct block *entry, *curblk;
    struct use *use;

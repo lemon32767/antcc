@@ -70,7 +70,7 @@ simpl(struct function *fn)
    FREQUIRE(FNUSE);
    int inschange = 0,
        blkchange = 0;
-   struct block **jmpfinal = xcalloc(fn->nblk * sizeof *jmpfinal);
+   struct block **jmpfinal = allocz(fn->passarena, fn->nblk * sizeof *jmpfinal, 0);
    struct block *blk = fn->entry;
 
    do {
@@ -140,7 +140,6 @@ simpl(struct function *fn)
       } while ((blk = blk->lnext) != fn->entry);
       fillpreds(fn);
    }
-   free(jmpfinal);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

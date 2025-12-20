@@ -23,6 +23,7 @@ static const uchar load2ext[] = {
 /* Implements algorithm in 'Simple and Efficient Construction of Static Single Assignment' (Braun et al) */
 
 struct ssabuilder {
+   struct arena **arena;
    imap_of(union ref *) curdefs; /* map of var to (map of block to def of var) */
    struct bitset *sealed, /* set of sealed blocks */
                  *marked; /* blocks marked, for 'Marker Algorithm' in the paper */
@@ -98,7 +99,7 @@ writevar(struct ssabuilder *sb, int var, struct block *blk, union ref val)
 {
    union ref **pcurdefs;
    if (!(pcurdefs = imap_get(&sb->curdefs, var))) {
-      pcurdefs = imap_set(&sb->curdefs, var, xcalloc(sb->nblk * sizeof(union ref)));
+      pcurdefs = imap_set(&sb->curdefs, var, allocz(sb->arena, sb->nblk * sizeof(union ref), 0));
    }
    if (val.t == RTMP) assert(instrtab[val.i].op != Onop);
    (*pcurdefs)[blk->id] = val;
@@ -222,25 +223,15 @@ cmpuse(const void *a, const void *b)
 void
 mem2reg(struct function *fn)
 {
-   static struct bitset bsbuf[2][4];
-   struct ssabuilder sb = { .nblk = fn->nblk };
-   struct block *blk;
+   struct ssabuilder sb = { fn->passarena, .nblk = fn->nblk };
 
    FREQUIRE(FNUSE);
 
-   if (fn->nblk <= BSNBIT * countof(bsbuf[0])) {
-      sb.sealed = bsbuf[0];
-      sb.marked = bsbuf[1];
-      memset(bsbuf[0], 0, BSSIZE(fn->nblk) * sizeof *bsbuf[0]);
-      memset(bsbuf[1], 0, BSSIZE(fn->nblk) * sizeof *bsbuf[1]);
-   } else {
-      sb.sealed = xcalloc(BSSIZE(fn->nblk) * sizeof *sb.sealed);
-      sb.marked = xcalloc(BSSIZE(fn->nblk) * sizeof *sb.marked);
-   }
-
+   sb.sealed = allocz(sb.arena, BSSIZE(fn->nblk) * sizeof *sb.sealed, 0);
+   sb.marked = allocz(sb.arena, BSSIZE(fn->nblk) * sizeof *sb.sealed, 0);
    sortrpo(fn);
-   blk = fn->entry;
 
+   struct block *blk = fn->entry;
    do {
       for (int i = 0; i < blk->ins.n; ++i) {
          struct use *use, *uend;
@@ -326,14 +317,6 @@ mem2reg(struct function *fn)
             delphi(blk, i--);
    } while ((blk = blk->lnext) != fn->entry);
 
-   if (sb.sealed != bsbuf[0]) {
-      free(sb.sealed);
-      free(sb.marked);
-   }
-
-   for (int i = 0; i < sb.curdefs.mb.N; ++i)
-      if (bstest(sb.curdefs.mb.bs, i))
-         free(sb.curdefs.v[i]);
    imap_free(&sb.curdefs);
    if (ccopt.dbg.m) {
       bfmt(ccopt.dbgout, "<< After mem2reg >>\n");

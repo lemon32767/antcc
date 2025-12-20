@@ -49,7 +49,7 @@ void
 lowerintrin(struct function *fn)
 {
    struct block *blk = fn->entry;
-   static struct arg argsbuf[64];
+   struct arg argsbuf[32];
    vec_of(struct arg) args = VINIT(argsbuf, countof(argsbuf));
 
    do {

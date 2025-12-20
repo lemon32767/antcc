@@ -1274,7 +1274,7 @@ void
 regalloc(struct function *fn)
 {
    static union ref *stkslotrefsbuf[64];
-   struct rega ra = {fn, .arena = fn->arena};
+   struct rega ra = {fn, .arena = fn->passarena};
    struct block *blk, *last;
 
    /* setup */

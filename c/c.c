@@ -4423,7 +4423,7 @@ tldecl(struct comp *cm)
          }
          decl.isdef = 1;
          struct decl *d = putdecl(cm, &decl);
-         struct function fn = { &cm->fnarena, decl.name, .globl = d->scls != SCSTATIC, .fnty = decl.ty, .retty = td->ret };
+         struct function fn = { &cm->fnarena, .name = decl.name, .globl = d->scls != SCSTATIC, .fnty = decl.ty, .retty = td->ret };
          irinit(&fn);
          function(cm, &fn, st.pnames, st.pspans, st.pqual);
          if (!nerror && ccopt.dbg.p)

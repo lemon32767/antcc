@@ -738,7 +738,6 @@ static struct blkaddr {
       uint relreloc;
    };
 } *blkaddr;
-static uint nblkaddr;
 
 static void
 Xjcc(uchar **pcode, enum cc cc, struct block *dst)
@@ -1356,10 +1355,7 @@ emitbin(struct function *fn)
       } while ((blk = blk->lprev) != fn->entry);
    }
 
-   if (nblkaddr < fn->nblk) {
-      blkaddr = xrealloc(blkaddr, (nblkaddr = fn->nblk) * sizeof *blkaddr);
-   }
-   memset(blkaddr, 0, nblkaddr * sizeof *blkaddr);
+   blkaddr = allocz(fn->passarena, fn->nblk * sizeof *blkaddr, 0);
 
    blk = fn->entry;
    do {

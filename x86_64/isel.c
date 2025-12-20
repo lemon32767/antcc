@@ -627,7 +627,7 @@ x86_64_isel(struct function *fn)
    struct block *blk = fn->entry;
 
    fn->stksiz = 0;
-   stkslots = xcalloc((nstkslots = ninstr) * sizeof *stkslots);
+   stkslots = allocz(fn->passarena, (nstkslots = ninstr) * sizeof *stkslots, 0);
    do {
       int i;
       for (i = 0; i < blk->phi.n; ++i) {
@@ -649,7 +649,6 @@ x86_64_isel(struct function *fn)
       }
       seljmp(fn, blk);
    } while ((blk = blk->lnext) != fn->entry);
-   free(stkslots);
 
    if (ccopt.dbg.i) {
       bfmt(ccopt.dbgout, "<< After isel >>\n");

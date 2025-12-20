@@ -45,6 +45,8 @@ irinit(struct function *fn)
    static union ref *phisbuf[64];
    static struct irdat datsbuf[64];
 
+   assert(fn->arena && !fn->passarena);
+
    ninstr = 0;
    instrfreelist = -1;
    vinit(&calltab, callsbuf, countof(callsbuf));
@@ -629,6 +631,9 @@ void
 irfini(struct function *fn)
 {
    extern int nerror;
+   static union { char m[sizeof(struct arena) + (4<<10)]; struct arena *_align; } amem;
+   struct arena *passarena = (void *)&amem.m;
+   fn->passarena = &passarena;
    if (nerror) {
       freefn(fn);
       return;
@@ -638,10 +643,12 @@ irfini(struct function *fn)
    lowerintrin(fn);
    if (ccopt.o > OPT0) {
       mem2reg(fn);
+      freearena(fn->passarena);
       copyopt(fn);
    }
    if (ccopt.o >= OPT1) {
       simpl(fn);
+      freearena(fn->passarena);
    }
    if (ccopt.dbg.o) {
       bfmt(ccopt.dbgout, "<< Before isel >>\n");
@@ -649,9 +656,11 @@ irfini(struct function *fn)
    }
    mctarg->isel(fn);
    regalloc(fn);
+   freearena(fn->passarena);
    if (!ccopt.dbg.any)
       mctarg->emit(fn);
 
+   freearena(fn->passarena);
    freefn(fn);
 }
 

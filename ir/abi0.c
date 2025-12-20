@@ -246,13 +246,11 @@ patcharg(struct block *blk, int *icall, struct call *call,
       return 1;
    }
 }
-
-static struct abiarg abiargsbuf[32];
-
 void
 abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 {
    union ref retmem;
+   struct abiarg abiargsbuf[32];
    struct abiargsvec abiargs = {VINIT(abiargsbuf, countof(abiargsbuf))};
    bool sretarghidden = 0;
    int ni, nf, ns, vararg, nret = 0;
@@ -361,6 +359,7 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 void
 abi0(struct function *fn)
 {
+   struct abiarg abiargsbuf[32];
    uint nparam = typedata[fn->fnty.dat].nmemb;
    const union type *paramty = typedata[fn->fnty.dat].param;
    struct abiargsvec abiargs = {VINIT(abiargsbuf, countof(abiargsbuf))};
