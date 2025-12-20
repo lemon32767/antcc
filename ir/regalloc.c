@@ -129,11 +129,10 @@ static regset gpregset, fpregset;
 
 /* an allocated physical register or stack slot */
 enum { ADEAD, AREG, ASTACK };
-struct alloc { ushort t : 2, a : 14; };
-#define afree() ((struct alloc) { ADEAD })
-#define areg(r) ((struct alloc) { AREG, (r) })
-#define astack(s) ((struct alloc) { ASTACK, (s) })
-#define aeql(a, b) (*(ushort *)&(a) == *(ushort *)&(b))
+union alloc { struct { ushort t : 2, a : 14; }; ushort bits; };
+#define afree() ((union alloc) { .t=ADEAD })
+#define areg(r) ((union alloc) { .t=AREG, .a=(r) })
+#define astack(s) ((union alloc) { .t=ASTACK, .a=(s) })
 
 enum { MAXSPILL = 512 };
 
@@ -143,7 +142,7 @@ struct range { ushort from, to; };
 /* a temporary's lifetime interval */
 struct interval {
    struct interval *next; /* for linked list of active,inactive,handled sets in linear scan */
-   struct alloc alloc;
+   union alloc alloc;
    schar rhint : 7; /* register hint */
    bool fpr : 1; /* needs float register? */
 
@@ -188,7 +187,7 @@ addstkslotref(int instr, uint off)
    vpush(&stkslotrefs, ref);
 }
 
-static struct alloc
+static union alloc
 allocstk(struct rega *ra)
 {
    int s = -1;
@@ -226,12 +225,12 @@ enum pmstat { PMTOMOVE, PMMOVING, PMDONE };
 static struct pmove {
    uchar k;
    uchar stat;
-   struct alloc dst, src;
+   union alloc dst, src;
 } pmove[MAXREGS];
 static int npmove;
 
 static void
-pmadd(enum irclass k, struct alloc dst, struct alloc src)
+pmadd(enum irclass k, union alloc dst, union alloc src)
 {
    if (!memcmp(&dst, &src, sizeof dst)) return;
    assert(npmove < MAXREGS);
@@ -240,7 +239,7 @@ pmadd(enum irclass k, struct alloc dst, struct alloc src)
 
 #define mkmove(k, rd, rs) mkinstr(Omove, k, mkref(RREG, rd), mkref(RREG, rs))
 static void
-emitmove(enum irclass k, struct alloc dst, struct alloc src, struct block *blk, int curi)
+emitmove(enum irclass k, union alloc dst, union alloc src, struct block *blk, int curi)
 {
    struct instr mv = {.keep = 1};
    int reg;
@@ -274,7 +273,7 @@ static int
 pmrec(int i, struct block *blk, int curi, enum irclass *k)
 {
    struct pmove *pm = &pmove[i];
-   if (aeql(pm->dst, pm->src)) {
+   if (pm->dst.bits == pm->src.bits) {
       pm->stat = PMDONE;
       return -1;
    }
@@ -286,7 +285,7 @@ pmrec(int i, struct block *blk, int curi, enum irclass *k)
 
    int j, c;
    for (j = 0; j < npmove; ++j) {
-      if (aeql(pmove[j].dst, pm->src))
+      if (pmove[j].dst.bits == pm->src.bits)
          break;
    }
    if (j == npmove) goto Done;
@@ -299,7 +298,7 @@ pmrec(int i, struct block *blk, int curi, enum irclass *k)
          insertinstr(blk, curi,
                mkinstr(Oswap, *k, mkref(RREG, pm->dst.a), mkref(RREG, pm->src.a), .keep = 1));
       } else if (pm->src.t != pm->dst.t) {
-         struct alloc reg, stk, regtmp;
+         union alloc reg, stk, regtmp;
          if (pm->src.t == AREG)
             reg = pm->src, stk = pm->dst;
          else
@@ -376,7 +375,7 @@ lowerphis(struct rega *ra, struct block *blk, struct block *suc)
    for (int i = 0; i < suc->phi.n; ++i) {
       struct instr *phi = &instrtab[suc->phi.p[i]];
       union ref *arg = &phitab.p[phi->l.i][predno];
-      struct alloc from, to;
+      union alloc from, to;
 
       if (arg->t == RREG) continue;
       assert(arg->t == RTMP);
@@ -1040,14 +1039,14 @@ devirt(struct rega *ra, struct block *blk)
 {
    bool allnops = 1;
    struct function *fn = ra->fn;
-   struct alloc spillsave[4] = {0};
+   union alloc spillsave[4] = {0};
    memset(ra->freestk, 0, BSSIZE(MAXSPILL) * sizeof *ra->freestk);
 
    for (int curi = 0; curi < blk->ins.n; ++curi) {
       int temp = blk->ins.p[curi];
       struct instr *ins = &instrtab[temp];
       struct interval *it;
-      struct alloc *alloc;
+      union alloc *alloc;
       struct addr newaddr;
       union ref *argref[4];
       int curi0;
