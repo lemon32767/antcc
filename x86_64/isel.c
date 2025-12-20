@@ -109,7 +109,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
       *r = mkref(RICON, sh & 255);
    } else if (isstkslot(*r)) {
       struct instr adr = mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkintcon(KI32, -stkslots[r->i]));
-      if (in_range(op, Ocopy, Omove))
+      if (op == Ocopy)
          *ins = adr;
       else
          *r = insertinstr(blk, (*curi)++, adr);
@@ -605,14 +605,14 @@ seljmp(struct function *fn, struct block *blk)
       if (blk->jmp.arg[0].bits) {
          int curi;
          union ref r = mkref(RREG, fn->abiret[0].reg);
-         struct instr *ins = &instrtab[insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[0].ty.cls, r , blk->jmp.arg[0])).i];
-         curi = blk->ins.n;
+         struct instr *ins = &instrtab[insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[0].ty.cls, r, blk->jmp.arg[0])).i];
+         curi = blk->ins.n-1;
          fixarg(&ins->r, ins, blk, &curi);
          blk->jmp.arg[0] = r;
          if (blk->jmp.arg[1].bits) {
             r = mkref(RREG, fn->abiret[1].reg);
             ins = &instrtab[insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[1].ty.cls, r, blk->jmp.arg[1])).i];
-            curi = blk->ins.n;
+            curi = blk->ins.n-1;
             fixarg(&ins->r, ins, blk, &curi);
             blk->jmp.arg[1] = r;
          }
