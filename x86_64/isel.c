@@ -507,6 +507,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    ALU:
       if (!(op == Oadd && kisint(ins->cls))) /* 3-address add is lea */
       if (!(op == Omul && kisint(ins->cls) && isimm32(ins->r))) /* for (I)MUL r,r/m,imm */
+      if (!(op == Oshl && ins->r.t == RICON && ins->r.i <= 3)) /* can be lea */
          ins->inplace = 1;
       if (iscon(ins->l)) {
          fixarg(&ins->l, ins, blk, curi);

@@ -1044,7 +1044,20 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
               mkoper(OMEM, .base = mkregoper(ins->l).reg, .index = NOINDEX, .disp = -intconval(ins->r)));
       }
       break;
-   case Oshl: X = Xshl; goto ALU2;
+   case Oshl:
+      dst = reg2oper(ins->reg-1);
+      src = mkregoper(ins->l);
+      if (dst.reg == src.reg)
+         Xshl(pcode, cls, dst, mkimmdatregoper(ins->r));
+      else {
+         uint sh = ins->r.i;
+         assert(ins->r.t == RICON && sh <= 3);
+         if (sh == 1) /* shl x, 1 -> lea [x + x] */
+            Xlea(pcode, cls, dst, mkoper(OMEM, .base = src.reg, .index = src.reg));
+         else /* shl x, n -> lea [x*(1<<n)+0x0] */
+            Xlea(pcode, cls, dst, mkoper(OMEM, .base = NOBASE, .index = src.reg, .shift = sh));
+      }
+      break;
    case Osar: X = Xsar; goto ALU2;
    case Oslr: X = Xshr; goto ALU2;
    case Oand:
