@@ -7,15 +7,19 @@ copyopt(struct function *fn)
 
    FREQUIRE(FNUSE);
    do {
-      if (blk->npred == 1) for (int i = 0; i < blk->phi.n; ++i) {
-         /* simplify 1-arg phi */
+      for (int i = 0; i < blk->phi.n; ++i) {
+         /* simplify same-arg phi */
          int phi = blk->phi.p[i];
          union ref *arg = phitab.p[instrtab[phi].l.i];
+         for (int j = 1; j < blk->npred; ++j) {
+            if (arg[j].bits != arg->bits) goto Next;
+         }
          /* being conservative here because phis could have circular dependencies? */
          if (arg->t != RTMP || instrtab[arg->i].op != Ophi) {
             replcuses(mkref(RTMP, phi), *arg);
             delphi(blk, i--);
          }
+      Next:;
       }
       for (int i = 0; i < blk->ins.n; ++i) {
          union ref var = mkref(RTMP, blk->ins.p[i]);
