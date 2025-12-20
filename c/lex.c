@@ -62,21 +62,19 @@ fillchrbuf(struct lexer *lx)
    lx->idx = idx;
 }
 
-static int
+static uchar
 next(struct lexer *lx)
 {
-   int c;
-
    if (lx->chrbuf0 >= countof(lx->chrbuf))
       fillchrbuf(lx);
    lx->chridx = lx->chridxbuf[lx->chrbuf0];
-   c = lx->chrbuf[lx->chrbuf0];
+   uchar c = lx->chrbuf[lx->chrbuf0];
    lx->eof = lx->chridx >= lx->ndat;
    ++lx->chrbuf0;
    return c;
 }
 
-static int
+static uchar
 peek(struct lexer *lx, int off)
 {
    assert(off < countof(lx->chrbuf));
@@ -86,7 +84,7 @@ peek(struct lexer *lx, int off)
 }
 
 static bool
-match(struct lexer *lx, int c)
+match(struct lexer *lx, uchar c)
 {
    if (!lx->eof && peek(lx, 0) == c) {
       next(lx);
@@ -356,7 +354,7 @@ readheadername(struct lexer *lx, struct token *tk, char delim)
    beginoff = idx = lx->chridx;
 
    while ((c = next(lx)) != delim) {
-      if (c == '\n' || c == TKEOF) {
+      if (c == '\n' || lx->eof) {
          span.sl = (struct span0) { idx, lx->chridx - idx, lx->fileid };
          error(&span, "missing terminating %c character", delim);
          break;
@@ -453,7 +451,7 @@ Begin:
       } else if (match(lx, '*')) {
          /* comment */
          while (!(peek(lx, 0) == '*' && peek(lx, 1) == '/')) {
-            if (next(lx) == TKEOF) {
+            if (!next(lx) && lx->eof) {
                struct span span = {{ idx, lx->chridx - idx, lx->fileid }};
                fatal(&span, "unterminated multiline comment");
             }
@@ -693,7 +691,7 @@ static void
 ppskipline(struct lexer *lx)
 {
    while (lx->macstk) popmac(lx);
-   while (peek(lx, 0) != '\n' && peek(lx, 0) != TKEOF)
+   while (peek(lx, 0) != '\n' && !lx->eof)
       next(lx);
 }
 
