@@ -68,6 +68,7 @@ union ref {
    struct { unsigned t : 3; signed i : 29; };
    uint bits;
 };
+static_assert(sizeof(union ref) == 4);
 
 struct addr {
    union ref base, index;
@@ -115,6 +116,7 @@ struct instr {
    uchar reg; /* 0 -> no reg; else reg + 1 */
    union ref l, r; /* args */
 };
+static_assert(sizeof(struct instr) == 4*3);
 
 enum jumpkind { JXXX, Jb, Jret, Jtrap, };
 

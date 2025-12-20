@@ -44,6 +44,7 @@ union type {
    };
    uint bits;
 };
+static_assert(sizeof(union type) == 4);
 
 #define isprimt(t)     in_range((t), TYBOOL, TYVOID)
 #define isintt(t)      in_range((t), TYENUM, TYUVLONG)
