@@ -438,7 +438,7 @@ subscriptcheck(const struct expr *ex, const struct expr *rhs, const struct span 
 {
    union type ty;
    if (ex->ty.t == TYPTR || ex->ty.t == TYARRAY) {
-      if (isincomplete(ty = typechild(ex->ty))) {
+      if (isincomplete(typedecay(ty = typechild(ex->ty)))) {
          error(span, "cannot dereference pointer to incomplete type '%ty'", ty);
          ty = mktype(TYINT);
       } else if (ty.t == TYFUNC) {
@@ -1109,7 +1109,7 @@ Unary:
          case '*':
             if (ex.ty.t == TYPTR || ex.ty.t == TYARRAY) {
                ty = typechild(ex.ty);
-               if (isincomplete(ty)) {
+               if (isincomplete(typedecay(ty))) {
                   error(&span, "cannot dereference pointer to incomplete type '%ty'", ty);
                   ty = mktype(TYINT);
                }
@@ -1736,7 +1736,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
       return ex;
    }
 
-   assert(countof(res.zero) == 1);
+   assert(countof(res.zero) == BSSIZE(64));
    if (ev != EVSTATICINI) {
       memset(res.zero, 0xFF, sizeof res.zero);
    }
