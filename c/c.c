@@ -1371,6 +1371,7 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
    } else if (ip->ev == EVSTATICINI) {
       uchar *p;
       uint siz = typesize(ty);
+      if (nerror) return;
       if (ip->dyn) {
          if (ip->ddat.n < off + siz) {
             uint old = ip->ddat.n;
@@ -4276,6 +4277,17 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
             break;
          default: assert(0);
          }
+         if (st.funcdef) {
+            struct span span = decl.span;
+            joinspan(&span.ex, (peek(cm, &tk), tk.span.ex));
+            error(&span, "function definition not allowed here");
+            int bal = 1;
+            do switch (lex(cm, NULL)) {
+               case TKEOF: break;
+               case '{': ++bal; break;
+               case '}': --bal; break;
+            } while (bal);
+         }
       Err:
          if (!put) putdecl(cm, &decl);
       } else if (forini) {
@@ -4372,6 +4384,85 @@ function(struct comp *cm, struct function *fn, internstr *pnames, const struct s
    }
 }
 
+/* top-level declaration */
+static void
+tldecl(struct comp *cm)
+{
+   struct declstate st = { DTOPLEVEL };
+   do {
+      bool noscls = 0;
+      int nerr = nerror;
+      struct decl decl = pdecl(&st, cm);
+
+      if (nerror != nerr && st.varini) {
+         (void)expr(cm);
+         pdecl(&st, cm);
+         continue;
+      }
+      if (st.empty) break;
+      if (!decl.scls) {
+         noscls = 1;
+         decl.scls = SCEXTERN;
+      }
+      decl.sym = decl.name;
+      decl.isdef = st.varini;
+      if (st.funcdef) {
+         const struct typedata *td = &typedata[decl.ty.dat];
+         struct function fn = { &cm->fnarena, decl.name, .globl = decl.scls != SCSTATIC };
+         fn.fnty = decl.ty;
+         if (td->ret.t != TYVOID && isincomplete(td->ret))
+            error(&decl.span, "function definition with incomplete return type '%ty'", td->ret);
+         for (int i = 0; i < td->nmemb; ++i) {
+            if (td->param[i].t != TYVOID && isincomplete(td->param[i]))
+               error(&st.pspans[i], "parameter has incomplete type '%ty'", td->param[i]);
+         }
+         fn.retty = td->ret;
+         decl.isdef = 1;
+         putdecl(cm, &decl);
+         irinit(&fn);
+         function(cm, &fn, st.pnames, st.pspans, st.pqual);
+         if (!nerror && ccopt.dbg.p)
+            irdump(&fn);
+         irfini(&fn);
+      } else if (decl.name) {
+         struct decl *d = putdecl(cm, &decl);
+         if (st.varini) {
+            if (isagg(d->ty) && isincomplete(d->ty))
+               error(&d->span, "initialization of variable with incomplete type '%ty'", d->ty);
+            struct expr ini = initializer(cm, &d->ty, EVSTATICINI, decl.scls != SCSTATIC, decl.qual, decl.sym);
+            if (decl.scls == SCEXTERN && !noscls) {
+               struct span span = decl.span;
+               joinspan(&span.ex, ini.span.ex);
+               warn(&span, "'extern' variable has initializer");
+            }
+            pdecl(&st, cm);
+         } else if (decl.ty.t != TYFUNC && decl.scls != SCTYPEDEF && (decl.scls != SCEXTERN || noscls)) {
+            /* tentative definitions */
+            if (!objhassym(decl.sym, NULL)) {
+               uint size = typesize(d->ty);
+               if (isincomplete(d->ty)) {
+                  if (d->ty.t == TYARRAY) {
+                     warn(&d->span, "tentative array definition assumed to have one element");
+                     size = typesize(typechild(d->ty));
+                     assert(size != 0);
+                  } else if (isagg(d->ty)) {
+                     warn(&d->span, "tentative definition with incomplete type '%ty'", d->ty);
+                     assert(size == 0);
+                  } else assert(0);
+               }
+               if (size) objnewdat(d->sym, Sbss, decl.scls == SCEXTERN, size, typealign(d->ty));
+            }
+         }
+         if (ccopt.dbg.p) bfmt(ccopt.dbgout, "var %s : %tq\n", d->name, d->ty, d->qual);
+      } else {
+         if (ccopt.dbg.p && decl.ty.t) bfmt(ccopt.dbgout, "type %ty\n", decl.ty);
+      }
+      freearena(&cm->fnarena);
+      freearena(&cm->exarena);
+      lexerfreetemps(cm->lx);
+   } while (st.more);
+}
+
 union type cvalistty;
 void
 docomp(struct comp *cm)
@@ -4399,79 +4490,12 @@ docomp(struct comp *cm)
    putbuiltins(cm->env);
 
    while (peek(cm, tk) != TKEOF) {
-      struct declstate st = { DTOPLEVEL };
-      do {
-         bool noscls = 0;
-         int nerr = nerror;
-         struct decl decl = pdecl(&st, cm);
-
-         if (nerror != nerr && st.varini) {
-            (void)expr(cm);
-            pdecl(&st, cm);
-            continue;
-         }
-         if (st.empty) break;
-         if (!decl.scls) {
-            noscls = 1;
-            decl.scls = SCEXTERN;
-         }
-         decl.sym = decl.name;
-         decl.isdef = st.varini;
-         if (st.funcdef) {
-            const struct typedata *td = &typedata[decl.ty.dat];
-            struct function fn = { &cm->fnarena, decl.name, .globl = decl.scls != SCSTATIC };
-            fn.fnty = decl.ty;
-            if (td->ret.t != TYVOID && isincomplete(td->ret))
-               error(&decl.span, "function definition with incomplete return type '%ty'", td->ret);
-            for (int i = 0; i < td->nmemb; ++i) {
-               if (td->param[i].t != TYVOID && isincomplete(td->param[i]))
-                  error(&st.pspans[i], "parameter has incomplete type '%ty'", td->param[i]);
-            }
-            fn.retty = td->ret;
-            decl.isdef = 1;
-            putdecl(cm, &decl);
-            irinit(&fn);
-            function(cm, &fn, st.pnames, st.pspans, st.pqual);
-            if (!nerror && ccopt.dbg.p)
-               irdump(&fn);
-            irfini(&fn);
-         } else if (decl.name) {
-            struct decl *d = putdecl(cm, &decl);
-            if (st.varini) {
-               if (isagg(d->ty) && isincomplete(d->ty))
-                  error(&d->span, "initialization of variable with incomplete type '%ty'", d->ty);
-               struct expr ini = initializer(cm, &d->ty, EVSTATICINI, decl.scls != SCSTATIC, decl.qual, decl.sym);
-               if (decl.scls == SCEXTERN && !noscls) {
-                  struct span span = decl.span;
-                  joinspan(&span.ex, ini.span.ex);
-                  warn(&span, "'extern' variable has initializer");
-               }
-               pdecl(&st, cm);
-            } else if (decl.ty.t != TYFUNC && decl.scls != SCTYPEDEF && (decl.scls != SCEXTERN || noscls)) {
-               /* tentative definitions */
-               if (!objhassym(decl.sym, NULL)) {
-                  uint size = typesize(d->ty);
-                  if (isincomplete(d->ty)) {
-                     if (d->ty.t == TYARRAY) {
-                        warn(&d->span, "tentative array definition assumed to have one element");
-                        size = typesize(typechild(d->ty));
-                        assert(size != 0);
-                     } else if (isagg(d->ty)) {
-                        warn(&d->span, "tentative definition with incomplete type '%ty'", d->ty);
-                        assert(size == 0);
-                     } else assert(0);
-                  }
-                  if (size) objnewdat(d->sym, Sbss, decl.scls == SCEXTERN, size, typealign(d->ty));
-               }
-            }
-            if (ccopt.dbg.p) bfmt(ccopt.dbgout, "var %s : %tq\n", d->name, d->ty, d->qual);
-         } else {
-            if (ccopt.dbg.p && decl.ty.t) bfmt(ccopt.dbgout, "type %ty\n", decl.ty);
-         }
-         freearena(&cm->fnarena);
-         freearena(&cm->exarena);
-         lexerfreetemps(cm->lx);
-      } while (st.more);
+      if (!isdecltok(cm) && tk->t != TKIDENT) {
+         error(&tk->span, "expected declaration");
+         do lex(cm, tk); while (tk->t != TKEOF && !isdecltok(cm));
+      } else {
+         tldecl(cm);
+      }
    }
 }
 
