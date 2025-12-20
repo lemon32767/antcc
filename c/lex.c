@@ -23,12 +23,20 @@ fillchrbuf(struct lexer *lx)
       uchar c;
       /* skip backslash-newline* */
       for (;;) {
-         if (p[0] == '\\' && p[1] == '\n') {
-            idx += 2;
-            p += 2;
+         if (p[0] == '\\') {
+            if (p[1] == '\n') {
+               idx += 2;
+               p += 2;
+            } else if (p[1] == '\r' && p[2] == '\n') {
+               idx += 3;
+               p += 3;
+            } else break;
          } else if (ccopt.trigraph && !memcmp(p, "\?\?/\n", 4)) {
             idx += 4;
             p += 4;
+         } else if (ccopt.trigraph && !memcmp(p, "\?\?/\r\n", 5)) {
+            idx += 5;
+            p += 5;
          } else break;
          addfileline(lx->fileid, idx);
       }
