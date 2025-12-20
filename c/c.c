@@ -240,11 +240,17 @@ envitertagged(struct tagged **l, struct env *env)
 static bool
 redeclarationok(const struct decl *old, const struct decl *new)
 {
-   if (old->scls != new->scls) return 0;
+   bool takeoldscls = 0;
+   if (old->scls != new->scls) {
+      if (old->scls == SCSTATIC && (new->scls &~ SCEXTERN) == SCNONE && old->ty.t == TYFUNC && new->ty.t == TYFUNC)
+         takeoldscls = 1;
+      else
+         return 0;
+   }
    switch (old->scls) {
    case SCSTATIC:
    case SCEXTERN:
-      if (old->ty.bits == new->ty.bits) return 1;
+      if (old->ty.bits == new->ty.bits) goto OkFuncs;
       if (old->ty.t != new->ty.t) return 0;
       if (old->ty.t == TYARRAY /* allow 'int x[]; int x[100];' */
        && typechild(old->ty).bits == typechild(new->ty).bits
@@ -255,7 +261,8 @@ redeclarationok(const struct decl *old, const struct decl *new)
       if (old->ty.t == TYFUNC /* allow 'int f(); int f(int);' (some K&R) */
        && typedata[old->ty.dat].ret.bits == typedata[new->ty.dat].ret.bits
        && (typedata[old->ty.dat].kandr || typedata[new->ty.dat].kandr))
-      {
+      { OkFuncs:
+         if (takeoldscls) ((struct decl *)new)->scls = old->scls;
          return 1;
       }
       return 0;
@@ -4408,17 +4415,15 @@ tldecl(struct comp *cm)
       decl.isdef = st.varini;
       if (st.funcdef) {
          const struct typedata *td = &typedata[decl.ty.dat];
-         struct function fn = { &cm->fnarena, decl.name, .globl = decl.scls != SCSTATIC };
-         fn.fnty = decl.ty;
          if (td->ret.t != TYVOID && isincomplete(td->ret))
             error(&decl.span, "function definition with incomplete return type '%ty'", td->ret);
          for (int i = 0; i < td->nmemb; ++i) {
             if (td->param[i].t != TYVOID && isincomplete(td->param[i]))
                error(&st.pspans[i], "parameter has incomplete type '%ty'", td->param[i]);
          }
-         fn.retty = td->ret;
          decl.isdef = 1;
-         putdecl(cm, &decl);
+         struct decl *d = putdecl(cm, &decl);
+         struct function fn = { &cm->fnarena, decl.name, .globl = d->scls != SCSTATIC, .fnty = decl.ty, .retty = td->ret };
          irinit(&fn);
          function(cm, &fn, st.pnames, st.pspans, st.pqual);
          if (!nerror && ccopt.dbg.p)
@@ -4429,16 +4434,16 @@ tldecl(struct comp *cm)
          if (st.varini) {
             if (isagg(d->ty) && isincomplete(d->ty))
                error(&d->span, "initialization of variable with incomplete type '%ty'", d->ty);
-            struct expr ini = initializer(cm, &d->ty, EVSTATICINI, decl.scls != SCSTATIC, decl.qual, decl.sym);
-            if (decl.scls == SCEXTERN && !noscls) {
-               struct span span = decl.span;
+            struct expr ini = initializer(cm, &d->ty, EVSTATICINI, d->scls != SCSTATIC, d->qual, d->sym);
+            if (d->scls == SCEXTERN && !noscls) {
+               struct span span = d->span;
                joinspan(&span.ex, ini.span.ex);
                warn(&span, "'extern' variable has initializer");
             }
             pdecl(&st, cm);
-         } else if (decl.ty.t != TYFUNC && decl.scls != SCTYPEDEF && (decl.scls != SCEXTERN || noscls)) {
+         } else if (d->ty.t != TYFUNC && d->scls != SCTYPEDEF && (d->scls != SCEXTERN || noscls)) {
             /* tentative definitions */
-            if (!objhassym(decl.sym, NULL)) {
+            if (!objhassym(d->sym, NULL)) {
                uint size = typesize(d->ty);
                if (isincomplete(d->ty)) {
                   if (d->ty.t == TYARRAY) {
@@ -4450,7 +4455,7 @@ tldecl(struct comp *cm)
                      assert(size == 0);
                   } else assert(0);
                }
-               if (size) objnewdat(d->sym, Sbss, decl.scls == SCEXTERN, size, typealign(d->ty));
+               if (size) objnewdat(d->sym, Sbss, d->scls == SCEXTERN, size, typealign(d->ty));
             }
          }
          if (ccopt.dbg.p) bfmt(ccopt.dbgout, "var %s : %tq\n", d->name, d->ty, d->qual);
@@ -4490,7 +4495,9 @@ docomp(struct comp *cm)
    putbuiltins(cm->env);
 
    while (peek(cm, tk) != TKEOF) {
-      if (!isdecltok(cm) && tk->t != TKIDENT) {
+      if (tk->t == ';') {
+         lex(cm, tk);
+      } else if (!isdecltok(cm) && tk->t != TKIDENT) {
          error(&tk->span, "expected declaration");
          do lex(cm, tk); while (tk->t != TKEOF && !isdecltok(cm));
       } else {
