@@ -817,7 +817,7 @@ flagslivep(struct block *blk, int curi)
    if (blk->jmp.t != Jb || !blk->jmp.arg[0].bits)
       return 0;
    assert(blk->jmp.arg[0].t == RTMP);
-   cmpi = blk->jmp.arg[1].i;
+   cmpi = blk->jmp.arg[0].i;
    for (int i = blk->ins.n - 1; i > curi; --i) {
       if (blk->ins.p[i] == cmpi)
          /* flags defined after given instruction, dead here */
