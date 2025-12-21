@@ -1221,11 +1221,8 @@ fini(struct rega *ra)
             if (p == blk || (p->s2 && !blk->s1))
                delet = 0;
          }
-         startbbvisit();
          for (int i = 0; i < blk->npred; ++i) {
             struct block *p = blkpred(blk, i);
-            if (wasvisited(p)) break;
-            markvisited(p);
             if (!p->s2 && !blk->s1) {
                /* simplify:
                 *
@@ -1239,7 +1236,7 @@ fini(struct rega *ra)
                assert(p->s1 == blk);
                p->jmp.t = blk->jmp.t;
                p->s1 = NULL;
-            } else if (blk->s1) {
+            } else if (blk->s1 && blk->s1 != blk) {
                /* simplify:
                 *
                 * @p:
