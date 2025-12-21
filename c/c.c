@@ -130,7 +130,7 @@ isdecltok(struct comp *cm)
       struct decl *decl = finddecl(cm, tk.name);
       return decl && decl->scls == SCTYPEDEF;
    } else {
-      static const char kws[] = {
+      static const bool kws[] = {
 #define kw(x) [TKW##x-TKWBEGIN_] = 1
          kw(auto), kw(extern), kw(static), kw(register), kw(typedef),
          kw(_Thread_local), kw(thread_local), kw(_Static_assert),
@@ -141,12 +141,31 @@ isdecltok(struct comp *cm)
          kw(int), kw(char), kw(_Bool), kw(bool),
          kw(struct), kw(union), kw(enum),
          kw(__typeof__), kw(typeof), kw(typeof_unqual),
-#undef _
+#undef kw
       };
       return ((uint)tk.t-TKWBEGIN_) < countof(kws) && kws[tk.t-TKWBEGIN_];
    }
 }
 
+/* next token starts an expr? */
+static bool
+isexprtok(struct comp *cm)
+{
+   struct token tk;
+   if (peek(cm, &tk) == TKIDENT) {
+      struct decl *decl = finddecl(cm, tk.name);
+      return decl && decl->scls != SCTYPEDEF;
+   } else {
+      static const bool tks[] = {
+#define tk(x) [x] = 1
+         tk('+'), tk('-'), tk('*'), tk('&'), tk('~'), tk('!'), tk(TKINC), tk(TKDEC),
+         tk(TKWsizeof), tk(TKW_Alignof), tk(TKWalignof),
+         tk('('), tk(TKNUMLIT), tk(TKCHRLIT), tk(TKSTRLIT), tk(TKW_Generic)
+#undef tk
+      };
+      return tk.t < countof(tks) && tks[tk.t];
+   }
+}
 
 /**********************************/
 /* Environment (scope) management */
@@ -4142,9 +4161,12 @@ stmt(struct comp *cm, struct function *fn)
       break;
    case TKWreturn:
       lex(cm, NULL);
-      if (fn->retty.t != TYVOID) {
+      if (isexprtok(cm)) {
          ex = commaexpr(cm);
-         if (!assigncheck(fn->retty, &ex)) {
+         if (fn->retty.t == TYVOID) {
+            if (ex.ty.t != TYVOID) error(&ex.span, "void function should not return a value");
+            else if (ccopt.pedant) warn(&ex.span, "returning void expression is an extension");
+         } else if (!assigncheck(fn->retty, &ex)) {
             error(&ex.span,
                   "cannot return '%ty' value from function with return type '%ty'",
                   ex.ty, fn->retty);
@@ -4152,11 +4174,15 @@ stmt(struct comp *cm, struct function *fn)
          EMITS {
             if (isscalar(fn->retty))
                r = cvt(fn, fn->retty, ex.ty, exprvalue(fn, &ex));
+            else if (fn->retty.t == TYVOID)
+               r = (expreffects(fn, &ex), NOREF);
             else
                r = structreturn(fn, &ex);
             putreturn(fn, r, NOREF);
          }
       } else {
+         if (fn->retty.t != TYVOID)
+            error(&tk.span, "non-void function should return a value");
          EMITS putreturn(fn, NOREF, NOREF);
       }
       stmtterm(cm);
