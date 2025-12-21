@@ -1746,23 +1746,36 @@ findppcmd(const struct token *tk)
 static void
 identkeyword(struct token *tk)
 {
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-braces"
+#endif
    static const struct {
       const char *s;
       struct kw { uchar t, cstd : 4, ext : 1; } kw;
+      const char *alias[2];
    } kwtab[] = {
-#define _(kw, cstd) { #kw, {TKW##kw, cstd} },
+#define _(kw, cstd, ...) { #kw, {TKW##kw, cstd}, __VA_ARGS__ },
 #include "keywords.def"
 #undef _
    };
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
    static pmap_of(struct kw) kwmap;
    if (!kwmap.v) {
       pmap_init(&kwmap, 128);
       for (int i = 0; i < countof(kwtab); ++i) {
+         struct kw kw = kwtab[i].kw;
          /* allow future keywords but only if they begin with _ */
-         if (kwtab[i].kw.cstd <= ccopt.cstd || kwtab[i].s[0] == '_') {
-            struct kw kw = kwtab[i].kw;
-            kw.ext = kwtab[i].kw.cstd > ccopt.cstd;
+         if (kw.cstd <= ccopt.cstd || kwtab[i].s[0] == '_') {
+            kw.ext = kw.cstd > ccopt.cstd;
             pmap_set(&kwmap, intern(kwtab[i].s), kw);
+         }
+         for (const char *const *palias = kwtab[i].alias, *const *end = palias+2;
+              palias != end && *palias; ++palias)
+         {
+            pmap_set(&kwmap, intern(*palias), kw);
          }
       }
    }

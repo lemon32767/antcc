@@ -44,7 +44,7 @@ enum toktag { /* single-character tokens' tag value is the character itself */
    TKSETSHL, /* <<= */
    TKSETSHR, /* >>= */
    TKIDENT = 0x80,
-#define _(kw, stdc) TKW##kw,
+#define _(kw, stdc, ...) TKW##kw,
 #include "keywords.def"
 #undef _
    NTOKTAG,

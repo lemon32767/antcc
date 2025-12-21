@@ -592,7 +592,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             default:
                if (tok->t >= TKWBEGIN_ && tok->t <= TKWEND_) {
                   static const char *tab[] = {
-                  #define _(kw, c) #kw,
+                  #define _(kw, c, ...) #kw,
                   #include "c/keywords.def"
                   #undef _
                   };
