@@ -1,18 +1,58 @@
 #include "ir.h"
 
 static int
-ins(struct function *fn, struct instr *ins, struct block *blk, int *curi)
+mulk(struct instr *ins, struct block *blk, int *curi)
+{
+   vlong iv = intconval(ins->r);
+   enum irclass cls = ins->cls;
+   assert(iv > 1 && "trivial mul not handled by irbinop() ?");
+   /* This can be generalized to any sequence of shifts and
+    * adds/subtracts, but whether that's worth it depends on the number of them
+    * and the microarchitecture..  clang seems to stop after two shifts. Should
+    * we compute approximate cost of instrs to determine? For now just handle
+    * the po2 (+/- 1) case */
+   if (ispo2(iv)) {
+      /* x * 2^y ==> x << y */
+      ins->op = Oshl;
+      ins->r = mkref(RICON, ilog2(iv));
+      return 1;
+   } else if (ispo2(iv-1)) {
+      /* x * 5 ==> (x << 2) + x */
+      ins->op = Oadd;
+      ins->r = ins->l;
+      ins->l = insertinstr(blk, (*curi)++, mkinstr(Oshl, cls, ins->l, mkref(RICON, ilog2(iv-1))));
+      return 1;
+   } else if (ispo2(iv+1)) {
+      /* x * 7 ==> (x << 3) - x */
+      ins->op = Osub;
+      ins->r = ins->l;
+      ins->l = insertinstr(blk, (*curi)++, mkinstr(Oshl, cls, ins->l, mkref(RICON, ilog2(iv+1))));
+      return 1;
+   }
+   return 0;
+}
+
+static int
+ins(struct instr *ins, struct block *blk, int *curi)
 {
    int narg = opnarg[ins->op];
-   if ((oisarith(ins->op) || oiscmp(ins->op)) && isnumcon(ins->l) && (narg == 1 || isnumcon(ins->r))) {
-      bool ok;
-      if (narg == 1) ok = foldunop(&ins->l, ins->op, ins->cls, ins->l);
-      else ok = foldbinop(&ins->l, ins->op, ins->cls, ins->l, ins->r);
-      if (!ok) return 0; /* could be div/0 */
-      ins->op = Ocopy;
-      ins->cls = insrescls(*ins);
-      ins->r = NOREF;
-      return 1;
+   if (oisarith(ins->op)) {
+      union ref r = narg == 1 ? irunop(NULL, ins->op, ins->cls, ins->l)
+                              : irbinop(NULL, ins->op, ins->cls, ins->l, ins->r);
+      if (r.bits) {
+         ins->op = Ocopy;
+         ins->cls = insrescls(*ins);
+         ins->l = r;
+         ins->r = NOREF;
+         return 1;
+      }
+   }
+   enum irclass k = ins->cls;
+   switch (ins->op) {
+   case Omul:
+      if (kisflt(k)) break;
+      if (isnumcon(ins->l)) rswap(ins->l, ins->r); /* put const in rhs */
+      if (isintcon(ins->r)) return mulk(ins, blk, curi);
    }
    return 0;
 }
@@ -73,12 +113,13 @@ simpl(struct function *fn)
    struct block **jmpfinal = allocz(fn->passarena, fn->nblk * sizeof *jmpfinal, 0);
    struct block *blk = fn->entry;
 
+   fn->curblk = NULL;
    do {
       for (int i = 0; i < blk->phi.n; ++i) {
 
       }
       for (int i = 0; i < blk->ins.n; ++i) {
-         inschange += ins(fn, &instrtab[blk->ins.p[i]], blk, &i);
+         inschange += ins(&instrtab[blk->ins.p[i]], blk, &i);
       }
 
       /* merge blocks:

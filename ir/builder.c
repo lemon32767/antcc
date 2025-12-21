@@ -16,7 +16,8 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
       if (l.bits == ZEROREF.bits) return r; /* 0 + x ==> x */
       /* fallthru */
    case Osub:
-      if (r.bits == ZEROREF.bits) return l; /* x +/- 0 ==> x */
+      if (r.bits == ZEROREF.bits) return l; /* x - 0 ==> x */
+      if (kisint(k) && l.bits == r.bits) return ZEROREF; /* x - 0 ==> x */
       break;
    case Omul:
       if (isnumcon(l)) rswap(l, r); /* put const in rhs */
@@ -28,7 +29,7 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
       if (isintcon(r) && ispo2(iv = intconval(r))) {
          /* x * 2^y ==> x << y */
          op = Oshl;
-         r = mkintcon(k, ilog2(iv));
+         r = mkref(RICON, ilog2(iv));
       }
       break;
    case Odiv:
@@ -38,7 +39,7 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
       if (isintcon(r) && ispo2(iv = intconval(r))) {
          /* x / 2^y ==> x >> y */
          op = Oslr;
-         r = mkintcon(k, ilog2(iv));
+         r = mkref(RICON, ilog2(iv));
       }
       break;
    case Orem:
@@ -98,7 +99,7 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
    default:
       assert(!"binop?");
    }
-   return addinstr(fn, mkinstr(op, k, l, r));
+   return fn ? addinstr(fn, mkinstr(op, k, l, r)) : NOREF;
 }
 
 /* implements f32/f64 -> u64 conversion */
@@ -175,7 +176,7 @@ irunop(struct function *fn, enum op op, enum irclass k, union ref a)
    case Ocvts64f:
       break;
    case Ocvtf32u: case Ocvtf64u:
-      if (k == KI64) {
+      if (k == KI64 && fn) {
          /* XXX some architectures like arm64 do have these instructions natively
           * this should probably be handled in a separate "arithmetic-lowering" pass, earlier than isel
           */
@@ -184,14 +185,15 @@ irunop(struct function *fn, enum op op, enum irclass k, union ref a)
       break;
    case Ocvtu64f:
       /* XXX see above */
-      return cvtu64f(fn, k, a);
+      if (fn)
+         return cvtu64f(fn, k, a);
    case Oexts8: case Oextu8: case Oexts16: case Oextu16:
    case Oexts32: case Oextu32:
    case Ocopy:
       break;
    default: assert(!"unop?");
    }
-   return addinstr(fn, mkinstr(op, k, a));
+   return fn ? addinstr(fn, mkinstr(op, k, a)) : NOREF;
 }
 
 int allocinstr(void);
