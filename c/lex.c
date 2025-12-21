@@ -11,10 +11,8 @@ fillchrbuf(struct lexer *lx)
    int rem = countof(lx->chrbuf) - i;
    assert(rem >= 0);
    if (rem > 0) {
-      for (int j = 0; j < rem; ++j) {
-         lx->chrbuf[j] = lx->chrbuf[i+j];
-         lx->chridxbuf[j] = lx->chridxbuf[i+j];
-      }
+      memmove(lx->chrbuf, lx->chrbuf+i, rem * sizeof *lx->chrbuf);
+      memmove(lx->chridxbuf, lx->chridxbuf+i, rem * sizeof *lx->chridxbuf);
    }
    lx->chrbuf0 = 0;
    i = rem;
@@ -452,20 +450,41 @@ Begin:
    case '/':
       TK2('=', TKSETDIV);
       if (match(lx, '/')) {
-         /* // comment */
-         while (!lx->eof && peek(lx, 0) != '\n')
-            next(lx);
-         goto Begin;
-      } else if (match(lx, '*')) {
-         /* comment */
-         while (!(peek(lx, 0) == '*' && peek(lx, 1) == '/')) {
-            if (!next(lx) && lx->eof) {
+         /* // single line comment */
+         for (;;) {
+            do {
+               if (lx->chrbuf[lx->chrbuf0] == '\n') {
+                  lx->chridx = lx->chridxbuf[lx->chrbuf0++];
+                  lx->eof = lx->chridx >= lx->ndat;
+                  goto Begin;
+               }
+            } while (++lx->chrbuf0 < countof(lx->chrbuf));
+            fillchrbuf(lx);
+            lx->chridx = lx->chridxbuf[lx->chrbuf0];
+            if ((lx->eof = (lx->chridx >= lx->ndat))) {
                struct span span = {{ idx, lx->chridx - idx, lx->fileid }};
-               fatal(&span, "unterminated multiline comment");
+               fatal(&span, "unterminated comment");
             }
          }
-         next(lx), next(lx);
-         goto Begin;
+      } else if (match(lx, '*')) {
+         // /* multi line comment */
+         if (lx->chrbuf0+1 >= countof(lx->chrbuf)) fillchrbuf(lx);
+         for (;;) {
+            do {
+               if (lx->chrbuf[lx->chrbuf0] == '*' && lx->chrbuf[lx->chrbuf0+1] == '/') {
+                  lx->chridx = lx->chridxbuf[lx->chrbuf0+1];
+                  lx->chrbuf0 += 2;
+                  lx->eof = lx->chridx >= lx->ndat;
+                  goto Begin;
+               }
+            } while (++lx->chrbuf0+1 < countof(lx->chrbuf));
+            fillchrbuf(lx);
+            lx->chridx = lx->chridxbuf[lx->chrbuf0];
+            if ((lx->eof = (lx->chridx >= lx->ndat))) {
+               struct span span = {{ idx, lx->chridx - idx, lx->fileid }};
+               fatal(&span, "unterminated comment");
+            }
+         }
       }
       RET(c);
    case '%':
