@@ -89,11 +89,11 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
          return ZEROREF;
       break;
    case Oulte:
-      if (l.bits == ZEROREF.bits) /* 0 u<= x ==> f */
+      if (l.bits == ZEROREF.bits) /* 0 u<= x ==> t */
          return ONE;
       break;
    case Ougte:
-      if (r.bits == ZEROREF.bits) /* x u>= 0 ==> f */
+      if (r.bits == ZEROREF.bits) /* x u>= 0 ==> t */
          return ONE;
       break;
    default:

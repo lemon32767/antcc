@@ -33,6 +33,51 @@ mulk(struct instr *ins, struct block *blk, int *curi)
 }
 
 static int
+divmodk(struct instr *ins, struct block *blk, int *curi)
+{
+   enum op op = ins->op;
+   enum irclass cls = ins->cls;
+   vlong iv = intconval(ins->r);
+   uint nbit = 8 * cls2siz[cls];
+   bool neg = (op == Odiv || op == Orem) && iv < 0;
+   if (ispo2(iv) || (neg && ispo2(-iv))) { /* simple po2 cases */
+      union ref temp;
+      uint s = ilog2(neg ? -iv : iv);
+      switch (op) {
+      default: assert(0);
+      case Oudiv: /* x / 2^s ==> x >> s */
+         ins->op = Oslr, ins->r = mkref(RICON, s);
+         return 1;
+      case Ourem: /* x % 2^s ==> x & 2^s-1 */
+         ins->op = Oand, ins->r = mkintcon(cls, iv - 1);
+         return 1;
+      case Odiv: case Orem:
+         /* have to adjust to round negatives toward zero */
+         /* x' = (((x < 0 ? -1 : 0) >>> (Nbit - s)) + x) */
+         temp = insertinstr(blk, (*curi)++, mkinstr(Osar, cls, ins->l, mkref(RICON, nbit - 1)));
+         temp = insertinstr(blk, (*curi)++, mkinstr(Oslr, cls, temp, mkref(RICON, nbit - s)));
+         temp = insertinstr(blk, (*curi)++, mkinstr(Oadd, cls, ins->l, temp));
+         if (op == Odiv) {
+            /* (-) (x' >> s) */
+            struct instr sar = mkinstr(Osar, cls, temp, mkref(RICON, s));
+            if (!neg) *ins = sar;
+            else {
+               temp = insertinstr(blk, (*curi)++, sar);
+               ins->op = Oneg, ins->l = temp, ins->r = NOREF;
+            }
+         } else {
+            /* x - (x' & -(2^s)) */
+            temp = insertinstr(blk, (*curi)++, mkinstr(Oand, cls, temp, mkintcon(cls, neg ? iv : -iv)));
+            ins->op = Osub, ins->r = temp;
+         }
+         break;
+         return 0;
+      }
+   }
+   return 0;
+}
+
+static int
 ins(struct instr *ins, struct block *blk, int *curi)
 {
    int narg = opnarg[ins->op];
@@ -40,10 +85,8 @@ ins(struct instr *ins, struct block *blk, int *curi)
       union ref r = narg == 1 ? irunop(NULL, ins->op, ins->cls, ins->l)
                               : irbinop(NULL, ins->op, ins->cls, ins->l, ins->r);
       if (r.bits) {
-         ins->op = Ocopy;
-         ins->cls = insrescls(*ins);
-         ins->l = r;
-         ins->r = NOREF;
+         *ins = mkinstr(Onop,0,);
+         replcuses(mkref(RTMP, ins - instrtab), r);
          return 1;
       }
    }
@@ -53,6 +96,10 @@ ins(struct instr *ins, struct block *blk, int *curi)
       if (kisflt(k)) break;
       if (isnumcon(ins->l)) rswap(ins->l, ins->r); /* put const in rhs */
       if (isintcon(ins->r)) return mulk(ins, blk, curi);
+      break;
+   case Odiv: case Oudiv: case Orem: case Ourem:
+      if (kisflt(k)) break;
+      if (isintcon(ins->r)) return divmodk(ins, blk, curi);
    }
    return 0;
 }
@@ -113,15 +160,7 @@ simpl(struct function *fn)
    struct block **jmpfinal = allocz(fn->passarena, fn->nblk * sizeof *jmpfinal, 0);
    struct block *blk = fn->entry;
 
-   fn->curblk = NULL;
    do {
-      for (int i = 0; i < blk->phi.n; ++i) {
-
-      }
-      for (int i = 0; i < blk->ins.n; ++i) {
-         inschange += ins(&instrtab[blk->ins.p[i]], blk, &i);
-      }
-
       /* merge blocks:
        * @blk:
        *   ... (1)
@@ -155,6 +194,17 @@ simpl(struct function *fn)
          blk->s2 = s->s2;
          freeblk(fn, s);
       }
+   } while ((blk = blk->lnext) != fn->entry);
+
+   if (!(fn->prop & FNUSE)) filluses(fn);
+
+   do {
+      for (int i = 0; i < blk->phi.n; ++i) {; }
+
+      for (int i = 0; i < blk->ins.n; ++i) {
+         inschange += ins(&instrtab[blk->ins.p[i]], blk, &i);
+      }
+
       /* thread jumps.. */
       if (!blk->phi.n && !blk->ins.n) {
          if (blk->jmp.t == Jb && !blk->s2) {
@@ -166,10 +216,7 @@ simpl(struct function *fn)
          }
       }
    } while ((blk = blk->lnext) != fn->entry);
-   if (inschange) {
-      if (!(fn->prop & FNUSE)) filluses(fn);
-      copyopt(fn);
-   }
+
    if (blkchange) {
       do {
          if (blk->s1) jmpfind(jmpfinal, &blk->s1);

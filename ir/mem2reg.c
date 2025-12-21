@@ -262,7 +262,7 @@ mem2reg(struct function *fn)
             }
             goto Next;
          }
-         if (!ndef) /* slot is read from but never written to */
+         if (!ndef && instrnuse[var] > 0) /* slot is read from but never written to */
             goto Next;
          
          qsort(instruse[var], instrnuse[var], sizeof *instruse[var], cmpuse);
