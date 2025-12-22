@@ -141,6 +141,7 @@ isdecltok(struct comp *cm)
          kw(int), kw(char), kw(_Bool), kw(bool),
          kw(struct), kw(union), kw(enum),
          kw(__typeof__), kw(typeof), kw(typeof_unqual),
+         kw(__attribute__)
 #undef kw
       };
       return ((uint)tk.t-TKWBEGIN_) < countof(kws) && kws[tk.t-TKWBEGIN_];
@@ -2338,7 +2339,7 @@ End:
          goto Bad;
       st->base = mktype(t ? t : TYINT);
    } else if (!st->base.t) {
-      if (ccopt.cstd < STDC23) {
+      if (ccopt.cstd < STDC23 && peek(cm, NULL) == TKIDENT) {
          if (ccopt.cstd > STDC89)
             warn(&tk.span, "type implicitly declared as int");
          st->base = mktype(TYINT);
