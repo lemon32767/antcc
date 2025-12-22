@@ -945,11 +945,8 @@ exprparse(struct comp *cm, int prec, const struct token *ident, enum exprctx ctx
 {
    struct token tk;
    struct span span;
-   struct expr ex, rhs, tmp;
-   struct decl *decl;
+   struct expr ex;
    union type ty;
-   int opprec;
-   enum exprkind ek;
    struct {
       struct span span;
       union {
@@ -1035,11 +1032,11 @@ Unary:
       ty = mktype(((const char []){TYCHAR, TYSHORT, TYINT})[tk.wide]);
       ex = mkexpr(ESTRLIT, tk.span, mkarrtype(ty, 0, tk.len+1), { .s.p = (void *)tk.s, .s.n = tk.len });
       break;
-   case TKIDENT:
-   Ident:
-      decl = finddecl(cm, tk.name);
+   case TKIDENT: Ident: {
+      struct decl *decl = finddecl(cm, tk.name);
       if (!decl) {
-         if (cm->env->up && tk.name->c == '_' && (!strcmp(&tk.name->c, "__FUNCTION__") || !strcmp(&tk.name->c, "__PRETTY_FUNCTION__"))) {
+         if (cm->env->up && tk.name->c == '_'
+          && (!strcmp(&tk.name->c, "__FUNCTION__") || !strcmp(&tk.name->c, "__PRETTY_FUNCTION__"))) {
             /* hack: treat these identifiers as __func__ synonym to support the GNU extension */
             warn(&tk.span, "%'tk is a GNU extension", &tk);
             decl = finddecl(cm, istr__func__);
@@ -1059,7 +1056,7 @@ Unary:
       } else Sym: {
          ex = mkexpr(ESYM, tk.span, decl->ty, .qual = decl->qual, .sym = decl);
       }
-      break;
+      break; }
    case TKWsizeof: case TKW_Alignof: case TKWalignof:
       span = tk.span;
       if (!match(cm, NULL, '(')) /* sizeof/alignof expr */
@@ -1074,7 +1071,7 @@ Unary:
          sizeofalignofcheck(&span, tt, ty, NULL);
       } else { /* sizeof/alignof expr */
          enum toktag tt = tk.t;
-         tmp = commaexpr(cm);
+         struct expr tmp = commaexpr(cm);
          peek(cm, &tk);
          if (expect(cm, ')', NULL))
             joinspan(&span.ex, tk.span.ex);
@@ -1096,6 +1093,7 @@ Unary:
 
    /* unary operators (process) */
    while (nunop-- > 0) {
+      enum exprkind ek;
       span = unops[nunop].span;
       joinspan(&span.ex, ex.span.ex);
       if (unops[nunop].t0 == 0) {
@@ -1161,9 +1159,10 @@ Unary:
    }
 
    /* binary operators */
-   while ((opprec = tkprec(peek(cm, &tk))) >= prec) {
-      lex(cm, &tk);
-      ek = bintab[tk.t].t;
+   for (int opprec; (opprec = tkprec(peek(cm, &tk))) >= prec;) {
+      enum exprkind ek = bintab[tk.t].t;
+      struct expr rhs, tmp;
+      lex(cm, NULL);
       if (ek != ECOND) {
          /* only the assignment operators are right-associative */
          bool leftassoc = (bintab[tk.t].k & BCSET) == 0;
