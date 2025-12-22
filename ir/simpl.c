@@ -5,7 +5,9 @@ mulk(struct instr *ins, struct block *blk, int *curi)
 {
    vlong iv = intconval(ins->r);
    enum irclass cls = ins->cls;
-   assert(iv > 1 && "trivial mul not handled by irbinop() ?");
+   assert((uvlong)iv > 1 && "trivial mul not handled by irbinop() ?");
+   bool neg = iv < 0;
+   if (neg) iv = -iv;
    /* This can be generalized to any sequence of shifts and
     * adds/subtracts, but whether that's worth it depends on the number of them
     * and the microarchitecture..  clang seems to stop after two shifts. Should
@@ -15,21 +17,23 @@ mulk(struct instr *ins, struct block *blk, int *curi)
       /* x * 2^y ==> x << y */
       ins->op = Oshl;
       ins->r = mkref(RICON, ilog2(iv));
-      return 1;
    } else if (ispo2(iv-1)) {
       /* x * 5 ==> (x << 2) + x */
       ins->op = Oadd;
       ins->r = ins->l;
       ins->l = insertinstr(blk, (*curi)++, mkinstr(Oshl, cls, ins->l, mkref(RICON, ilog2(iv-1))));
-      return 1;
    } else if (ispo2(iv+1)) {
       /* x * 7 ==> (x << 3) - x */
       ins->op = Osub;
       ins->r = ins->l;
       ins->l = insertinstr(blk, (*curi)++, mkinstr(Oshl, cls, ins->l, mkref(RICON, ilog2(iv+1))));
-      return 1;
+   } else return 0;
+   if (neg) {
+      ins->l = insertinstr(blk, (*curi)++, *ins);
+      ins->op = Oneg;
+      ins->r = NOREF;
    }
-   return 0;
+   return 1;
 }
 
 static int
