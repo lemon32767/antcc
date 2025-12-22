@@ -1,5 +1,5 @@
 - aarch64 backend
-- STDC: thread local, VLAs, complex, long double, _Generic, atomics
+- STDC: thread local, VLAs, complex, long double, atomics
 - test on non-GNU and non-linux POSIX systems (alpine, various BSDs). Maybe we'll need a configure script after all
 - DWARF debug information
 - implement GNU extensions: __attribute__, __builtin_*, ...

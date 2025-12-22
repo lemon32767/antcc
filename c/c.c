@@ -926,6 +926,55 @@ vaargexpr(struct comp *cm, struct span *span)
    return ex;
 }
 
+static struct expr
+genericexpr(struct comp *cm, struct span *span)
+{
+   struct token tk;
+   if (expect(cm, '(', "after _Generic")) {
+      struct expr control = expr(cm), dfault = {0}, ex = {0};
+      expect(cm, ',', NULL);
+      for (;;) {
+         if (match(cm, &tk, TKWdefault)) {
+            expect(cm, ':', NULL);
+            if (dfault.t) {
+               error(&tk.span, "duplicate 'default' specifier in generic selection expression");
+               (void)expr(cm);
+            } else {
+               dfault = expr(cm);
+            }
+         } else {
+            struct decl decl = pdecl(&(struct declstate){DCASTEXPR}, cm);
+            union type ty = decl.ty;
+            expect(cm, ':', NULL);
+            if (!ex.t &&
+                (typedecay(ty).bits == typedecay(control.ty).bits
+               || ((ty.t == TYENUM || control.ty.t == TYENUM) && scalartypet(ty) == scalartypet(control.ty))))
+                  ex = expr(cm);
+            else
+               (void)expr(cm);
+         }
+         if (match(cm, &tk, ')')) break;
+         else if (!expect(cm, ',', "or `)'")) {
+            if (!isdecltok(cm)) {
+               peek(cm, &tk); /* want the span */
+               break;
+            }
+         }
+      }
+      if (!ex.t) ex = dfault;
+      if (!ex.t) {
+         error(&control.span,
+               "controlling type '%ty' not compatible with any generic association type",
+               control.ty);
+         ex.ty.t = TYINT;
+      }
+      ex.span = *span;
+      joinspan(&ex.span.ex, tk.span.ex);
+      return ex;
+   }
+   return mkexpr(ENUMLIT,*span,mktype(TYINT),);
+}
+
 static inline int
 tkprec(int tt)
 {
@@ -1085,6 +1134,10 @@ Unary:
    case TKW__builtin_va_arg:
       span = tk.span;
       ex = vaargexpr(cm, &span);
+      break;
+   case TKW_Generic:
+      span = tk.span;
+      ex = genericexpr(cm, &span);
       break;
    default:
       fatal(&tk.span, "expected %s (near %'tk)", ctx == EFROMSTMT ? "statement" : "expression", &tk);
