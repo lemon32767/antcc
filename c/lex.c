@@ -545,11 +545,12 @@ Begin:
          --lx->chrbuf0;
          if (lx->chrbuf0 + MAXLITLEN >= countof(lx->chrbuf))
             fillchrbuf(lx);
-         uchar *p = &lx->chrbuf[lx->chrbuf0];
          int n = 1;
+         uchar *p = &lx->chrbuf[lx->chrbuf0];
          for (; isppnum(p[n-1], p[n]); ++n) {
-            if (n >= MAXLITLEN) TooLong: {
+            if (n >= MAXLITLEN) {
                lx->chridx = lx->chridxbuf[lx->chrbuf0+n-1];
+            TooLong:
                fatal(&(struct span) {{ idx, lx->chridx - idx, lx->fileid }},
                      "token is too long");
             }
@@ -571,7 +572,10 @@ Begin:
          uchar *p = &lx->chrbuf[lx->chrbuf0];
          int n = 1;
          for (; !aissep(p[n]); ++n) {
-            if (n >= MAXLITLEN) goto TooLong;
+            if (n >= MAXLITLEN) {
+               lx->chridx = lx->chridxbuf[lx->chrbuf0+n-1];
+               goto TooLong;
+            }
          }
          tk->blue = 0;
          tk->len = n;

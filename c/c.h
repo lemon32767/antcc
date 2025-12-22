@@ -25,18 +25,16 @@ enum exprkind {
 struct expr {
    uchar t;
    uchar qual;
+   ushort narg; /* ECALL */
    union type ty;
    struct span span;
    union {
      struct {
         struct expr *sub; /* child(ren) */
-        union {
-           struct exgetfld {
-              ushort off;
-              uchar bitsiz, bitoff;
-           } fld; /* EGETF */
-           ushort narg; /* ECALL */
-        };
+        struct exgetfld {
+           ushort off;
+           uchar bitsiz, bitoff;
+        } fld; /* EGETF */
      };
      uvlong u; vlong i; double f; /* ENUMLIT */
      struct {
