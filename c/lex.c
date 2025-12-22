@@ -1048,11 +1048,13 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
       ++i;
    }
    joinspan(&span->ex, tk.span.ex);
-   if (narg < mac->nparam)
-      error(span, "macro `%s' passed %d arguments, but takes %d", mname, narg, mac->nparam);
-   else if (toomany) {
+   if (narg < mac->nparam) {
+      warn(span, "macro `%s' passed %d arguments, but takes %d", mname, narg, mac->nparam);
+      for (int i = narg; i < mac->nparam; ++i)
+         args[i].n = 0;
+   } else if (toomany) {
       joinspan(&excessspan.ex, tk.span.ex);
-      error(&excessspan, "macro `%s' passed %d arguments, but takes just %d", mname, narg, mac->nparam);
+      warn(&excessspan, "macro `%s' passed %d arguments, but takes just %d", mname, narg, mac->nparam);
    }
    if (mac->special) {
       mac->handlerfn(lx, &tk, (struct rlist){argsbuf.p, argsbuf.n});
