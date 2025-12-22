@@ -1,5 +1,13 @@
-Things to finish before moving onto compiler optimizations, C extensions, other nice features
+- aarch64 backend
+- STDC: thread local, VLAs, complex, long double, _Generic, atomics
+- test on non-GNU and non-linux POSIX systems (alpine, various BSDs). Maybe we'll need a configure script after all
+- DWARF debug information
+- implement GNU extensions: __attribute__, __builtin_*, ...
+- compiler optimizations:
+    - dead store/load optimization,
+    - inlining
+    - loop inversion
+    - instruction scheduling
+    - better regalloc spilling heuristics
 
 - testing on real world codebases
-
-at some point add another backend like arm64 to make sure the non target specific stuff is generic enough..
