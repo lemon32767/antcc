@@ -152,8 +152,10 @@ newarena(uint chunksiz)
 {
    struct arena *ar = xmalloc(offsetof(struct arena, mem) + chunksiz);
    assert(chunksiz < 1u<<31 && "toobig");
+   ar->prev = NULL;
    ar->cap = chunksiz;
    ar->dyn = 1;
+   ar->n = 0;
    return ar;
 }
 
