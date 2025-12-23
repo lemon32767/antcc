@@ -47,12 +47,6 @@ picfixsym(union ref *r, struct block *blk, int *curi)
    *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, .l = *r));
 }
 
-/* map alloca tmp -> stack frame displacement (0 if not alloca) */
-static ushort *stkslots;
-static uint nstkslots;
-
-#define isstkslot(r) ((r).t == RTMP && (r).i < nstkslots && stkslots[(r).i])
-
 static void
 fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
 {
@@ -107,8 +101,8 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
       sh = r->i;
    ShiftImm: /* shift immediate is always 8bit */
       *r = mkref(RICON, sh & 255);
-   } else if (isstkslot(*r)) {
-      struct instr adr = mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkintcon(KI32, -stkslots[r->i]));
+   } else if (r->t == RSTACK) {
+      struct instr adr = mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkintcon(KI32, -r->i));
       if (op == Ocopy)
          *ins = adr;
       else
@@ -246,8 +240,8 @@ ascale(struct addr *addr, union ref a, union ref b)
 static bool
 aadd(struct addr *addr, struct block *blk, int *curi, union ref r)
 {
-   if (isstkslot(r)) {
-      if (addr->base.bits || !aimm(addr, -stkslots[r.i])) goto Ref;
+   if (r.t == RSTACK) {
+      if (addr->base.bits || !aimm(addr, -r.i)) goto Ref;
       addr->base = mkref(RREG, RBP);
    } else if (r.t == RTMP) {
       struct instr *ins = &instrtab[r.i];
@@ -283,8 +277,8 @@ aadd(struct addr *addr, struct block *blk, int *curi, union ref r)
        * safely hoisted into an address value, unless they have global lifetime */
       if (!rstest(mctarg->rglob, r.i)) return 0;
    Ref:
-      if (isstkslot(r) && (addr->base.bits || addr->index.bits)) {
-         r = insertinstr(blk, (*curi)++, mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, -stkslots[r.i])));
+      if (r.t == RSTACK && (addr->base.bits || addr->index.bits)) {
+         r = insertinstr(blk, (*curi)++, mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, -r.i)));
       }
       if (!addr->base.bits) addr->base = r;
       else if (!addr->index.bits) addr->index = r;
@@ -308,7 +302,7 @@ fuseaddr(union ref *r, struct block *blk, int *curi)
       }
       return 1;
    }
-   if (r->t != RTMP) return 0;
+   if (r->t != RSTACK && r->t != RTMP) return 0;
    if (!aadd(&addr, blk, curi, *r)) return 0;
 
    if (isaddrcon(addr.base,0) && (ccopt.pic || (ccopt.pie && addr.index.bits) || conht[addr.base.i].isfunc)) {
@@ -337,8 +331,8 @@ addarg4addrp(union ref r)
 {
    struct instr *ins;
    if (r.t == RXCON && !conht[r.i].cls && !conht[r.i].deref) return 1; /* sym or dat ref */
+   if (r.t == RSTACK) return 1;
    if (r.t != RTMP) return 0;
-   if (isstkslot(r)) return 1;
    ins = &instrtab[r.i];
    return ins->op == Oshl || (ins->op == Ocopy && ins->l.t == RADDR) || ins->op == Oadd;
 }
@@ -350,7 +344,7 @@ loadstoreaddr(struct block *blk, union ref *r, int *curi)
       *r = mkaddr((struct addr){.base = *r});
    } else if (isaddrcon(*r, 0)) {
       picfixsym(r, blk, curi);
-   } else if (r->t == RTMP) {
+   } else if (r->t == RTMP || r->t == RSTACK) {
       if (addarg4addrp(*r)) fuseaddr(r, blk, curi);
    } else if (r->t != RREG) {
       *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, *r));
@@ -373,7 +367,6 @@ arithfold(struct instr *ins)
 static void
 sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 {
-   uint siz, alignlog2;
    int t = ins - instrtab;
    struct instr temp = {0};
    enum op op = ins->op;
@@ -387,14 +380,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    default: assert(0);
    case Onop: break;
    case Oalloca1: case Oalloca2: case Oalloca4: case Oalloca8: case Oalloca16:
-      alignlog2 = ins->op - Oalloca1;
-      assert(ins->l.i > 0);
-      siz = ins->l.i << alignlog2;
-      fn->stksiz += siz;
-      fn->stksiz = alignup(fn->stksiz, 1 << alignlog2);
-      if (fn->stksiz > (1<<16)-1) error(NULL, "'%s' stack frame too big", fn->name);
-      stkslots[t] = fn->stksiz;
-      *ins = mkinstr(Onop,0,);
+      assert(!"unlowered alloca");
       break;
    case Oparam:
       assert(ins->l.t == RICON && ins->l.i < fn->nabiarg);
@@ -623,11 +609,8 @@ seljmp(struct function *fn, struct block *blk)
 void
 x86_64_isel(struct function *fn)
 {
-   extern int ninstr;
    struct block *blk = fn->entry;
 
-   fn->stksiz = 0;
-   stkslots = allocz(fn->passarena, (nstkslots = ninstr) * sizeof *stkslots, 0);
    do {
       int i;
       for (i = 0; i < blk->phi.n; ++i) {

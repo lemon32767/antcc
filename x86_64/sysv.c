@@ -70,7 +70,6 @@ abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, union 
 {
    static const uchar intregs[] = { RDI, RSI, RDX, RCX, R8, R9 };
    enum { NINT = countof(intregs), NFLT = 8 };
-   int ret, ni_save, nf_save;
 
    if (!typ.isagg) {
       if (kisflt(cls[0] = typ.cls) && *nf < NFLT) {
@@ -85,14 +84,14 @@ abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, union 
       return 1;
    }
    cls[0] = cls[1] = 0;
-   ret = classify(cls, &typedata[typ.dat], 0);
+   int ret = classify(cls, &typedata[typ.dat], 0);
    if (!ret) { /*MEMORY*/
       r[0] = *ns;
       *ns = alignup(*ns + typedata[typ.dat].siz, 8);
       return 0;
    }
    assert(ret <= 2);
-   ni_save = *ni, nf_save = *nf;
+   int ni_save = *ni, nf_save = *nf;
    *r2off = 8;
    for (int i = 0; i < ret; ++i) {
       assert(cls[i]);
@@ -114,15 +113,13 @@ abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, union 
 static int
 abiret(short r[2], uchar cls[2], uchar *r2off, int *ni, union irtype typ)
 {
-   int ret;
-
    if (!typ.isagg) {
       r[0] = kisflt(cls[0] = typ.cls) ? XMM0 : RAX;
       return 1;
    }
 
    cls[0] = cls[1] = 0;
-   ret = classify(cls, &typedata[typ.dat], 0);
+   int ret = classify(cls, &typedata[typ.dat], 0);
    if (!ret) { /* MEMORY */
       assert(*ni == 0);
       r[0] = RAX; /* on return should contain result location address */

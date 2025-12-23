@@ -650,6 +650,8 @@ irfini(struct function *fn)
       simpl(fn);
       freearena(fn->passarena);
    }
+   lowerstack(fn);
+   freearena(fn->passarena);
    if (ccopt.dbg.o) {
       bfmt(ccopt.dbgout, "<< Before isel >>\n");
       irdump(fn);

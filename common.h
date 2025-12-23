@@ -143,6 +143,7 @@ struct option {
               a : 1, /* after abi0 */
               m : 1, /* after mem */
               o : 1, /* after optimizations */
+              s : 1, /* after stack */
               i : 1, /* after isel */
               l : 1, /* after liveness fixup */
               r : 1; /* after regalloc */

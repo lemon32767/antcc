@@ -62,6 +62,7 @@ enum refkind {
    RXCON, /* other constants (incl. external symbols) */
    RADDR, /* target-specific addressing mode */
    RTYPE, /* irtype */
+   RSTACK, /* stack base offset */
 };
 
 union ref {
@@ -324,6 +325,9 @@ void mem2reg(struct function *);
 
 /** intrin.c **/
 void lowerintrin(struct function *);
+
+/** stack.c **/
+void lowerstack(struct function *);
 
 /** regalloc.c **/
 void regalloc(struct function *);

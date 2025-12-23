@@ -155,6 +155,9 @@ dumpref(enum op o, union ref ref)
          bfmt(out, "]");
       }
       break;
+   case RSTACK:
+      bfmt(out, "[stack %d]", ref.i);
+      break;
    default: assert(!"ref");
    }
 }

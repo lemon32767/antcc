@@ -146,6 +146,7 @@ optparse(char **args)
          case 'a': ccopt.dbg.a = 1; break;
          case 'm': ccopt.dbg.m = 1; break;
          case 'o': ccopt.dbg.o = 1; break;
+         case 's': ccopt.dbg.s = 1; break;
          case 'i': ccopt.dbg.i = 1; break;
          case 'l': ccopt.dbg.l = 1; break;
          case 'r': ccopt.dbg.r = 1; break;
@@ -578,7 +579,7 @@ prihelp(void)
         " -help   \tPrint this help message\n"
         " -std=<..> \tSet C standard (c89, c99, c11, c23)\n"
         " -pedantic \tWarnings for strict standards compliance\n"
-        " -d{pamoilr} \tDebug print IR after {parse, abi, mem, opts, isel, live, rega}\n"
+        " -d{pamosilr} \tDebug print IR after {parse, abi, mem, opts, stack, isel, live, rega}\n"
         " -o <file> \tPlace the output into <file>\n"
         " -v     \tVerbose output\n"
         " -c     \tEmit object file but do not link\n"
