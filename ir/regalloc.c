@@ -541,7 +541,7 @@ usereg(struct rega *ra, int reg, struct block *blk, int pos)
    if (rstest(mctarg->rglob, reg)) return; /* regalloc never allocates globally live regs, so don't need intervals for those */
    for (struct fixinterval *prev = NULL, *fxit = ra->intervals.fixed; fxit; prev = fxit, fxit = fxit->next) {
       if (fxit->range.from > pos) break;
-      if (fxit->rs == 1<<reg && fxit->range.from <= pos && pos < fxit->range.to) {
+      if (fxit->rs == BIT(reg) && fxit->range.from <= pos && pos < fxit->range.to) {
          /* contained by existing interval */
          fxit->range.from = blk->inumstart;
          /* insert at head */
@@ -557,7 +557,7 @@ usereg(struct rega *ra, int reg, struct block *blk, int pos)
    fxit = alloc(ra->arena, sizeof *fxit, 0);
    fxit->next = ra->intervals.fixed;
    fxit->range = (struct range) {blk->inumstart, pos};
-   fxit->rs = 1<<reg;
+   fxit->rs = BIT(reg);
    ra->intervals.fixed = fxit;
 }
 
@@ -565,7 +565,7 @@ static bool
 defreg(struct rega *ra, int reg, int pos) {
    if (rstest(mctarg->rglob, reg)) return 1;
    for (struct fixinterval *prev = NULL, *fxit = ra->intervals.fixed; fxit; prev = fxit, fxit = fxit->next) {
-      if (fxit->rs == 1<<reg) {
+      if (fxit->rs == BIT(reg)) {
          if (fxit->range.from <= pos) {
             fxit->range.from = pos;
             struct fixinterval **at = &ra->intervals.fixed;
@@ -883,7 +883,7 @@ linearscan(struct rega *ra)
             /* move from active to handled */
             *lnk = next;
             if (it->alloc.t == AREG) {
-               ra->free |= 1<<it->alloc.a;
+               ra->free |= BIT(it->alloc.a);
                //DBG("   unblock %s %X\n", mctarg->rnames[it->alloc.a], ra->free);
             } else if (it->alloc.t == ASTACK) {
                freestk(ra, it->alloc.a);
@@ -896,7 +896,7 @@ linearscan(struct rega *ra)
             it->next = *inactive;
             *inactive = it;
             if (it->alloc.t == AREG) {
-               ra->free |= 1<<it->alloc.a;
+               ra->free |= BIT(it->alloc.a);
                DBG(" >> %%%zd unblock %s\n", it-ra->intervals.temps, mctarg->rnames[it->alloc.a]);
             }
          } else lnk = &it->next;
@@ -921,7 +921,7 @@ linearscan(struct rega *ra)
             *active = it;
             if (it->alloc.t == AREG) {
                assert(rstest(ra->free, it->alloc.a));
-               ra->free &= ~(1<<it->alloc.a);
+               ra->free &= ~BIT(it->alloc.a);
                DBG(" << %%%zd reblock %s\n", it-ra->intervals.temps, mctarg->rnames[it->alloc.a]);
             }
          } else lnk = &it->next;

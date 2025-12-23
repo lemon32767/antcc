@@ -145,12 +145,14 @@ struct use { struct block *blk; ushort u; };
 enum { MAXREGS = 64 };
 /** register set **/
 typedef uvlong regset;
+#define BIT(x) (1ull<<(x))
 #define rsset(pS, r) (*(pS) |= 1ull << (r))
 #define rsclr(pS, r) (*(pS) &=~ (1ull << (r)))
 #define rstest(S, r) ((S) >> (r) & 1)
 static inline bool
 rsiter(int *i, uvlong rs)
 {
+   if (*i > 63) return 0;
    uvlong mask = -(1ull << *i);
    if ((rs & mask) == 0) return 0;
    *i = lowestsetbit(rs & mask);
