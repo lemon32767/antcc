@@ -8,7 +8,7 @@
  * a memory reference [base + index * scale + disp],
  * or a relocatable reference to some symbol plus a displacement and maybe index*scale
  */
-enum operkind { ONONE, OREG, OIMM, OMEM, OSYM };
+enum operkind { ONONE, OREG, OIMM, OMEM, OSYM, OSYMGOT };
 enum { NOBASE = 63, NOINDEX = 63 };
 struct oper {
    uchar t;
@@ -236,8 +236,8 @@ opermatch(enum operpat pat, struct oper oper)
    case PU16: return oper.t == OIMM && (ushort)oper.imm == oper.imm;
    case PI32: return oper.t == OIMM;
    case PU32: return oper.t == OIMM && oper.imm >= 0;
-   case PMEM: return in_range(oper.t, OMEM, OSYM);
-   case PSYM: return oper.t == OSYM;
+   case PMEM: return in_range(oper.t, OMEM, OSYMGOT);
+   case PSYM: return oper.t == OSYM || oper.t == OSYMGOT;
    }
    assert(0);
 }
@@ -327,7 +327,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       if (rex) B(0x40 | rex);
       else if (en->r8 && in_range(reg, RSP, RDI)) B(0x40);
 
-      if (mem.t == OSYM) {
+      if (mem.t == OSYM || mem.t == OSYMGOT) {
          D(opc, nopc);
          if (mem.cindex == NOINDEX) {
             /* %rip(var) */
@@ -339,11 +339,9 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
             if (objhassym(sym, &addr) == Stext) {
                I32(addr - (*pcode - objout.textbegin) + disp);
             } else {
-               enum relockind r;
-               if ((!conht[mem.con].deref && ccopt.pic) || conht[mem.con].isfunc)
+               enum relockind r = REL_PCREL32;
+               if (mem.t == OSYMGOT)
                   r = (rex ? REL_GOTPCRELX_REX : REL_GOTPCRELX);
-               else
-                  r = REL_PCREL32;
                objreloc(xcon2sym(mem.con), r, Stext, *pcode - objout.textbegin, disp);
                I32(0);
             }
@@ -887,7 +885,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
        && !objhassym(xcon2sym(val.i), NULL)) {
       GOTLoad:
          /* for  mov reg, [rip(sym@GOTPCREL)] */
-         Xmov(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));
+         Xmov(pcode, cls, dst, mkoper(OSYMGOT, .con = val.i, .cindex = NOINDEX));
       } else {
          /* for  lea reg, [rip(sym)] */
          Xlea(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));
