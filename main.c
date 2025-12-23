@@ -348,10 +348,10 @@ hasprog(const char *prog)
          dup2(fd, nulfd);
          close(fd);
       }
-      const char *cmd[] = {"/bin/env", prog, NULL};
-      if (execv(*cmd, (char **)cmd)) {
+      const char *cmd[] = {prog, NULL};
+      if (execvp(*cmd, (char **)cmd)) {
          close(nulfd);
-         error(NULL, "execv: %s", strerror(errno));
+         error(NULL, "execvp: %s", strerror(errno));
          exit(125);
       }
    }
@@ -400,9 +400,8 @@ dolink(void)
    int wstat;
    struct cmdargs cmd = VINIT(cmdbuf, countof(cmdbuf));
 
-   vpush(&cmd, "/bin/env");
    findlinkcmd(&cmd);
-   if (!strcmp(cmd.p[1], "zig")) {
+   if (!strcmp(cmd.p[0], "zig")) {
       note(NULL, "using 'zig cc' as a cross-compiler");
    }
    if (task.outft == OFTdll) {
@@ -435,8 +434,8 @@ dolink(void)
       error(NULL, "fork: %s\n", strerror(errno));
       exit(1);
    } else if (p == 0) {
-      if (execv(cmd.p[0], (char **)cmd.p)) {
-         error(NULL, "execv: %s\n", strerror(errno));
+      if (execvp(cmd.p[0], (char **)cmd.p)) {
+         error(NULL, "execvp: %s\n", strerror(errno));
          exit(1);
       }
    }
