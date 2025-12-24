@@ -7,10 +7,14 @@ test -n "$cc" || cc=cc
 opt="$O"
 test -n "$opt" || opt=
 
-cflags="-std=c11"
+cflags=$CFLAGS
+test -n "$cflags" || : ${cflags:="-std=c11"}
+if test -n "$V"; then
+    opt="$opt -v"
+fi
 src=$(grep -o '\([_A-Za-z0-9/]\)\+\.c' < Makefile)
 X() {
-    echo "> $@" | ([ x"$V" == x1 ] && cat || sed -s 's/\([^ ]\+\.c \?\)\{10\}$/.../')
+    echo "> $@" | (test -n "$V" && cat || sed -s 's/\([^ ]\+\.c \?\)\{10\}$/.../')
     $@
 }
 echo "== Stage 0 (compiling with $cc) =="

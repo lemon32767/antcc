@@ -25,10 +25,10 @@ const uchar opnarg[] = {
 
 struct instr instrtab[MAXINSTR];
 struct use *instruse[MAXINSTR];
-short instrnuse[MAXINSTR];
-static struct use instrusebuf[MAXINSTR][2];
 int ninstr;
 static int instrfreelist;
+static struct use *usefreelist;
+static struct arena **usearena;
 struct calltab calltab;
 struct phitab phitab;
 struct dattab dattab;
@@ -49,6 +49,8 @@ irinit(struct function *fn)
 
    ninstr = 0;
    instrfreelist = -1;
+   usefreelist = NULL;
+   usearena = fn->arena;
    vinit(&calltab, callsbuf, countof(callsbuf));
    for (int i = 0; i < phitab.n; ++i) xbfree(phitab.p[i]);
    vinit(&phitab, phisbuf, countof(phisbuf));
@@ -77,7 +79,7 @@ irinit(struct function *fn)
 }
 
 static int
-addaddr(const struct addr *addr)
+newaddr(const struct addr *addr)
 {
    uint h = hashb(0, addr, sizeof *addr);
    uint i = h, n = countof(addrht);
@@ -95,7 +97,7 @@ addaddr(const struct addr *addr)
 }
 
 static int
-addcon(const struct xcon *con)
+newcon(const struct xcon *con)
 {
    uint h = hashb(0, con, sizeof *con);
    uint i = h, n = countof(conht);
@@ -131,7 +133,7 @@ mkintcon(enum irclass k, vlong i)
       struct xcon con = { .cls = k, .i = i };
       if (cls2siz[k] == 4) /* check upper half is zero or -1 */
          assert(in_range((i >> 32) + 1, 0, 1));
-      return mkref(RXCON, addcon(&con));
+      return mkref(RXCON, newcon(&con));
    }
 }
 
@@ -139,14 +141,14 @@ union ref
 mkfltcon(enum irclass k, double f)
 {
    struct xcon con = { .cls = k, .f = k == KF32 ? (float) f : f };
-   return mkref(RXCON, addcon(&con));
+   return mkref(RXCON, newcon(&con));
 }
 
 union ref
 mksymref(internstr s, bool isfunc)
 {
    struct xcon con = { .issym = 1, .sym = s, .isfunc = isfunc };
-   return mkref(RXCON, addcon(&con));
+   return mkref(RXCON, newcon(&con));
 }
 
 union ref
@@ -170,7 +172,7 @@ mkdatref(internstr name, union type ctype, uint siz, uint align, const void *byt
    if (n) memcpy(p, bytes, n);
    if (dat.section != Stext) memset(p+n, 0, siz - n);
    vpush(&dattab, dat);
-   return mkref(RXCON, addcon(&(struct xcon){.isdat = 1, .deref = deref, .dat = dattab.n - 1}));
+   return mkref(RXCON, newcon(&(struct xcon){.isdat = 1, .deref = deref, .dat = dattab.n - 1}));
 }
 
 internstr
@@ -203,7 +205,7 @@ mkcallarg(union irtype ret, uint narg, int vararg)
 union ref
 mkaddr(struct addr addr)
 {
-   return mkref(RADDR, addaddr(&addr));
+   return mkref(RADDR, newaddr(&addr));
 }
 
 void
@@ -351,58 +353,48 @@ allocinstr(void)
    if (instrfreelist != -1) {
       t = instrfreelist;
       memcpy(&instrfreelist, &instrtab[t], sizeof(int));
+      if (instruse[t]) deluses(t);
    } else {
       assert(ninstr < countof(instrtab));
       t = ninstr++;
+      instruse[t] = NULL;
    }
-   if (instruse[t] != instrusebuf[t])
-      xbfree(instruse[t]);
-   instruse[t] = instrusebuf[t];
-   instrnuse[t] = 0;
    return t;
 }
 
 void
 adduse(struct block *ublk, int ui, union ref r) {
-   struct use user = { ublk, ui };
-
    if (r.t != RTMP) return;
-   if (instrnuse[r.i] < countof(instrusebuf[r.i])) {
-      instruse[r.i][instrnuse[r.i]++] = user;
-   } else if (instrnuse[r.i] == countof(*instrusebuf)) {
-      struct use *use = NULL;
-      xbgrow(&use, countof(*instrusebuf) + 2);
-      memcpy(use, instruse[r.i], sizeof(*instrusebuf));
-      use[instrnuse[r.i]++] = user;
-      instruse[r.i] = use;
+   struct use *use; 
+   if (usefreelist) {
+      use = usefreelist;
+      usefreelist = usefreelist->next;
    } else {
-      xbpush(&instruse[r.i], &instrnuse[r.i], user);
+      use = alloc(usearena, sizeof *use, 0);
    }
+   assert(use != instruse[r.i]);
+   use->next = instruse[r.i];
+   use->blk = ublk,
+   use->u = ui;
+   instruse[r.i] = use;
 }
 
 bool
 deluse(struct block *ublk, int ui, union ref r) {
    if (r.t != RTMP) return 0;
 
-   for (int i = 0; i < instrnuse[r.i]; ++i) {
-      if (instruse[r.i][i].blk == ublk && instruse[r.i][i].u == ui) {
-         for (int k = i; k < instrnuse[r.i] - 1; ++k) {
-            instruse[r.i][k] = instruse[r.i][k+1];
-         }
-         goto Shrink;
+   for (struct use **puse = &instruse[r.i]; *puse; puse = &(*puse)->next) {
+      struct use *use = *puse;
+      if (use->blk == ublk && use->u == ui) {
+         *puse = use->next;
+         use->blk = 0;
+         use->u = 0;
+         use->next = usefreelist;
+         usefreelist = use;
+         return 1;
       }
    }
    return 0;
-
-Shrink:
-   if (instrnuse[r.i] == countof(*instrusebuf) + 1) {
-      struct use *use = instruse[r.i];
-      instruse[r.i] = instrusebuf[r.i];
-      memcpy(instruse[r.i], use, sizeof *instrusebuf);
-      xbfree(use);
-   }
-   --instrnuse[r.i];
-   return 1;
 }
 
 void
@@ -510,27 +502,27 @@ void
 replcuses(union ref from, union ref to)
 {
    assert(from.t == RTMP);
-   for (int i = 0; i < instrnuse[from.i]; ++i) {
-      struct use use = instruse[from.i][i];
+   for (struct use *use = instruse[from.i], *next; use; use = next) {
       union ref *u;
       int n, j;
-      if (use.u == from.i) continue;
-      if (use.u == USERJUMP) {
-         u = &use.blk->jmp.arg[0];
+      next = use->next;
+      if (use->u == from.i) continue;
+      if (use->u == USERJUMP) {
+         u = &use->blk->jmp.arg[0];
          n = 2;
-      } else if (instrtab[use.u].op == Ophi) {
-         u = phitab.p[instrtab[use.u].l.i];
-         n = use.blk->npred;
+      } else if (instrtab[use->u].op == Ophi) {
+         u = phitab.p[instrtab[use->u].l.i];
+         n = use->blk->npred;
       } else {
-         u = &instrtab[use.u].l;
+         u = &instrtab[use->u].l;
          n = 2;
       }
       
       for (j = 0; j < n; ++j) {
          if (u[j].bits == from.bits) {
             u[j].bits = to.bits;
-            adduse(use.blk, use.u, to);
-            --i;
+            adduse(use->blk, use->u, to);
+            next = use;
             break;
          }
       }
@@ -540,11 +532,14 @@ replcuses(union ref from, union ref to)
 void
 deluses(int ins)
 {
-   if (instruse[ins] != instrusebuf[ins]) {
-      xbfree(instruse[ins]);
-      instruse[ins] = instrusebuf[ins];
+   for (struct use *use = instruse[ins], *next; use; use = next) {
+      next = use->next;
+      use->blk = 0;
+      use->u = 0;
+      use->next = usefreelist;
+      usefreelist = use;
    }
-   instrnuse[ins] = 0;
+   instruse[ins] = NULL;
 }
 
 void

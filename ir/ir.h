@@ -141,7 +141,7 @@ struct block {
 #define blkpred(blk, i) 0[(blk)->npred < 2 ? &(blk)->_pred0 : &(blk)->_pred[i]]
 
 enum { USERJUMP = 0xFFFF };
-struct use { struct block *blk; ushort u; };
+struct use { struct use *next; struct block *blk; ushort u; };
 
 enum { MAXREGS = 64 };
 /** register set **/
@@ -233,7 +233,6 @@ extern uchar cls2load[];
 extern const uchar siz2intcls[];
 extern struct instr instrtab[];
 extern struct use *instruse[];
-extern short instrnuse[];
 extern struct xcon conht[];
 extern struct calltab {vec_of(struct call);} calltab;
 extern struct phitab {vec_of(union ref *);} phitab;

@@ -65,7 +65,7 @@ deltrivialphis(struct ssabuilder *sb, int var, struct block *blk, union ref phir
 
    /* recursively try to remove all phi users as they might have become trivial */
 Redo:
-   for (struct use *use = instruse[phiref.i], *uend = use + instrnuse[phiref.i]; use < uend; ++use) {
+   for (struct use *use = instruse[phiref.i]; use; use = use->next) {
       if (use->u != USERJUMP && instrtab[use->u].op == Ophi && use->u != phiref.i) {
          union ref it = mkref(RTMP, use->u);
          union ref vphi2 = deltrivialphis(sb, var, use->blk, it);
@@ -210,14 +210,14 @@ blkfindins(struct block *blk, int ins)
 }
 
 static int
-cmpuse(const void *a, const void *b)
+rcmpuse(const void *a, const void *b)
 {
-   const struct use *ua = a, *ub = b;
+   /* postorder sort */
+   const struct use *ua = *(struct use **)a, *ub = *(struct use **)b;
    struct block *blk = ua->blk;
-   if (ua->blk != ub->blk) return ua->blk->id - ub->blk->id;
-   if (ua->u == USERJUMP) return ub->u != USERJUMP;
-   if (ub->u == USERJUMP) return -(ua->u != USERJUMP);
-   return blkfindins(blk, ua->u) - blkfindins(blk, ub->u);
+   if (ua->blk != ub->blk) return ub->blk->id - ua->blk->id;
+   assert(ua->u != USERJUMP && ub->u != USERJUMP);
+   return blkfindins(blk, ub->u) - blkfindins(blk, ua->u);
 }
 
 void
@@ -234,75 +234,56 @@ mem2reg(struct function *fn)
    struct block *blk = fn->entry;
    do {
       for (int i = 0; i < blk->ins.n; ++i) {
-         struct use *use, *uend;
          enum irclass k = 0;
-         int sz = 0, ndef = 0;
+         int sz = 0;
          enum op ext = Ocopy;
          int var = blk->ins.p[i];
          struct instr *ins = &instrtab[var];
+         struct use *use;
          
-         if (!oisalloca(ins->op)) continue;
-         uend = instruse[var] + instrnuse[var];
-         for (use = instruse[var]; use < uend; ++use) {
-            struct instr *m;
-            
-            if (use->u == USERJUMP) goto Next;
-            m = &instrtab[use->u];
+         /* find allocas only used in loads/stores of uniform size */
+         if (!oisalloca(ins->op) || !(use = instruse[var])) continue;
+         struct use *usesbuf[64];
+         vec_of(struct use *) uses = VINIT(usesbuf, countof(usesbuf));
+         do {
+            if (use->u == USERJUMP) goto Skip;
+            struct instr *m = &instrtab[use->u];
             if (oisload(m->op) && (!sz || sz == loadsz(m->op))) {
                sz = loadsz(m->op);
                k = loadcls(m->op);
                if (sz < 4) ext = load2ext(m->op);
-               continue;
-            }
-            if (oisstore(m->op) && m->l.bits == mkref(RTMP, var).bits
-            && (!sz || sz == storesz(m->op))) {
+            } else if (oisstore(m->op) && m->l.bits == mkref(RTMP, var).bits
+              && (!sz || sz == storesz(m->op))) {
                sz = storesz(m->op);
-               ++ndef;
-               continue;
-            }
-            goto Next;
-         }
-         if (!ndef && instrnuse[var] > 0) /* slot is read from but never written to */
-            goto Next;
+            } else goto Skip;
+            vpush(&uses, use);
+         } while ((use = use->next));
          
-         qsort(instruse[var], instrnuse[var], sizeof *instruse[var], cmpuse);
-         for (use = instruse[var]; use < uend; ++use) {
-            struct instr *m = &instrtab[use->u];
+         /* visit uses in rpo */
+         qsort(uses.p, uses.n, sizeof *uses.p, rcmpuse);
+         for (int i = uses.n-1; i >= 0; --i) {
+            use = uses.p[i];
+            ins = &instrtab[use->u];
 
-            if (oisstore(m->op)) {
-               writevar(&sb, var, use->blk, m->r);
-               *m = mkinstr(Onop,0,);
-            } else if (oisload(m->op)) {
-               union ref val = readvar(&sb, var, k = m->cls, use->blk);
-               if (!val.bits) { /* var is used uninitialized */
-                  /* TODO emit diagnostic */
-                  /* load some garbage */
-                  *m = mkinstr(kisflt(k) ? Oloadf32 + (k==KF64) : Oloads8+ilog2(sz)*2,
-                               k, mkref(RREG, mctarg->bpr));
-               } else {
-                  adduse(use->blk, use->u, val);
-                  if (isintcon(val) && ext != Ocopy) {
-                     vlong x = intconval(val);
-                     switch (ext) {
-                     case Oexts8:  x = (schar)x; break;
-                     case Oextu8:  x = (uchar)x; break;
-                     case Oexts16: x = (short)x; break;
-                     case Oextu16: x = (ushort)x; break;
-                     case Oexts32: x = (int)x; break;
-                     case Oextu32: x = (uint)x; break;
-                     default: assert(0);
-                     }
-                     val = mkintcon(k, x);
-                     ext = Ocopy;
-                  }
-                  *m = mkinstr(ext, k, val);
+            if (oisstore(ins->op)) {
+               writevar(&sb, var, use->blk, ins->r);
+               *ins = mkinstr(Onop,0,);
+            } else if (oisload(ins->op)) {
+               union ref val = readvar(&sb, var, k = ins->cls, use->blk);
+               adduse(use->blk, use->u, val);
+               if (ext != Ocopy && isintcon(val)) { /* fold constant int extension */
+                  val = irunop(NULL, ext, k, val);
+                  assert(val.bits);
+                  ext = Ocopy;
                }
+               *ins = mkinstr(ext, k, val);
             }
          }
          /* remove alloca */
          delinstr(blk, i--);
          
-      Next:;
+      Skip:
+         vfree(&uses);
       }
 
       assert(sb.lastvisit == blk->id);
