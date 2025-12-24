@@ -279,8 +279,10 @@ tempfile(const char *path, const char *ext)
 static int cc1(const char *out, const char *in);
 
 static const char *tempobj[countof(task.inf)], *tempout;
+static pid_t rootp;
 static void
 mktemps(void) {
+   rootp = getpid();
    for (int i = 0; i < task.ninf; ++i) {
       if (task.inft[i] == IFTc)
          tempobj[i] = tempfile(task.inf[i], "o");
@@ -288,9 +290,11 @@ mktemps(void) {
    if (!task.out)
       task.out = tempout = tempfile(task.ninf > 1 ? "run" : withext(task.inf[0], NULL), NULL);
 }
+
 static void
 cleantemps(void)
 {
+   if (getpid() != rootp) return;
    for (int i = 0; i < task.ninf; ++i) {
       if (tempobj[i]) unlink(tempobj[i]), tempobj[i] = NULL;
    }
@@ -330,6 +334,8 @@ compileobjs(void)
    if (!ccopt.dbg.any && !task.syntaxonly) {
       atexit(cleantemps);
       signal(SIGINT, sigcleantemps);
+      signal(SIGABRT, sigcleantemps);
+      signal(SIGILL, sigcleantemps);
    }
 }
 
