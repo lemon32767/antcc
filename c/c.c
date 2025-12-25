@@ -2867,7 +2867,7 @@ expraddr(struct function *fn, const struct expr *ex)
             uchar *p = objout.code ? objout.textbegin + off : objout.rodata.p + off;
             memcpy(p, fn->name, typearrlen(decl->ty)-1);
          }
-         return mksymref(decl->sym, decl->ty.t == TYFUNC);
+         return mksymref(decl->sym, (SFUNC & -(decl->ty.t == TYFUNC)) | (SLOCAL & -(decl->scls == SCSTATIC || decl->isdef)));
       default:
          assert(0);
       }

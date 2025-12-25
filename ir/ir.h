@@ -25,9 +25,14 @@ struct irdat {
    internstr name;
 };
 
+enum symflags {
+   SLOCAL = 1,
+   SFUNC  = 2,
+};
 struct xcon {
-   bool issym, isdat, isfunc, deref;
+   bool issym, isdat, deref;
    uchar cls;
+   uchar flag;
    union {
       internstr sym;
       int dat;
@@ -255,7 +260,7 @@ union ref mkfltcon(enum irclass, double);
 #define isaddrcon(r,derefok) ((r).t == RXCON && !conht[(r).i].cls && (derefok || !conht[(r).i].deref))
 #define intconval(r) ((r).t == RICON ? (r).i : conht[(r).i].i)
 #define fltconval(r) ((r).t == RICON ? (r).i : conht[(r).i].f)
-union ref mksymref(internstr, bool isfunc);
+union ref mksymref(internstr, enum symflags);
 union ref mkdatref(internstr name, union type ctype, uint siz, uint align, const void *, uint n, bool deref);
 internstr xcon2sym(int ref);
 struct instr mkalloca(uint siz, uint align);

@@ -101,7 +101,7 @@ newcon(const struct xcon *con)
 {
    uint h = hashb(0, con, sizeof *con);
    uint i = h, n = countof(conht);
-   assert((con->issym ^ con->isdat && !(con->isdat && con->isfunc)) || con->cls);
+   assert((con->issym ^ con->isdat) || con->cls);
    for (;; ++i) {
       i &= countof(conht) - 1;
       if (!conht[i].issym && !conht[i].isdat && !conht[i].cls) {
@@ -145,9 +145,9 @@ mkfltcon(enum irclass k, double f)
 }
 
 union ref
-mksymref(internstr s, bool isfunc)
+mksymref(internstr s, enum symflags symflags)
 {
-   struct xcon con = { .issym = 1, .sym = s, .isfunc = isfunc };
+   struct xcon con = { .issym = 1, .sym = s, .flag = symflags };
    return mkref(RXCON, newcon(&con));
 }
 
@@ -172,7 +172,7 @@ mkdatref(internstr name, union type ctype, uint siz, uint align, const void *byt
    if (n) memcpy(p, bytes, n);
    if (dat.section != Stext) memset(p+n, 0, siz - n);
    vpush(&dattab, dat);
-   return mkref(RXCON, newcon(&(struct xcon){.isdat = 1, .deref = deref, .dat = dattab.n - 1}));
+   return mkref(RXCON, newcon(&(struct xcon){.isdat = 1, .deref = deref, .dat = dattab.n - 1, .flag = SLOCAL}));
 }
 
 internstr

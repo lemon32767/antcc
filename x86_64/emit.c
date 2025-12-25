@@ -336,12 +336,11 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
             int disp = mem.disp - 4 - offs[en->operenc];
             internstr sym = xcon2sym(mem.con);
             B(/*mod 0*/ (reg & 7) << 3 | RBP);
-            if (objhassym(sym, &addr) == Stext) {
+            if (objhassym(sym, &addr) == Stext && mem.t != OSYMGOT) {
                I32(addr - (*pcode - objout.textbegin) + disp);
             } else {
                enum relockind r = REL_PCREL32;
-               if (mem.t == OSYMGOT)
-                  r = (rex ? REL_GOTPCRELX_REX : REL_GOTPCRELX);
+               if (mem.t == OSYMGOT) r = rex ? REL_GOTPCRELX_REX : REL_GOTPCRELX;
                objreloc(xcon2sym(mem.con), r, Stext, *pcode - objout.textbegin, disp);
                I32(0);
             }
@@ -870,8 +869,8 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       }
       /* normal (not 2-address) case */
    Lea:
-      if (isaddrcon(addr->base,0) && (ccopt.pic || conht[addr->base.i].isfunc)
-       && !objhassym(xcon2sym(addr->base.i), NULL)) {
+      if (isaddrcon(addr->base,0) && (ccopt.pic || (conht[addr->base.i].flag & SFUNC))
+       && !(conht[addr->base.i].flag & SLOCAL)) {
          assert(!addr->disp && !addr->index.bits);
          val = addr->base;
          goto GOTLoad;
@@ -881,8 +880,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       /* dst = 0 -> xor dst, dst; but only if it is ok to clobber flags */
       Xxor(pcode, kisint(cls) ? KI32 : cls, dst, dst);
    } else if (isaddrcon(val,0)) {
-      if ((ccopt.pic || conht[val.i].isfunc)
-       && !objhassym(xcon2sym(val.i), NULL)) {
+      if ((ccopt.pic || (conht[val.i].flag & SFUNC)) && !(conht[val.i].flag & SLOCAL)) {
       GOTLoad:
          /* for  mov reg, [rip(sym@GOTPCREL)] */
          Xmov(pcode, cls, dst, mkoper(OSYMGOT, .con = val.i, .cindex = NOINDEX));
