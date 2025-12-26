@@ -14,10 +14,11 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
    switch (op) {
    case Oadd:
       if (l.bits == ZEROREF.bits) return r; /* 0 + x ==> x */
-      /* fallthru */
+      if (r.bits == ZEROREF.bits) return l; /* x + 0 ==> x */
+      break;
    case Osub:
       if (r.bits == ZEROREF.bits) return l; /* x - 0 ==> x */
-      if (kisint(k) && l.bits == r.bits) return ZEROREF; /* x - 0 ==> x */
+      if (kisint(k) && l.bits == r.bits) return ZEROREF; /* x - x ==> 0 */
       break;
    case Omul:
       if (isnumcon(l)) rswap(l, r); /* put const in rhs */
