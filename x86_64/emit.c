@@ -971,6 +971,14 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
    default:
       fatal(NULL, "x86_64: in %y; unimplemented instr '%s'", fn->name, opnames[ins->op]);
    case Onop: break;
+   case Omove:
+      dst = ref2oper(ins->l);
+      gencopy(pcode, cls, blk, curi, dst, ins->r);
+      break;
+   case Ocopy:
+      dst = reg2oper(ins->reg-1);
+      gencopy(pcode, cls, blk, curi, dst, ins->l);
+      break;
    case Ostore8:  cls = KI32, X = Xmovb; goto Store;
    case Ostore16: cls = KI32, X = Xmovw; goto Store;
    case Ostore32: cls = KI32, X = Xmov; goto Store;
@@ -1153,14 +1161,6 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
          if (!regzeroed)
             Xmovzxb(pcode, KI32, dst, dst);
       }
-      break;
-   case Omove:
-      dst = ref2oper(ins->l);
-      gencopy(pcode, cls, blk, curi, dst, ins->r);
-      break;
-   case Ocopy:
-      dst = reg2oper(ins->reg-1);
-      gencopy(pcode, cls, blk, curi, dst, ins->l);
       break;
    case Oswap:
       if (kisint(cls))
@@ -1360,18 +1360,17 @@ emitbin(struct function *fn)
       assert(!bb->resolved);
       while (bb->relreloc) {
          uint next;
-         int disp = bbaddr - bb->relreloc - 4;
-
          memcpy(&next, objout.textbegin + bb->relreloc, 4);
+         int disp = bbaddr - bb->relreloc - 4;
          wr32le(objout.textbegin + bb->relreloc, disp);
          bb->relreloc = next;
       }
       bb->resolved = 1;
       bb->addr = bbaddr;
 
-      for (int i = 0; i < blk->ins.n; ++i) {
+      for (int i = 0; i < blk->ins.n; ++i)
          emitinstr(pcode, fn, blk, i, &instrtab[blk->ins.p[i]]);
-      }
+
       if (blk->jmp.t == Jret) {
          /* epilogue */
          if (fn->stksiz && (saverestore || !usebp))
