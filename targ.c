@@ -1,7 +1,7 @@
 #include "common.h"
 #include "type.h"
 
-extern const struct mctarg t_x86_64_sysv;
+extern const struct mctarg t_x86_64_sysv, t_aarch64_aapcs;
 static const struct targ {
    struct { enum mcarch arch; uint oss, abis; };
    struct { uchar longsize, vlongsize, ptrsize, valistsize; };
@@ -10,7 +10,8 @@ static const struct targ {
    uchar sizetype, ptrdifftype, wchartype;
    const struct mctarg *mctarg;
 } targs[] = {
-   { {ISx86_64, -1, 1<<ABIgnu | 1<<ABImusl}, {8,8,8,24}, {8,8,8,8}, 1, TYULONG, TYLONG, TYINT, &t_x86_64_sysv },
+   { {ISx86_64,  -1, 1<<ABIgnu | 1<<ABImusl}, {8,8,8,24}, {8,8,8,8}, 1, TYULONG, TYLONG, TYINT, &t_x86_64_sysv },
+   { {ISaarch64, -1, 1<<ABIgnu | 1<<ABImusl}, {8,8,8,32}, {8,8,8,8}, 0, TYULONG, TYLONG, TYUINT, &t_aarch64_aapcs },
 };
 
 struct targtriple target;
@@ -37,9 +38,11 @@ matchstr(const char **s, const char *pat)
 static bool
 parsetriple(struct targtriple *trg, const char *str)
 {
-   if (matchstr(&str, "x86_64-")) {
+   if (matchstr(&str, "x86_64-"))
       trg->arch = ISx86_64;
-   } else return 0;
+   else if (matchstr(&str, "aarch64-") || matchstr(&str, "arm64-"))
+      trg->arch = ISaarch64;
+   else return 0;
 
    if (matchstr(&str, "unknown-") || matchstr(&str, "pc-")) {}
 
@@ -64,7 +67,7 @@ parsetriple(struct targtriple *trg, const char *str)
 void
 targ_init(const char *starg)
 {
-   const struct targ *t = &targs[0];
+   const struct targ *t = NULL;
    uchar *sizes = targ_primsizes, *align = targ_primalign;
 
    if (!starg) {
@@ -74,6 +77,16 @@ targ_init(const char *starg)
    } else if (!parsetriple(&target, starg)) {
       fatal(NULL, "unrecognized target: %s", starg);
    }
+
+   for (size_t i = 0; i < countof(targs); ++i) {
+      if (targs[i].arch == target.arch)
+      if (targs[i].oss & (1 << target.os))
+      if (targs[i].abis & (1 << target.abi)) {
+         t = &targs[i];
+         break;
+      }
+   }
+   if (!t) fatal(NULL, "unsupported target: %s", starg ? starg : "(host)");
 
    sizes[TYBOOL] = sizes[TYCHAR] = sizes[TYSCHAR] = sizes[TYUCHAR] = 1;
    sizes[TYSHORT] = sizes[TYUSHORT] = 2;

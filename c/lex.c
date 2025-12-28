@@ -2065,6 +2065,10 @@ addpredefmacros(struct arena **tmparena)
       putdef1("__x86_64__");
       putdef1("__x86_64");
       break;
+   case ISaarch64:
+      putdef1("__aarch64");
+      putdef1("__aarch64__");
+      break;
    }
 
    if (target.os != OSunknown) putdef1("__STDC_HOSTED__");

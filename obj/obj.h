@@ -17,6 +17,7 @@ enum relockind {
    REL_PLT32,
    REL_GOTPCRELX,
    REL_GOTPCRELX_REX,
+   REL_CALL26,
    NRELOCKIND,
 };
 enum section { Snone, Stext, Srodata, Sdata, Sbss };

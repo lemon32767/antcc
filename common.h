@@ -73,7 +73,7 @@ ptrhash(const void *p) {
 static inline uint
 popcnt(uvlong x) {
 #if HAS_BUILTIN(popcountll)
-   return __builtin_popcountll(x);
+   return x ? __builtin_popcountll(x) : 0;
 #else
    uint n = 0;
    while (x) n += x&1, x >>= 1;
@@ -86,7 +86,7 @@ ispo2(uvlong x) {
 }
 static inline uint
 ilog2(uvlong x) { /* assumes x is a power of 2 */
-#if HAS_BUILTIN(ctz)
+#if HAS_BUILTIN(ctzll)
    return __builtin_ctzll(x);
 #else
    uint n = 0;
@@ -97,7 +97,7 @@ ilog2(uvlong x) { /* assumes x is a power of 2 */
 static inline uint
 lowestsetbit(uvlong x)
 {
-#if HAS_BUILTIN(ctz)
+#if HAS_BUILTIN(ctzll)
    return __builtin_ctzll(x);
 #else
    int i = 0;
@@ -163,7 +163,7 @@ extern struct inclpaths {
 /**********/
 
 struct targtriple {
-   enum mcarch { ISxxx, ISx86_64 } arch;
+   enum mcarch { ISxxx, ISx86_64, ISaarch64 } arch;
    enum mcos { OSunknown, OSlinux } os;
    enum mcabi { ABInone, ABIgnu, ABImusl } abi;
 };

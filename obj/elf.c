@@ -49,6 +49,7 @@ elfinit(void)
    switch (target.arch) {
    default: assert(!"arch?");
    case ISx86_64: hdr.h32.machine = EM_X86_64; break;
+   case ISaarch64: hdr.h32.machine = EM_ARM64; break;
    }
    hdr.h32.version = ELFVERSION;
    if (targ_64bit) {
@@ -142,6 +143,14 @@ static const ushort relktab[][NRELOCKIND] = {
       [REL_PLT32]   = 4, /* R_X86_64_PLT32 */
       [REL_GOTPCRELX]     = 41, /* R_X86_64_GOTPCRELX */
       [REL_GOTPCRELX_REX] = 42, /* R_X86_64_REX_GOTPCRELX */
+   },
+   [ISaarch64] = {
+      [REL_ABS64]   = 257, /* R_AARCH64_ABS64 */
+      [REL_ABS32]   = 258, /* R_AARCH64_ABS32 */
+      [REL_ABS32S]  = 258, /* R_AARCH64_ABS32S */
+      [REL_PCREL32] = 261, /* R_AARCH64_PREL2 */
+      [REL_PLT32]   = 314, /* R_AARCH64_PLT32 */
+      [REL_CALL26]  = 283, /* R_AARCH64_CALL26 */
    }
 };
 
@@ -363,7 +372,7 @@ wordalign(struct wbuf *out, int align)
    while (off++ & (align - 1)) ioputc(out, 0);
 }
 
-static const bool userelatab[] = { [ISx86_64] = 1 };
+static const bool userelatab[] = { [ISx86_64] = 1, [ISaarch64] = 1 };
 
 void
 elffini(struct wbuf *out)

@@ -1,6 +1,7 @@
 SRC=main.c io.c mem.c c/c.c c/lex.c c/eval.c c/builtin.c type.c targ.c \
 	ir/ir.c ir/builder.c ir/fold.c ir/dump.c ir/ssa.c ir/cfg.c ir/intrin.c ir/abi0.c ir/mem2reg.c ir/regalloc.c ir/simpl.c ir/stack.c \
 	x86_64/sysv.c x86_64/isel.c x86_64/emit.c \
+	aarch64/aapcs.c aarch64/isel.c aarch64/emit.c \
 	obj/obj.c obj/elf.c \
 	embedfilesdir.c
 CFLAGS=-Wall -std=c11 -pedantic

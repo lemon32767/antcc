@@ -195,19 +195,6 @@ aimm(struct addr *addr, int disp)
 }
 
 static bool
-acon(struct addr *addr, union ref r)
-{
-   vlong a = addr->disp;
-   assert(isintcon(r));
-   a += intconval(r);
-   if ((int)a == a) {
-      addr->disp = a;
-      return 1;
-   }
-   return 0;
-}
-
-static bool
 ascale(struct addr *addr, union ref a, union ref b)
 {
    if (b.t != RICON) return 0;
@@ -268,7 +255,8 @@ aadd(struct addr *addr, struct block *blk, int *curi, union ref r)
          ins->skip = 1;
       } else goto Ref;
    } else if (isnumcon(r)) {
-      return acon(addr, r);
+      assert(isintcon(r));
+      return aimm(addr, intconval(r));
    } else if (isaddrcon(r,1)) {
       if (!addr->base.bits && !isaddrcon(addr->index,1)) addr->base = r;
       else return 0;
