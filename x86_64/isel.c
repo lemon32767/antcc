@@ -516,9 +516,17 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          ins->op = Oextu32;
      } else assert(!"nyi flt -> u64");
       break;
+   case Oextu32:
+      if (ins->l.t == RTMP && insrescls(instrtab[ins->l.i]) == KI32 && instrtab[ins->l.i].op != Ocopy) {
+         /* no need to explicitly zero extend 32 -> 64bit regs in x86-64 */
+         /* this copy can be optimized away in regalloc */
+         ins->op = op = Ocopy;
+         ins->cls = KI32;
+      }
+      /* fallthru */
    case Ocvtf32f64: case Ocvtf64f32: case Ocvtf32s: case Ocvtf64s: case Ocvts32f: case Ocvts64f:
    case Ocvtu64f:
-   case Oexts8: case Oextu8: case Oexts16: case Oextu16: case Oexts32: case Oextu32:
+   case Oexts8: case Oextu8: case Oexts16: case Oextu16: case Oexts32:
       if (isnumcon(ins->l)) {
          union ref it;
          bool ok = foldunop(&it, ins->op, ins->cls, ins->l);
