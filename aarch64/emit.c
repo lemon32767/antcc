@@ -2,8 +2,9 @@
 #include "../obj/obj.h"
 #include "../endian.h"
 
-/* References: https://weinholt.se/articles/arm-a64-instruction-set/
+/* References:
  *    ARM ARM https://developer.arm.com/documentation/ddi0628/aa/?lang=en
+ *    AAELF ABI https://github.com/ARM-software/abi-aa/blob/main/aaelf64/aaelf64.rst
  */
 
 enum operkind { ONONE, OREGZR, OREG, OIMM, OMEM, OSYM };
@@ -115,7 +116,6 @@ enum operpat {
    PMEMAIMMX, /* addr 12bit immediate doubleword offset (multiple of 8) */
    PMEMPREPOST, /* addr signed 9bit immediate byte offset */
    PMEMAREG, /* addr reg offset, optionally left shifted */
-   PMEMAXREG, /* addr extended reg offset */
    PSYM, /* symbol */
 };
 enum operenc {
@@ -135,6 +135,9 @@ enum operenc {
    EN_MEMAPREPOST, /* load/store/pre/postidx-imm */
    EN_MEMAREG, /* load/store/reg-offset */
    EN_MEMPPREPOST, /* load/store-pair/pre/postidx-imm */
+   EN_ADRSYMLO21, /* for ADR <sym> */
+   EN_ADRSYMPGHI21, /* for ADRP <sym:pghi21> */
+   EN_ADDSYMLO12, /* for ADD x,x, <sym:lo12> */
 };
 struct desc {
    uchar psiz; /* subset of {4,8} */
@@ -148,7 +151,7 @@ static inline bool
 opermatch(enum operpat pat, enum irclass k, struct oper o)
 {
    switch (pat) {
-   case PNONE:     return !o.t;
+   case PNONE: return !o.t;
    case PGPRZ:
       return o.t == OREGZR || (o.t == OREG && in_range(o.reg, R0, R(30)) && !o.shamt);
    case PGPRSP:
@@ -159,6 +162,7 @@ opermatch(enum operpat pat, enum irclass k, struct oper o)
    case PFPR:  return o.t == OREG && in_range(o.reg, V0, V(31));
    case PZERO: return o.t == OIMM && o.imm == 0;
    case PU6:   return o.t == OIMM && (uint)o.imm < 63;
+   case PSYM:  return o.t == OSYM;
    case PU12SL12:
       return o.t == OIMM && ((o.imm &~ 0xFFF) == 0 || (o.imm &~ 0xFFF000) == 0);
    case PU16SL16:
@@ -192,7 +196,7 @@ static bool usebp;
 static int rbpoff;
 
 /* Given an instruction description table, find the first entry that matches
- * the operands (where dst, src are the operands in intel syntax order) and encode it */
+ * the operands and encode it. */
 static void
 encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct oper o[3])
 {
@@ -250,6 +254,18 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       else if (o[2].m.mode == APOSTIDX) ins |= 1<<23;
       else ins |= 2<<23;
       break;
+   case EN_ADRSYMLO21:
+      ins |= o[0].reg;
+      objreloc(xcon2sym(o[1].con), REL_ADR_PREL_LO21, Stext, *pcode - objout.textbegin, 0);
+      break;
+   case EN_ADRSYMPGHI21:
+      ins |= o[0].reg;
+      objreloc(xcon2sym(o[1].con), REL_ADR_PREL_PG_HI21, Stext, *pcode - objout.textbegin, 0);
+      break;
+   case EN_ADDSYMLO12:
+      ins |= sf<<31 | o[1].reg<<5 | o[0].reg;
+      objreloc(xcon2sym(o[2].con), REL_ADD_ABS_LO12_NC, Stext, *pcode - objout.textbegin, 0);
+      break;
    }
    W32(ins);
 }
@@ -276,13 +292,25 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       encode(pcode, tab, countof(tab), k, ((struct oper [3]){op1,op2,op3}));           \
    }
 
+DEFINSTR2(Xadrp,
+   {8, {PGPRZ, PSYM}, 0x90000000, EN_ADRSYMPGHI21} /* ADR (sym pg hi21) */
+)
+DEFINSTR2(Xadr,
+   {8, {PGPRZ, PSYM}, 0x10000000, EN_ADRSYMLO21} /* ADR (sym pg hi21) */
+)
+
 DEFINSTR3(Xadd,
    {4|8, {PGPRSP, PGPRSP, PU12SL12}, 0x11000000, EN_ADDSUBIMM}, /* ADD (immediate) */
    {4|8, {PGPRZ,  PGPRZ, PGPRZSHFT}, 0x0B000000, EN_ADDSUBSHFT3R}, /* ADD (shifted register) */
+   {  8, {PGPRZ,  PGPRZ, PSYM},      0x11000000, EN_ADDSYMLO12}, /* ADD (sym lo12) */
 )
 DEFINSTR3(Xsub,
    {4|8, {PGPRSP, PGPRSP, PU12SL12}, 0x51000000, EN_ADDSUBIMM}, /* SUB (immediate) */
    {4|8, {PGPRZ,  PGPRZ, PGPRZSHFT}, 0x4B000000, EN_ADDSUBSHFT3R}, /* SUB (shifted register) */
+)
+DEFINSTR3(Xsubs,
+   {4|8, {PGPRZ, PGPRSP, PU12SL12}, 0x71000000, EN_ADDSUBIMM}, /* SUBS (immediate) */
+   {4|8, {PGPRZ, PGPRZ, PGPRZSHFT},  0x6B000000, EN_ADDSUBSHFT3R}, /* SUBS (shifted register) */
 )
 
 DEFINSTR3(Xand,
@@ -382,20 +410,23 @@ DEFINSTR3(Xstp,
    {8, {PGPRZ, PGPRZ, PMEMPREPOST}, 0xA8000000, EN_MEMPPREPOST} /* STP (immediate, (pre/postinc)) */
 )
 static void
-Xcall(uchar **pcode, struct oper f)
+Xcall(uchar **pcode, struct oper dst)
 {
-   if (f.t == OSYM) {
-      objreloc(xcon2sym(f.con), REL_CALL26, Stext, *pcode - objout.textbegin, 0);
+   if (dst.t == OSYM) {
+      objreloc(xcon2sym(dst.con), REL_CALL26, Stext, *pcode - objout.textbegin, 0);
       W32(0x94000000); /* BL <rel26> */
    } else {
-      assert(opermatch(PGPRZ, KPTR, f));
+      assert(opermatch(PGPRZ, KPTR, dst));
+      W32(0xD63F0000 | dst.reg<<5); /* BLR Xn */
    }
 }
 
 static void
 gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct oper dst, union ref val)
 {
-   if (kisint(cls) && dst.t == OREG && isintcon(val)) {
+   assert(dst.t == OREG);
+   if (val.bits == UNDREF.bits) return;
+   if (kisint(cls) && isintcon(val)) {
       /* MOV r, #imm */
       uvlong u = intconval(val);
       if (~u <= 0xFFFF) {
@@ -415,8 +446,16 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
                Xmovk(pcode, cls, dst, mkoper(OIMM, .imm = u & (0xFFFFull << s)));
          }
       }
-   } else if (dst.t == OREG && (val.t == RREG || val.t == RTMP)) {
+   } else if (val.t == RREG || val.t == RTMP) {
       Xorr(pcode, cls, dst, REGZR, ref2oper(val)); /* MOV Rd, Rn ==> ORR Rd, zr, Rn */
+   } else if (isaddrcon(val,0)) {
+      struct oper sym = mkoper(OSYM, .con = val.i);
+      if ((ccopt.pic || (conht[val.i].flag & SFUNC)) && !(conht[val.i].flag & SLOCAL)) {
+         Xadrp(pcode, KPTR, dst, sym);
+         Xadd(pcode, KPTR, dst, dst, sym);
+      } else {
+         Xadr(pcode, KPTR, dst, sym);
+      }
    } else assert(0);
 }
 
@@ -430,6 +469,96 @@ static struct blkaddr {
    };
 } *blkaddr;
 
+enum cc {
+   CCEQ, CCNE, CCCS, CCCC, CCMI, CCPL, CCVS, CCVC,
+   CCHI, CCLS, CCGE, CCLT, CCGT, CCLE, CCAL, CCNV,
+   CCHS = CCCS, CCLO = CCCC,
+};
+
+static void
+Xbcc(uchar **pcode, enum cc cc, struct block *dst)
+{
+   int disp, insaddr = *pcode - objout.textbegin;
+
+   if (blkaddr[dst->id].resolved) {
+      disp = (int)(blkaddr[dst->id].addr - insaddr)/4;
+      assert(disp >= -(1<<18) && disp < (1<<18));
+   } else {
+      disp = blkaddr[dst->id].relreloc;
+      blkaddr[dst->id].relreloc = insaddr;
+   }
+   assert(in_range(cc, 0, 0xF));
+   W32(0x54000000 | (disp & 0x7FFFF)<<5 | cc);
+}
+
+static void
+Xcbcc(uchar **pcode, enum irclass k, uint rt, enum cc cc, struct block *dst)
+{
+   int disp, insaddr = *pcode - objout.textbegin;
+   if (blkaddr[dst->id].resolved) {
+      disp = (int)(blkaddr[dst->id].addr - insaddr)/4;
+      assert(disp >= -(1<<18) && disp < (1<<18));
+   } else {
+      disp = blkaddr[dst->id].relreloc;
+      blkaddr[dst->id].relreloc = insaddr;
+   }
+   assert(in_range(cc, CCEQ, CCNE));
+   assert(in_range(rt, 0, 31));
+   W32(0x34000000 | (uint)(k > KI32)<<31 | cc<<24 | (disp & 0x7FFFF)<<5 | rt);
+}
+
+/* condition code for CMP */
+static const schar icmpop2cc[] = {
+   [Oequ]  = CCEQ, [Oneq]  = CCNE,
+   [Olth]  = CCLT, [Ogth]  = CCGT, [Olte]  = CCLE, [Ogte]  = CCGE,
+   [Oulth] = CCLO, [Ougth] = CCHI, [Oulte] = CCLS, [Ougte] = CCHS,
+}, fcmpop2cc[] = {
+   [Oequ] = CCEQ, [Oneq] = CCNE,
+   [Olth] = CCLO, [Ogth] = CCGT, [Olte] = CCLS, [Ogte] = CCGE,
+};
+
+static void
+emitbranch(uchar **pcode, struct block *blk)
+{
+   enum irclass cbk = 0;
+   struct oper cbopr;
+   enum cc cc = CCAL;
+   assert(blk->s1);
+   if (blk->s2) {
+      /* conditional branch.. */
+      union ref arg = blk->jmp.arg[0];
+      assert(arg.t == RTMP);
+      struct instr *ins = &instrtab[arg.i];
+      if (in_range(ins->op, Oequ, Oneq) && ins->r.bits == ZEROREF.bits) {
+         cc = ins->op == Oequ ? CCEQ : CCNE;
+         cbk = ins->cls;
+         cbopr = ref2oper(ins->l);
+         assert(opermatch(PGPRZ, ins->cls, cbopr));
+      } else if (oiscmp(ins->op)) {
+         /* for CMP instr */
+         cc = (kisint(ins->cls) ? icmpop2cc : fcmpop2cc)[ins->op];
+      } else {
+         /* implicit by ZF */
+         cc = CCNE;
+      }
+      if (blk->s1 == blk->lnext) {
+         /* if s1 is next adjacent block, swap s1,s2 and flip condition to emit a
+          * single jump */
+         struct block *tmp = blk->s1;
+         blk->s1 = blk->s2;
+         blk->s2 = tmp;
+         cc ^= 1;
+      }
+   }
+   /* make sure to fallthru if jumping to next adjacent block */
+   if (blk->s2 || blk->s1 != blk->lnext) {
+      if (cbk) Xcbcc(pcode, cbk, cbopr.reg, cc, blk->s1);
+      else Xbcc(pcode, cc, blk->s1);
+   }
+   if (blk->s2 && blk->s2 != blk->lnext)
+      Xbcc(pcode, CCAL, blk->s2);
+}
+
 static void
 emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struct instr *ins)
 {
@@ -439,7 +568,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
    void (*X2)(uchar **, enum irclass, struct oper, struct oper) = NULL;
 
    switch (ins->op) {
-   default: assert(!"nyi");
+   default: fatal(NULL, "aarch64 unimplemented instr: %s", opnames[ins->op]);
    case Onop: break;
    case Omove:
       dst = ref2oper(ins->l);
@@ -451,6 +580,19 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       dst = reg2oper(ins->reg-1);
       gencopy(pcode, cls, blk, curi, dst, ins->l);
       break;
+   case Oswap:
+      o1 = ref2oper(ins->l), o2 = ref2oper(ins->r);
+      if (ins->l.i != mctarg->gprscratch && ins->r.i != mctarg->gprscratch) {
+         dst = reg2oper(mctarg->gprscratch);
+         Xorr(pcode, cls, dst, REGZR, o1);
+         Xorr(pcode, cls, o1, REGZR, o2);
+         Xorr(pcode, cls, o2, REGZR, dst);
+      } else {
+         Xeor(pcode, cls, o1, o1, o2);
+         Xeor(pcode, cls, o2, o1, o2);
+         Xeor(pcode, cls, o1, o1, o2);
+      }
+      break;
    case Oneg: /* NEG Rd, Rn ==> SUB Rd, zr, Rn */
       Xsub(pcode, cls, reg2oper(ins->reg-1), REGZR, ref2oper(ins->l));
       break;
@@ -460,13 +602,13 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
    case Oextu8: case Oextu16: /* UXTB/H Rd, Rn ==> UBFM Rd, Rn, #0, #7/15 */
       Xubfm(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), 0, (8<<(ins->op-Oexts8)/2)-1);
       break;
-   case Oadd: dst = reg2oper(ins->reg-1); X3 = Xadd; goto ALU3;
-   case Osub: dst = reg2oper(ins->reg-1); X3 = Xsub; goto ALU3;
-   case Oand: dst = reg2oper(ins->reg-1); X3 = Xand; goto ALU3;
-   case Oior: dst = reg2oper(ins->reg-1); X3 = Xorr; goto ALU3;
-   case Oxor: dst = reg2oper(ins->reg-1); X3 = Xeor; goto ALU3;
+   case Oadd: X3 = Xadd; goto ALU3;
+   case Osub: X3 = Xsub; goto ALU3;
+   case Oand: X3 = Xand; goto ALU3;
+   case Oior: X3 = Xorr; goto ALU3;
+   case Oxor: X3 = Xeor; goto ALU3;
    ALU3:
-      X3(pcode, cls, dst, ref2oper(ins->l), ref2oper(ins->r));
+      X3(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r));
       break;
    case Oshl:
       if (ins->r.t == RICON) {
@@ -488,6 +630,13 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
          assert(s > 0);
          Xsbfm(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), s, nbit-1);
       } else assert(!"nyi lsrv");
+      break;
+   case Oequ: case Oneq:
+      if (!ins->reg && ins->r.bits == ZEROREF.bits) break; /* handled by emitbranch for CBZ/CBNZ */
+   case Olth: case Ogth: case Olte: case Ogte:
+   case Oulth: case Ougth: case Oulte: case Ougte:
+      /* CMP ... ==> SUBS zr, ... */
+      Xsubs(pcode, ins->cls, REGZR, ref2oper(ins->l), ref2oper(ins->r));
       break;
    case Oloadu8: X2 = Xldrb; goto Load;
    case Oloads8: X2 = Xldrsb; goto Load;
@@ -522,22 +671,22 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
 static bool
 calleesave(int *npush, uchar **pcode, struct function *fn)
 {
-   regset usage = (fn->regusage & mctarg->rcallee) | (usebp * BIT(FP)) | (!fn->isleaf * BIT(LR));
-   if (!usage) return 0;
+   regset save = (fn->regusage & mctarg->rcallee) | (usebp * BIT(FP)) | (!fn->isleaf * BIT(LR));
+   if (!save) return 0;
    int prev = 0;
+   bool zr = popcnt(save) & 1;
    for (uint reg = R(19); reg <= LR; ++reg) {
-      if (!rstest(usage, reg)) continue;
-      if (prev) {
+      if (!rstest(save, reg)) continue;
+      if (zr) {
+         zr = 0;
+         Xstp(pcode, KPTR, reg2oper(reg), REGZR,
+               mkoper(OMEM, .m = {.mode = APREIDX, .base = SP, .disp = -16}));
+      } else if (prev) {
          *npush += 2;
          Xstp(pcode, KPTR, reg2oper(prev), reg2oper(reg),
                mkoper(OMEM, .m = {.mode = APREIDX, .base = SP, .disp = -16}));
          prev = 0;
       } else prev = reg;
-   }
-   if (prev) {
-      Xstp(pcode, KPTR, reg2oper(prev), REGZR,
-            mkoper(OMEM, .m = {.mode = APREIDX, .base = SP, .disp = -16}));
-      *npush += 2;
    }
    return 1;
 }
@@ -545,11 +694,11 @@ calleesave(int *npush, uchar **pcode, struct function *fn)
 static void
 calleerestore(uchar **pcode, struct function *fn)
 {
-   regset usage = (fn->regusage & mctarg->rcallee) | (usebp * BIT(FP)) | (!fn->isleaf * BIT(LR));
-   if (!usage) return;
+   regset save = (fn->regusage & mctarg->rcallee) | (usebp * BIT(FP)) | (!fn->isleaf * BIT(LR));
+   if (!save) return;
    int prev = 0;
    for (uint reg = LR; reg >= R(19); --reg) {
-      if (!rstest(usage, reg)) continue;
+      if (!rstest(save, reg)) continue;
       if (prev) {
          Xldp(pcode, KPTR, reg2oper(reg), reg2oper(prev),
                mkoper(OMEM, .m = {.mode = APOSTIDX, .base = SP, .disp = 16}));
@@ -557,8 +706,9 @@ calleerestore(uchar **pcode, struct function *fn)
       } else prev = reg;
    }
    if (prev) {
-      Xldp(pcode, KPTR, REGZR, reg2oper(prev),
+      Xldp(pcode, KPTR, reg2oper(prev), REGZR,
             mkoper(OMEM, .m = {.mode = APOSTIDX, .base = SP, .disp = 16}));
+      prev = 0;
    }
 }
 
@@ -568,7 +718,6 @@ emitbin(struct function *fn)
    struct block *blk;
    uchar **pcode = &objout.code;
    int npush = 0;
-   bool saverestore;
 
    fnstart = *pcode;
    curfnsym = fn->name;
@@ -576,11 +725,12 @@ emitbin(struct function *fn)
    /** prologue **/
 
    /* only use frame pointer in non-leaf functions and functions that use the stack */
-   usebp = 0;
-   if (!fn->isleaf || fn->stksiz) {
-      usebp = 1;
+   usebp = !fn->isleaf || fn->stksiz;
+   calleesave(&npush, pcode, fn);
+   if (usebp) {
+      /* MOV x29, sp */
+      Xadd(pcode, KPTR, reg2oper(FP), reg2oper(SP), mkoper(OIMM,));
    }
-   saverestore = calleesave(&npush, pcode, fn);
 
    /* ensure stack is 16-byte aligned for function calls */
    if (!fn->isleaf && ((fn->stksiz + npush*8) & 0xF) != 0) {
@@ -594,10 +744,7 @@ emitbin(struct function *fn)
       }
    }
 
-   if (fn->stksiz != 0) {
-   }
-
-   if (*pcode - fnstart > 6) {
+   if (*pcode - fnstart > 8) {
       /* largue prologue -> largue epilogue -> transform to use single exit point */
       struct block *exit = NULL;
       blk = fn->entry->lprev;
@@ -636,27 +783,24 @@ emitbin(struct function *fn)
       uint bbaddr = *pcode - objout.textbegin;
       assert(!bb->resolved);
       while (bb->relreloc) {
-         uint next;
-         int disp = bbaddr - bb->relreloc - 4;
-
-         //memcpy(&next, objout.textbegin + bb->relreloc, 4);
-         //wr32le(objout.textbegin + bb->relreloc, disp);
-         bb->relreloc = next;
+         int disp = (bbaddr - bb->relreloc)/4;
+         assert(disp >= -(1<<18) && disp < (1<<18));
+         uint tmp = rd32targ(objout.textbegin + bb->relreloc);
+         wr32le(objout.textbegin + bb->relreloc, (tmp &~ (0x7FFFFu<<5)) | (disp & 0x7FFFF)<<5);
+         bb->relreloc = tmp>>5 & 0x7FFFF;
       }
       bb->resolved = 1;
       bb->addr = bbaddr;
 
-      for (int i = 0; i < blk->ins.n; ++i) {
+      for (int i = 0; i < blk->ins.n; ++i)
          emitinstr(pcode, fn, blk, i, &instrtab[blk->ins.p[i]]);
-      }
       if (blk->jmp.t == Jret) {
          /* epilogue */
-         if (saverestore)
-            calleerestore(pcode, fn);
+         calleerestore(pcode, fn);
          W32(0xD65F03C0); /* RET */
       } else if (blk->jmp.t == Jtrap) {
          W32(0xD4200020); /* BRK #0x1 */
-      } else ;//emitbranch(pcode, blk);
+      } else emitbranch(pcode, blk);
    } while ((blk = blk->lnext) != fn->entry);
    objdeffunc(fn->name, fn->globl, fnstart - objout.textbegin, *pcode - fnstart);
 }

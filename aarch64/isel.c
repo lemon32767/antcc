@@ -1,10 +1,5 @@
 #include "all.h"
 
-/* map alloca tmp -> stack frame displacement (0 if not alloca) */
-static ushort *stkslots;
-static uint nstkslots;
-
-#define isstkslot(r) ((r).t == RTMP && (r).i < nstkslots && stkslots[(r).i])
 #define isimm32(r) (iscon(r) && concls(r) == KI32)
 
 static void
@@ -68,8 +63,7 @@ aarch64_logimm(uint *enc, enum irclass k, uvlong x)
    if (y != x) return 0;
    if (enc) {
       int clzb = b == 0 ? -1 : clz(b),
-          s = clza - clzb,
-          r;
+          s = clza - clzb, r;
       if (neg) {
          s = d - s;
          r = (clzb + 1) & (d - 1);
@@ -86,8 +80,8 @@ static void
 fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
 {
    enum op op = ins ? ins->op : 0;
-   if (isintcon(ins->r)) {
-      vlong x = intconval(ins->r);
+   if (isintcon(*r)) {
+      vlong x = intconval(*r);
       switch (op) {
       default:
          if (oiscmp(op)) {
@@ -104,9 +98,9 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          }
       }
       goto Copy;
-   } else if (isstkslot(*r)) {
-      struct instr adr = mkinstr(Oadd, KPTR, mkref(RREG, FP), mkintcon(KI32, -stkslots[r->i]));
-      if (ins && ins->op == Ocopy)
+   } else if (r->t == RSTACK) {
+      struct instr adr = mkinstr(Oadd, KPTR, mkref(RREG, FP), mkintcon(KI32, -r->i));
+      if (op == Ocopy)
          *ins = adr;
       else
          *r = insertinstr(blk, (*curi)++, adr);
@@ -319,14 +313,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    //default: assert(0);
    case Onop: break;
    case Oalloca1: case Oalloca2: case Oalloca4: case Oalloca8: case Oalloca16:
-      alignlog2 = ins->op - Oalloca1;
-      assert(ins->l.i > 0);
-      siz = ins->l.i << alignlog2;
-      fn->stksiz += siz;
-      fn->stksiz = alignup(fn->stksiz, 1 << alignlog2);
-      if (fn->stksiz > (1<<16)-1) error(NULL, "'%s' stack frame too big", fn->name);
-      stkslots[t] = fn->stksiz;
-      *ins = mkinstr(Onop,0,);
+      assert(!"unlowered alloca");
       break;
    case Oparam:
       assert(ins->l.t == RICON && ins->l.i < fn->nabiarg);
@@ -345,6 +332,11 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       break;
    case Oand: case Oior: case Oxor:
    case Oshl: case Osar: case Oslr:
+      fixarg(&ins->r, ins, blk, curi);
+      break;
+   case Oequ: case Oneq:
+   case Olth: case Ogth: case Olte: case Ogte:
+   case Oulth: case Ougth: case Oulte: case Ougte:
       fixarg(&ins->r, ins, blk, curi);
       break;
    case Oarg:
@@ -411,7 +403,6 @@ aarch64_isel(struct function *fn)
    struct block *blk = fn->entry;
 
    fn->stksiz = 0;
-   stkslots = allocz(fn->passarena, (nstkslots = ninstr) * sizeof *stkslots, 0);
    do {
       int i;
       for (i = 0; i < blk->phi.n; ++i) {
