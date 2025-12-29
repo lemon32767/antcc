@@ -183,7 +183,7 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 }
 
 static bool
-aimm(struct addr *addr, int disp)
+aimm(struct addr *addr, vlong disp)
 {
    vlong a = addr->disp;
    a += disp;
