@@ -2026,11 +2026,16 @@ static const struct token tok_1 = { TKNUMLIT, .s = "1", .len = 1, .litlit = 1 };
 static void
 putdef1(const char *name)
 {
-   struct macro mac = {
+   putmac(intern(name), &(struct macro) {
       .predef = 1,
-      .rlist = { &tok_1, 1 },
-   };
-   putmac(intern(name), &mac);
+      .rlist = { &tok_1, 1},
+   });
+}
+
+static void
+putdefs1(const char *s)
+{
+   for (; *s; s += strlen(s) + 1) putdef1(s);
 }
 
 static void
@@ -2043,47 +2048,31 @@ addpredefmacros(struct arena **tmparena)
       { "__DATE__", { .predef = 1, .special = 1, .handler = mac__date__handler }},
       { "__TIME__", { .predef = 1, .special = 1, .handler = mac__time__handler }},
       { "__has_builtin", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_builtin }},
-      { "__STDC__", { .predef = 1, .rlist = { &tok_1, 1 } }},
       { "__STDC_VERSION__", { .predef = 1, .rlist = { &tok_ver, 1 } }},
-      { "__antcc__", { .predef = 1, .rlist = { &tok_1, 1 } }},
    };
-   switch (ccopt.cstd) {
-   default: assert(0);
-   case STDC89: tok_ver.s = "199409L"; break;
-   case STDC99: tok_ver.s = "199901L"; break;
-   case STDC11: tok_ver.s = "201112L"; break;
-   case STDC23: tok_ver.s = "202311L"; break;
-   }
+   static const char
+      cpredefs[] =
+         "__antcc__\0__STDC__\0__STDC_NO_ATOMICS__\0__STDC_NO_COMPLEX__\0__STDC_NO_THREADS__\0__STDC_NO_VLA__\0",
+      *ospredefs[] = {
+         [OSlinux] = "__linux\0__linux__\0linux\0unix\0__unix\0__unix__\0"
+      }, *archpredefs[] = {
+         [ISx86_64] = "__x86_64__\0__x86_64\0",
+         [ISaarch64] = "__aarch64__\0__aarch64\0",
+      }, cstdver[][8] = {
+         [STDC89] = "199409L",
+         [STDC99] = "199901L",
+         [STDC11] = "201112L",
+         [STDC23] = "202311L",
+      };
+
+   tok_ver.s = cstdver[ccopt.cstd];
    tok_ver.len = 7;
-   for (int i = 0; i < countof(macs); ++i) {
+   for (int i = 0; i < countof(macs); ++i)
       putmac(intern(macs[i].name), &macs[i].m);
-   }
-
-   switch (target.arch) {
-   default: assert(0);
-   case ISx86_64:
-      putdef1("__x86_64__");
-      putdef1("__x86_64");
-      break;
-   case ISaarch64:
-      putdef1("__aarch64");
-      putdef1("__aarch64__");
-      break;
-   }
-
+   putdefs1(cpredefs);
    if (target.os != OSunknown) putdef1("__STDC_HOSTED__");
-   switch (target.os) {
-   default: assert(0);
-   case OSunknown: break;
-   case OSlinux:
-      putdef1("__linux__");
-      putdef1("__linux");
-      putdef1("linux");
-      putdef1("unix");
-      putdef1("__unix");
-      putdef1("__unix__");
-      break;
-   }
+   putdefs1(ospredefs[target.os]);
+   putdefs1(archpredefs[target.arch]);
 
    if (ppcmdline.n) {
       struct memfile *f;
