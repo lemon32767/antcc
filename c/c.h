@@ -45,7 +45,8 @@ struct expr {
         };
         uint n;
      } s; /* ESTRLIT */
-     struct decl *sym; /* ESYM */
+     int decl; /* ESYM, index into declsbuf */
+     internstr implicitsym; /* ESYM (undeclared) */
      struct init *init; /* EINIT */
    };
 };
@@ -101,9 +102,10 @@ struct decl {
    };
 };
 
+extern struct envdecls {vec_of(struct decl);} declsbuf;
 extern union type cvalistty;
 struct function;
-struct decl *envadddecl(struct env *env, const struct decl *d);
+int envadddecl(struct env *env, const struct decl *d);
 bool assigncheck(union type t, const struct expr *src);
 union ref expraddr(struct function *, const struct expr *);
 union ref compileexpr(struct function *, const struct expr *, bool discard);

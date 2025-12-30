@@ -172,7 +172,7 @@ isexprtok(struct comp *cm)
 /* Environment (scope) management */
 /**********************************/
 
-static vec_of(struct decl) envdecls;
+struct envdecls declsbuf;
 struct tagged { /* a tagged type declaration */
    union type ty;
    struct span span;
@@ -192,9 +192,9 @@ static pmap_of(ushort) tldeclmap;
 static void
 envdown(struct comp *cm, struct env *e)
 {
-   assert(cm->env->decl + cm->env->ndecl == envdecls.n);
+   assert(cm->env->decl + cm->env->ndecl == declsbuf.n);
    assert(cm->env->tagged + cm->env->ntagged == envtagged.n);
-   e->decl = envdecls.n;
+   e->decl = declsbuf.n;
    e->tagged = envtagged.n;
    e->ndecl = e->ntagged = 0;
    e->up = cm->env;
@@ -205,22 +205,22 @@ static void
 envup(struct comp *cm)
 {
    struct env *env = cm->env;
-   assert(env->decl + env->ndecl == envdecls.n);
-   envdecls.n -= env->ndecl;
+   assert(env->decl + env->ndecl == declsbuf.n);
+   declsbuf.n -= env->ndecl;
    envtagged.n -= env->ntagged;
    assert(env->up);
    cm->env = env->up;
 }
 
-struct decl *
+int
 envadddecl(struct env *env, const struct decl *d)
 {
-   assert(env->decl + env->ndecl == envdecls.n);
-   vpush(&envdecls, *d);
-   assert(envdecls.n < 1<<16);
+   assert(env->decl + env->ndecl == declsbuf.n);
+   vpush(&declsbuf, *d);
+   assert(declsbuf.n < 1<<16);
    ++env->ndecl;
-   if (!env->up) pmap_set(&tldeclmap, d->name, envdecls.n-1);
-   return &envdecls.p[envdecls.n - 1];
+   if (!env->up) pmap_set(&tldeclmap, d->name, declsbuf.n-1);
+   return declsbuf.n - 1;
 }
 
 /* iters in reversed order of insertion (most to least recent) */
@@ -229,8 +229,8 @@ static inline bool
 enviterdecl(struct decl **d, struct env *env)
 {
    if (!env->ndecl) return 0;
-   if (!*d) *d = &envdecls.p[env->decl + env->ndecl - 1];
-   else if (*d == &envdecls.p[env->decl]) return 0;
+   if (!*d) *d = &declsbuf.p[env->decl + env->ndecl - 1];
+   else if (*d == &declsbuf.p[env->decl]) return 0;
    else --*d;
    return 1;
 }
@@ -292,7 +292,7 @@ redeclarationok(const struct decl *old, const struct decl *new)
    return 0;
 }
 
-static struct decl *
+static int
 putdecl(struct comp *cm, const struct decl *decl)
 {
    assert(!decl->isbuiltin);
@@ -301,7 +301,7 @@ putdecl(struct comp *cm, const struct decl *decl)
       if (!env->up) {
          ushort *pi = pmap_get(&tldeclmap, decl->name);
          if (pi) {
-            l = &envdecls.p[*pi];
+            l = &declsbuf.p[*pi];
             goto Match;
          }
       } else for (l = NULL; enviterdecl(&l, env);) {
@@ -316,7 +316,7 @@ putdecl(struct comp *cm, const struct decl *decl)
                note(&l->span, "previously declared here");
                break;
             }
-            if (l->isdef && !decl->isdef) return l;
+            if (l->isdef && !decl->isdef) return l - declsbuf.p;
             break;
          }
       }
@@ -332,7 +332,7 @@ finddecl(struct comp *cm, internstr name)
    for (struct env *e = cm->env; e; e = e->up) {
       if (!e->up) {
          ushort *pi = pmap_get(&tldeclmap, name);
-         if (pi) return &envdecls.p[*pi];
+         if (pi) return &declsbuf.p[*pi];
       } else for (struct decl *l = NULL; enviterdecl(&l, e);) {
          if (name == l->name)
             return l;
@@ -733,20 +733,20 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
    bool printsig = 0;
    const struct builtin *builtin = NULL;
 
-   if (callee->t == ESYM && !callee->ty.t && callee->sym->isbuiltin) {
-      builtin = callee->sym->builtin;
+   if (callee->t == ESYM && !callee->ty.t && declsbuf.p[callee->decl].isbuiltin) {
+      builtin = declsbuf.p[callee->decl].builtin;
       assert(!ty.t);
    }
 
    if (callee->t == ESYM && ty.t == IMPLICITFUNCTY) { /* implicit function decl.. */
-      internstr name = (void *)callee->sym;
+      internstr name = callee->implicitsym;
       struct decl decl = {
          (ty = mkfntype(mktype(TYINT), 0, NULL, /* kandr */ 1, 0)),
          .scls = SCEXTERN, .span = span, .name = name, .sym = name
       };
       warn(&span, "call to undeclared function '%s'", name);
       ((struct expr *)callee)->ty = decl.ty;
-      ((struct expr *)callee)->sym = putdecl(cm, &decl);
+      ((struct expr *)callee)->decl = putdecl(cm, &decl);
    }
 
    if (!builtin) {
@@ -1093,18 +1093,18 @@ Unary:
             assert(decl && decl->scls == SCSTATIC);
             goto Sym;
          } else if (peek(cm, NULL) == '(') { /* implicit function decl? */
-            ex = mkexpr(ESYM, tk.span, mktype(IMPLICITFUNCTY), .sym = (void *)tk.name);
+            ex = mkexpr(ESYM, tk.span, mktype(IMPLICITFUNCTY), .implicitsym = tk.name);
          } else {
             error(&tk.span, "undeclared identifier %'tk", &tk);
-            ex = mkexpr(ESYM, tk.span, mktype(TYINT), .sym = NULL);
+            ex = mkexpr(ESYM, tk.span, mktype(TYINT), .implicitsym = NULL);
          }
       } else if (decl->scls == SCTYPEDEF) {
          error(&tk.span, "unexpected typename %'tk (expected expression)", &tk);
-         ex = mkexpr(ESYM, tk.span, decl->ty, .sym = NULL);
+         ex = mkexpr(ESYM, tk.span, decl->ty, .implicitsym = NULL);
       } else if (decl->isenum) {
          ex = mkexpr(ENUMLIT, tk.span, decl->ty, .i = decl->value);
       } else Sym: {
-         ex = mkexpr(ESYM, tk.span, decl->ty, .qual = decl->qual, .sym = decl);
+         ex = mkexpr(ESYM, tk.span, decl->ty, .qual = decl->qual, .decl = decl - declsbuf.p);
       }
       break; }
    case TKWsizeof: case TKW_Alignof: case TKWalignof:
@@ -1398,7 +1398,7 @@ dumpini(struct initparser *ip)
 static bool
 globsym(union ref *psym, const struct expr *ex)
 {
-   if (ex->t == EINIT || ex->t == ESTRLIT || (ex->t == ESYM && (ex->sym->scls & (SCSTATIC | SCEXTERN)))) {
+   if (ex->t == EINIT || ex->t == ESTRLIT || (ex->t == ESYM && (declsbuf.p[ex->decl].scls & (SCSTATIC | SCEXTERN)))) {
       *psym = expraddr(NULL, ex);
       return 1;
    }
@@ -2853,7 +2853,7 @@ expraddr(struct function *fn, const struct expr *ex)
 
    switch (ex->t) {
    case ESYM:
-      decl = ex->sym;
+      decl = &declsbuf.p[ex->decl];
       assert(decl != NULL);
       switch (decl->scls) {
       case SCAUTO: case SCREGISTER:
@@ -3309,8 +3309,8 @@ compilecall(struct function *fn, const struct expr *ex)
    struct instr insnsbuf[10];
    vec_of(struct instr) insns = VINIT(insnsbuf, countof(insnsbuf));
 
-   if (sub[0].t == ESYM && sub[0].sym->isbuiltin) {
-      return sub[0].sym->builtin->comp(fn, (struct expr *)ex, 0);
+   if (sub[0].t == ESYM && declsbuf.p[sub[0].decl].isbuiltin) {
+      return declsbuf.p[sub[0].decl].builtin->comp(fn, (struct expr *)ex, 0);
    }
    ins.op = Ocall;
    if (isagg(ex->ty)) {
@@ -3332,7 +3332,7 @@ compilecall(struct function *fn, const struct expr *ex)
    vfree(&insns);
    ins.r = mkcallarg(mkirtype(ex->ty), ex->narg, td->variadic ? td->nmemb : td->kandr ? 0 : -1);
    union ref r = addinstr(fn, ins);
-   if (sub[0].t == ESYM && sub[0].sym->noret) /* trap if noreturn func returns */
+   if (sub[0].t == ESYM && declsbuf.p[sub[0].decl].noret) /* trap if noreturn func returns */
       puttrap(fn);
    return r;
 }
@@ -4309,31 +4309,33 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
             }
          Initz:
             if (st.varini) {
-               struct decl *d = putdecl(cm, &decl);
+               int d = putdecl(cm, &decl);
+               union type ty = decl.ty;
                bool statik = decl.scls & (SCSTATIC | SCEXTERN);
-               ini = initializer(cm, &d->ty, statik ? EVSTATICINI : EVFOLD,
+               ini = initializer(cm, &ty, statik ? EVSTATICINI : EVFOLD,
                                  /* globl? */ decl.scls == SCEXTERN, decl.qual, statik ? decl.sym : NULL);
+               declsbuf.p[d].ty = ty;
                put = 1;
                pdecl(&st, cm);
                if (!statik) {
                   /* fix alloca for actual size, for implicitly sized arrays */
-                  assert(!isincomplete(d->ty));
-                  EMITS instrtab[decl.id] = mkalloca(typesize(d->ty), typealign(d->ty));
+                  assert(!isincomplete(ty));
+                  EMITS instrtab[decl.id] = mkalloca(typesize(ty), typealign(ty));
 
-                  if (!initcheck(d->ty, &ini)) {
+                  if (!initcheck(ty, &ini)) {
                      struct span span = decl.span;
                      joinspan(&span.ex, ini.span.ex);
                      error(&span, "cannot initialize '%ty' variable with '%ty'",
-                           d->ty, ini.ty);
+                           ty, ini.ty);
                   }
                   EMITS {
-                     if (ini.t == EINIT || (d->ty.t == TYARRAY && ini.t == ESTRLIT))
-                        geninit(fn, d->ty, mkref(RTMP, decl.id), &ini);
-                     else if (isagg(d->ty))
-                        structcopy(fn, d->ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
+                     if (ini.t == EINIT || (ty.t == TYARRAY && ini.t == ESTRLIT))
+                        geninit(fn, ty, mkref(RTMP, decl.id), &ini);
+                     else if (isagg(ty))
+                        structcopy(fn, ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
                      else {
-                        genstore(fn, d->ty, mkref(RTMP, decl.id),
-                              cvt(fn, d->ty, ini.ty, exprvalue(fn, &ini)));
+                        genstore(fn, ty, mkref(RTMP, decl.id),
+                              cvt(fn, ty, ini.ty, exprvalue(fn, &ini)));
                      }
                   }
                } else if (decl.scls == SCEXTERN) {
@@ -4501,7 +4503,7 @@ tldecl(struct comp *cm)
                error(&st.pspans[i], "parameter has incomplete type '%ty'", td->param[i]);
          }
          decl.isdef = 1;
-         struct decl *d = putdecl(cm, &decl);
+         struct decl *d = &declsbuf.p[putdecl(cm, &decl)];
          struct function fn = { &cm->fnarena, .name = decl.name, .globl = d->scls != SCSTATIC, .fnty = decl.ty, .retty = td->ret };
          irinit(&fn);
          function(cm, &fn, st.pnames, st.pspans, st.pqual);
@@ -4509,13 +4511,16 @@ tldecl(struct comp *cm)
             irdump(&fn);
          irfini(&fn);
       } else if (decl.name) {
-         struct decl *d = putdecl(cm, &decl);
+         int idecl = putdecl(cm, &decl);
+         struct decl *d = &declsbuf.p[idecl];
          if (st.varini) {
-            if (isagg(d->ty) && isincomplete(d->ty))
-               error(&d->span, "initialization of variable with incomplete type '%ty'", d->ty);
-            struct expr ini = initializer(cm, &d->ty, EVSTATICINI, d->scls != SCSTATIC, d->qual, d->sym);
+            if (isagg(decl.ty) && isincomplete(decl.ty))
+               error(&decl.span, "initialization of variable with incomplete type '%ty'", decl.ty);
+            struct expr ini = initializer(cm, &decl.ty, EVSTATICINI, d->scls != SCSTATIC, d->qual, d->sym);
+            d = &declsbuf.p[idecl];
+            d->ty = decl.ty;
             if (d->scls == SCEXTERN && !noscls) {
-               struct span span = d->span;
+               struct span span = decl.span;
                joinspan(&span.ex, ini.span.ex);
                warn(&span, "'extern' variable has initializer");
             }
@@ -4558,7 +4563,7 @@ docomp(struct comp *cm)
    istr_main = intern("main");
    istr_memset = intern("memset");
    if (!cm->env) {
-      vinit(&envdecls, NULL, 1<<10);
+      vinit(&declsbuf, NULL, 1<<10);
       pmap_init(&tldeclmap, 1<<8);
       cm->env = &toplevel;
    }

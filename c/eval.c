@@ -158,7 +158,7 @@ unop(struct expr *ex, enum evalmode mode)
 static bool
 isglobsym(const struct expr *ex)
 {
-   return ex->t == ESTRLIT || (ex->t == ESYM && ex->sym && (ex->sym->scls & (SCSTATIC | SCEXTERN)));
+   return ex->t == ESTRLIT || (ex->t == ESYM && ex->ty.t < NTYPETAG && (declsbuf.p[ex->decl].scls & (SCSTATIC | SCEXTERN)));
 }
 
 static bool
