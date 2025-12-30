@@ -334,6 +334,12 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Oshl: case Osar: case Oslr:
       fixarg(&ins->r, ins, blk, curi);
       break;
+   case Omul: case Odiv:
+      if (ins->l.t != RTMP)
+         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
+      if (ins->r.t != RTMP)
+         ins->r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->r));
+      break;
    case Oequ: case Oneq:
    case Olth: case Ogth: case Olte: case Ogte:
    case Oulth: case Ougth: case Oulte: case Ougte:

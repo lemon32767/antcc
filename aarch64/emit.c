@@ -220,6 +220,9 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
    case EN_LOGSHFT3R:
       ins |= sf<<31 | o[2].shft<<22 | o[2].reg<<16 | o[2].shamt<<10 | o[1].reg<<5 | o[0].reg;
       break;
+   case EN_ARITH3R:
+      ins |= sf<<31 | o[2].reg<<16 | o[1].reg<<5 | o[0].reg;
+      break;
    case EN_ADDSUBIMM:
       sh = o[2].imm > 0xFFF;
       ins |= sf<<31 | sh<<22 | (o[2].uimm >> 12*sh)<<10 | o[1].reg<<5 | o[0].reg;
@@ -312,6 +315,18 @@ DEFINSTR3(Xsubs,
    {4|8, {PGPRZ, PGPRSP, PU12SL12}, 0x71000000, EN_ADDSUBIMM}, /* SUBS (immediate) */
    {4|8, {PGPRZ, PGPRZ, PGPRZSHFT},  0x6B000000, EN_ADDSUBSHFT3R}, /* SUBS (shifted register) */
 )
+
+static void
+Xmadd(uchar **pcode, enum irclass k, struct oper d, struct oper n, struct oper m, struct oper a)
+{
+   assert(opermatch(PGPRZ, k, d) && opermatch(PGPRZ, k, n)
+       && opermatch(PGPRZ, k, a) && opermatch(PGPRZ, k, m));
+   uint sf = k > KI32;
+   W32(0x1B000000 | sf<<31 | m.reg<<16 | a.reg<<10 | n.reg<<5 | d.reg);
+}
+
+DEFINSTR3(Xsdiv, {4|8, {PGPRZ, PGPRZ, PGPRZ}, 0x1AC00C00, EN_ARITH3R})
+DEFINSTR3(Xudiv, {4|8, {PGPRZ, PGPRZ, PGPRZ}, 0x1AC00800, EN_ARITH3R})
 
 DEFINSTR3(Xand,
    {4|8, {PGPRSP, PGPRZ, PLOGIMM},   0x12000000, EN_LOGIMM}, /* AND (immediate) */
@@ -609,6 +624,16 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
    case Oxor: X3 = Xeor; goto ALU3;
    ALU3:
       X3(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r));
+      break;
+   case Omul:
+      /* MUL Rd,Rn,Rm ==> MADD Rd,Rn,Rm,zr */
+      Xmadd(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r), REGZR);
+      break;
+   case Odiv:
+      Xsdiv(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r));
+      break;
+   case Oudiv:
+      Xudiv(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r));
       break;
    case Oshl:
       if (ins->r.t == RICON) {
