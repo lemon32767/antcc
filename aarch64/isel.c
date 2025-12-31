@@ -2,13 +2,6 @@
 
 #define isimm32(r) (iscon(r) && concls(r) == KI32)
 
-static void
-picfixsym(union ref *r, struct block *blk, int *curi)
-{
-   if (!ccopt.pic || !isaddrcon(*r,0)) return;
-   *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, .l = *r));
-}
-
 static inline uint
 clz(uvlong x)
 {
@@ -73,7 +66,14 @@ aarch64_logimm(uint *enc, enum irclass k, uvlong x)
       *enc = outn<<12 | r<<6 | (((-d * 2) | (s - 1)) & 0x3F);
    }
    return 1;
+}
 
+
+static void
+regarg(union ref *r, enum irclass k, struct block *blk, int *curi)
+{
+   if (r->t != RTMP)
+      *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, k, *r));
 }
 
 static void
@@ -83,6 +83,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
    if (isintcon(*r)) {
       vlong x = intconval(*r);
       switch (op) {
+         case Ocopy: return;
       default:
          if (oiscmp(op)) {
          case Oadd: case Osub:
@@ -97,15 +98,15 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
             break;
          }
       }
-      goto Copy;
+      goto Reg;
    } else if (r->t == RSTACK) {
       struct instr adr = mkinstr(Oadd, KPTR, mkref(RREG, FP), mkintcon(KI32, -r->i));
       if (op == Ocopy)
          *ins = adr;
       else
          *r = insertinstr(blk, (*curi)++, adr);
-   } else if (r->t != RTMP) Copy: {
-      *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, r->t == RTMP ? instrtab[r->i].cls : ins->cls ? ins->cls : KI32, *r));
+   } else if (r->t != RTMP) Reg: {
+      regarg(r, r->t == RTMP ? instrtab[r->i].cls : ins->cls ? ins->cls : KI32, blk, curi);
    }
 }
 
@@ -202,7 +203,7 @@ static bool
 ascale(struct addr *addr, union ref a, union ref b, uint siz/*1,2,4,8*/)
 {
    if (b.t != RICON) return 0;
-   if (addr->index.bits || addr->disp) return 0;
+   if (addr->index.bits || (addr->disp && !isaddrcon(addr->base,1))) return 0;
    if ((unsigned)b.i > 3 || 1<<b.i != siz) return 0;
    if (a.t == RREG || a.t == RTMP) {
       addr->index = a;
@@ -266,29 +267,34 @@ fuseaddr(union ref *r, struct block *blk, int *curi, uint siz/*1,2,4,8*/)
 
    if (r->t != RSTACK && r->t != RTMP) return 0;
    if (!aadd(&addr, blk, curi, *r, siz)) return 0;
-   if (isaddrcon(addr.base,0) && (ccopt.pic || (ccopt.pie && addr.index.bits) || (conht[addr.base.i].flag & SFUNC))) {
-      /* pic needs to load from GOT */
-      /* pie cannot encode RIP-relative address with index register */
-      /*     first load symbol address into a temp register */
-      union ref temp = mkaddr((struct addr){.base = addr.base, .disp = ccopt.pic ? 0 : addr.disp});
-      addr.base = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, .l = temp));
-      if (!ccopt.pic) addr.disp = 0;
-   }
    if (!(addr.disp >= -256 && addr.disp < 256) /* for 9-bit signed unscaled offset */
     && !(!(addr.disp & (siz-1)) && (uvlong)addr.disp < (1<<12)*siz)) /* 12-bit unsigned scaled offset */
       return 0;
+   if (isaddrcon(addr.base,0) && (!(conht[addr.base.i].flag & SLOCAL) || addr.index.bits)) {
+      /* first load symbol address into a temp register */
+      if (addr.disp && (ccopt.pic || (conht[addr.base.i].flag & SFUNC)) && !addr.index.bits) {
+         addr.base = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, .l = addr.base));
+      } else {
+         addr.base = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR,
+                  mkaddr((struct addr){addr.base, .disp = addr.disp})));
+         addr.disp = 0;
+      }
+   }
    *r = mkaddr(addr);
    return 1;
 }
 
 
 static void
-loadstoreaddr(struct block *blk, union ref *r, int *curi, uint siz)
+loadstoreaddr(struct block *blk, union ref *r, int *curi, enum op op)
 {
+   uint siz = oisload(op) ? 1<<(op - Oloads8)/2 : 1<<(op - Ostore8);
    if (isimm32(*r)) {
       *r = mkaddr((struct addr){.base = *r});
    } else if (isaddrcon(*r, 0)) {
-      picfixsym(r, blk, curi);
+      bool pcrelok = in_range(op, Oloads32, Oloadi64); /* LDR-LDRSW have PC-relative literal form */
+      if (!pcrelok || !(conht[r->i].flag & SLOCAL))
+         regarg(r, KPTR, blk, curi);
    } else if (r->t == RTMP || r->t == RSTACK) {
       fuseaddr(r, blk, curi, siz);
    } else if (r->t != RREG) {
@@ -299,9 +305,6 @@ loadstoreaddr(struct block *blk, union ref *r, int *curi, uint siz)
 static void
 sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 {
-   uint siz, alignlog2;
-   int t = ins - instrtab;
-   struct instr temp = {0};
    enum op op = ins->op;
 
    if (oisarith(ins->op) && arithfold(ins)) {
@@ -315,6 +318,9 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Oalloca1: case Oalloca2: case Oalloca4: case Oalloca8: case Oalloca16:
       assert(!"unlowered alloca");
       break;
+   case Ocopy:
+      fixarg(&ins->l, ins, blk, curi);
+      break;
    case Oparam:
       assert(ins->l.t == RICON && ins->l.i < fn->nabiarg);
       if (!fn->abiarg[ins->l.i].isstk)
@@ -322,16 +328,31 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       else /* stack */
          *ins = mkinstr(Oadd, KPTR, mkref(RREG, FP), mkref(RICON, 16+fn->abiarg[ins->l.i].stk));
       break;
-   case Oadd: case Osub:
+   case Oadd:
+      if (isnumcon(ins->l)) {
+         /* swap to have const in rhs */
+         union ref tmp = ins->l;
+         ins->l = ins->r;
+         ins->r = tmp;
+      }
+   case Osub:
       if (ins->r.t == RICON && ins->r.i < 0) {
          op = ins->op ^= 1;
          ins->r.i = -ins->r.i;
       }
-      fixarg(&ins->l, ins, blk, curi);
+      if (!(isaddrcon(ins->l,0) && (conht[ins->l.i].flag & SLOCAL)))
+         regarg(&ins->l, ins->cls, blk, curi);
       fixarg(&ins->r, ins, blk, curi);
       break;
    case Oand: case Oior: case Oxor:
+      if (isnumcon(ins->l)) {
+         /* swap to have const in rhs */
+         union ref tmp = ins->l;
+         ins->l = ins->r;
+         ins->r = tmp;
+      }
    case Oshl: case Osar: case Oslr:
+      regarg(&ins->l, ins->cls, blk, curi);
       fixarg(&ins->r, ins, blk, curi);
       break;
    case Omul: case Odiv:
@@ -343,6 +364,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Oequ: case Oneq:
    case Olth: case Ogth: case Olte: case Ogte:
    case Oulth: case Ougth: case Oulte: case Ougte:
+      regarg(&ins->l, ins->cls, blk, curi);
       fixarg(&ins->r, ins, blk, curi);
       break;
    case Oarg:
@@ -353,11 +375,11 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       break;
    case Oloads8: case Oloadu8: case Oloads16: case Oloadu16:
    case Oloads32: case Oloadu32: case Oloadi64:
-      loadstoreaddr(blk, &ins->l, curi, 1<<((op - Oloads8)/2));
+      loadstoreaddr(blk, &ins->l, curi, op);
       break;
    case Ostore8: case Ostore16: case Ostore32: case Ostore64:
-      loadstoreaddr(blk, &ins->l, curi, 1<<(op - Ostore8));
-      fixarg(&ins->r, ins, blk, curi);
+      loadstoreaddr(blk, &ins->l, curi, op);
+      regarg(&ins->r, op == Ostore64 ? KI64 : KI32, blk, curi);
       break;
    }
 }
@@ -408,7 +430,6 @@ aarch64_isel(struct function *fn)
    extern int ninstr;
    struct block *blk = fn->entry;
 
-   fn->stksiz = 0;
    do {
       int i;
       for (i = 0; i < blk->phi.n; ++i) {

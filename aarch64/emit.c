@@ -259,15 +259,15 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       break;
    case EN_ADRSYMLO21:
       ins |= o[0].reg;
-      objreloc(xcon2sym(o[1].con), REL_ADR_PREL_LO21, Stext, *pcode - objout.textbegin, 0);
+      objreloc(xcon2sym(o[1].con), REL_ADR_PREL_LO21, Stext, *pcode - objout.textbegin, o[1].cdisp);
       break;
    case EN_ADRSYMPGHI21:
       ins |= o[0].reg;
-      objreloc(xcon2sym(o[1].con), REL_ADR_PREL_PG_HI21, Stext, *pcode - objout.textbegin, 0);
+      objreloc(xcon2sym(o[1].con), REL_ADR_PREL_PG_HI21, Stext, *pcode - objout.textbegin, o[1].cdisp);
       break;
    case EN_ADDSYMLO12:
       ins |= sf<<31 | o[1].reg<<5 | o[0].reg;
-      objreloc(xcon2sym(o[2].con), REL_ADD_ABS_LO12_NC, Stext, *pcode - objout.textbegin, 0);
+      objreloc(xcon2sym(o[2].con), REL_ADD_ABS_LO12_NC, Stext, *pcode - objout.textbegin, o[1].cdisp);
       break;
    }
    W32(ins);
@@ -463,8 +463,8 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       }
    } else if (val.t == RREG || val.t == RTMP) {
       Xorr(pcode, cls, dst, REGZR, ref2oper(val)); /* MOV Rd, Rn ==> ORR Rd, zr, Rn */
-   } else if (isaddrcon(val,0)) {
-      struct oper sym = mkoper(OSYM, .con = val.i);
+   } else if (isaddrcon(val,0) || (val.t == RADDR && isaddrcon(addrht[val.i].base,0))) {
+      struct oper sym = mkmemoper(0, val);
       if ((ccopt.pic || (conht[val.i].flag & SFUNC)) && !(conht[val.i].flag & SLOCAL)) {
          Xadrp(pcode, KPTR, dst, sym);
          Xadd(pcode, KPTR, dst, dst, sym);
