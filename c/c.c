@@ -155,7 +155,7 @@ isexprtok(struct comp *cm)
    struct token tk;
    if (peek(cm, &tk) == TKIDENT) {
       struct decl *decl = finddecl(cm, tk.name);
-      return decl && decl->scls != SCTYPEDEF;
+      return !decl || decl->scls != SCTYPEDEF;
    } else {
       static const bool tks[] = {
 #define tk(x) [x] = 1
@@ -4213,7 +4213,7 @@ stmt(struct comp *cm, struct function *fn)
       stmtterm(cm);
       break;
    case TKWreturn:
-      lex(cm, NULL);
+      lex(cm, &tk);
       if (isexprtok(cm)) {
          ex = commaexpr(cm);
          if (fn->retty.t == TYVOID) {
