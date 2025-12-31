@@ -147,7 +147,7 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          union ref adr = mkaddr((struct addr){mkref(RREG, SP), .disp = abi.stk});
          int iargsave = iarg;
          if (!abi.ty.isagg) { /* scalar arg in stack */
-            *arg = mkinstr(Ostore8+ilog2(cls2siz[abi.ty.cls]), 0, adr, arg->r);
+            *arg = mkinstr(cls2store[abi.ty.cls], 0, adr, arg->r);
             if (isaddrcon(arg->r,1) || arg->r.t == RADDR)
                arg->r = insertinstr(blk, iarg++, mkinstr(Ocopy, abi.ty.cls, arg->r));
             else
@@ -284,11 +284,26 @@ fuseaddr(union ref *r, struct block *blk, int *curi, uint siz/*1,2,4,8*/)
    return 1;
 }
 
-
+static const uchar loadsz[] = {
+   [Oloads8  - Oloads8] = 1, [Oloadu8  - Oloads8] = 1,
+   [Oloads16 - Oloads8] = 2, [Oloadu16 - Oloads8] = 2,
+   [Oloads32 - Oloads8] = 4, [Oloadu32 - Oloads8] = 4,
+   [Oloadi64 - Oloads8] = 8,
+   [Oloadf32 - Oloads8] = 4,
+   [Oloadf64 - Oloads8] = 8,
+};
+static const uchar storesz[] = {
+   [Ostorei8  - Ostorei8] = 1,
+   [Ostorei16 - Ostorei8] = 2,
+   [Ostorei32 - Ostorei8] = 4,
+   [Ostorei64 - Ostorei8] = 8,
+   [Ostoref32 - Ostorei8] = 4,
+   [Ostoref64 - Ostorei8] = 8,
+};
 static void
 loadstoreaddr(struct block *blk, union ref *r, int *curi, enum op op)
 {
-   uint siz = oisload(op) ? 1<<(op - Oloads8)/2 : 1<<(op - Ostore8);
+   uint siz = oisload(op) ? loadsz[op] : storesz[op];
    if (isimm32(*r)) {
       *r = mkaddr((struct addr){.base = *r});
    } else if (isaddrcon(*r, 0)) {
@@ -306,6 +321,7 @@ static void
 sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 {
    enum op op = ins->op;
+   enum irclass cls;
 
    if (oisarith(ins->op) && arithfold(ins)) {
       fixarg(&ins->l, ins, blk, curi);
@@ -377,9 +393,12 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Oloads32: case Oloadu32: case Oloadi64:
       loadstoreaddr(blk, &ins->l, curi, op);
       break;
-   case Ostore8: case Ostore16: case Ostore32: case Ostore64:
+   case Ostorei8: case Ostorei16: case Ostorei32: cls = KI32; goto Store;
+   case Ostorei64: cls = KI64; goto Store;
+   case Ostoref32: cls = KF32; goto Store;
+   case Ostoref64: cls = KF64; Store:
       loadstoreaddr(blk, &ins->l, curi, op);
-      regarg(&ins->r, op == Ostore64 ? KI64 : KI32, blk, curi);
+      regarg(&ins->r, cls, blk, curi);
       break;
    }
 }

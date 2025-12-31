@@ -2951,10 +2951,10 @@ genstore(struct function *fn, union type t, union ref ptr, union ref val)
 
    assert(isscalar(t));
    switch (typesize(t)) {
-   case 1: ins.op = Ostore8; break;
-   case 2: ins.op = Ostore16; break;
-   case 4: ins.op = Ostore32; break;
-   case 8: ins.op = Ostore64; break;
+   case 1: ins.op = Ostorei8; break;
+   case 2: ins.op = Ostorei16; break;
+   case 4: ins.op = isflt(t) ? Ostoref32 : Ostorei32; break;
+   case 8: ins.op = isflt(t) ? Ostoref64 : Ostorei64; break;
    default: assert(0);
    }
    ins.l = ptr;
@@ -2988,7 +2988,7 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
             /* write individual zeros at non initialized gaps */
             for (uint i = 0; bsiter(&i, azero, countof(azero)) && i < siz; i += align) {
                adr = irbinop(fn, Oadd, KPTR, dst, mkref(RICON, i));
-               addinstr(fn, mkinstr(Ostore8 + ilog2(align), 0, .l = adr, .r = ZEROREF));
+               addinstr(fn, mkinstr(Ostorei8 + ilog2(align), 0, .l = adr, .r = ZEROREF));
             }
          } else {
             goto Memset0;

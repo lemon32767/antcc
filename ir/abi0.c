@@ -121,11 +121,11 @@ patchparam(struct function *fn, int *curi, int *param, int tydat, int nabi, stru
           *  store* %x, %a
           *  store* %x + N, %b
           */
-         st = mkinstr(Ostore8 + ilog2(cls2siz[abi[0].ty.cls]), 0, alloc, r[0]);
+         st = mkinstr(cls2store[abi[0].ty.cls], 0, alloc, r[0]);
          insertinstr(blk, ++*curi, st);
          if (nabi > 1) {
             struct instr tmp = mkinstr(Oadd, KPTR, alloc, mkref(RICON, r2off));
-            st = mkinstr(Ostore8 + ilog2(cls2siz[abi[1].ty.cls]), 0, insertinstr(blk, ++*curi, tmp), r[1]);
+            st = mkinstr(cls2store[abi[1].ty.cls], 0, insertinstr(blk, ++*curi, tmp), r[1]);
             insertinstr(blk, ++*curi, st);
          }
       }
@@ -226,7 +226,7 @@ patcharg(struct block *blk, int *icall, struct call *call,
             union ref sadr = off == 0 ? src : insertinstr(blk, ++arginst, mkinstr(Oadd, KPTR, src, mkref(RICON, off)));
             union ref tmp = insertinstr(blk, ++arginst, mkinstr(Oloads8+2*ilog2(align), align < 8 ? KI32 : KI64, sadr));
             union ref dadr = off == 0 ? dst : insertinstr(blk, ++arginst, mkinstr(Oadd, KPTR, dst, mkref(RICON, off)));
-            insertinstr(blk, ++arginst, mkinstr(Ostore8+ilog2(align), 0, dadr, tmp));
+            insertinstr(blk, ++arginst, mkinstr(Ostorei8+ilog2(align), 0, dadr, tmp));
          }
          *icall = arginst + (call->narg - argidx);
          return 1;
@@ -320,12 +320,7 @@ abi0_call(struct function *fn, struct instr *ins, struct block *blk, int *curi)
             r[1] = insertinstr(blk, ++*curi, ret2);
          }
          for (int i = 0; i < nret; ++i) {
-            struct instr store = {0};
-            switch (call->abiret[i].ty.cls) {
-            default: assert(0);
-            case KF32: case KI32: store.op = Ostore32; break;
-            case KI64: case KF64: store.op = Ostore64; break;
-            }
+            struct instr store = { cls2store[call->abiret[i].ty.cls] };
             if (i == 0) {
                store.l = retmem;
             } else {

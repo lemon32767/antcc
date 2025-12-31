@@ -15,10 +15,18 @@ static const uchar load2ext[] = {
    [Oloads32 - Oloads8] = Oexts32, [Oloadu32 - Oloads8] = Oextu32,
    [Oloadi64 - Oloads8] = Ocopy,
 };
+static const uchar storesz[] = {
+   [Ostorei8  - Ostorei8] = 1,
+   [Ostorei16 - Ostorei8] = 2,
+   [Ostorei32 - Ostorei8] = 4,
+   [Ostorei64 - Ostorei8] = 8,
+   [Ostoref32 - Ostorei8] = 4,
+   [Ostoref64 - Ostorei8] = 8,
+};
 #define loadsz(o) (loadszcls[(o) - Oloads8] & 0xF)
 #define loadcls(o) (loadszcls[(o) - Oloads8] >> 4)
 #define load2ext(o) (load2ext[(o) - Oloads8])
-#define storesz(o) (1 << ((o) - Ostore8))
+#define storesz(o) (storesz[(o) - Ostorei8])
 
 /* Implements algorithm in 'Simple and Efficient Construction of Static Single Assignment' (Braun et al) */
 

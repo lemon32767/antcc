@@ -101,7 +101,7 @@ enum op {
 #define oiscmp(o) in_range(o, Oequ, Ougte)
 #define oisarith(o) in_range(o, Oneg, Ougte)
 #define oisalloca(o) in_range(o, Oalloca1, Oalloca16)
-#define oisstore(o) in_range(o, Ostore8, Ostore64)
+#define oisstore(o) in_range(o, Ostorei8, Ostoref64)
 #define oisload(o) in_range(o, Oloads8, Oloadf64)
 extern const char *opnames[];
 extern const uchar opnarg[];
@@ -235,6 +235,7 @@ enum { MAXINSTR = 1<<15 };
 extern uchar type2cls[];
 extern uchar cls2siz[];
 extern uchar cls2load[];
+extern uchar cls2store[];
 extern const uchar siz2intcls[];
 extern struct instr instrtab[];
 extern struct use *instruse[];

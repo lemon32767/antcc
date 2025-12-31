@@ -979,14 +979,14 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       dst = reg2oper(ins->reg-1);
       gencopy(pcode, cls, blk, curi, dst, ins->l);
       break;
-   case Ostore8:  cls = KI32, X = Xmovb; goto Store;
-   case Ostore16: cls = KI32, X = Xmovw; goto Store;
-   case Ostore32: cls = KI32, X = Xmov; goto Store;
-   case Ostore64: cls = KI64, X = Xmov;
+   case Ostorei8:  cls = KI32, X = Xmovb; goto Store;
+   case Ostorei16: cls = KI32, X = Xmovw; goto Store;
+   case Ostorei32: cls = KI32, X = Xmov; goto Store;
+   case Ostorei64: cls = KI64, X = Xmov; goto Store;
+   case Ostoref32: cls = KF32, X = Xmov; goto Store;
+   case Ostoref64: cls = KF64, X = Xmov; goto Store;
    Store:
       src = mkimmregoper(ins->r);
-      if (cls == KI32 && src.t == OREG && src.reg >= XMM0) cls = KF32;
-      if (cls == KI64 && src.t == OREG && src.reg >= XMM0) cls = KF64;
       X(pcode, cls, mkmemoper(ins->l), src);
       break;
    case Oexts8:  src = mkregoper(ins->l); goto Movsxb;

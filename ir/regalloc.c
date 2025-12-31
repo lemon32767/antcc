@@ -264,7 +264,7 @@ emitmove(enum irclass k, union alloc dst, union alloc src, struct block *blk, in
       addstkslotref(insertinstr(blk, curi++, mv).i, src.a*8);
    } else reg = src.a;
    if (dst.t == ASTACK) {
-      mv = mkinstr(Ostore8+ilog2(cls2siz[k]), 0, .r = mkref(RREG, reg));
+      mv = mkinstr(cls2store[k], 0, .r = mkref(RREG, reg));
       addstkslotref(insertinstr(blk, curi, mv).i, dst.a*8);
    }
 }
@@ -1137,7 +1137,7 @@ devirt(struct rega *ra, struct block *blk)
       alloc = temp < ra->intervals.ntemps && (it = &ra->intervals.temps[temp]) && it->nrange ? &it->alloc : NULL;
       if (alloc && alloc->t == ASTACK) {
          enum irclass cls = insrescls(*ins);
-         int store = Ostore8 + ilog2(cls2siz[cls]);
+         int store = cls2store[cls];
          /* t was spilled, gen store */
          if (ins->op == Ocopy && ins->l.t != RADDR) {
             ins->op = store;
@@ -1171,7 +1171,7 @@ devirt(struct rega *ra, struct block *blk)
             }
          }
       }
-      if (!ins->reg && insrescls(*ins) && ins->op != Omove && !ins->keep && !in_range(ins->op, Ostore8, Ostore64)) {
+      if (!ins->reg && insrescls(*ins) && ins->op != Omove && !ins->keep && !oisstore(ins->op)) {
          /* dead */
       Nop:
         ins->op = Onop;

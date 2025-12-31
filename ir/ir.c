@@ -6,6 +6,9 @@ uchar cls2siz[] = { [KI32] = 4, [KI64] = 8, [KF32] = 4, [KF64] = 8 };
 uchar cls2load[] = {
    [KI32] = Oloads32, [KI64] = Oloadi64,
    [KF32] = Oloadf32, [KF64] = Oloadf64, [KPTR] = -1
+}, cls2store[] = {
+   [KI32] = Ostorei32, [KI64] = Ostorei64,
+   [KF32] = Ostoref32, [KF64] = Ostoref64, [KPTR] = -1
 };
 const uchar siz2intcls[] = { [1] = KI32, [2] = KI32, [4] = KI32, [8] = KI64 };
 
@@ -71,6 +74,7 @@ irinit(struct function *fn)
       type2cls[TYARRAY] = KPTR;
       cls2siz[KPTR] = targ_primsizes[TYPTR];
       cls2load[KPTR] = targ_64bit ? Oloadi64 : Oloads32;
+      cls2store[KPTR] = targ_64bit ? Ostorei64 : Ostorei32;
    }
    fn->entry = fn->curblk = allocz(fn->arena, sizeof(struct block), 0);
    fn->nblk = 1;
@@ -513,6 +517,7 @@ replcuses(union ref from, union ref to)
       } else if (instrtab[use->u].op == Ophi) {
          u = phitab.p[instrtab[use->u].l.i];
          n = use->blk->npred;
+         if (use->blk->phi.n == 0) continue; /* shouldn't happen */
       } else {
          u = &instrtab[use->u].l;
          n = 2;

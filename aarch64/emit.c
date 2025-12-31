@@ -680,12 +680,12 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
    Load:
       X2(pcode, cls, reg2oper(ins->reg-1), mkmemoper(8<<(ins->op - Oloads8)/2, ins->l));
       break;
-   case Ostore8:  cls = KI32; X2 = Xstrb; goto Store;
-   case Ostore16: cls = KI32; X2 = Xstrh; goto Store;
-   case Ostore32: cls = KI32; X2 = Xstr; goto Store;
-   case Ostore64: cls = KI64; X2 = Xstr;
+   case Ostorei8:  cls = KI32; X2 = Xstrb; goto Store;
+   case Ostorei16: cls = KI32; X2 = Xstrh; goto Store;
+   case Ostorei32: cls = KI32; X2 = Xstr; goto Store;
+   case Ostorei64: cls = KI64; X2 = Xstr;
    Store:
-      X2(pcode, cls, ref2oper(ins->r), mkmemoper(8<<(ins->op-Ostore8), ins->l));
+      X2(pcode, cls, ref2oper(ins->r), mkmemoper(8<<(ins->op-Ostorei8), ins->l));
       break;
    case Ocall:
       Xcall(pcode, ref2oper(ins->l));

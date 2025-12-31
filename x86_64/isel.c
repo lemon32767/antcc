@@ -139,7 +139,7 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          union ref adr = mkaddr((struct addr){mkref(RREG, RSP), .disp = abi.stk});
          int iargsave = iarg;
          if (!abi.ty.isagg) { /* scalar arg in stack */
-            *arg = mkinstr(Ostore8+ilog2(cls2siz[abi.ty.cls]), 0, adr, arg->r);
+            *arg = mkinstr(cls2store[abi.ty.cls], 0, adr, arg->r);
             if (isaddrcon(arg->r,1) || arg->r.t == RADDR)
                arg->r = insertinstr(blk, iarg++, mkinstr(Ocopy, abi.ty.cls, arg->r));
             else
@@ -497,7 +497,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Oloads32: case Oloadu32: case Oloadi64: case Oloadf32: case Oloadf64:
       loadstoreaddr(blk, &ins->l, curi);
       break;
-   case Ostore8: case Ostore16: case Ostore32: case Ostore64:
+   case Ostorei8: case Ostorei16: case Ostorei32: case Ostorei64: case Ostoref32: case Ostoref64:
       loadstoreaddr(blk, &ins->l, curi);
       if (isaddrcon(ins->r,1) || ins->r.t == RADDR)
          ins->r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->r));
