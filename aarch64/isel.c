@@ -99,6 +99,16 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          }
       }
       goto Reg;
+   } else if (isfltcon(*r)) {
+      enum irclass k = concls(*r), ki = KI32 + k-KF32;
+      if (conht[r->i].f != 0.0) {
+         union ref gpr = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ki, mkintcon(ki, conht[r->i].i)));
+         *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, k, gpr));
+      } else if (oiscmp(op)) {
+         return;
+      } else {
+         *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, k, *r));
+      }
    } else if (r->t == RSTACK) {
       struct instr adr = mkinstr(Oadd, KPTR, mkref(RREG, FP), mkintcon(KI32, -r->i));
       if (op == Ocopy)
@@ -303,7 +313,7 @@ static const uchar storesz[] = {
 static void
 loadstoreaddr(struct block *blk, union ref *r, int *curi, enum op op)
 {
-   uint siz = oisload(op) ? loadsz[op] : storesz[op];
+   uint siz = oisload(op) ? loadsz[op-Oloads8] : storesz[op-Ostorei8];
    if (isimm32(*r)) {
       *r = mkaddr((struct addr){.base = *r});
    } else if (isaddrcon(*r, 0)) {
