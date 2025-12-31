@@ -69,11 +69,18 @@ aarch64_logimm(uint *enc, enum irclass k, uvlong x)
 }
 
 
+static void fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi);
 static void
 regarg(union ref *r, enum irclass k, struct block *blk, int *curi)
 {
-   if (r->t != RTMP)
+   if (r->t != RTMP) {
       *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, k, *r));
+      if (kisflt(k) || instrtab[r->i].l.t == RSTACK) {
+         int iprev = *curi-1;
+         fixarg(&instrtab[r->i].l, &instrtab[r->i], blk, &iprev);
+         *curi = iprev+1;
+      }
+   }
 }
 
 static void
@@ -110,7 +117,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, k, *r));
       }
    } else if (r->t == RSTACK) {
-      struct instr adr = mkinstr(Oadd, KPTR, mkref(RREG, FP), mkintcon(KI32, -r->i));
+      struct instr adr = mkinstr(Osub, KPTR, mkref(RREG, FP), mkintcon(KI32, r->i));
       if (op == Ocopy)
          *ins = adr;
       else
@@ -354,6 +361,9 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       else /* stack */
          *ins = mkinstr(Oadd, KPTR, mkref(RREG, FP), mkref(RICON, 16+fn->abiarg[ins->l.i].stk));
       break;
+   case Oneg: case Onot:
+      regarg(&ins->l, ins->cls, blk, curi);
+      break;
    case Oadd:
       if (isnumcon(ins->l)) {
          /* swap to have const in rhs */
@@ -400,7 +410,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       selcall(fn, ins, blk, curi);
       break;
    case Oloads8: case Oloadu8: case Oloads16: case Oloadu16:
-   case Oloads32: case Oloadu32: case Oloadi64:
+   case Oloads32: case Oloadu32: case Oloadi64: case Oloadf32: case Oloadf64:
       loadstoreaddr(blk, &ins->l, curi, op);
       break;
    case Ostorei8: case Ostorei16: case Ostorei32: cls = KI32; goto Store;

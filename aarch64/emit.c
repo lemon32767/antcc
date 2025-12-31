@@ -63,7 +63,7 @@ mkmemoper(uint msiz, union ref r)
          return mkoper(OMEM, .m = {.mode = AIMMIDX, .base = addr->base.i, .disp = addr->disp});
       } else {
          assert(addr->index.t == RREG);
-         assert(addr->shift == 0 || 8<<addr->shift == msiz);
+         assert(addr->shift == 0 || 1<<addr->shift == msiz);
          return mkoper(OMEM, .m = {
                .mode = AREGIDX,
                .base = addr->base.i,
@@ -221,8 +221,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
    uint ins = en->opc, sh, nimmrs;
    switch (en->operenc) {
    default: assert(!"nyi enc");
-   case EN_ADDSUBSHFT3R:
-   case EN_LOGSHFT3R:
+   case EN_ADDSUBSHFT3R: case EN_LOGSHFT3R:
       ins |= sf<<31 | o[2].shft<<22 | o[2].reg<<16 | o[2].shamt<<10 | o[1].reg<<5 | o[0].reg;
       break;
    case EN_ARITH3R:
@@ -247,13 +246,13 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
    case EN_MEMAIMMW: o[1].m.disp >>= 2; goto AImm;
    case EN_MEMAIMMX: o[1].m.disp >>= 3; goto AImm;
    case EN_MEMAPREPOST:
-      ins |= (o[1].m.disp&0x1FF)<<12 | o[1].m.base<<5 | o[0].reg;
+      ins |= (o[1].m.disp&0x1FF)<<12 | o[1].m.base<<5 | (o[0].reg&31);
       if (o[1].m.mode == APREIDX) ins |= 3<<10;
       else if (o[1].m.mode == APOSTIDX) ins |= 1<<10;
       break;
    case EN_MEMAREG:
       assert(o[1].m.shamt <= 1);
-      ins |= o[1].m.index<<16 | o[1].m.ext<<13 | o[1].m.shamt<<12 | o[1].m.base<<5 | o[0].reg;
+      ins |= o[1].m.index<<16 | o[1].m.ext<<13 | o[1].m.shamt<<12 | o[1].m.base<<5 | (o[0].reg&31);
       break;
    case EN_MEMPPREPOST:
       assert(o[2].m.disp % 8 == 0);
@@ -356,11 +355,11 @@ DEFINSTR3(Xorr,
    {4|8, {PGPRSP, PGPRZ, PLOGIMM},   0x32000000, EN_LOGIMM}, /* ORR (immediate) */
    {4|8, {PGPRZ,  PGPRZ, PGPRZSHFT}, 0x2A000000, EN_LOGSHFT3R}, /* ORR (shifted register) */
 )
+DEFINSTR3(Xorn, {4|8, {PGPRZ,  PGPRZ, PGPRZSHFT}, 0x2A200000, EN_LOGSHFT3R})
 DEFINSTR3(Xeor,
    {4|8, {PGPRSP, PGPRZ, PLOGIMM},   0x52000000, EN_LOGIMM}, /* EOR (immediate) */
    {4|8, {PGPRZ,  PGPRZ, PGPRZSHFT}, 0x4A000000, EN_LOGSHFT3R}, /* EOR (shifted register) */
 )
-
 static void
 Xubfm(uchar **pcode, enum irclass k, struct oper rd, struct oper rn, uint immr, uint imms)
 {
@@ -388,6 +387,14 @@ DEFINSTR2(Xldr,
    {8, {PGPRZ, PMEMAREG}, 0xF8600800, EN_MEMAREG},
    {4, {PGPRZ, PMEMPREPOST}, 0xB8400000, EN_MEMAPREPOST}, /* LDR (immediate, (pre/postinc)) */
    {8, {PGPRZ, PMEMPREPOST}, 0xF8400000, EN_MEMAPREPOST},
+)
+DEFINSTR2(Xfldr,
+   {4, {PFPR, PMEMAIMMW}, 0xBD400000, EN_MEMAIMMW}, /* LDR (immediate) */
+   {8, {PFPR, PMEMAIMMX}, 0xFD400000, EN_MEMAIMMX},
+   {4, {PFPR, PMEMAREG},  0xBC600800, EN_MEMAREG}, /* LDR (register) */
+   {8, {PFPR, PMEMAREG},  0xFC600800, EN_MEMAREG},
+   {4, {PFPR, PMEMPREPOST}, 0xBC400000, EN_MEMAPREPOST}, /* LDR (immediate, (pre/postinc)) */
+   {8, {PFPR, PMEMPREPOST}, 0xFC400000, EN_MEMAPREPOST},
 )
 DEFINSTR2(Xldrsw,
    {8, {PGPRZ, PMEMAIMMW},   0xB9800000, EN_MEMAIMMW}, /* LDRSW (immediate) */
@@ -427,6 +434,14 @@ DEFINSTR2(Xstr,
    {8, {PGPRZ, PMEMAREG}, 0xF8200800, EN_MEMAREG},
    {4, {PGPRZ, PMEMPREPOST}, 0xB8000000, EN_MEMAPREPOST}, /* STR (immediate, (pre/postinc)) */
    {8, {PGPRZ, PMEMPREPOST}, 0xF8000000, EN_MEMAPREPOST},
+)
+DEFINSTR2(Xfstr,
+   {4, {PFPR, PMEMAIMMW}, 0xBD000000, EN_MEMAIMMW}, /* LDR (immediate) */
+   {8, {PFPR, PMEMAIMMX}, 0xFD000000, EN_MEMAIMMX},
+   {4, {PFPR, PMEMAREG},  0xBC200800, EN_MEMAREG}, /* LDR (register) */
+   {8, {PFPR, PMEMAREG},  0xFC200800, EN_MEMAREG},
+   {4, {PFPR, PMEMPREPOST}, 0xBC000000, EN_MEMAPREPOST}, /* LDR (immediate, (pre/postinc)) */
+   {8, {PFPR, PMEMPREPOST}, 0xFC000000, EN_MEMAPREPOST},
 )
 DEFINSTR2(Xstrh,
    {4|8, {PGPRZ, PMEMAIMMH},   0x79000000, EN_MEMAIMMH}, /* STRH (immediate) */
@@ -658,6 +673,9 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
          Xeor(pcode, cls, o1, o1, o2);
       }
       break;
+   case Onot: /* MVN Rd, Rn ==> ORN Rd, zr, Rn */
+      Xorn(pcode, cls, reg2oper(ins->reg-1), REGZR, ref2oper(ins->l));
+      break;
    case Oneg:
       if (kisint(ins->cls)) /* NEG Rd, Rn ==> SUB Rd, zr, Rn */
          Xsub(pcode, cls, reg2oper(ins->reg-1), REGZR, ref2oper(ins->l));
@@ -730,14 +748,20 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       /* fallthru */
    case Oloadi64: X2 = Xldr;
    Load:
-      X2(pcode, cls, reg2oper(ins->reg-1), mkmemoper(8<<(ins->op - Oloads8)/2, ins->l));
+      X2(pcode, cls, reg2oper(ins->reg-1), mkmemoper(1<<(ins->op - Oloads8)/2, ins->l));
+      break;
+   case Oloadf32: case Oloadf64:
+      Xfldr(pcode, cls, reg2oper(ins->reg-1), mkmemoper(ins->op == Oloadf32 ? 4 : 8, ins->l));
       break;
    case Ostorei8:  cls = KI32; X2 = Xstrb; goto Store;
    case Ostorei16: cls = KI32; X2 = Xstrh; goto Store;
    case Ostorei32: cls = KI32; X2 = Xstr; goto Store;
    case Ostorei64: cls = KI64; X2 = Xstr;
    Store:
-      X2(pcode, cls, ref2oper(ins->r), mkmemoper(8<<(ins->op-Ostorei8), ins->l));
+      X2(pcode, cls, ref2oper(ins->r), mkmemoper(1<<(ins->op-Ostorei8), ins->l));
+      break;
+   case Ostoref32: case Ostoref64:
+      Xfstr(pcode, KF32 + ins->op-Ostoref32, ref2oper(ins->r), mkmemoper(ins->op == Oloadf32 ? 4 : 8, ins->l));
       break;
    case Ocall:
       Xcall(pcode, ref2oper(ins->l));
@@ -813,6 +837,7 @@ emitbin(struct function *fn)
       rbpoff -= 8;
       fn->stksiz += 8;
    }
+   if (fn->stksiz) Xsub(pcode, KPTR, reg2oper(SP), reg2oper(SP), mkoper(OIMM, .imm = fn->stksiz));
 
    if (*pcode - fnstart > 8) {
       /* largue prologue -> largue epilogue -> transform to use single exit point */
@@ -866,6 +891,7 @@ emitbin(struct function *fn)
          emitinstr(pcode, fn, blk, i, &instrtab[blk->ins.p[i]]);
       if (blk->jmp.t == Jret) {
          /* epilogue */
+         if (fn->stksiz) Xadd(pcode, KPTR, reg2oper(SP), reg2oper(SP), mkoper(OIMM, .imm = fn->stksiz));
          calleerestore(pcode, fn);
          W32(0xD65F03C0); /* RET */
       } else if (blk->jmp.t == Jtrap) {
