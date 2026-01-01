@@ -10,8 +10,8 @@ static const struct targ {
    uchar sizetype, ptrdifftype, wchartype;
    const struct mctarg *mctarg;
 } targs[] = {
-   { {ISx86_64,  -1, 1<<ABIgnu | 1<<ABImusl}, {8,8,8,24}, {8,8,8,8}, 1, TYULONG, TYLONG, TYINT, &t_x86_64_sysv },
-   { {ISaarch64, -1, 1<<ABIgnu | 1<<ABImusl}, {8,8,8,32}, {8,8,8,8}, 0, TYULONG, TYLONG, TYUINT, &t_aarch64_aapcs },
+   { {ISx86_64,  -1, -1}, {8,8,8,24}, {8,8,8,8}, 1, TYULONG, TYLONG, TYINT, &t_x86_64_sysv },
+   { {ISaarch64, -1, -1}, {8,8,8,32}, {8,8,8,8}, 0, TYULONG, TYLONG, TYUINT, &t_aarch64_aapcs },
 };
 
 struct targtriple target;
