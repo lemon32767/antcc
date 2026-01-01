@@ -426,7 +426,6 @@ dolink(void)
    } else if (task.outft == OFTexe) {
       vpush(&cmd, ccopt.pie ? "-pie" : "-no-pie");
    }
-   vpushn(&cmd, task.linkargs.p, task.linkargs.n);
    vpush(&cmd, "-o");
    vpush(&cmd, task.out);
    assert(task.ninf > 0);
@@ -440,6 +439,7 @@ dolink(void)
       }
       vpush(&cmd, o);
    }
+   vpushn(&cmd, task.linkargs.p, task.linkargs.n);
    if (task.verbose) {
       efmt("> ");
       for (int i = 0; i < cmd.n; ++i)
