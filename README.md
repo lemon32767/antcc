@@ -8,6 +8,8 @@ experimental stage.
 # Building
 
 ```
+./configure
+
 make   # outputs ./antcc executable
 # or
 make opt #compile with optimizations

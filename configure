@@ -1,0 +1,113 @@
+#!/bin/sh
+
+die() {
+    echo "$0: Error: $@" >&2
+    exit 1
+}
+
+prihelp() {
+    host="[$(cc -dumpmachine)]"
+    : ${host:=""}
+    cat << EOF
+Usage: $0 [options]
+Options:
+  --help                    Print this help mesage
+  --host=target-triple      $host
+  --cc=cc                   C compiler [cc]
+  --sysroot=/path           System root [/usr]
+  --includedir="/a/b",...   System include dirs
+EOF
+}
+
+sysroot=/usr
+host=
+
+for arg ; do
+	case "$arg" in
+	--host=*) host=${arg#*=} ;;
+    --sysroot=*) sysroot=${arg#*=} ;;
+    --includedir=*) host_include_dirs=${arg#*=} ;;
+	CC=*) CC=${arg#*=} ;;
+	--cc=*) CC=${arg#*=} ;;
+    --help) prihelp ; exit ;;
+	*) die "$0: unknown option '$arg'"
+	esac
+done
+
+: ${CC:=cc}
+: ${host:=$($CC -dumpmachine)}
+test -n "$host" || die "cannot determine host"
+
+host_arch=
+host_os=
+host_abi=
+
+echo "host: $host"
+case "$host" in
+x86_64-*) host_arch=x86_64 ;;
+aarch64-*) host_arch=aarch64 ;;
+*) host_arch=unk ;;
+esac
+
+case "$host" in
+*-linux-*) host_os=linux ;;
+*) host_os=unknown ;;
+esac
+
+case "$host" in
+*-gnu) host_abi=gnu ;;
+*-musl) host_abi=musl ;;
+*) host_abi=none ;;
+esac
+
+tryincldir() {
+    if stat "$1"/ >/dev/null 2>/dev/null; then
+        host_include_dirs="$host_include_dirs\"$1\","
+    fi
+}
+
+if ! test -n "$host_include_dirs"; then
+    # try to query host toolchain first
+    if hostccdirs=$($CC -E -v -xc /dev/null 2>&1 | sed -n '/#include <...> search starts here:/,/End of search list./{
+    s/^[[:space:]]*//
+    /^\/.*/p
+}') && test -n "$hostccdirs"; then
+        echo "Using $CC's system include paths:"
+        for d in $hostccdirs; do
+            dir=$(realpath "$d")
+            case "$dir" in
+                #exclude internal compiler headers, we have our own
+                */gcc/*) ;; */clang/*) ;;
+                *) echo "    $dir"
+                   tryincldir "$dir" ;;
+            esac
+        done
+    else
+        echo "Falling back to generic system include paths"
+        tryincldir "$sysroot/local/include/$host"
+        tryincldir "$sysroot/local/include"
+        tryincldir "$sysroot/include/$host"
+        tryincldir "$sysroot/include"
+    fi
+fi
+
+set -e
+
+echo using arch: "$host_arch"
+echo using os: "$host_os"
+echo using abi: "$host_abi"
+echo host include paths: "$host_include_dirs"
+
+echo "/** GENERATED WITH $0 $@ **/
+#ifndef HOSTCONFIG_H_
+#define HOSTCONFIG_H_
+
+#define HOST_TRIPLE \"$host\"
+#define HOST_ARCH   IS$host_arch
+#define HOST_OS     OS$host_os
+#define HOST_ABI    ABI$host_abi
+#define HOST_INCLUDE_DIRS $host_include_dirs
+#define HOST_CC \"$CC\"
+
+#endif // HOSTCONFIG_H_"  > hostconfig.h
+echo config written to hostconfig.h

@@ -1,5 +1,5 @@
 #include "common.h"
-#include "hostconfig.h"
+#include "hostconfig.h" /* run ./configure */
 #include "obj/obj.h"
 #include <errno.h>
 #include <stdlib.h>
@@ -127,6 +127,9 @@ optparse(char **args)
       }
       if (!strcmp(arg, "help") || !strcmp(arg, "h") || !strcmp(arg, "-help")) {
          prihelp();
+         exit(0);
+      } else if (!strcmp(arg, "dumpmachine")) {
+         pfmt("%s\n", HOST_TRIPLE);
          exit(0);
       } else if ((x = optval(arg, "std"))) {
          if (!strcmp(x, "c89") || !strcmp(x, "c90")) ccopt.cstd = STDC89;
@@ -367,12 +370,19 @@ hasprog(const char *prog)
    return WEXITSTATUS(wstat) < 125;
 }
 
+static bool
+iscrosscc(void)
+{
+   return target.os != HOST_OS || target.arch != HOST_ARCH || target.abi != HOST_ABI;
+}
+
 struct cmdargs { vec_of(const char *); };
 
 static void
 findlinkcmd(struct cmdargs *cmd)
 {
-   if (task.targ && (target.os != HOST_OS || target.arch != HOST_ARCH || target.abi != HOST_ABI)) {
+   if (task.targ && iscrosscc()) {
+      /* try to find a cross compiling toolchain, e.g. aarch64-linux-gnu-gcc */
       static const char *ccs[] = {"cc", "gcc", "clang"};
       char cross[1024];
       for (int i = 0; i < countof(ccs); ++i) {
@@ -385,6 +395,7 @@ findlinkcmd(struct cmdargs *cmd)
             return;
          }
       }
+      /* zig cc fallback, which works great as cross compiler toolchain */
       if (hasprog("zig")) {
          vpush(cmd, "zig");
          vpush(cmd, "cc");
@@ -394,7 +405,7 @@ findlinkcmd(struct cmdargs *cmd)
          fatal(NULL, "cannot link to cross-compilation target: no appropiate toolchain installed");
       }
    } else {
-      vpush(cmd, "cc");
+      vpush(cmd, HOST_CC);
    }
 }
 
@@ -489,7 +500,7 @@ driver(void)
 {
    void cpp(struct wbuf *, const char *);
    if (task.verbose)
-      efmt("# Target: %s\n", task.targ ? task.targ : "(host)");
+      efmt("# Target: %s\n", task.targ ? task.targ : HOST_TRIPLE);
    if (task.syntaxonly)
       task.out = "/dev/null"; // HACK
    if (task.outft == OFTobj) {
@@ -627,7 +638,7 @@ main(int argc, char **argv)
    /* global init */
    targ_init(task.targ);
    if (!target.arch)
-      fatal(NULL, "unsupported target: %s", task.targ ? task.targ : "(host)");
+      fatal(NULL, "unsupported target: %s", task.targ ? task.targ : HOST_TRIPLE);
 
    return driver();
 }

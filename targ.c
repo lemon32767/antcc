@@ -62,7 +62,7 @@ parsetriple(struct targtriple *trg, const char *str)
    return 1;
 }
 
-#include "hostconfig.h"
+#include "hostconfig.h" /* run ./configure */
 
 void
 targ_init(const char *starg)
@@ -86,7 +86,7 @@ targ_init(const char *starg)
          break;
       }
    }
-   if (!t) fatal(NULL, "unsupported target: %s", starg ? starg : "(host)");
+   if (!t) fatal(NULL, "unsupported target: %s", starg ? starg : HOST_TRIPLE);
 
    sizes[TYBOOL] = sizes[TYCHAR] = sizes[TYSCHAR] = sizes[TYUCHAR] = 1;
    sizes[TYSHORT] = sizes[TYUSHORT] = 2;
