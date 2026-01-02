@@ -21,6 +21,7 @@ enum relockind {
    REL_ADR_PREL_LO21,
    REL_ADR_PREL_PG_HI21,
    REL_ADD_ABS_LO12_NC,
+   REL_LD_PREL_LO19,
    NRELOCKIND,
 };
 enum section { Snone, Stext, Srodata, Sdata, Sbss };

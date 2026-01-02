@@ -51,6 +51,8 @@ mkmemoper(uint msiz, union ref r)
       return mkoper(OMEM, .m = {AIMMIDX, .base = instrtab[r.i].reg-1});
    } else if (r.t == RREG) {
       return mkoper(OMEM, .m = {AIMMIDX, .base = r.i});
+   } else if (isaddrcon(r,1)) {
+      return mkoper(OSYM, .con = r.i,);
    } else if (r.t == RADDR) {
       const struct addr *addr = &addrht[r.i];
       assert(addr->shift <= 3 && (!addr->disp || !addr->index.bits));
@@ -137,12 +139,13 @@ enum operenc {
    EN_ADRSYMLO21, /* for ADR <sym> */
    EN_ADRSYMPGHI21, /* for ADRP <sym:pghi21> */
    EN_ADDSYMLO12, /* for ADD x,x, <sym:lo12> */
-   EN_FP2R,
-   EN_FP1GPR1,
-   EN_FP3R,
-   EN_FPIMM,
-   EN_FPCMPZ,
-   EN_FPCMP,
+   EN_LDSYMLO19, /* for LDR (literal) */
+   EN_FP2R, /* float 1src */
+   EN_FP1GPR1, /* fpr + gpr */
+   EN_FP3R, /* float 2src */
+   EN_FPIMM, /* float-imm */
+   EN_FPCMPZ, /* float cmp with zero */
+   EN_FPCMP, /* float cmp-imm */
 };
 struct desc {
    uchar psiz; /* subset of {4,8} */
@@ -273,6 +276,10 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       ins |= sf<<31 | o[1].reg<<5 | o[0].reg;
       objreloc(xcon2sym(o[2].con), REL_ADD_ABS_LO12_NC, Stext, *pcode - objout.textbegin, o[1].cdisp);
       break;
+   case EN_LDSYMLO19:
+      ins |= o[0].reg;
+      objreloc(xcon2sym(o[1].con), REL_LD_PREL_LO19, Stext, *pcode - objout.textbegin, o[1].cdisp);
+      break;
    case EN_FP2R:
       ins |= sf<<22 | (o[1].reg&31)<<5 | (o[0].reg&31);
       break;
@@ -385,6 +392,8 @@ DEFINSTR2(Xldr,
    {8, {PGPRZ, PMEMAIMMX}, 0xF9400000, EN_MEMAIMMX},
    {4, {PGPRZ, PMEMAREG}, 0xB8600800, EN_MEMAREG}, /* LDR (register) */
    {8, {PGPRZ, PMEMAREG}, 0xF8600800, EN_MEMAREG},
+   {4, {PGPRZ, PSYM}, 0x18000000, EN_LDSYMLO19}, /* LDR (literal) */
+   {8, {PGPRZ, PSYM}, 0x58000000, EN_LDSYMLO19},
    {4, {PGPRZ, PMEMPREPOST}, 0xB8400000, EN_MEMAPREPOST}, /* LDR (immediate, (pre/postinc)) */
    {8, {PGPRZ, PMEMPREPOST}, 0xF8400000, EN_MEMAPREPOST},
 )
@@ -634,6 +643,8 @@ emitbranch(uchar **pcode, struct block *blk)
       Xbcc(pcode, CCAL, blk->s2);
 }
 
+static struct instr *lastcmp;
+
 static void
 emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struct instr *ins)
 {
@@ -726,12 +737,21 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
    case Oequ: case Oneq:
       if (!ins->reg && kisint(cls) && ins->r.bits == ZEROREF.bits) break; /* handled by emitbranch for CBZ/CBNZ */
    case Olth: case Ogth: case Olte: case Ogte:
-      if (kisflt(cls))
-         Xfcmp(pcode, cls, ref2oper(ins->l), ref2oper(ins->r));
-      else
    case Oulth: case Ougth: case Oulte: case Ougte:
-         /* CMP ... ==> SUBS zr, ... */
+      if (lastcmp && lastcmp->cls == cls
+      && lastcmp->l.bits == ins->l.bits && lastcmp->r.bits == ins->r.bits)
+         /* reuse flags from previous identical cmp */ ;
+      else if (kisflt(cls))
+         Xfcmp(pcode, cls, ref2oper(ins->l), ref2oper(ins->r));
+      else /* CMP ... ==> SUBS zr, ... */
          Xsubs(pcode, cls, REGZR, ref2oper(ins->l), ref2oper(ins->r));
+      lastcmp = ins;
+      if (ins->reg) {
+         enum cc cc = (kisflt(cls) ? fcmpop2cc : icmpop2cc)[ins->op];
+         dst = reg2oper(ins->reg-1);
+         assert(dst.reg < R(31));
+         W32(0x1A9F07E0 | (cc^1)<<12 | dst.reg); /* CSET Wd, <invcond> */
+      }
       break;
    case Oloadu8: X2 = Xldrb; goto Load;
    case Oloads8: X2 = Xldrsb; goto Load;
@@ -887,6 +907,7 @@ emitbin(struct function *fn)
       bb->resolved = 1;
       bb->addr = bbaddr;
 
+      lastcmp = NULL;
       for (int i = 0; i < blk->ins.n; ++i)
          emitinstr(pcode, fn, blk, i, &instrtab[blk->ins.p[i]]);
       if (blk->jmp.t == Jret) {
