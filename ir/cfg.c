@@ -68,8 +68,13 @@ filldom(struct function *fn)
       changed = 0;
       blk = fn->entry->lnext;
       do {
-         struct block *new = blkpred(blk, 0);
-         for (int i = 1; i < blk->npred; ++i) {
+         int j;
+         struct block *new = NULL;
+         for (j = 0; j < blk->npred; ++j)
+            if ((new = blkpred(blk, j))->id < blk->id) break;
+         assert(new);
+         for (int i = 0; i < blk->npred; ++i) {
+            if (i == j) continue;
             struct block *p = blkpred(blk, i);
             if (p->idom) { /* new = intersect(p, new) */
                while (p != new) {

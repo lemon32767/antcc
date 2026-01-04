@@ -425,8 +425,10 @@ abi0(struct function *fn)
             union ref r[2];
             int curi = blk->ins.n;
             load2regs(r, mkirtype(fn->retty), blk->jmp.arg[0], fn->nabiret, fn->abiret, r2off, blk, &curi);
-            for (int i = 0; i < fn->nabiret; ++i)
+            for (int i = 0; i < fn->nabiret; ++i) {
                blk->jmp.arg[i] = r[i];
+               adduse(blk, USERJUMP, r[i]);
+            }
          } else {
             /* aggregate return (arg[0] is pointer to return value) */
             if (rvovar == -1) {
@@ -436,7 +438,10 @@ abi0(struct function *fn)
                insertinstr(blk, blk->ins.n, mkarginstr(typ, blk->jmp.arg[0]));
                insertinstr(blk, blk->ins.n, mkintrin(INstructcopy, 0, 2));
             } else assert(blk->jmp.arg[0].bits == mkref(RTMP, rvovar).bits);
-            if (fn->abiret[0].ty.cls) blk->jmp.arg[0] = rvovar == -1 ? sret : mkref(RTMP, rvovar);
+            if (fn->abiret[0].ty.cls) {
+               blk->jmp.arg[0] = rvovar == -1 ? sret : mkref(RTMP, rvovar);
+               adduse(blk, USERJUMP, blk->jmp.arg[0]);
+            }
             else memset(blk->jmp.arg, 0, sizeof blk->jmp.arg);
          }
       }
