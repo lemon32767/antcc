@@ -4,7 +4,7 @@
 uchar type2cls[NTYPETAG];
 uchar cls2siz[] = { [KI32] = 4, [KI64] = 8, [KF32] = 4, [KF64] = 8 };
 uchar cls2load[] = {
-   [KI32] = Oloads32, [KI64] = Oloadi64,
+   [KI32] = Oloadu32, [KI64] = Oloadi64,
    [KF32] = Oloadf32, [KF64] = Oloadf64, [KPTR] = -1
 }, cls2store[] = {
    [KI32] = Ostorei32, [KI64] = Ostorei64,

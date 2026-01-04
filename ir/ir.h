@@ -187,7 +187,7 @@ struct function {
    bool isleaf;
    regset regusage;
 };
-#define FREQUIRE(_prop) assert((fn->prop & (_prop)) && "preconditions not met")
+#define FREQUIRE(_prop) assert((fn->prop & (_prop)) == (_prop) && "preconditions not met")
 
 enum objkind { OBJELF };
 

@@ -1074,16 +1074,16 @@ devirt(struct rega *ra, struct block *blk)
          int tr;
          if (r->t == RTMP) {
             alloc = (it = &ra->intervals.temps[r->i]) && it->nrange ? &it->alloc : NULL;
-            if (alloc && alloc->t == ASTACK && ins->op == Omove) {
+            if (alloc && alloc->t == ASTACK && ins->op == Omove && kisint(ins->cls) == kisint(instrtab[r->i].cls)) {
                /* move [reg], [stk] -> [reg] = load [stk] */
                assert(r == &ins->r && ins->l.t == RREG);
                ins->reg = ins->l.i+1;
-               ins->op = cls2load[ins->cls];
+               ins->op = cls2load[instrtab[r->i].cls];
                ins->r = NOREF;
                addstkslotref(temp, alloc->a*8);
-            } else if (alloc && alloc->t == ASTACK && ins->op == Ocopy && r == &ins->l && ins->reg) {
+            } else if (alloc && alloc->t == ASTACK && ins->op == Ocopy && r == &ins->l && ins->reg && kisint(ins->cls) == kisint(instrtab[r->i].cls)) {
                /* [reg] = copy [stk] -> [reg] = load [stk] */
-               ins->op = cls2load[ins->cls];
+               ins->op = cls2load[instrtab[r->i].cls];
                addstkslotref(temp, alloc->a*8);
             } else if (alloc && alloc->t == ASTACK) {
                /* ref was spilled, gen load to scratch register and use it */
