@@ -325,6 +325,9 @@ void abi0_call(struct function *, struct instr *, struct block *blk, int *curi);
 /** simpl.c **/
 void simpl(struct function *);
 
+/** cselim.c **/
+void cselim(struct function *);
+
 /** mem2reg.c **/
 void mem2reg(struct function *);
 

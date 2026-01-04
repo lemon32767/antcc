@@ -104,6 +104,26 @@ ins(struct instr *ins, struct block *blk, int *curi)
    case Odiv: case Oudiv: case Orem: case Ourem:
       if (kisflt(k)) break;
       if (isintcon(ins->r)) return divmodk(ins, blk, curi);
+      break;
+   case Oequ: case Oneq:
+      if (ins->l.t == RTMP && isintcon(ins->r)) {
+         /* optimize `x <op> C <cmp> Q` */
+         /* could apply with add/sub to lth/lte/gth/gte iff no signed wraparound, which isn't assumed */
+         struct instr *lhs = &instrtab[ins->l.i];
+         enum op o = lhs->op;
+         if (ins->cls == lhs->cls && (o == Oadd || o == Osub || o == Oxor) && isintcon(lhs->r)) {
+            uvlong c = intconval(ins->r), q = intconval(lhs->r);
+            switch (o) { default: assert(0);
+            case Oadd: c -= q; break; /* x + 3 == C ==> x == C - 3 */
+            case Osub: c += q; break; /* x - 3 == C ==> x == C + 3 */
+            case Oxor: c ^= q; break; /* x ^ 3 == C ==> x == C ^ 3 */
+            }
+            ins->l = lhs->l, ins->r = mkintcon(ins->cls, c);
+            deluse(blk, ins - instrtab, mkref(RTMP, lhs - instrtab));
+            if (!instruse[lhs - instrtab]) *lhs = mkinstr(Onop,0,);
+            return 1;
+         }
+      }
    }
    return 0;
 }
@@ -232,6 +252,7 @@ simpl(struct function *fn)
       } while ((blk = blk->lnext) != fn->entry);
       fillpreds(fn);
    }
+   fn->prop &= ~FNDOM;
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

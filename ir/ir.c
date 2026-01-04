@@ -647,6 +647,9 @@ irfini(struct function *fn)
       copyopt(fn);
    }
    if (ccopt.o >= OPT1) {
+      filldom(fn);
+      cselim(fn);
+      freearena(fn->passarena);
       simpl(fn);
       freearena(fn->passarena);
    }
