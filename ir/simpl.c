@@ -96,6 +96,16 @@ ins(struct instr *ins, struct block *blk, int *curi)
    }
    enum irclass k = ins->cls;
    switch (ins->op) {
+   case Ocopy:
+      if ((ins->l.t == RTMP && k == instrtab[ins->l.i].cls)
+       || (isnumcon(ins->l) && k == concls(ins->l))
+       || (kisint(k) && ins->l.t == RICON)) {
+         union ref it = ins->l;
+         *ins = mkinstr(Onop,0,);
+         replcuses(mkref(RTMP, ins - instrtab), it);
+         return 1;
+      }
+      break;
    case Omul:
       if (kisflt(k)) break;
       if (isnumcon(ins->l)) rswap(ins->l, ins->r); /* put const in rhs */
@@ -175,6 +185,29 @@ fillpreds(struct function *fn)
    } while ((blk = next) != fn->entry);
 }
 
+static void
+mergeblks(struct function *fn, struct block *p, struct block *s)
+{
+   assert(s->npred == 1 && !s->phi.n);
+   vpushn(&p->ins, s->ins.p, s->ins.n);
+   p->jmp = p->s1->jmp;
+   for (int i = 0; i < 2; ++i) {
+      struct block *ss = (&s->s1)[i];
+      if (ss) for (int j = 0; j < ss->npred; ++j) {
+         if (blkpred(ss, j) == s) {
+            blkpred(ss, j) = p;
+            break;
+         }
+      }
+   }
+   /* breaks use for temps used in s */
+   if (s->ins.n || s->jmp.arg[0].t == RTMP || s->jmp.arg[1].t == RTMP)
+      fn->prop &= ~FNUSE;
+   p->s1 = s->s1;
+   p->s2 = s->s2;
+   freeblk(fn, s);
+}
+
 void
 simpl(struct function *fn)
 {
@@ -199,34 +232,47 @@ simpl(struct function *fn)
        *   b {...}
        * */
       if (blk != fn->entry) while (blk->s1 && !blk->s2 && blk->s1->npred == 1 && !blk->phi.n) {
-         struct block *s = blk->s1;
-         vpushn(&blk->ins, s->ins.p, s->ins.n);
-         blk->jmp = blk->s1->jmp;
-         for (int i = 0; i < 2; ++i) {
-            struct block *ss = (&s->s1)[i];
-            if (ss) for (int j = 0; j < ss->npred; ++j) {
-               if (blkpred(ss, j) == s) {
-                  blkpred(ss, j) = blk;
-                  break;
-               }
-            }
-         }
-         /* breaks use for temps used in s */
-         if (s->ins.n || s->jmp.arg[0].t == RTMP || s->jmp.arg[1].t == RTMP)
-            fn->prop &= ~FNUSE;
-         blk->s1 = s->s1;
-         blk->s2 = s->s2;
-         freeblk(fn, s);
+         mergeblks(fn, blk, blk->s1);
       }
    } while ((blk = blk->lnext) != fn->entry);
 
    if (!(fn->prop & FNUSE)) filluses(fn);
 
    do {
-      for (int i = 0; i < blk->phi.n; ++i) {; }
+      for (int i = 0; i < blk->phi.n; ++i) {
+         int phi = blk->phi.p[i];
+         /* delete trivial phis */
+         union ref *args = phitab.p[instrtab[phi].l.i],
+               same = *args;
+         if (same.t == RTMP && instrtab[same.i].op == Ophi) goto Next;
+         if (blk->npred > 1) for (int j = 1; j < blk->npred; ++j) {
+            if (args[j].bits != same.bits) goto Next;
+         }
+         if (!(fn->prop & FNUSE)) filluses(fn);
+         replcuses(mkref(RTMP, phi), same);
+         delphi(blk, i);
+         Next:;
+      }
 
-      for (int i = 0; i < blk->ins.n; ++i) {
-         inschange += ins(&instrtab[blk->ins.p[i]], blk, &i);
+      int curi = 0;
+   DoIns:
+      for (; curi < blk->ins.n; ++curi) {
+         inschange += ins(&instrtab[blk->ins.p[curi]], blk, &curi);
+      }
+
+      if (blk->s2 && isintcon(blk->jmp.arg[0])) {
+         /* simplify known conditional branch */
+         struct block *s = intconval(blk->jmp.arg[0]) ? blk->s1 : blk->s2;
+         delpred(blk->s2, blk);
+         if (blk->s2->npred == 0) {
+            freeblk(fn, blk->s2);
+         }
+         blk->s1 = s, blk->s2 = NULL;
+         blk->jmp.arg[0] = NOREF;
+         while (blk->s1 && !blk->s2 && blk->s1->npred == 1 && blk->s1->phi.n == 0) {
+            mergeblks(fn, blk, blk->s1);
+         }
+         goto DoIns;
       }
 
       /* thread jumps.. */
@@ -251,7 +297,9 @@ simpl(struct function *fn)
          }
       } while ((blk = blk->lnext) != fn->entry);
       fillpreds(fn);
+      sortrpo(fn);
    }
+   if (!(fn->prop & FNUSE)) filluses(fn);
    fn->prop &= ~FNDOM;
 }
 
