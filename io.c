@@ -227,7 +227,7 @@ pritypebefore(struct wbuf *buf, union type ty, int qual)
    case TYSTRUCT:
       s = "struct";
    Tagged:
-      n = bfmt(buf, "%s %s", s, (s2 = &ttypenames[typedata[ty.dat].id]->c) ? s2 : "(anonymous)");
+      n = bfmt(buf, "%s %s", s, (s2 = (char *)ttypenames[typedata[ty.dat].id]) ? s2 : "(anonymous)");
       return n + priquals(buf, qual);
    case TYUNION:
       s = "union";
@@ -288,6 +288,7 @@ putdouble(struct wbuf *buf, double x)
 {
    char tmp[200];
    int n = snprintf(tmp, sizeof tmp, "%f", x);
+   if (n >= sizeof tmp-1) n = snprintf(tmp, sizeof tmp, "%g", x);
    assert(n < sizeof tmp-1);
    iowrite(buf, tmp, n);
    return n;
