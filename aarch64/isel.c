@@ -109,7 +109,21 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
    } else if (isfltcon(*r)) {
       enum irclass k = concls(*r), ki = KI32 + k-KF32;
       if (conht[r->i].f != 0.0) {
-         union ref gpr = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ki, mkintcon(ki, conht[r->i].i)));
+         union {
+            vlong i64;
+            int i32;
+            float f32;
+            double f64;
+         } pun;
+         vlong i;
+         if (k == KF32) {
+            pun.f32 = conht[r->i].f;
+            i = pun.i32;
+         } else {
+            pun.f64 = conht[r->i].f;
+            i = pun.i64;
+         }
+         union ref gpr = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ki, mkintcon(ki, i)));
          *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, k, gpr));
       } else if (oiscmp(op)) {
          return;

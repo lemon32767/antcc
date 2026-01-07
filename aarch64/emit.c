@@ -367,6 +367,9 @@ DEFINSTR3(Xeor,
    {4|8, {PGPRSP, PGPRZ, PLOGIMM},   0x52000000, EN_LOGIMM}, /* EOR (immediate) */
    {4|8, {PGPRZ,  PGPRZ, PGPRZSHFT}, 0x4A000000, EN_LOGSHFT3R}, /* EOR (shifted register) */
 )
+DEFINSTR3(Xlslv, {4|8, {PGPRZ, PGPRZ, PGPRZ}, 0x1AC02000, EN_ARITH3R})
+DEFINSTR3(Xlsrv, {4|8, {PGPRZ, PGPRZ, PGPRZ}, 0x1AC02400, EN_ARITH3R})
+DEFINSTR3(Xasrv, {4|8, {PGPRZ, PGPRZ, PGPRZ}, 0x1AC02800, EN_ARITH3R})
 static void
 Xubfm(uchar **pcode, enum irclass k, struct oper rd, struct oper rn, uint immr, uint imms)
 {
@@ -487,6 +490,16 @@ DEFINSTR2(Xfmov,
    {  8, {PGPRZ, PFPR}, 0x9E660000, EN_FP1GPR1},
 )
 DEFINSTR2(Xfneg, {4|8, {PFPR, PFPR}, 0x1E214000, EN_FP2R})
+DEFINSTR2(Xscvtfw,  {4|8, {PFPR, PGPRZ}, 0x1E220000, EN_FP2R})
+DEFINSTR2(Xscvtfx,  {4|8, {PFPR, PGPRZ}, 0x9E220000, EN_FP2R})
+DEFINSTR2(Xfcvtzsw, {4|8, {PGPRZ, PFPR}, 0x1E380000, EN_FP2R})
+DEFINSTR2(Xfcvtzsx, {4|8, {PGPRZ, PFPR}, 0x9E380000, EN_FP2R})
+DEFINSTR2(Xucvtfw,  {4|8, {PFPR, PGPRZ}, 0x1E230000, EN_FP2R})
+DEFINSTR2(Xucvtfx,  {4|8, {PFPR, PGPRZ}, 0x9E230000, EN_FP2R})
+DEFINSTR2(Xfcvtzuw, {4|8, {PGPRZ, PFPR}, 0x1E390000, EN_FP2R})
+DEFINSTR2(Xfcvtzux, {4|8, {PGPRZ, PFPR}, 0x9E390000, EN_FP2R})
+DEFINSTR2(Xfcvtds,  {4,   {PFPR,  PFPR}, 0x1E624000, EN_FP2R})
+DEFINSTR2(Xfcvtsd,  {4,   {PFPR,  PFPR}, 0x1E22C000, EN_FP2R})
 DEFINSTR3(Xfadd, {4|8, {PFPR, PFPR, PFPR}, 0x1E202800, EN_FP3R})
 DEFINSTR3(Xfsub, {4|8, {PFPR, PFPR, PFPR}, 0x1E203800, EN_FP3R})
 DEFINSTR3(Xfmul, {4|8, {PFPR, PFPR, PFPR}, 0x1E200800, EN_FP3R})
@@ -699,6 +712,31 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
    case Oextu8: case Oextu16: /* UXTB/H Rd, Rn ==> UBFM Rd, Rn, #0, #7/15 */
       Xubfm(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), 0, (8<<(ins->op-Oexts8)/2)-1);
       break;
+   case Ocvts32f: X2 = Xscvtfw; goto Cvt;
+   case Ocvts64f: X2 = Xscvtfx; goto Cvt;
+   case Ocvtf32s:
+      X2 = cls == KI32 ? Xfcvtzsw : Xfcvtzsx;
+      cls = KF32;
+      goto Cvt;
+   case Ocvtf64s:
+      X2 = cls == KI32 ? Xfcvtzsw : Xfcvtzsx;
+      cls = KF64;
+      goto Cvt;
+   case Ocvtu32f: X2 = Xucvtfw; goto Cvt;
+   case Ocvtu64f: X2 = Xucvtfx; goto Cvt;
+   case Ocvtf32u:
+      X2 = cls == KI32 ? Xfcvtzuw : Xfcvtzux;
+      cls = KF32;
+      goto Cvt;
+   case Ocvtf64u:
+      X2 = cls == KI32 ? Xfcvtzuw : Xfcvtzux;
+      cls = KF64;
+      goto Cvt;
+   case Ocvtf32f64: cls = KF32; X2 = Xfcvtsd; goto Cvt;
+   case Ocvtf64f32: cls = KF32; X2 = Xfcvtds; goto Cvt;
+   Cvt:
+      X2(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l));
+      break;
    case Oadd: X3 = kisint(cls) ? Xadd : Xfadd; goto ALU3;
    case Osub: X3 = kisint(cls) ? Xsub : Xfsub; goto ALU3;
    case Omul: if (kisflt(cls)) { X3 = Xfmul; goto ALU3; }
@@ -718,24 +756,34 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
          uint nbit = cls == KI32 ? 32 : 64, s = ins->r.i & nbit-1;
          assert(s > 0);
          Xubfm(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), nbit-s, nbit-s-1);
-      } else assert(!"nyi lslv");
+      } else {
+         X3 = Xlslv;
+         goto ALU3;
+      }
       break;
    case Oslr:
       if (ins->r.t == RICON) {
          uint nbit = cls == KI32 ? 32 : 64, s = ins->r.i & nbit-1;
          assert(s > 0);
          Xubfm(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), s, nbit-1);
-      } else assert(!"nyi lsrv");
+      } else {
+         X3 = Xlsrv;
+         goto ALU3;
+      }
       break;
    case Osar:
       if (ins->r.t == RICON) {
          uint nbit = cls == KI32 ? 32 : 64, s = ins->r.i & nbit-1;
          assert(s > 0);
          Xsbfm(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), s, nbit-1);
-      } else assert(!"nyi lsrv");
+      } else {
+         X3 = Xasrv;
+         goto ALU3;
+      }
       break;
    case Oequ: case Oneq:
-      if (!ins->reg && kisint(cls) && ins->r.bits == ZEROREF.bits) break; /* handled by emitbranch for CBZ/CBNZ */
+      if (!ins->reg && kisint(cls) && ins->r.bits == ZEROREF.bits) /* handled by emitbranch for CBZ/CBNZ */
+         break;
    case Olth: case Ogth: case Olte: case Ogte:
    case Oulth: case Ougth: case Oulte: case Ougte:
       if (lastcmp && lastcmp->cls == cls
@@ -762,7 +810,6 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
          X2 = Xldrsw;
          goto Load;
       }
-      /* fallthru */
    case Oloadu32:
       cls = KI32;
       /* fallthru */
