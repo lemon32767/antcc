@@ -452,14 +452,13 @@ seljmp(struct function *fn, struct block *blk)
          sel(fn, &instrtab[c.i], blk, &curi);
       }
       if (!oiscmp(instrtab[c.i].op)) {
-         struct instr *ins;
          int curi = blk->ins.n;
-         blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, insrescls(instrtab[c.i]), c, ZEROREF));
-         ins = &instrtab[blk->jmp.arg[0].i];
-         if (kisflt(ins->cls)) {
-            ins->r = insertinstr(blk, curi, mkinstr(Ocopy, ins->cls, ZEROREF));
-         }
+         enum irclass k = insrescls(instrtab[c.i]);
+         blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, k, c, kisint(k) ? ZEROREF : mkfltcon(k, 0)));
+         struct instr *ins = &instrtab[blk->jmp.arg[0].i];
          ins->keep = 1;
+      } else {
+         instrtab[c.i].keep = 1;
       }
    } else if (blk->jmp.t == Jret) {
       if (blk->jmp.arg[0].bits) {
