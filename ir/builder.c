@@ -177,16 +177,15 @@ irunop(struct function *fn, enum op op, enum irclass k, union ref a)
    case Ocvts64f:
       break;
    case Ocvtf32u: case Ocvtf64u:
-      if (k == KI64 && fn) {
-         /* XXX some architectures like arm64 do have these instructions natively
-          * this should probably be handled in a separate "arithmetic-lowering" pass, earlier than isel
+      if (target.arch == ISx86_64 && k == KI64 && fn) {
+         /* this should probably be handled in a separate "arithmetic-lowering" pass, earlier than isel
           */
          return cvtfu64(fn, op == Ocvtf32u ? KF32 : KF64, a);
       }
       break;
    case Ocvtu64f:
       /* XXX see above */
-      if (fn)
+      if (target.arch == ISx86_64 && fn)
          return cvtu64f(fn, k, a);
    case Oexts8: case Oextu8: case Oexts16: case Oextu16:
    case Oexts32: case Oextu32:
