@@ -1197,6 +1197,7 @@ devirt(struct rega *ra, struct block *blk)
       }
    }
 
+   if (allnops) vfree(&blk->ins);
    return allnops;
 }
 

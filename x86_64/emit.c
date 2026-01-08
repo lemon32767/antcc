@@ -1372,6 +1372,8 @@ emitbin(struct function *fn)
          emitinstr(pcode, fn, blk, i, &instrtab[blk->ins.p[i]]);
 
       if (blk->jmp.t == Jret) {
+         if (blk->lnext != fn->entry && blk->lnext->jmp.t == Jret && blk->lnext->ins.n == 0)
+            continue; /* fallthru to next blk's RET */
          /* epilogue */
          if (fn->stksiz && (saverestore || !usebp))
             Xadd(pcode, KPTR, mkoper(OREG, .reg = RSP), mkoper(OIMM, .imm = fn->stksiz));
