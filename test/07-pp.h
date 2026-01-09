@@ -9,7 +9,8 @@ void hi(int x) {
 }
 #if 1
 #endif
-#elifndef Ww
+#elifndef Ww /*
+             t'e   */
 #define Bar 7
 #define SQR_(x) ((x)*(x))
 #define SQR(y) SQR_(1+(y)-1)

@@ -722,8 +722,22 @@ static void
 ppskipline(struct lexer *lx)
 {
    while (lx->macstk) popmac(lx);
-   while (peek(lx, 0) != '\n' && !lx->eof)
-      next(lx);
+   for (int c; (c = peek(lx, 0)) != '\n' && !lx->eof; next(lx)) {
+      if (c == '/' && peek(lx, 1) == '*') { /* comment */
+         next(lx), next(lx);
+         bool done = 0;
+         while (!((c = peek(lx, 0)) == '*' && peek(lx, 1) == '/')) {
+            if (lx->eof) {
+               struct span span = {{ lx->idx, lx->chridx - lx->idx, lx->fileid }};
+               fatal(&span, "unterminated comment");
+            }
+            done = c == '\n';
+            next(lx);
+         }
+         next(lx);
+         if (done) return;
+      }
+   }
 }
 
 static bool

@@ -37,7 +37,7 @@ s
 #ifdef CMD_WORKING
 int
 main(V)
-#endif
+#endif // comment
 {
    int CATl(foo);
    ++foobar;
