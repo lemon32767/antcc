@@ -281,6 +281,7 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim, int wide)
                span.sl.len = lx->chridx - span.sl.off;
                error(&span, "hex escape sequence out of range");
             }
+            c = n;
             break;
          default:
             if (aisodigit(c)) { /* octal */
@@ -749,6 +750,8 @@ ppskipline(struct lexer *lx)
    }
 }
 
+#define isppident(tk) in_range((tk).t, TKIDENT, TKWEND_)
+
 static bool
 tokpaste(struct lexer *lx, struct token *dst, const struct token *l, const struct token *r)
 {
@@ -756,10 +759,10 @@ tokpaste(struct lexer *lx, struct token *dst, const struct token *l, const struc
    dst->span = l->span;
    if (dst->span.ex.file == r->span.ex.file && dst->span.ex.off < r->span.ex.off)
       joinspan(&dst->span.ex, r->span.ex);
-   if (l->t == TKIDENT && (r->t == TKIDENT || r->t == TKNUMLIT)) {
+   if (isppident(*l) && (isppident(*r) || r->t == TKNUMLIT)) {
       /* foo ## bar  ;   foo ## 123 */
       dst->t = TKIDENT;
-   } else if (l->t == TKNUMLIT && (r->t == TKIDENT || r->t == TKNUMLIT)) {
+   } else if (l->t == TKNUMLIT && (isppident(*r) || r->t == TKNUMLIT)) {
       /* 0x ## abc   ;   213 ## 456 */
       dst->t = TKNUMLIT;
    } else if (l->t && !r->t) {
@@ -790,11 +793,11 @@ tokpaste(struct lexer *lx, struct token *dst, const struct token *l, const struc
 
    char buf[200];
    dst->len = l->len + r->len;
-   char *s = (dst->t == TKIDENT && dst->len + 1 < sizeof buf) ? buf : alloc(lx->tmparena, dst->len + 1, 1);
+   char *s = (isppident(*dst) && dst->len + 1 < sizeof buf) ? buf : alloc(lx->tmparena, dst->len + 1, 1);
    memcpy(s, l->s, l->len);
    memcpy(s + l->len, r->s, r->len);
    s[dst->len] = 0;
-   if (dst->t == TKIDENT) {
+   if (isppident(*dst)) {
       dst->blue = 0;
       dst->name = intern(s);
    } else {

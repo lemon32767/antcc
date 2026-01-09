@@ -34,6 +34,22 @@ s
 
 #define gnu_ext(a, c...) a(c)
 
+# define STACK_OF(type) struct stack_st_##type
+
+/* Helper macro for internal use */
+# define SKM_DEFINE_STACK_OF_INTERNAL(t1, t2, t3) \
+    STACK_OF(t1); \
+    typedef int (*sk_##t1##_compfunc)(const t3 * const *a, const t3 *const *b); \
+    typedef void (*sk_##t1##_freefunc)(t3 *a); \
+    typedef t3 * (*sk_##t1##_copyfunc)(const t3 *a); \
+
+struct crypto_ex_data_st {
+    void *ctx;
+    STACK_OF(void) *sk;
+};
+
+SKM_DEFINE_STACK_OF_INTERNAL(void, void, void)
+
 #ifdef CMD_WORKING
 int
 main(V)
