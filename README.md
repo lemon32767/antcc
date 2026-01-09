@@ -1,6 +1,9 @@
 `antcc` is a C compiler using its own custom backend. Currently still in a
 experimental stage.
 
+Report bugs in the [issue tracker](https://codeberg.org/lsof/antcc/issues), or
+by sending me an email.
+
 # Supported targets
 
 - For now just x86-64 POSIX (Sys-V + ELF). Only tested on linux so far.
@@ -16,7 +19,6 @@ make opt #compile with optimizations
 # or
 make dbg #compile with UBsan and Asan
 ```
-
 
 # Usage
 
