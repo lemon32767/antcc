@@ -90,7 +90,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          }
          if (docopy)
             *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, con->cls, *r));
-      } else if (ins->op != Omove && con->issym && r == &ins->r) {
+      } else if (op != Omove && con->issym && ins && r == &ins->r) {
          *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, mkaddr((struct addr){*r})));
       } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls))
          goto DivImm;
