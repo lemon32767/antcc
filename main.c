@@ -92,17 +92,20 @@ withext(const char *path, const char *ext)
    return res;
 }
 
+struct infile {
+   enum inft ft;
+   const char *path, *temp;
+};
+static struct infile infilebuf[16];
 static struct task {
    enum outft { OFTexe, OFTdll, OFTobj, OFTasm, OFTc } outft;
    const char *out;
    const char *targ;
-   const char *inf[64];
-   enum inft inft[64];
+   vec_of(struct infile) inf;
    char **runargs;
    vec_of(const char *) linkargs;
-   int ninf;
    bool verbose, run, syntaxonly;
-} task;
+} task = { .inf = VINIT(infilebuf, countof(infilebuf)) };
 
 static void prihelp(void);
 
@@ -114,10 +117,10 @@ optparse(char **args)
 
    while ((arg = *++args)) {
       if (*arg++ != '-' || !*arg) {
-         assert(task.ninf < countof(task.inf) && "too many infiles");
-         task.inf[task.ninf] = arg[-1] != '-' ? arg-1 : "/dev/stdin";
-         task.inft[task.ninf] = ft ? ft : ftdetect(arg-1);
-         ++task.ninf;
+         vpush(&task.inf, ((struct infile) {
+            ft ? ft : ftdetect(arg-1),
+            arg[-1] != '-' ? arg-1 : "/dev/stdin"
+         }));
          ft = IFTauto;
          if (task.run) {
             task.runargs = args+1;
@@ -176,7 +179,7 @@ optparse(char **args)
          const char *s = *++args;
          if (!s) fatal(NULL, "missing target name");
          task.targ = s;
-      } else if (*arg == 'l') {
+      } else if (*arg == 'l' || *arg == 'L') {
          vpush(&task.linkargs, arg-1);
       } else if (!strcmp(arg, "v") || !strcmp(arg, "-verbose")) {
          task.verbose = 1;
@@ -190,7 +193,7 @@ optparse(char **args)
          ft = IFTobj;
       } else if (!strcmp(arg, "run")) {
          task.run = 1;
-         if (task.ninf > 0) {
+         if (task.inf.n > 0) {
             task.runargs = args+1;
             return;
          }
@@ -229,18 +232,18 @@ optparse(char **args)
       } else Bad: warn(NULL, "unrecognized option: %'s", arg-1);
    }
 
-   if (!task.ninf) fatal(NULL, "no input files");
+   if (task.inf.n == 0) fatal(NULL, "no input files");
 
    if (!task.out && !task.syntaxonly) {
       switch (task.outft) {
       case OFTdll:
       case OFTexe: if (!task.run) task.out = "a.out"; break;
-      case OFTasm: task.out = withext(*task.inf, "s"); break;
-      case OFTobj: task.out = withext(*task.inf, "o"); break;
+      case OFTasm: task.out = withext(task.inf.p[0].path, "s"); break;
+      case OFTobj: task.out = withext(task.inf.p[0].path, "o"); break;
       case OFTc: break;
       }
    }
-   if (!in_range(task.outft, OFTexe, OFTdll) && task.outft != OFTc && task.ninf > 1)
+   if (!in_range(task.outft, OFTexe, OFTdll) && task.outft != OFTc && task.inf.n > 1)
       fatal(NULL, "too many input files");
 }
 
@@ -281,25 +284,28 @@ tempfile(const char *path, const char *ext)
 
 static int cc1(const char *out, const char *in);
 
-static const char *tempobj[countof(task.inf)], *tempout;
+static const char *tempout;
 static pid_t rootp;
 static void
 mktemps(void) {
    rootp = getpid();
-   for (int i = 0; i < task.ninf; ++i) {
-      if (task.inft[i] == IFTc)
-         tempobj[i] = tempfile(task.inf[i], "o");
+   for (int i = 0; i < task.inf.n; ++i) {
+      if (task.inf.p[i].ft == IFTc)
+         task.inf.p[i].temp = tempfile(task.inf.p[i].path, "o");
    }
    if (!task.out)
-      task.out = tempout = tempfile(task.ninf > 1 ? "run" : withext(task.inf[0], NULL), NULL);
+      task.out = tempout = tempfile(task.inf.n > 1 ? "run" : withext(task.inf.p[0].path, NULL), NULL);
 }
 
 static void
 cleantemps(void)
 {
    if (getpid() != rootp) return;
-   for (int i = 0; i < task.ninf; ++i) {
-      if (tempobj[i]) unlink(tempobj[i]), tempobj[i] = NULL;
+   for (int i = 0; i < task.inf.n; ++i) {
+      if (task.inf.p[i].temp) {
+         unlink(task.inf.p[i].temp);
+         task.inf.p[i].temp = NULL;
+      }
    }
    if (tempout)
       unlink(tempout), tempout = NULL;
@@ -317,13 +323,13 @@ compileobjs(void)
    pid_t p;
 
    if (!ccopt.dbg.any && !task.syntaxonly) mktemps();
-   for (int i = 0; i < task.ninf; ++i) {
-      if (task.inft[i] == IFTc) {
+   for (int i = 0; i < task.inf.n; ++i) {
+      if (task.inf.p[i].ft == IFTc) {
          if ((p = fork()) < 0) {
             error(NULL, "fork(): %s\n", strerror(errno));
             exit(1);
          } else if (p == 0) {
-            exit(cc1(tempobj[i], task.inf[i]));
+            exit(cc1(task.inf.p[i].temp, task.inf.p[i].path));
          }
          waitpid(p, &wstat, 0);
          if (!WIFEXITED(wstat)) exit(127);
@@ -331,7 +337,7 @@ compileobjs(void)
             cleantemps();
             exit(WEXITSTATUS(wstat));
          }
-      } else if (task.inft[i] == IFTobj || task.inft[i] == IFTar) {
+      } else if (task.inf.p[i].ft == IFTobj || task.inf.p[i].ft == IFTar) {
       } else assert(!"not obj");
    }
    if (!ccopt.dbg.any && !task.syntaxonly) {
@@ -428,13 +434,13 @@ dolink(void)
    }
    vpush(&cmd, "-o");
    vpush(&cmd, task.out);
-   assert(task.ninf > 0);
-   for (int i = 0; i < task.ninf; ++i) {
+   assert(task.inf.n > 0);
+   for (int i = 0; i < task.inf.n; ++i) {
       const char *o;
-      switch (task.inft[i]) {
-      case IFTc: o = tempobj[i]; break;
+      switch (task.inf.p[i].ft) {
+      case IFTc: o = task.inf.p[i].temp; break;
       case IFTobj: case IFTar:
-         o = task.inf[i]; break;
+         o = task.inf.p[i].path; break;
       default: assert(!"link obj?");
       }
       vpush(&cmd, o);
@@ -504,10 +510,10 @@ driver(void)
    if (task.syntaxonly)
       task.out = "/dev/null"; // HACK
    if (task.outft == OFTobj) {
-      assert(task.ninf == 1);
-      if (*task.inft != IFTc)
-         fatal(NULL, "not a C source file: %s", task.inf[0]);
-      return cc1(task.out, *task.inf);
+      assert(task.inf.n == 1);
+      if (task.inf.p[0].ft != IFTc)
+         fatal(NULL, "not a C source file: %s", task.inf.p[0].path);
+      return cc1(task.out, task.inf.p[0].path);
    } else if (task.outft == OFTc) {
       struct wbuf _buf = {0}, *buf = &bstdout;
       if (task.out) {
@@ -520,9 +526,9 @@ driver(void)
          }
       }
       bool ok = 1;
-      if (!task.out && task.ninf == 1)
-         cpp(buf, task.inf[0]);
-      else for (int i = 0; i < task.ninf; ++i) {
+      if (!task.out && task.inf.n == 1)
+         cpp(buf, task.inf.p[0].path);
+      else for (int i = 0; i < task.inf.n; ++i) {
          pid_t p;
          int wstat;
 
@@ -530,7 +536,7 @@ driver(void)
             error(NULL, "fork(): %s\n", strerror(errno));
             ok = 0;
          } else if (p == 0) {
-            cpp(buf, task.inf[i]);
+            cpp(buf, task.inf.p[i].path);
             exit(0);
          }
          waitpid(p, &wstat, 0);
