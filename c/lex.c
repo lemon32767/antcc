@@ -247,6 +247,7 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim, int wide)
    beginoff = idx = lx->chridx;
 
    while ((c = next(lx)) != delim) {
+      static uint wmax[] = {0xFF, 0xFFFF, 0xFFFFFFFFu};
       if (c == '\n' || c == TKEOF) {
       Noterm:
          span.sl = (struct span0) { idx, lx->chridx - idx, lx->fileid };
@@ -276,11 +277,10 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim, int wide)
                if (c-'0' < 10) n = n<<4 | (c-'0');
                else            n = n<<4 | (10 + (c|0x20)-'a');
             } while (aisxdigit(peek(lx, 0)));
-            if (n > 0xFF) {
+            if (n > wmax[wide]) {
                span.sl.len = lx->chridx - span.sl.off;
                error(&span, "hex escape sequence out of range");
             }
-            c = n & 0xFF;
             break;
          default:
             if (aisodigit(c)) { /* octal */
@@ -289,7 +289,7 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim, int wide)
                   if (!aisodigit(peek(lx, 0))) break;
                   n = n<<3 | ((c = next(lx))-'0');
                }
-               if (n > 0377) {
+               if (n > wmax[wide]) {
                   span.sl.len = lx->chridx - span.sl.off;
                   error(&span, "octal escape sequence out of range");
                }
@@ -301,7 +301,16 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim, int wide)
             error(&span, "invalid escape sequence");
          }
       }
-      vpush(&b, c);
+      if (!wide || c <= 0xFF) {
+         vpush(&b, c);
+      } else {
+         /* XXX this doesn't work for non-utf sequences, UTF-16 surrogates, etc
+          * the source utf8 -> utf16/32 conversion should be done on the fly, then
+          * these can also be appended directly, rather than doing the conversion at the end */
+         char p[4];
+         int n = utf8enc(p, c);
+         vpushn(&b, p, n);
+      }
       idx = lx->chridx;;
    }
    if (delim == '"') {
