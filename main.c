@@ -1,4 +1,5 @@
 #include "common.h"
+#include "version.h"
 #include "hostconfig.h" /* run ./configure */
 #include "obj/obj.h"
 #include <errno.h>
@@ -133,6 +134,15 @@ optparse(char **args)
          exit(0);
       } else if (!strcmp(arg, "dumpmachine")) {
          pfmt("%s\n", HOST_TRIPLE);
+         exit(0);
+      } else if (!strcmp(arg, "-version")) {
+         pfmt("antcc version "ANTCC_VERSION_STR"\n"
+              "target: "HOST_TRIPLE"\n"
+              "include paths: "XSTR(HOST_INCLUDE_DIRS)"\n"
+              "host cc for linking: " HOST_CC "\n");
+         exit(0);
+      } else if (!strcmp(arg, "dumpversion")) {
+         pfmt("%s\n", ANTCC_VERSION_STR);
          exit(0);
       } else if ((x = optval(arg, "std"))) {
          if (!strcmp(x, "c89") || !strcmp(x, "c90")) ccopt.cstd = STDC89;
@@ -618,6 +628,7 @@ prihelp(void)
         " -W[...] \tTurn on warnings (stub)\n"
         " -Werror \tTurn warnings into errors\n"
         " -w     \tSuppress warnings\n"
+        " --version \tPrint version\n"
    );
 }
 

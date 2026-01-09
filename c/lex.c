@@ -1,4 +1,5 @@
 #include "lex.h"
+#include "../version.h"
 #include <string.h>
 
 /* fill internal circular character buffer with input after translation phase 1 & 2
@@ -2067,14 +2068,23 @@ putdefs1(const char *s)
 static void
 addpredefmacros(struct arena **tmparena)
 {
-   static struct token tok_ver = { TKNUMLIT };
+   static struct token tok_stdc = {TKNUMLIT},
+                       tok_major = {TKNUMLIT, .s = XSTR(ANTCC_VERSION_MAJOR),
+                                              .len = sizeof XSTR(ANTCC_VERSION_MAJOR) - 1},
+                       tok_minor = {TKNUMLIT, .s = XSTR(ANTCC_VERSION_MINOR),
+                                              .len = sizeof XSTR(ANTCC_VERSION_MINOR) - 1},
+                       tok_patch = {TKNUMLIT, .s = XSTR(ANTCC_VERSION_PATCH),
+                                              .len = sizeof XSTR(ANTCC_VERSION_PATCH) - 1};
    static struct { const char *name; struct macro m; } macs[] = {
       { "__FILE__", { .predef = 1, .special = 1, .handler = mac__file__handler }},
       { "__LINE__", { .predef = 1, .special = 1, .handler = mac__line__handler }},
       { "__DATE__", { .predef = 1, .special = 1, .handler = mac__date__handler }},
       { "__TIME__", { .predef = 1, .special = 1, .handler = mac__time__handler }},
       { "__has_builtin", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_builtin }},
-      { "__STDC_VERSION__", { .predef = 1, .rlist = { &tok_ver, 1 } }},
+      { "__STDC_VERSION__", { .predef = 1, .rlist = { &tok_stdc, 1 } }},
+      { "__antcc_major__", { .predef = 1, .rlist = { &tok_major, 1} }},
+      { "__antcc_minor__", { .predef = 1, .rlist = { &tok_minor, 1} }},
+      { "__antcc_patch__", { .predef = 1, .rlist = { &tok_patch, 1} }},
    };
    static const char
       cpredefs[] =
@@ -2091,8 +2101,8 @@ addpredefmacros(struct arena **tmparena)
          [STDC23] = "202311L",
       };
 
-   tok_ver.s = cstdver[ccopt.cstd];
-   tok_ver.len = 7;
+   tok_stdc.s = cstdver[ccopt.cstd];
+   tok_stdc.len = 7;
    for (int i = 0; i < countof(macs); ++i)
       putmac(intern(macs[i].name), &macs[i].m);
    putdefs1(cpredefs);
