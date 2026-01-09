@@ -2336,7 +2336,7 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
          arith = arith ? arith : KINT;
       }
 
-      if ((!properdecl && scls) || (scls == SCAUTO && st->kind == DTOPLEVEL))
+      if ((!properdecl && scls && !(st->kind == DFUNCPARAM && scls == SCREGISTER)) || (scls == SCAUTO && st->kind == DTOPLEVEL))
          error(&tk.span, "storage class specifier %'tk is not allowed here", &tk);
       else
          st->scls |= scls;
