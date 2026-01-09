@@ -1,5 +1,5 @@
 `antcc` is a C compiler using its own custom backend. Currently still in a
-experimental stage.
+experimental stage, but can compile successfully some real-world C codebases (e.g. lua, sqlite3, oksh).
 
 Report bugs in the [issue tracker](https://codeberg.org/lsof/antcc/issues), or
 by sending me an email.
