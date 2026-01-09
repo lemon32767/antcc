@@ -456,7 +456,7 @@ Begin:
                if (lx->chrbuf[lx->chrbuf0] == '\n') {
                   lx->chridx = lx->chridxbuf[lx->chrbuf0++];
                   lx->eof = lx->chridx >= lx->ndat;
-                  goto Begin;
+                  RET('\n');
                }
             } while (++lx->chrbuf0 < countof(lx->chrbuf));
             fillchrbuf(lx);
