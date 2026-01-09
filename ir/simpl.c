@@ -260,6 +260,7 @@ simpl(struct function *fn)
          inschange += ins(&instrtab[blk->ins.p[curi]], blk, &curi);
       }
 
+#if 0 // FIXME
       if (blk->s2 && isintcon(blk->jmp.arg[0])) {
          /* simplify known conditional branch */
          struct block *s = intconval(blk->jmp.arg[0]) ? blk->s1 : blk->s2;
@@ -274,6 +275,7 @@ simpl(struct function *fn)
          }
          goto DoIns;
       }
+#endif
 
       /* thread jumps.. */
       if (!blk->phi.n && !blk->ins.n) {
