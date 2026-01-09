@@ -4503,7 +4503,8 @@ tldecl(struct comp *cm)
                error(&st.pspans[i], "parameter has incomplete type '%ty'", td->param[i]);
          }
          decl.isdef = 1;
-         struct decl *d = &declsbuf.p[putdecl(cm, &decl)];
+         int idecl = putdecl(cm, &decl);
+         struct decl *d = &declsbuf.p[idecl];
          struct function fn = { &cm->fnarena, .name = decl.name, .globl = d->scls != SCSTATIC, .fnty = decl.ty, .retty = td->ret };
          irinit(&fn);
          function(cm, &fn, st.pnames, st.pspans, st.pqual);
