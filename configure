@@ -45,7 +45,9 @@ host_abi=
 echo "host: $host"
 case "$host" in
 x86_64-*) host_arch=x86_64 ;;
+amd64-*) host_arch=x86_64 ;;
 aarch64-*) host_arch=aarch64 ;;
+arm64-*) host_arch=aarch64 ;;
 *) host_arch=unk ;;
 esac
 

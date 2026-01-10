@@ -38,7 +38,7 @@ matchstr(const char **s, const char *pat)
 static bool
 parsetriple(struct targtriple *trg, const char *str)
 {
-   if (matchstr(&str, "x86_64-"))
+   if (matchstr(&str, "x86_64-") || matchstr(&str, "amd64-"))
       trg->arch = ISx86_64;
    else if (matchstr(&str, "aarch64-") || matchstr(&str, "arm64-"))
       trg->arch = ISaarch64;
