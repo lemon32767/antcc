@@ -1605,6 +1605,12 @@ ppinclude(struct lexer *lx, const struct span *span0)
          path[end - base + tk.len] = 0;
          if (tryinclude(lx, &span, path)) return;
       }
+      /* try embedded files pseudo-path */
+      xbgrow(&path, tk.len + 3);
+      path[0] = '@', path[1] = ':';
+      memcpy(path+2, tk.s, tk.len);
+      path[tk.len+2] = 0;
+      if (tryinclude(lx, &span, path)) return;
       /* try system paths */
       for (struct inclpaths *p = cinclpaths; p; p = p->next) {
          int ndir = strlen(p->path);
@@ -1615,12 +1621,6 @@ ppinclude(struct lexer *lx, const struct span *span0)
          path[ndir + tk.len] = 0;
          if (tryinclude(lx, &span, path)) return;
       }
-      /* try embedded files pseudo-path */
-      xbgrow(&path, tk.len + 3);
-      path[0] = '@', path[1] = ':';
-      memcpy(path+2, tk.s, tk.len);
-      path[tk.len+2] = 0;
-      if (tryinclude(lx, &span, path)) return;
    NotFound:
       error(&tk.span, "file not found: %'S", tk.s, tk.len);
    } else {
