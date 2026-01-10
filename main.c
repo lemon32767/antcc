@@ -8,6 +8,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <unistd.h>
+#include <time.h>
 
 struct option ccopt;
 struct inclpaths *cinclpaths;
@@ -260,7 +261,6 @@ optparse(char **args)
 static const char *
 tempfile(const char *path, const char *ext)
 {
-   long time(void *);
    int id;
    static int id2;
    static char sbuf[1024];
@@ -494,6 +494,9 @@ dorun(void)
          efmt(" %s", *s);
       efmt("\n");
    }
+#if _POSIX_C_SOURCE >= 200809L
+   /* use fexecve */
+   int fexecve(int fd, char *const argv[], char *const envp[]);
    int fd = open(task.out, O_RDONLY);
    if (fd < 0) {
       error(NULL, "open: %s\n", strerror(errno));
@@ -505,10 +508,25 @@ dorun(void)
    }
    cleantemps();
    extern char **environ;
-   int fexecve(int fd, char *const argv[], char *const envp[]);
    fexecve(fd, task.runargs - 1, environ);
    error(NULL, "fexecv: %s\n", strerror(errno));
    return 1;
+#else
+   pid_t p;
+   if ((p = fork()) < 0) {
+      error(NULL, "fork(): %s\n", strerror(errno));
+      exit(1);
+   } else if (p == 0) {
+      if (!execv(task.out, task.runargs - 1)) {
+         error(NULL, "execv(): %s\n", strerror(errno));
+         exit(1);
+      }
+   }
+   int wstat;
+   waitpid(p, &wstat, 0);
+   if (!WIFEXITED(wstat)) return 127;
+   return WEXITSTATUS(wstat);
+#endif
 }
 
 static int
