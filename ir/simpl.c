@@ -260,22 +260,17 @@ simpl(struct function *fn)
          inschange += ins(&instrtab[blk->ins.p[curi]], blk, &curi);
       }
 
-#if 0 // FIXME
       if (blk->s2 && isintcon(blk->jmp.arg[0])) {
          /* simplify known conditional branch */
          struct block *s = intconval(blk->jmp.arg[0]) ? blk->s1 : blk->s2;
-         delpred(blk->s2, blk);
-         if (blk->s2->npred == 0) {
-            freeblk(fn, blk->s2);
-         }
+         delpred(s == blk->s1 ? blk->s2 : blk->s1, blk);
          blk->s1 = s, blk->s2 = NULL;
          blk->jmp.arg[0] = NOREF;
-         while (blk->s1 && !blk->s2 && blk->s1->npred == 1 && blk->s1->phi.n == 0) {
+         if (blk->s1 && !blk->s2 && blk->s1->npred == 1 && blk->s1->phi.n == 0) {
             mergeblks(fn, blk, blk->s1);
+            goto DoIns;
          }
-         goto DoIns;
       }
-#endif
 
       /* thread jumps.. */
       if (!blk->phi.n && !blk->ins.n) {
