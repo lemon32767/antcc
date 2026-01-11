@@ -793,7 +793,11 @@ _assertfmt(const char *file, int line, const char *func, const char *expr)
 }
 
 struct fileuid {
-   long dev, ino;
+   long dev;
+   union {
+      long ino;
+      const char *str;
+   };
 };
 
 /* one entry per #line */
@@ -852,22 +856,28 @@ openfile(const char **err, struct memfile **pf, const char *path)
    struct stat st;
    struct file *f;
    struct fileuid uid;
-   uint h, id, n = countof(fileht);
+   size_t h, id, n = countof(fileht);
 
    if (*path == '@' && path[1] == ':') {
+      /* fast path to rule out filenames we know for sure aren't builtin */
+      /* !KEEP SYNC with embedfilesdir */
+      if (path[2] != 's' /* std*.h */
+       && path[2] != 'f' /* float.h */) return -1;
       uid.dev = -1;
-      uid.ino = hashs(0, path+2);
+      uid.str = path;
+      h = hashs(0, path+2);
    } else {
       if (stat(path, &st) != 0) {
          *err = strerror(errno);
          return -1;
       }
       uid.dev = st.st_dev, uid.ino = st.st_ino;
+      h = uid.dev ^ uid.ino;
    }
-   for (id = h = uid.dev ^ uid.ino;; ++id) {
+   for (id = h;; ++id) {
       id &= countof(fileht) - 1;
       f = fileht[id];
-      if (f && f->uid.dev == uid.dev && f->uid.ino == uid.ino) {
+      if (f && f->uid.dev == uid.dev && (uid.dev >= 0 ? f->uid.ino == uid.ino : !strcmp(f->uid.str, uid.str))) {
          break;
       } else if (!f) {
          struct memfile m;
