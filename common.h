@@ -153,10 +153,19 @@ struct option {
    struct wbuf *dbgout;
 };
 extern struct option ccopt;
-extern struct inclpaths {
-   struct inclpaths *next;
-   const char *path;
-} *cinclpaths;
+extern struct cinclpaths {
+   struct inclpath {
+      struct inclpath *next;
+      const char *path;
+   } *list, **tail;
+} cinclpaths[5];
+enum { /* GCC include directory search order: https://gcc.gnu.org/onlinedocs/gcc/Directory-Options.html#Options-for-Directory-Search */
+   CINCL_iquote,
+   CINCL_I,
+   CINCL_isystem,
+   CINCLsys,
+   CINCL_idirafter,
+};
 
 /**********/
 /* Target */

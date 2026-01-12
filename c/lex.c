@@ -1605,24 +1605,36 @@ ppinclude(struct lexer *lx, const struct span *span0)
          path[end - base + tk.len] = 0;
          if (tryinclude(lx, &span, path)) return;
       }
-      /* try embedded files pseudo-path */
-      xbgrow(&path, tk.len + 3);
-      path[0] = '@', path[1] = ':';
-      memcpy(path+2, tk.s, tk.len);
-      path[tk.len+2] = 0;
-      if (tryinclude(lx, &span, path)) return;
-      /* try system paths */
-      for (struct inclpaths *p = cinclpaths; p; p = p->next) {
-         int ndir = strlen(p->path);
-         xbgrow(&path, ndir + tk.len + 2);
-         memcpy(path, p->path, ndir);
-         path[ndir++] = '/';
-         memcpy(path + ndir, tk.s, tk.len);
-         path[ndir + tk.len] = 0;
-         if (tryinclude(lx, &span, path)) return;
+      /* try system paths. order:
+       * 1. -iquote
+       * 2. -I
+       * 3. -isystem
+       * 4. embedded include files
+       * 5. standard system includes
+       * 6. -idirafter
+       */
+      for (int i = (tk.t != TKPPHDRQ); i < countof(cinclpaths); ++i) {
+         for (struct inclpath *p = cinclpaths[i].list; p; p = p->next) {
+            if (i == CINCLsys) {
+               /* try embedded files pseudo-path */
+               xbgrow(&path, tk.len + 3);
+               path[0] = '@', path[1] = ':';
+               memcpy(path+2, tk.s, tk.len);
+               path[tk.len+2] = 0;
+               if (tryinclude(lx, &span, path)) return;
+            }
+            int ndir = strlen(p->path);
+            xbgrow(&path, ndir + tk.len + 2);
+            memcpy(path, p->path, ndir);
+            path[ndir++] = '/';
+            memcpy(path + ndir, tk.s, tk.len);
+            path[ndir + tk.len] = 0;
+            if (tryinclude(lx, &span, path)) return;
+         }
       }
    NotFound:
       error(&tk.span, "file not found: %'S", tk.s, tk.len);
+      xbfree(path);
    } else {
       error(&tk.span, "expected \"header\" or <header>");
       ppskipline(lx);

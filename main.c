@@ -11,15 +11,21 @@
 #include <time.h>
 
 struct option ccopt;
-struct inclpaths *cinclpaths;
+struct cinclpaths cinclpaths[5];
 
 static void
-addinclpath(const char *path)
+addinclpath(int ord, const char *path)
 {
-   struct inclpaths *p = alloc(&globarena, sizeof *cinclpaths, 0);
-   p->next = cinclpaths;
+   struct inclpath *p = alloc(&globarena, sizeof *p, 0);
+   assert((uint)ord < countof(cinclpaths));
    p->path = path;
-   cinclpaths = p;
+   p->next = NULL;
+   if (cinclpaths[ord].list) {
+      *cinclpaths[ord].tail = p;
+   } else {
+      cinclpaths[ord].list = p;
+   }
+   cinclpaths[ord].tail = &p->next;
 }
 
 /* parse an argument of the form 'opt=abcd'
@@ -130,6 +136,7 @@ optparse(char **args)
          }
          continue;
       }
+      int cinclord;
       if (!strcmp(arg, "help") || !strcmp(arg, "h") || !strcmp(arg, "-help")) {
          prihelp();
          exit(0);
@@ -190,7 +197,7 @@ optparse(char **args)
          const char *s = *++args;
          if (!s) fatal(NULL, "missing target name");
          task.targ = s;
-      } else if (*arg == 'l' || *arg == 'L') {
+      } else if (*arg == 'l' || *arg == 'L' || *arg == 'B') {
          vpush(&task.linkargs, arg-1);
       } else if (!strcmp(arg, "v") || !strcmp(arg, "-verbose")) {
          task.verbose = 1;
@@ -211,7 +218,8 @@ optparse(char **args)
       } else if (*arg == 'g') {
          /* TODO debug info */
       } else if (*arg == 'O') {
-         if (!arg[1] || (uint)arg[1] - '1' < 9) ccopt.o = OPT1;
+         if (!arg[1]) ccopt.o = 0; /* default opts */
+         else if ((uint)arg[1] - '1' < 9) ccopt.o = OPT1;
          else if (arg[1] == '0') ccopt.o = OPT0;
          else goto Bad;
       } else if (*arg == 'D' || *arg == 'U') {
@@ -221,10 +229,24 @@ optparse(char **args)
          cpppredef(*arg == 'U', def);
       } else if (*arg == 'O') {
          /* TODO optimization level */
-      } else if (*arg == 'I') {
-         const char *p = arg[1] ? arg+1 : *++args;
-         if (!p) fatal(NULL, "missing path after `-I`");
-         else addinclpath(p);
+      } else if (*arg == 'I' || !strcmp(arg, "-include-directory")) {
+         const char *p;
+         cinclord = CINCL_I;
+         if (*arg == 'I' && arg[1]) p = arg+1;
+         else CIncl: p = *++args;
+         if (!p) fatal(NULL, "missing path after `%s`", arg-1);
+         addinclpath(cinclord, p);
+      } else if (!strcmp(arg, "iquote")) {
+         cinclord = CINCL_iquote;
+         goto CIncl;
+      } else if (!strcmp(arg, "isystem")) {
+         cinclord = CINCL_isystem;
+         goto CIncl;
+      } else if (!strcmp(arg, "idirafter")) {
+         cinclord = CINCL_idirafter;
+         goto CIncl;
+      } else if (!strcmp(arg, "nostdinc") || !strcmp(arg, "-no-standard-includes")) {
+         cinclpaths[CINCLsys].list = NULL;
       } else if (*arg == 'M') {
          ++arg;
          if (*arg == 'F' || *arg == 'T' || *arg == 'Q') {
@@ -616,7 +638,7 @@ sysinclpaths(void)
       HOST_INCLUDE_DIRS
    };
    for (int i = 0; i < countof(paths); ++i)
-      addinclpath(paths[i]);
+      addinclpath(CINCLsys, paths[i]);
 }
 
 static void
