@@ -11,14 +11,14 @@ enum typetag { /* ordering is important here! */
    TYXXX,
    TYENUM,
    TYBOOL, TYCHAR, TYSCHAR, TYUCHAR, TYSHORT, TYUSHORT, TYINT, TYUINT, TYLONG, TYULONG, TYVLONG, TYUVLONG,
-   TYFLOAT, TYDOUBLE, TYLDOUBLE,
+   TYFLOAT, TYDOUBLE, TYLDOUBLE, TYCOMPLEXF, TYCOMPLEX, TYCOMPLEXL,
    TYVOID,
    TYPTR, TYARRAY, TYFUNC,
    TYSTRUCT, TYUNION,
    NTYPETAG,
    TYSIGNEDSET_ = 1<<TYSCHAR | 1<<TYSHORT | 1<<TYINT | 1<<TYLONG | 1<<TYVLONG,
    TYUNSIGNEDSET_ = 1<<TYUCHAR | 1<<TYUSHORT | 1<<TYUINT | 1<<TYULONG | 1<<TYUVLONG,
-   TYSCALARSET_ = ((1u << (TYLDOUBLE - TYENUM + 1)) - 1) << TYENUM | 1<<TYPTR
+   TYSCALARSET_ = ((1u << (TYCOMPLEXL - TYENUM + 1)) - 1) << TYENUM | 1<<TYPTR
 };
 
 enum typeflagmask {
@@ -51,7 +51,7 @@ static_assert(sizeof(union type) == 4);
 #define issignedt(t)   ((TYSIGNEDSET_ | targ_charsigned << TYCHAR) >> (t) & 1)
 #define isunsignedt(t) ((TYUNSIGNEDSET_ | !targ_charsigned << TYCHAR) >> (t) & 1)
 #define isfltt(t)      in_range((t), TYFLOAT, TYLDOUBLE)
-#define isaritht(t)    in_range((t), TYENUM, TYLDOUBLE)
+#define isaritht(t)    in_range((t), TYENUM, TYCOMPLEXL)
 #define isscalart(t)   (TYSCALARSET_ >> (t) & 1)
 #define isptrcvtt(t)   in_range((t), TYPTR, TYFUNC)
 #define isaggt(t)      in_range((t), TYSTRUCT, TYUNION)
@@ -64,6 +64,8 @@ static_assert(sizeof(union type) == 4);
 #define isscalar(ty)   isscalart((ty).t)
 #define isptrcvt(ty)   isptrcvtt((ty).t)
 #define isagg(ty)      isaggt((ty).t)
+#define iscomplext(t)  in_range((t), TYCOMPLEXF, TYCOMPLEXL)
+#define iscomplex(ty)  iscomplext((ty).t)
 #define mktype(...)   ((union type) {{ __VA_ARGS__ }})
 
 struct enumvar {
@@ -151,6 +153,7 @@ scalartypet(union type t)
 {
    if (t.t == TYENUM) return t.backing ? t.backing : typedata[t.dat].backing;
    if (isptrcvt(t)) return TYPTR;
+   assert(!iscomplex(t));
    return t.t;
 }
 static inline uint

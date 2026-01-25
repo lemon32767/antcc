@@ -137,7 +137,7 @@ isdecltok(struct comp *cm)
          kw(_Thread_local), kw(thread_local), kw(_Static_assert),
          kw(inline), kw(_Noreturn),
          kw(const), kw(volatile), kw(restrict), kw(_Atomic),
-         kw(void), kw(float), kw(double),
+         kw(void), kw(float), kw(double), kw(_Complex),
          kw(signed), kw(unsigned), kw(short), kw(long),
          kw(int), kw(char), kw(_Bool), kw(bool),
          kw(struct), kw(union), kw(enum),
@@ -2254,6 +2254,7 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
       KINT      = 1<<7,
       KFLOAT    = 1<<8,
       KDOUBLE   = 1<<9,
+      KCOMPLEX  = 1<<10,
    } arith = 0;
    struct span span = {0};
    union type ty = st->base;
@@ -2345,6 +2346,10 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
          if (arith & KDOUBLE) goto DupArith;
          arith |= KDOUBLE;
          break;
+      case TKW_Complex:
+         if (arith & KCOMPLEX) goto DupArith;
+         arith |= KCOMPLEX;
+         break;
       case TKWenum:
       case TKWstruct:
       case TKWunion:
@@ -2372,7 +2377,7 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
          /* fallthru */
       default:
          goto End;
-      case TKW_BitInt: case TKW_Complex:
+      case TKW_BitInt:
       case TKW_Decimal128: case TKW_Decimal32:
       case TKW_Decimal64: case TKW_Imaginary:
          error(&tk.span, "%'tk is unsupported", &tk);
@@ -2405,9 +2410,9 @@ End:
          t = TYFLOAT;
       else if (arith == KDOUBLE)
          t = TYDOUBLE;
-      else if (arith == (KLONG | KDOUBLE)) {
+      else if (arith == (KLONG | KDOUBLE))
          t = TYLDOUBLE;
-      } else if (arith == KBOOL)
+      else if (arith == KBOOL)
          t = TYBOOL;
       else if (arith == KCHAR)
          t = TYCHAR;
@@ -2431,6 +2436,12 @@ End:
          t = TYVLONG;
       else if ((arith & ~KINT) == (KUNSIGNED | KLONGLONG))
          t = TYUVLONG;
+      else if (arith == (KCOMPLEX | KFLOAT))
+         t = TYCOMPLEXF;
+      else if (arith == (KCOMPLEX | KDOUBLE))
+         t = TYCOMPLEX;
+      else if (arith == (KCOMPLEX | KLONG | KDOUBLE))
+         t = TYCOMPLEXL;
       else
          goto Bad;
       st->base = mktype(t ? t : TYINT);

@@ -103,6 +103,12 @@ targ_init(const char *starg)
    align[TYDOUBLE] = t->doublealign;
    align[TYLDOUBLE] = t->doublealign;
    align[TYPTR] = t->ptralign;
+   sizes[TYCOMPLEXF] = sizes[TYFLOAT]*2;
+   sizes[TYCOMPLEX] = sizes[TYDOUBLE]*2;
+   sizes[TYCOMPLEXL] = sizes[TYLDOUBLE]*2;
+   align[TYCOMPLEXF] = align[TYFLOAT];
+   align[TYCOMPLEX] = align[TYDOUBLE];
+   align[TYCOMPLEXL] = align[TYLDOUBLE];
    targ_valistsize = t->valistsize;
    targ_sizetype = t->sizetype;
    targ_ptrdifftype = t->ptrdifftype;

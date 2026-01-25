@@ -20,7 +20,7 @@ targ2hosttype(enum typetag t)
 #undef U
 #undef S
    } else if (t == TYLDOUBLE) return TYDOUBLE;
-   else if (isfltt(t)) return t;
+   else if (isfltt(t) || iscomplext(t)) return t;
    return 0;
 }
 
