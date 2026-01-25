@@ -116,6 +116,7 @@ struct declstate {
    internstr *pnames; /* param names for function definition */
    struct span *pspans; /* param spans ditto */
    uchar *pqual; /* param quals ditto */
+   int attr;
 };
 static struct decl pdecl(struct declstate *st, struct comp *cm);
 
@@ -717,7 +718,7 @@ exprdup2(struct comp *cm, const struct expr *e1, const struct expr *e2)
 static struct expr expr(struct comp *cm);
 static struct expr commaexpr(struct comp *cm);
 
-enum { IMPLICITFUNCTY = 0xFF, };
+enum { IMPLICITSYMTY = 0xFF, };
 
 static struct expr /* 6.5.2.2 Function calls */
 callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
@@ -738,7 +739,7 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
       assert(!ty.t);
    }
 
-   if (callee->t == ESYM && ty.t == IMPLICITFUNCTY) { /* implicit function decl.. */
+   if (callee->t == ESYM && ty.t == IMPLICITSYMTY) { /* implicit function decl.. */
       internstr name = callee->implicitsym;
       struct decl decl = {
          (ty = mkfntype(mktype(TYINT), 0, NULL, /* kandr */ 1, 0)),
@@ -989,7 +990,7 @@ static internstr istr__func__, istr_main, istr_memset;
 /* parse an expression with the given operator precedence */
 /* param ident is a kludge to support block labels without backtracking or extra lookahead
  * see stmt() */
-enum exprctx { EFROMSTMT = 1, EARRAYCOUNT };
+enum exprctx { EFROMSTMT = 1, EARRAYCOUNT, EATTRARG };
 static struct expr
 exprparse(struct comp *cm, int prec, const struct token *ident, enum exprctx ctx)
 {
@@ -1092,8 +1093,10 @@ Unary:
             decl = finddecl(cm, istr__func__);
             assert(decl && decl->scls == SCSTATIC);
             goto Sym;
+         } else if (ctx == EATTRARG && nunop == 0 && (peek(cm, NULL) == ',' || peek(cm, NULL) == ')')) {
+            return ex = mkexpr(ESYM, tk.span, mktype(IMPLICITSYMTY), .implicitsym = tk.name);
          } else if (peek(cm, NULL) == '(') { /* implicit function decl? */
-            ex = mkexpr(ESYM, tk.span, mktype(IMPLICITFUNCTY), .implicitsym = tk.name);
+            ex = mkexpr(ESYM, tk.span, mktype(IMPLICITSYMTY), .implicitsym = tk.name);
          } else {
             error(&tk.span, "undeclared identifier %'tk", &tk);
             ex = mkexpr(ESYM, tk.span, mktype(TYINT), .implicitsym = NULL);
@@ -2180,6 +2183,46 @@ tagtype(struct comp *cm, enum toktag kind)
    return t;
 }
 
+static bool
+attrspec(struct comp *cm, int *attr)
+{ /* __attribute__ (( attribute-list )) */
+   if (!match(cm, NULL, TKW__attribute__)) return 0;
+   if (!expect(cm, '(', "after __attribute__") || !expect(cm, '(', "after __attribute__")) {
+   Bad:
+      fatal(NULL, NULL);
+   }
+   while (!match(cm, NULL, ')')) {
+      struct token tk;
+      lex(cm, &tk);
+      if (tk.t != TKIDENT && !in_range(tk.t, TKWBEGIN_, TKWEND_)) {
+         fatal(&tk.span, "expected attribute name");
+      }
+      internstr name = tk.name;
+      int ltrim = name[0].c == '_' && name[1].c == '_',
+          rtrim = tk.len > 2 && name[tk.len-1].c == '_' && name[tk.len-2].c == '_';
+      if (ltrim || rtrim) { /* trim surrounding '__' */
+         name = intern_(&name->c + ltrim*2, tk.len - ltrim*2 - rtrim*2);
+      }
+      if (match(cm, NULL, '(')) {
+         while (!match(cm, NULL, ')')) {
+            (void)exprparse(cm, bintab['='].prec, NULL, EATTRARG);
+            if (!match(cm, NULL, ',')) {
+               if (expect(cm, ')', NULL)) break;
+               else goto Bad;
+            }
+         }
+      }
+      (void)name;
+      if (!match(cm, NULL, ',')) {
+         if (expect(cm, ')', NULL)) break;
+         else goto Bad;
+      }
+   }
+   if (!expect(cm, ')', NULL))
+      goto Bad;
+   return 1;
+}
+
 static union type
 ptypeof(struct comp *cm)
 {
@@ -2736,6 +2779,7 @@ pdecl(struct declstate *st, struct comp *cm) {
       memset(&decl, 0, sizeof decl);
       goto AfterIniBitf;
    }
+   decl.sym = NULL;
 
    if (st->base0) goto DeclSpec;
    if (!st->base.t) {
@@ -2751,6 +2795,7 @@ pdecl(struct declstate *st, struct comp *cm) {
 
    DeclSpec:
       st->base0 = 0;
+      while (attrspec(cm, &st->attr)) ;
       declspec(st, cm, &decl.span);
    } else {
       peek(cm, &tk);
@@ -2771,6 +2816,18 @@ pdecl(struct declstate *st, struct comp *cm) {
       error(&decl.span, "`inline' used on non-function declaration");
    if (decl.ty.t != TYFUNC && st->fnnoreturn)
       error(&decl.span, "`_Noreturn' used on non-function declaration");
+   /* trailing attributes */
+   if (st->kind == DTOPLEVEL || st->kind == DFUNCVAR) {
+      while (attrspec(cm, &st->attr)) ;
+      if (match(cm, NULL, TKW__asm__) && expect(cm, '(', NULL)) {
+         peek(cm, &tk);
+         if (expect(cm, TKSTRLIT, "asm symbol name")) {
+            decl.sym = intern_(tk.s, tk.len);
+         }
+         expect(cm, ')', NULL);
+      }
+      while (attrspec(cm, &st->attr)) ;
+   }
 
    if (properdecl && match(cm, &tk, '=')) {
       st->varini = 1;
@@ -4278,17 +4335,17 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
          bool put = 0;
          bool dynarr = 0;
 
-         decl.id = -1;
          switch (decl.scls) {
          case SCSTATIC:
             if (forini)
                error(&decl.span, "static declaration in 'for' loop initializer");
-            decl.sym = mkhiddensym(&fn->name->c, &decl.name->c, ++staticid);
+            if (!decl.sym)
+               decl.sym = mkhiddensym(&fn->name->c, &decl.name->c, ++staticid);
             goto Initz;
          case SCNONE:
             if (decl.ty.t == TYFUNC) {
                decl.scls = SCEXTERN;
-               decl.sym = decl.name;
+               if (!decl.sym) decl.sym = decl.name;
                break;
             }
             decl.scls = SCAUTO;
@@ -4302,6 +4359,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                error(&decl.span, "declaring variable '%s' with incomplete type '%ty'", decl.name, decl.ty);
                goto Err;
             }
+            decl.id = -1;
             if (!nerror) {
                struct instr alloc = mkalloca(typesize(decl.ty), typealign(decl.ty));
                if (fn->curblk) decl.id = addinstr(fn, alloc).i;
@@ -4358,7 +4416,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                error(&decl.span, "typedef in 'for' loop initializer");
             break;
          case SCEXTERN:
-            decl.sym = decl.name;
+            if (!decl.sym) decl.sym = decl.name;
             if (forini)
                error(&decl.span, "extern declaration in 'for' loop initializer");
             if (st.varini) goto Initz;
@@ -4492,7 +4550,7 @@ tldecl(struct comp *cm)
          noscls = 1;
          decl.scls = SCEXTERN;
       }
-      decl.sym = decl.name;
+      if (!decl.sym) decl.sym = decl.name;
       decl.isdef = st.varini;
       if (st.funcdef) {
          const struct typedata *td = &typedata[decl.ty.dat];
@@ -4505,7 +4563,7 @@ tldecl(struct comp *cm)
          decl.isdef = 1;
          int idecl = putdecl(cm, &decl);
          struct decl *d = &declsbuf.p[idecl];
-         struct function fn = { &cm->fnarena, .name = decl.name, .globl = d->scls != SCSTATIC, .fnty = decl.ty, .retty = td->ret };
+         struct function fn = { &cm->fnarena, .name = d->sym, .globl = d->scls != SCSTATIC, .fnty = decl.ty, .retty = td->ret };
          irinit(&fn);
          function(cm, &fn, st.pnames, st.pspans, st.pqual);
          if (!nerror && ccopt.dbg.p)

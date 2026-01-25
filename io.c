@@ -1100,12 +1100,13 @@ vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
 void _Noreturn
 fatal(const struct span *span, const char *fmt, ...)
 {
-   va_list ap;
-
-   va_start(ap, fmt);
-   vdiag(span, DGERROR, fmt, ap);
-   va_end(ap);
-   if (span) efmt("Aborting due to previous error.\n");
+   if (fmt) {
+      va_list ap;
+      va_start(ap, fmt);
+      vdiag(span, DGERROR, fmt, ap);
+      va_end(ap);
+   }
+   if (!fmt || span) efmt("Aborting due to previous error.\n");
    exit(1);
 }
 

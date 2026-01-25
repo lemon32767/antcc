@@ -2097,6 +2097,7 @@ addpredefmacros(struct arena **tmparena)
       { "__antcc_major__", { .predef = 1, .rlist = { &tok_major, 1} }},
       { "__antcc_minor__", { .predef = 1, .rlist = { &tok_minor, 1} }},
       { "__antcc_patch__", { .predef = 1, .rlist = { &tok_patch, 1} }},
+      { "__extension__", { .predef = 1, .rlist = { NULL, 0 } }},
    };
    static const char
       cpredefs[] =
