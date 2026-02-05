@@ -32,7 +32,7 @@ u\
 t\
 s
 
-#define gnu_ext(a, c...) a(c)
+#define gnu_ext(a, w, c...) a(w, ## c) __VA_OPT__(;)
 
 # define STACK_OF(type) struct stack_st_##type
 
@@ -79,7 +79,7 @@ S\
                * escapes the 0, ending the string early.
                */
 );
-   gnu_ext(printf, "ok %s\n", "...");
+   gnu_ext(printf, "ok %s", "...") gnu_ext(printf, "\n");
 
    CAT(ret,urn) 0;
 }

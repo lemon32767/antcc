@@ -1075,10 +1075,10 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
       ++i;
    }
    joinspan(&span->ex, tk.span.ex);
-   if (narg < mac->nparam) {
-      warn(span, "macro `%s' passed %d arguments, but takes %d", mname, narg, mac->nparam);
-      for (int i = narg; i < mac->nparam; ++i)
-         args[i].n = 0;
+   for (int i = narg; i < mac->nparam; ++i)
+      args[i].n = 0;
+   if (narg < mac->nparam - mac->variadic) {
+         warn(span, "macro `%s' passed %d arguments, but takes %d", mname, narg, mac->nparam);
    } else if (toomany) {
       joinspan(&excessspan.ex, tk.span.ex);
       warn(&excessspan, "macro `%s' passed %d arguments, but takes just %d", mname, narg, mac->nparam);
@@ -1091,9 +1091,19 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
       });
    } else if (mac->nparam) { /* make new rlist with args replaced */
       bool rhsargpaste = 0;
+      bool vaoptskip = 0;
+      int vaoptbal = 0;
       for (int i = 0; i < mac->rlist.n; ++i) {
          struct argtks *arg;
          tk = mac->rlist.tk[i];
+         if (vaoptskip) {
+            assert(vaoptbal > 0);
+            if (tk.t == '(') ++vaoptbal;
+            else if (tk.t == ')') {
+               if (--vaoptbal == 0) vaoptskip = 0;
+            }
+            continue;
+         }
          if (tk.t == TKPPCAT) {
             if (i > 0 && i < mac->rlist.n-1) {
                const struct token *lhs = &mac->rlist.tk[i-1],
@@ -1115,12 +1125,37 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
                   }
                   continue;
                } else {
-                  rhsargpaste = 1;
+                  if (mac->variadic && rhs->argidx == mac->nparam-1) {
+                     /* handle GNU extension:  ', ## __VA_ARGS__' */
+                     /* when empty vaargs -> skip comma, otherwise put comma and vaargs */
+                     if (args[mac->nparam-1].n == 0)
+                        --rlist2.n;
+                  } else {
+                     rhsargpaste = 1;
+                  }
                   continue;
                }
             }
          }
+         if (tk.t == TKIDENT && mac->variadic) {
+            /* handle GNUC __VA_OPT__(...) */
+            static internstr istr_vaopt;
+            if (!istr_vaopt) istr_vaopt = intern("__VA_OPT__");
+            if (tk.name == istr_vaopt && i+2 < mac->rlist.n && mac->rlist.tk[i+1].t == '(') {
+               vaoptbal = 1;
+               vaoptskip = args[mac->nparam-1].n == 0;
+               ++i; /* skip open paren */
+               continue;
+            }
+         }
          if (tk.t != TKPPMACARG && tk.t != TKPPMACSTR) {
+            if (vaoptbal) {
+               if (tk.t == '(') ++vaoptbal;
+               else if (tk.t == ')') {
+                  /* skip closing paren of __VA_OPT__ invocation */
+                  if (--vaoptbal == 0) continue;
+               }
+            }
             vpush(&rlist2, tk);
             continue;
          }
