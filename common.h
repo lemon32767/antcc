@@ -244,6 +244,7 @@ void *allocz(struct arena **, uint siz, uint align);
 static inline void *
 alloccopy(struct arena **arena, const void *src, uint siz, uint align)
 {
+   if (!siz) return NULL;
    return memcpy(alloc(arena, siz, align), src, siz);
 }
 void freearena(struct arena **);
