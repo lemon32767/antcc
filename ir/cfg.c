@@ -1,12 +1,14 @@
 #include "ir.h"
 
 static void
-porec(struct block ***rpo, struct block *b)
+porec(int *nblk, struct block ***rpo, struct block *b)
 {
    if (wasvisited(b)) return;
+   assert(*nblk > 0 && "nblk bad");
+   --*nblk;
    markvisited(b);
-   if (b->s2) porec(rpo, b->s2);
-   if (b->s1) porec(rpo, b->s1);
+   if (b->s2) porec(nblk, rpo, b->s2);
+   if (b->s1) porec(nblk, rpo, b->s1);
    *--*rpo = b;
 }
 
@@ -23,7 +25,8 @@ sortrpo(struct function *fn)
 
    startbbvisit();
    fn->entry->id = 0;
-   porec(&rpo, fn->entry);
+   int nblk = fn->nblk;
+   porec(&nblk, &rpo, fn->entry);
    ndead = rpo - rpobuf;
    if (ndead > 0) for (blk = fn->entry->lprev; blk != fn->entry; blk = next) {
       next = blk->lprev;
