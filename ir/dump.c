@@ -296,6 +296,7 @@ irdump(struct function *fn)
    numberinstrs(fn);
    blk = fn->entry;
    do {
+      assert(blk->lprev->lnext == blk);
       dumpblk(fn, blk);
       assert(blk->lnext != NULL);
    } while ((blk = blk->lnext) != fn->entry);
