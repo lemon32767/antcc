@@ -1139,7 +1139,7 @@ devirt(struct rega *ra, struct block *blk)
          enum irclass cls = insrescls(*ins);
          int store = cls2store[cls];
          /* t was spilled, gen store */
-         if (ins->op == Ocopy && ins->l.t != RADDR) {
+         if (ins->op == Ocopy && ins->l.t != RADDR && !isaddrcon(ins->l,0)) {
             ins->op = store;
             ins->r = ins->l;
             addstkslotref(temp, alloc->a*8);

@@ -457,6 +457,21 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
             if (fuseaddr(&temp.l, blk, curi)) {
                *ins = temp;
                break;
+            } else if (ins->l.t == RSTACK && (ins->r.t == RTMP || isintcon(ins->r))) {
+               /* handles an edge case with 'add [stack], %{add x,y}' (not ideal) */
+               struct addr addr = {0};
+               bool ok = aadd(&addr, blk, curi, ins->l);
+               assert(ok);
+               if (ins->r.t == RTMP) {
+                  addr.index = ins->r;
+                  temp.l = mkaddr(addr);
+                  *ins = temp;
+                  break;
+               } else if (aadd(&addr, blk, curi, ins->r)) { /* aadd handles disp being too large */
+                  temp.l = mkaddr(addr);
+                  *ins = temp;
+                  break;
+               }
             }
          }
       }
@@ -483,7 +498,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       if (!(op == Omul && kisint(ins->cls) && isimm32(ins->r))) /* for (I)MUL r,r/m,imm */
       if (!(op == Oshl && ins->r.t == RICON && ins->r.i <= 3)) /* can be lea */
          ins->inplace = 1;
-      if (iscon(ins->l)) {
+      if (iscon(ins->l) || ins->l.t == RSTACK) {
          fixarg(&ins->l, ins, blk, curi);
          ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
       }
@@ -608,8 +623,7 @@ x86_64_isel(struct function *fn)
    struct block *blk = fn->entry;
 
    do {
-      int i;
-      for (i = 0; i < blk->phi.n; ++i) {
+      for (int i = 0; i < blk->phi.n; ++i) {
          struct instr *ins = &instrtab[blk->phi.p[i]];
          union ref *phi = phitab.p[ins->l.i];
          for (int i = 0; i < blk->npred; ++i) {
@@ -618,7 +632,7 @@ x86_64_isel(struct function *fn)
          }
       }
       iflagsrc = -1;
-      for (i = 0; i < blk->ins.n; ++i) {
+      for (int i = 0; i < blk->ins.n; ++i) {
          struct instr *ins = &instrtab[blk->ins.p[i]];
          sel(fn, ins, blk, &i);
          if (ins->op < countof(opflags) && kisint(insrescls(*ins))) {
