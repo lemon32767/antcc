@@ -172,6 +172,7 @@ optparse(char **args)
          case 'o': ccopt.dbg.o = 1; break;
          case 's': ccopt.dbg.s = 1; break;
          case 'i': ccopt.dbg.i = 1; break;
+         case 'y': ccopt.dbg.y = 1; break;
          case 'l': ccopt.dbg.l = 1; break;
          case 'r': ccopt.dbg.r = 1; break;
          default: warn(NULL, "-d: invalid debug flag %'c", *arg);
@@ -219,7 +220,8 @@ optparse(char **args)
          /* TODO debug info */
       } else if (*arg == 'O') {
          if (!arg[1]) ccopt.o = 0; /* default opts */
-         else if ((uint)arg[1] - '1' < 9) ccopt.o = OPT1;
+         else if (arg[1] == '1') ccopt.o = OPT1;
+         else if ((uint)arg[1] - '1' < 9) ccopt.o = OPT2;
          else if (arg[1] == '0') ccopt.o = OPT0;
          else goto Bad;
       } else if (*arg == 'D' || *arg == 'U') {
@@ -651,7 +653,7 @@ prihelp(void)
         " -help   \tPrint this help message\n"
         " -std=<..> \tSet C standard (c89, c99, c11, c23)\n"
         " -pedantic \tWarnings for strict standards compliance\n"
-        " -d{pamosilr} \tDebug print IR after {parse, abi, mem, opts, stack, isel, live, rega}\n"
+        " -d{pamyosilr} \tDebug print IR after {parse, abi, mem, inlining, opts, stack, isel, live, rega}\n"
         " -o <file> \tPlace the output into <file>\n"
         " -v     \tVerbose output\n"
         " -c     \tEmit object file but do not link\n"

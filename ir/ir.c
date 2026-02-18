@@ -100,7 +100,7 @@ newaddr(const struct addr *addr)
    }
 }
 
-static int
+int
 newcon(const struct xcon *con)
 {
    uint h = hashb(0, con, sizeof *con);
@@ -292,8 +292,8 @@ freeblk(struct function *fn, struct block *blk)
    vfree(&blk->ins);
    if (blk->id != -1)
       --fn->nblk;
-   if (blk->lnext) blk->lnext->lprev = blk->lprev;
    if (blk->lprev) blk->lprev->lnext = blk->lnext;
+   if (blk->lnext) blk->lnext->lprev = blk->lprev;
    blk->id = 1u<<31;
 }
 
@@ -330,9 +330,14 @@ blksplitafter(struct function *fn, struct block *blk, int idx)
    new->lnext = blk->lnext;
    blk->lnext = new;
    new->lnext->lprev = new;
-   if (idx < blk->ins.n-1)
-      vpushn(&new->ins, &blk->ins.p[idx+1], blk->ins.n-idx-1);
-   blk->ins.n -= new->ins.n;
+   if (idx == -1) {
+      new->ins = blk->ins;
+      memset(&blk->ins, 0, sizeof blk->ins);
+   } else {
+      if (idx < blk->ins.n-1)
+         vpushn(&new->ins, &blk->ins.p[idx+1], blk->ins.n-idx-1);
+      blk->ins.n -= new->ins.n;
+   }
    new->jmp = blk->jmp;
    blk->jmp.t = Jb;
    memset(blk->jmp.arg, 0, sizeof blk->jmp.arg);
@@ -647,11 +652,16 @@ irfini(struct function *fn)
       copyopt(fn);
    }
    if (ccopt.o >= OPT1) {
+      doinline(fn);
       filldom(fn);
+      if (!(fn->prop & FNUSE)) filluses(fn);
       cselim(fn);
       freearena(fn->passarena);
       simpl(fn);
       freearena(fn->passarena);
+   }
+   if (maybeinlinee(fn)) {
+      // goto Fin; XXX do this by having inline function rematerialization when symbol is actually referenced
    }
    lowerstack(fn);
    freearena(fn->passarena);
@@ -665,6 +675,7 @@ irfini(struct function *fn)
    if (objout.code)
       mctarg->emit(fn);
 
+Fin:
    freearena(fn->passarena);
    freefn(fn);
 }

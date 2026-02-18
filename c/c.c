@@ -4574,7 +4574,8 @@ tldecl(struct comp *cm)
          decl.isdef = 1;
          int idecl = putdecl(cm, &decl);
          struct decl *d = &declsbuf.p[idecl];
-         struct function fn = { &cm->fnarena, .name = d->sym, .globl = d->scls != SCSTATIC, .fnty = decl.ty, .retty = td->ret };
+         if (d->inlin && decl.scls != SCSTATIC) fatal(&d->span, "non-static inline is unimplemented");
+         struct function fn = { &cm->fnarena, .name = d->sym, .globl = d->scls != SCSTATIC, .fnty = decl.ty, .retty = td->ret, .inlin = d->inlin };
          irinit(&fn);
          function(cm, &fn, st.pnames, st.pspans, st.pqual);
          if (!nerror && ccopt.dbg.p)

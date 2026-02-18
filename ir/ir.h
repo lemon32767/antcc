@@ -185,8 +185,10 @@ struct function {
    ushort nabiarg, nabiret;
    bool globl;
    bool isleaf;
+   bool inlin;
    regset regusage;
 };
+
 #define FREQUIRE(_prop) assert((fn->prop & (_prop)) == (_prop) && "preconditions not met")
 
 enum objkind { OBJELF };
@@ -311,6 +313,9 @@ bool foldunop(union ref *to, enum op, enum irclass, union ref);
 /** irdump.c **/
 void irdump(struct function *);
 
+/** mem2reg.c **/
+void mem2reg(struct function *);
+
 /** ssa.c **/
 void copyopt(struct function *);
 
@@ -328,8 +333,9 @@ void simpl(struct function *);
 /** cselim.c **/
 void cselim(struct function *);
 
-/** mem2reg.c **/
-void mem2reg(struct function *);
+/** inliner.c **/
+bool maybeinlinee(struct function *);
+void doinline(struct function *);
 
 /** intrin.c **/
 void lowerintrin(struct function *);

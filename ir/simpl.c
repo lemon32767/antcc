@@ -82,7 +82,7 @@ divmodk(struct instr *ins, struct block *blk, int *curi)
 }
 
 static int
-ins(struct instr *ins, struct block *blk, int *curi)
+doins(struct instr *ins, struct block *blk, int *curi)
 {
    int narg = opnarg[ins->op];
    if (oisarith(ins->op)) {
@@ -257,7 +257,11 @@ simpl(struct function *fn)
       int curi = 0;
    DoIns:
       for (; curi < blk->ins.n; ++curi) {
-         inschange += ins(&instrtab[blk->ins.p[curi]], blk, &curi);
+         struct instr *ins = &instrtab[blk->ins.p[curi]];
+         if (ins->op != Onop) {
+            if (!(fn->prop & FNUSE)) filluses(fn);
+            inschange += doins(ins, blk, &curi);
+         }
       }
 
       if (blk->s2 && isintcon(blk->jmp.arg[0])) {
@@ -272,8 +276,9 @@ simpl(struct function *fn)
          }
       }
 
-      /* thread jumps.. */
-      if (!blk->phi.n && !blk->ins.n) {
+      if (blk != fn->entry && blk->npred == 0) {
+         freeblk(fn, blk);
+      } else if (!blk->phi.n && !blk->ins.n) { /* thread jumps.. */ 
          if (blk->jmp.t == Jb && !blk->s2) {
             jmpfind(jmpfinal, &blk->s1);
             if (blk->s1 != blk) {
