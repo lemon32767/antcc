@@ -35,10 +35,9 @@ static struct arena **usearena;
 struct calltab calltab;
 struct phitab phitab;
 struct dattab dattab;
+struct contab contab;
 struct addr addrht[1 << 12];
 static int naddrht;
-struct xcon conht[1 << 12];
-static int nconht;
 int visitmark;
 
 void
@@ -47,6 +46,7 @@ irinit(struct function *fn)
    static struct call callsbuf[64];
    static union ref *phisbuf[64];
    static struct irdat datsbuf[64];
+   static struct xcon consbuf[64];
 
    assert(fn->arena && !fn->passarena);
 
@@ -57,11 +57,10 @@ irinit(struct function *fn)
    vinit(&calltab, callsbuf, countof(callsbuf));
    for (int i = 0; i < phitab.n; ++i) xbfree(phitab.p[i]);
    vinit(&phitab, phisbuf, countof(phisbuf));
+   vinit(&contab, consbuf, countof(consbuf));
    if (!dattab.p) vinit(&dattab, datsbuf, countof(datsbuf));
    if (naddrht >= countof(addrht)/2)
       memset(addrht, naddrht = 0, sizeof addrht);
-   if (nconht >= countof(conht)/2)
-      memset(conht, nconht = 0, sizeof conht);
    if (!type2cls[TYINT]) {
       for (int i = TYBOOL; i <= TYUVLONG; ++i) {
          int siz = targ_primsizes[i];
@@ -100,23 +99,12 @@ newaddr(const struct addr *addr)
    }
 }
 
-int
-newcon(const struct xcon *con)
+union ref
+newxcon(const struct xcon *con)
 {
-   uint h = hashb(0, con, sizeof *con);
-   uint i = h, n = countof(conht);
    assert((con->issym ^ con->isdat) || con->cls);
-   for (;; ++i) {
-      i &= countof(conht) - 1;
-      if (!conht[i].issym && !conht[i].isdat && !conht[i].cls) {
-         conht[i] = *con;
-         ++nconht;
-         return i;
-      } else if (!memcmp(&conht[i], con, sizeof *con)) {
-         return i;
-      }
-      assert(--n > 0 && "conht full");
-   }
+   vpush(&contab, *con);
+   return mkref(RXCON, contab.n-1);
 }
 
 union irtype
@@ -137,7 +125,7 @@ mkintcon(enum irclass k, vlong i)
       struct xcon con = { .cls = k, .i = i };
       if (cls2siz[k] == 4) /* check upper half is zero or -1 */
          assert(in_range((i >> 32) + 1, 0, 1));
-      return mkref(RXCON, newcon(&con));
+      return newxcon(&con);
    }
 }
 
@@ -145,14 +133,14 @@ union ref
 mkfltcon(enum irclass k, double f)
 {
    struct xcon con = { .cls = k, .f = k == KF32 ? (float) f : f };
-   return mkref(RXCON, newcon(&con));
+   return newxcon(&con);
 }
 
 union ref
 mksymref(internstr s, enum symflags symflags)
 {
    struct xcon con = { .issym = 1, .sym = s, .flag = symflags };
-   return mkref(RXCON, newcon(&con));
+   return newxcon(&con);
 }
 
 union ref
@@ -176,13 +164,13 @@ mkdatref(internstr name, union type ctype, uint siz, uint align, const void *byt
    if (n) memcpy(p, bytes, n);
    if (dat.section != Stext) memset(p+n, 0, siz - n);
    vpush(&dattab, dat);
-   return mkref(RXCON, newcon(&(struct xcon){.isdat = 1, .deref = deref, .dat = dattab.n - 1, .flag = SLOCAL}));
+   return newxcon(&(struct xcon){.isdat = 1, .deref = deref, .dat = dattab.n - 1, .flag = SLOCAL});
 }
 
 internstr
 xcon2sym(int ref)
 {
-   struct xcon con = conht[ref];
+   struct xcon con = contab.p[ref];
    assert(con.issym ^ con.isdat);
    return con.issym ? con.sym : dattab.p[con.dat].name;
 }

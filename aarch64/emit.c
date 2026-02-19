@@ -86,12 +86,12 @@ ref2oper(union ref r)
    case RREG: return reg2oper(r.i);
    case RICON: return mkoper(OIMM, .imm = r.i);
    case RXCON:
-      if (kisint(conht[r.i].cls))
-         return mkoper(OIMM, .imm = conht[r.i].i);
-      else if (kisflt(conht[r.i].cls)) {
-         assert(conht[r.i].f == 0.0);
+      if (kisint(contab.p[r.i].cls))
+         return mkoper(OIMM, .imm = contab.p[r.i].i);
+      else if (kisflt(contab.p[r.i].cls)) {
+         assert(contab.p[r.i].f == 0.0);
          return mkoper(OIMM, .imm = 0);
-      } else if (!conht[r.i].cls) {
+      } else if (!contab.p[r.i].cls) {
          return mkoper(OSYM, .con = r.i);
       }
       assert(0);
@@ -553,7 +553,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
          Xfmov(pcode, cls, dst, REGZR);
       else assert(0);
    } else if (isaddrcon(val,0) || (val.t == RADDR && isaddrcon(addrht[val.i].base,0))) {
-      if ((ccopt.pic || (conht[val.i].flag & SFUNC)) && !(conht[val.i].flag & SLOCAL)) {
+      if ((ccopt.pic || (contab.p[val.i].flag & SFUNC)) && !(contab.p[val.i].flag & SLOCAL)) {
          Xadrp(pcode, KPTR, dst, src);
          Xadd(pcode, KPTR, dst, dst, src);
       } else {

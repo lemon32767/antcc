@@ -108,7 +108,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
       goto Reg;
    } else if (isfltcon(*r)) {
       enum irclass k = concls(*r), ki = KI32 + k-KF32;
-      if (conht[r->i].f != 0.0) {
+      if (contab.p[r->i].f != 0.0) {
          union {
             vlong i64;
             int i32;
@@ -117,10 +117,10 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          } pun;
          vlong i;
          if (k == KF32) {
-            pun.f32 = conht[r->i].f;
+            pun.f32 = contab.p[r->i].f;
             i = pun.i32;
          } else {
-            pun.f64 = conht[r->i].f;
+            pun.f64 = contab.p[r->i].f;
             i = pun.i64;
          }
          union ref gpr = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ki, mkintcon(ki, i)));
@@ -301,9 +301,9 @@ fuseaddr(union ref *r, struct block *blk, int *curi, uint siz/*1,2,4,8*/)
    if (!(addr.disp >= -256 && addr.disp < 256) /* for 9-bit signed unscaled offset */
     && !(!(addr.disp & (siz-1)) && (uvlong)addr.disp < (1<<12)*siz)) /* 12-bit unsigned scaled offset */
       return 0;
-   if (isaddrcon(addr.base,0) && (!(conht[addr.base.i].flag & SLOCAL) || addr.index.bits)) {
+   if (isaddrcon(addr.base,0) && (!(contab.p[addr.base.i].flag & SLOCAL) || addr.index.bits)) {
       /* first load symbol address into a temp register */
-      if (addr.disp && (ccopt.pic || (conht[addr.base.i].flag & SFUNC)) && !addr.index.bits) {
+      if (addr.disp && (ccopt.pic || (contab.p[addr.base.i].flag & SFUNC)) && !addr.index.bits) {
          addr.base = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, .l = addr.base));
       } else {
          addr.base = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR,
@@ -339,7 +339,7 @@ loadstoreaddr(struct block *blk, union ref *r, int *curi, enum op op)
       *r = mkaddr((struct addr){.base = *r});
    } else if (isaddrcon(*r, 0)) {
       bool pcrelok = in_range(op, Oloads32, Oloadi64); /* LDR-LDRSW have PC-relative literal form */
-      if (!pcrelok || !(conht[r->i].flag & SLOCAL))
+      if (!pcrelok || !(contab.p[r->i].flag & SLOCAL))
          regarg(r, KPTR, blk, curi);
    } else if (r->t == RTMP || r->t == RSTACK) {
       fuseaddr(r, blk, curi, siz);
@@ -390,7 +390,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          op = ins->op ^= 1;
          ins->r.i = -ins->r.i;
       }
-      if (!(isaddrcon(ins->l,0) && (conht[ins->l.i].flag & SLOCAL)))
+      if (!(isaddrcon(ins->l,0) && (contab.p[ins->l.i].flag & SLOCAL)))
          regarg(&ins->l, ins->cls, blk, curi);
       fixarg(&ins->r, ins, blk, curi);
       break;
@@ -445,7 +445,7 @@ seljmp(struct function *fn, struct block *blk)
       fixarg(&blk->jmp.arg[0], NULL, blk, &curi);
       union ref c = blk->jmp.arg[0];
       if (c.t != RTMP) {
-         enum irclass cls = c.t == RICON ? KI32 : c.t == RXCON && conht[c.i].cls ? conht[c.i].cls : KPTR;
+         enum irclass cls = c.t == RICON ? KI32 : c.t == RXCON && contab.p[c.i].cls ? contab.p[c.i].cls : KPTR;
          int curi = blk->ins.n;
 
          c = insertinstr(blk, blk->ins.n, mkinstr(Ocopy, cls, c));

@@ -46,13 +46,13 @@ ref2oper(union ref r)
    case RREG: return reg2oper(r.i);
    case RICON: return mkoper(OIMM, .imm = r.i);
    case RXCON:
-      if (conht[r.i].cls == KI32)
-         return mkoper(OIMM, .imm = conht[r.i].i);
-      else if (conht[r.i].cls == KI64) {
-         vlong i = conht[r.i].i;
+      if (contab.p[r.i].cls == KI32)
+         return mkoper(OIMM, .imm = contab.p[r.i].i);
+      else if (contab.p[r.i].cls == KI64) {
+         vlong i = contab.p[r.i].i;
          assert(i == (int)i);
          return mkoper(OIMM, .imm = i);
-      } else if (!conht[r.i].cls) {
+      } else if (!contab.p[r.i].cls) {
          return mkoper(OSYM, .con = r.i, .cindex = NOINDEX);
       }
       assert(0);
@@ -107,14 +107,14 @@ mkimmregoper(union ref r)
 static inline struct oper
 mkdatregoper(union ref r)
 {
-   assert(isregref(r) || (r.t == RXCON && conht[r.i].deref));
+   assert(isregref(r) || (r.t == RXCON && contab.p[r.i].deref));
    return ref2oper(r);
 }
 
 static inline struct oper
 mkimmdatregoper(union ref r)
 {
-   assert(isregref(r) || r.t == RICON || (r.t == RXCON && (conht[r.i].cls == KI32 || conht[r.i].deref)));
+   assert(isregref(r) || r.t == RICON || (r.t == RXCON && (contab.p[r.i].cls == KI32 || contab.p[r.i].deref)));
    return ref2oper(r);
 }
 
@@ -151,7 +151,7 @@ mkmemoper(union ref r)
                           .disp = addr->disp,
                           .shift = addr->shift);
    } else if (r.t == RXCON) {
-      assert(!conht[r.i].cls);
+      assert(!contab.p[r.i].cls);
       return mkoper(OSYM, .con = r.i, .cindex = NOINDEX);
    } else {
       return mkoper(OMEM, .base = isregref(r) ? ref2oper(r).reg : NOBASE,
@@ -869,8 +869,8 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       }
       /* normal (not 2-address) case */
    Lea:
-      if (isaddrcon(addr->base,0) && (ccopt.pic || (conht[addr->base.i].flag & SFUNC))
-       && !(conht[addr->base.i].flag & SLOCAL)) {
+      if (isaddrcon(addr->base,0) && (ccopt.pic || (contab.p[addr->base.i].flag & SFUNC))
+       && !(contab.p[addr->base.i].flag & SLOCAL)) {
          assert(!addr->disp && !addr->index.bits);
          val = addr->base;
          goto GOTLoad;
@@ -880,7 +880,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       /* dst = 0 -> xor dst, dst; but only if it is ok to clobber flags */
       Xxor(pcode, kisint(cls) ? KI32 : cls, dst, dst);
    } else if (isaddrcon(val,0)) {
-      if ((ccopt.pic || (conht[val.i].flag & SFUNC)) && !(conht[val.i].flag & SLOCAL)) {
+      if ((ccopt.pic || (contab.p[val.i].flag & SFUNC)) && !(contab.p[val.i].flag & SLOCAL)) {
       GOTLoad:
          /* for  mov reg, [rip(sym@GOTPCREL)] */
          Xmov(pcode, cls, dst, mkoper(OSYMGOT, .con = val.i, .cindex = NOINDEX));

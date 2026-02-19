@@ -107,7 +107,7 @@ dumpref(enum op o, union ref ref)
       else bfmt(out, "%d", ref.i);
       break;
    case RXCON:
-      con = &conht[ref.i];
+      con = &contab.p[ref.i];
       if (con->deref) bfmt(out, "*[");
       if (con->issym || con->isdat) {
          bfmt(out, "$%y", xcon2sym(ref.i));

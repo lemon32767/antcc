@@ -54,7 +54,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
    enum op op = ins ? ins->op : 0;
 
    if (r->t == RXCON) {
-      struct xcon *con = &conht[r->i];
+      struct xcon *con = &contab.p[r->i];
       if (in_range(op, Oshl, Oslr) && r == &ins->r) {
          sh = con->i;
          goto ShiftImm;
@@ -293,7 +293,7 @@ fuseaddr(union ref *r, struct block *blk, int *curi)
    if (r->t != RSTACK && r->t != RTMP) return 0;
    if (!aadd(&addr, blk, curi, *r)) return 0;
 
-   if (isaddrcon(addr.base,0) && (ccopt.pic || (ccopt.pie && addr.index.bits) || (conht[addr.base.i].flag & SFUNC))) {
+   if (isaddrcon(addr.base,0) && (ccopt.pic || (ccopt.pie && addr.index.bits) || (contab.p[addr.base.i].flag & SFUNC))) {
       /* pic needs to load from GOT */
       /* pie cannot encode RIP-relative address with index register */
       /*     first load symbol address into a temp register */
@@ -318,7 +318,7 @@ static bool
 addarg4addrp(union ref r)
 {
    struct instr *ins;
-   if (r.t == RXCON && !conht[r.i].cls && !conht[r.i].deref) return 1; /* sym or dat ref */
+   if (r.t == RXCON && !contab.p[r.i].cls && !contab.p[r.i].deref) return 1; /* sym or dat ref */
    if (r.t == RSTACK) return 1;
    if (r.t != RTMP) return 0;
    ins = &instrtab[r.i];
@@ -574,7 +574,7 @@ seljmp(struct function *fn, struct block *blk)
       fixarg(&blk->jmp.arg[0], NULL, blk, &curi);
       union ref c = blk->jmp.arg[0];
       if (c.t != RTMP) {
-         enum irclass cls = c.t == RICON ? KI32 : c.t == RXCON && conht[c.i].cls ? conht[c.i].cls : KPTR;
+         enum irclass cls = c.t == RICON ? KI32 : c.t == RXCON && contab.p[c.i].cls ? contab.p[c.i].cls : KPTR;
          int curi = blk->ins.n;
 
          c = insertinstr(blk, blk->ins.n, mkinstr(Ocopy, cls, c));

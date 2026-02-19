@@ -241,10 +241,10 @@ extern uchar cls2store[];
 extern const uchar siz2intcls[];
 extern struct instr instrtab[];
 extern struct use *instruse[];
-extern struct xcon conht[];
 extern struct calltab {vec_of(struct call);} calltab;
 extern struct phitab {vec_of(union ref *);} phitab;
 extern struct dattab {vec_of(struct irdat);} dattab;
+extern struct contab {vec_of(struct xcon);} contab;
 extern struct addr addrht[];
 extern int visitmark;
 #define mkinstr(O, C, ...) ((struct instr) { .op = (O), .cls = (C), .reg=0, __VA_ARGS__ })
@@ -253,16 +253,17 @@ void irinit(struct function *);
 void irfini(struct function *);
 #define cls2type(k) ((union irtype){.cls=(k)})
 union irtype mkirtype(union type);
+union ref newxcon(const struct xcon *);
 union ref mkintcon(enum irclass, vlong);
 union ref mkfltcon(enum irclass, double);
 #define iscon(r) in_range((r).t, RICON, RXCON)
-#define concls(r) ((r).t == RICON ? KI32 : conht[(r).i].cls)
+#define concls(r) ((r).t == RICON ? KI32 : contab.p[(r).i].cls)
 #define isintcon(r) (iscon(r) && kisint(concls(r)))
-#define isfltcon(r) ((r).t == RXCON && kisflt(conht[(r).i].cls))
-#define isnumcon(r) ((r).t == RICON || ((r).t == RXCON && conht[(r).i].cls))
-#define isaddrcon(r,derefok) ((r).t == RXCON && !conht[(r).i].cls && (derefok || !conht[(r).i].deref))
-#define intconval(r) ((r).t == RICON ? (r).i : conht[(r).i].i)
-#define fltconval(r) ((r).t == RICON ? (r).i : conht[(r).i].f)
+#define isfltcon(r) ((r).t == RXCON && kisflt(contab.p[(r).i].cls))
+#define isnumcon(r) ((r).t == RICON || ((r).t == RXCON && contab.p[(r).i].cls))
+#define isaddrcon(r,derefok) ((r).t == RXCON && !contab.p[(r).i].cls && (derefok || !contab.p[(r).i].deref))
+#define intconval(r) ((r).t == RICON ? (r).i : contab.p[(r).i].i)
+#define fltconval(r) ((r).t == RICON ? (r).i : contab.p[(r).i].f)
 union ref mksymref(internstr, enum symflags);
 union ref mkdatref(internstr name, union type ctype, uint siz, uint align, const void *, uint n, bool deref);
 internstr xcon2sym(int ref);

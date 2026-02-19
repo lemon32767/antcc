@@ -4,7 +4,7 @@ struct savedfunc {
    int mark;
    uint ninstr;
    struct instr *instrtab;
-   struct xcon *conht;
+   struct xcon *contab;
    struct call *calltab;
    union ref **phitab;
    struct block *entry;
@@ -82,7 +82,7 @@ maybeinlinee(struct function *fn)
    } while ((b = b->lnext));
    
    sv->instrtab = alloccopy(&savearena, instrtab, sizeof *instrtab * (sv->ninstr = ninstr), 0);
-   sv->conht = alloccopy(&savearena, conht, sizeof *conht * (1<<12), 0); // HACK
+   sv->contab = alloccopy(&savearena, contab.p, sizeof *contab.p * contab.n, 0);
    if (calltab.n) {
       sv->calltab = alloccopy(&savearena, calltab.p, sizeof *calltab.p * calltab.n, 0);
       for (int i = 0; i < calltab.n; ++i) {
@@ -104,9 +104,8 @@ maybeinlinee(struct function *fn)
 static union ref
 mapref(short *instrmap, struct savedfunc *sv, union ref r)
 {
-   int newcon(const struct xcon *con);
    if (r.t == RTMP) return r.i = instrmap[r.i], r;
-   if (r.t == RXCON) return r.i = newcon(&sv->conht[r.i]), r;
+   if (r.t == RXCON) return newxcon(&sv->contab[r.i]);
    assert(r.t != RADDR);
    assert(r.t != RSTACK);
    return r;
