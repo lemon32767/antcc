@@ -69,10 +69,10 @@ filldom(struct function *fn)
    fn->entry->idom = fn->entry;
    for (bool changed = 1; changed;) {
       changed = 0;
-      blk = fn->entry->lnext;
       do {
          int j;
          struct block *new = NULL;
+         if (blk->npred == 0) continue;
          for (j = 0; j < blk->npred; ++j)
             if ((new = blkpred(blk, j))->id < blk->id) break;
          assert(new);
