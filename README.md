@@ -3,10 +3,11 @@
 Supports [most of C11 and some C23 features](doc/cstd.md), as well as some GNU extensions.
 
 Currently still in a experimental stage, but can successfully build some
-real-world C codebases such as Lua, SQLite3 and oksh (and itself).
+lireal-world C codebases such as Lua, SQLite3,
+[oksh](https://github.com/ibara/oksh), [tin](http://www.tin.org/) and itself.
 
 `antcc` is inspired by other small C compilers like
-[TCC](https://bellard.org/tcc/),
+[tcc](https://bellard.org/tcc/),
 [cproc](https://git.sr.ht/~mcf/cproc),
 [chibicc](https://github.com/rui314/chibicc),
 and backends like [QBE](https://c9x.me/compile/) and [LLVM](https://llvm.org/).
