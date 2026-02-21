@@ -12,3 +12,7 @@ indent_size = 3
 
 [Makefile]
 indent_style = tab
+
+[*.md]
+indent_style = space
+indent_size = 2

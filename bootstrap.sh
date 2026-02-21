@@ -27,3 +27,5 @@ echo
 echo "== Stage 2 (compiling with stage 1 output) =="
 X ./antcc1 $opt $cflags -o antcc2 $src
 X md5sum antcc2
+
+(X cmp antcc1 antcc2) && echo ok. || (echo 'bootstrap FAIL!'; exit 1)

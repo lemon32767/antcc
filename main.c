@@ -219,10 +219,11 @@ optparse(char **args)
       } else if (*arg == 'g') {
          /* TODO debug info */
       } else if (*arg == 'O') {
-         if (!arg[1]) ccopt.o = 0; /* default opts */
-         else if (arg[1] == '1') ccopt.o = OPT1;
-         else if ((uint)arg[1] - '1' < 9) ccopt.o = OPT2;
-         else if (arg[1] == '0') ccopt.o = OPT0;
+         char o = arg[1];
+         if (!o || o == 'g') ccopt.o = 0; /* default opts */
+         else if (o == '1' || o == 's' || o == 'z') ccopt.o = OPT1;
+         else if ((uint)o - '1' < 9) ccopt.o = OPT2;
+         else if (o == '0') ccopt.o = OPT0;
          else goto Bad;
       } else if (*arg == 'D' || *arg == 'U') {
          void cpppredef(bool undef, const char *cmd);
@@ -646,7 +647,8 @@ sysinclpaths(void)
 static void
 prihelp(void)
 {
-   pfmt("Usage: antcc [options] infile(s)...\n"
+   pfmt("antcc version "ANTCC_VERSION_STR"\n"
+        "Usage: antcc [options] infile(s)...\n"
         "       antcc [options] -run infile [arguments...]\n"
         "       antcc [options] infile(s)... -run [arguments...]\n"
         "Options:\n"
@@ -665,8 +667,8 @@ prihelp(void)
         " -llib  \tLink with library\n"
         " -fpie  \tEmit code for position independent executable\n"
         " -fpic  \tEmit position independent code\n"
-        " -O[0|1..] \tSet optimization level\n"
-        " -x[c|o] \tSpecify type of next input file (C, object)\n"
+        " -O<..> \tSet optimization level (0|g|1|2|s|z)  (default: -Og)\n"
+        " -x<c|o> \tSpecify type of next input file (C, object)\n"
         " -W[...] \tTurn on warnings (stub)\n"
         " -Werror \tTurn warnings into errors\n"
         " -w     \tSuppress warnings\n"

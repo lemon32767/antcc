@@ -1,4 +1,5 @@
 hostconfig.h
+config.mk
 antcc
 antcc0
 antcc1
