@@ -399,6 +399,7 @@ argpromote(union type t)
    if (isint(t)) t.t = intpromote(t.t);
    else if (t.t == TYFLOAT) t.t = TYDOUBLE;
    else if (t.t == TYARRAY) return mkptrtype(typechild(t), t.flag & TFCHLDQUAL);
+   else if (t.t == TYFUNC) return mkptrtype(t, 0);
    return t;
 }
 
