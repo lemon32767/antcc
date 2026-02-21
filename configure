@@ -14,12 +14,14 @@ Options:
   --help                    Print this help mesage
   --host=target-triple      $host
   --cc=cc                   C compiler [cc]
+  --prefix=PREFIX           Installation path [/usr/local]
   --sysroot=/path           System root [/usr]
   --includedir="/a/b",...   System include dirs
 EOF
 }
 
 sysroot=/usr
+prefix=/usr/local
 host=
 
 for arg ; do
@@ -29,6 +31,9 @@ for arg ; do
     --includedir=*) host_include_dirs=${arg#*=} ;;
 	CC=*) CC=${arg#*=} ;;
 	--cc=*) CC=${arg#*=} ;;
+	CFLAGS=*) CFLAGS=${arg#*=} ;;
+	--cflags=*) CFLAGS=${arg#*=} ;;
+    --prefix=*) prefix=$(sh -c "echo ${arg#*=}") ;;
     --help) prihelp ; exit ;;
 	*) die "$0: unknown option '$arg'"
 	esac
@@ -112,4 +117,10 @@ echo "/** GENERATED WITH $0 $@ **/
 #define HOST_CC \"$CC\"
 
 #endif // HOSTCONFIG_H_"  > hostconfig.h
-echo config written to hostconfig.h
+
+echo "# GENERATED WITH $0 $@
+PREFIX = $prefix
+CC     = $CC
+CFLAGS = ${CFLAGS:--Wall -std=c11 -pedantic}" > config.mk
+
+echo config written to hostconfig.h, config.mk
