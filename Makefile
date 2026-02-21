@@ -43,7 +43,7 @@ clean:
 clean-config: clean
 	$(RM) -r config.mk hostconfig.h
 
-install: $(OUT)
+install: all
 	@mkdir -p "$(DESTDIR)$(BINDIR)"
 	install -m755 $(OUT) -T "$(DESTDIR)$(BINDIR)/antcc"
 
