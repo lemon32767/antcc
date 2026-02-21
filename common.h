@@ -435,6 +435,9 @@ void markfileonce(int id, internstr guard);
 void markfileseen(int id);
 bool isfileseen(int id);
 void closefile(int id);
+
+enum diagkind { DGERROR, DGWARN, DGNOTE, };
+void vdiag(const struct span *, enum diagkind, const char *, va_list);
 NORETURN void fatal(const struct span *, const char *, ...);
 void error(const struct span *, const char *, ...);
 void warn(const struct span *, const char *, ...);

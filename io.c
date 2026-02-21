@@ -1022,8 +1022,6 @@ closefile(int id)
    mapclose(&fileht[id]->f);
 }
 
-enum diagkind { DGERROR, DGWARN, DGNOTE, };
-
 void
 vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
 {

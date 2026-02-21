@@ -1,6 +1,7 @@
 #include "lex.h"
 #include "../version.h"
 #include <string.h>
+#include <stdlib.h>
 
 /* fill internal circular character buffer with input after translation phase 1 & 2
  * (trigraph substitution and backslash-newline deletion */
@@ -729,6 +730,41 @@ findmac(internstr name)
 
 static void popmac(struct lexer *);
 
+static struct macrostack {
+   struct rlist rlist;
+   struct span0 exspan;
+   int idx;
+   short macid;
+   bool stop;
+   bool dofree;
+} mstk[64];
+
+static void NORETURN
+lxfatal(struct lexer *lx, const struct span *span, const char *fmt, ...)
+{
+   if (fmt) {
+      va_list ap;
+      va_start(ap, fmt);
+      vdiag(span, DGERROR, fmt, ap);
+      va_end(ap);
+   }
+   int n = lx->macstk ? lx->macstk - mstk : 0, i = 0;
+   for (struct macrostack *l = lx->macstk; l && l > mstk; --l, ++i) {
+      if (i < 4 || i > n - 5) {
+         note(&(struct span){l->exspan}, "expanded from here");
+      } else if (i == 5) {
+         efmt(" (...) \n");
+      }
+   }
+   for (struct lexer *sv = lx->save; sv; sv = sv->save) {
+      int line;
+      const char *f = getfilepos(&line, NULL, sv->fileid, sv->chridx-2);
+      note(NULL, "in file included from %s:%d", f, line);
+   }
+   if (!fmt || span) efmt("Aborting due to previous error.\n");
+   exit(1);
+}
+
 static void
 ppskipline(struct lexer *lx)
 {
@@ -740,7 +776,7 @@ ppskipline(struct lexer *lx)
          while (!((c = peek(lx, 0)) == '*' && peek(lx, 1) == '/')) {
             if (lx->eof) {
                struct span span = {{ lx->idx, lx->chridx - lx->idx, lx->fileid }};
-               fatal(&span, "unterminated comment");
+               lxfatal(lx, &span, "unterminated comment");
             }
             done = c == '\n';
             next(lx);
@@ -927,21 +963,12 @@ ppundef(struct lexer *lx)
    delmac(tk.name);
 }
 
-static struct macrostack {
-   struct rlist rlist;
-   struct span0 exspan;
-   int idx;
-   short macid;
-   bool stop;
-   bool dofree;
-} mstk[64];
-
 static void
 pushmacstk(struct lexer *lx, const struct span *span, const struct macrostack *m)
 {
    struct macrostack *l = lx->macstk;
    if (!l) l = mstk;
-   else if ((++l == mstk+countof(mstk))) fatal(span, "macro depth limit reached");
+   else if ((++l == mstk+countof(mstk))) lxfatal(lx, span, "macro depth limit reached");
    *l = *m;
    l->idx = 0;
    l->exspan = span->ex;
@@ -1065,7 +1092,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
 
    if (tk.t == TKEOF) {
       joinspan(&span->ex, tk.span.ex);
-      fatal(span, "unterminated function-like macro invocation");
+      lxfatal(lx, span, "unterminated function-like macro invocation");
    } else if (i < mac->nparam) {
       ++narg;
       args[i].idx = cur;
@@ -1599,7 +1626,7 @@ tryinclude(struct lexer *lx, const struct span *span, char *path)
       *lx = new;
 
       if (++includedepth == MAXINCLUDE)
-         fatal(span, "Maximum nested include depth of %d reached", includedepth);
+         lxfatal(lx, span, "Maximum nested include depth of %d reached", includedepth);
       break;
    case LXFILESKIP:
       xbfree(path);
