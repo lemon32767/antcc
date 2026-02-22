@@ -1238,7 +1238,7 @@ Unary:
          struct expr *sub;
          span.sl = tk.span.sl;
          span.ex = ex.span.ex;
-         if (!isscalar(ex.ty))
+         if (!isscalar(ex.ty) && !isptrcvt(ex.ty))
             error(&ex.span, "?: condition is not a scalar type: '%ty'", ex.ty);
          tmp = commaexpr(cm);
          joinspan(&tk.span.ex, tmp.span.ex);
@@ -3469,6 +3469,26 @@ genbitfstore(struct function *fn, const union type ty, union ref addr,
    genstore(fn, ty, addr, val);
 }
 
+static bool
+knowntruthy(bool *t, struct expr *ex)
+{
+   if (!eval(ex, EVFOLD)) return 0;
+
+   switch (ex->t) {
+   default: assert(0 && "!scalar?");
+   case ENUMLIT:
+      *t = isflt(ex->ty) ? ex->f != 0.0 : ex->u != 0;
+      break;
+   case ESYM:
+      assert(isptrcvt(ex->ty));
+   case ESTRLIT:
+      /* string literals & symbol addresses are always truthy */
+      *t = 1;
+      break;
+   }
+   return 1;
+}
+
 union ref
 compileexpr(struct function *fn, const struct expr *ex, bool discard)
 {
@@ -3738,12 +3758,10 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          return narrow(fn, cls, ex->ty, r, 0);
       return r;
    case ECOND:
-      if (eval(&ex->sub[0], EVFOLD)) {
-         bool k = isflt(ex->sub[0].ty) ? ex->sub[0].f != 0.0 : ex->sub[0].u != 0;
-         assert(ex->sub[0].t == ENUMLIT);
-         r = compileexpr(fn, &ex->sub[2-k], discard);
+      for (bool c; knowntruthy(&c, &ex->sub[0]);) {
+         r = compileexpr(fn, &ex->sub[2-c], discard);
          if (discard) return NOREF;
-         return cvt(fn, ex->ty, ex->sub[2-k].ty, r);
+         return cvt(fn, ex->ty, ex->sub[2-c].ty, r);
       }
 
       if (ex->ty.t == TYVOID || discard) {
@@ -3764,13 +3782,11 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       return condexprvalue(fn, ex, discard);
    case ELOGAND:
    case ELOGIOR:
-      if (eval(&ex->sub[0], EVFOLD)) {
-         bool k = isflt(ex->sub[0].ty) ? ex->sub[0].f != 0.0 : ex->sub[0].u != 0;
-         assert(ex->sub[0].t == ENUMLIT);
-         k ^= ex->t == ELOGIOR;
-         r = compileexpr(fn, &ex->sub[k], discard);
+      for (bool c; knowntruthy(&c, &ex->sub[0]);) {
+         c ^= ex->t == ELOGIOR;
+         r = compileexpr(fn, &ex->sub[c], discard);
          if (discard) return NOREF;
-         return cvt(fn, mktype(TYBOOL), ex->sub[k].ty, r);
+         return cvt(fn, mktype(TYBOOL), ex->sub[c].ty, r);
       }
       return condexprvalue(fn, ex, discard);
    case ESEQ:
