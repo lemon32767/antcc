@@ -67,6 +67,7 @@ There are tests in the `test` directory:
   - `test/run.sh`: local tests
   - `test/lua.sh`: compile Lua 5.4.0 and run its testsuite
   - `test/c-testsuite.sh`: run [c-testsuite](https://github.com/c-testsuite/c-testsuite)
+  - `test/sqlite.sh`: compile SQLite and run its testsuite (must pull in external sqlite submodule: `git submodule update --init --recursive`)
 
 ## Issues and contributing
 
