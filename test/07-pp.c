@@ -50,6 +50,18 @@ struct crypto_ex_data_st {
 
 SKM_DEFINE_STACK_OF_INTERNAL(void, void, void)
 
+char *strchr(const char *, int);
+# define __glibc_const_generic(PTR, CTYPE, CALL)	\
+  _Generic (0 ? (PTR) : (void *) 1,			\
+	    const void *: (CTYPE) (CALL),		\
+	    default: CALL)
+#define indir(s,c) strchr(s,c)
+#define strchr(S, C)	__glibc_const_generic (S, const char *, indir(S, C))
+
+static void f(void) {
+   (void)strchr("",0);
+}
+
 #ifdef CMD_WORKING
 int
 main(V)
