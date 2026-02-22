@@ -34,7 +34,7 @@ hostconfig.h:
 
 $(BUILDDIR)/%.o: %.c hostconfig.h
 	@mkdir -p `dirname $@`
-	@cc $(CFLAGS) -MMD -MP -fsyntax-only -MF $(BUILDDIR)/$*.d -MT $@ $<  #depfiles
+	@cc $(CFLAGS) -w -MMD -MP -fsyntax-only -MF $(BUILDDIR)/$*.d -MT $@ $<  #depfiles
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
