@@ -3,7 +3,7 @@
 Supports [most of C11 and some C23 features](doc/cstd.md), as well as some GNU extensions.
 
 Currently still in a experimental stage, but can successfully build some
-lireal-world C codebases such as Lua, SQLite3,
+real-world C codebases such as Lua, SQLite,
 [oksh](https://github.com/ibara/oksh), [tin](http://www.tin.org/) and itself.
 
 `antcc` is inspired by other small C compilers like
@@ -41,7 +41,7 @@ Install with `(sudo) make install`.
 For now just x86-64 POSIX (Sys-V + ELF). aarch64 backend is in the works.  Tested and known to work:
 
  - `x86_64-linux-gnu`
- - `x86_64-linus-musl`
+ - `x86_64-linux-musl`
 
 ## Usage
 
