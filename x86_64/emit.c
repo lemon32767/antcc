@@ -880,7 +880,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       /* dst = 0 -> xor dst, dst; but only if it is ok to clobber flags */
       Xxor(pcode, kisint(cls) ? KI32 : cls, dst, dst);
    } else if (isaddrcon(val,0)) {
-      if ((ccopt.pic || (contab.p[val.i].flag & SFUNC)) && !(contab.p[val.i].flag & SLOCAL)) {
+      if ((ccopt.pic || (contab.p[val.i].flag & SFUNC)) && (contab.p[val.i].flag & (SLOCAL|SFUNC)) != (SLOCAL|SFUNC)) {
       GOTLoad:
          /* for  mov reg, [rip(sym@GOTPCREL)] */
          Xmov(pcode, cls, dst, mkoper(OSYMGOT, .con = val.i, .cindex = NOINDEX));

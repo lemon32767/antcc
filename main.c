@@ -52,7 +52,7 @@ fileext(const char *path)
    return dot ? dot+1 : "";
 }
 
-enum inft { IFTauto, IFTc, IFTasm, IFTobj, IFTar };
+enum inft { IFTauto, IFTc, IFTasm, IFTobj, IFTar, IFTdll };
 
 static enum inft
 ftdetect(const char *s)
@@ -62,6 +62,7 @@ ftdetect(const char *s)
    if (!strcmp(ext, "o")) return IFTobj;
    if (!strcmp(ext, "a")) return IFTar;
    if (!strcmp(ext, "s")) return IFTasm;
+   if (!strcmp(ext, "so")) return IFTdll;
    warn(NULL, "assuming %'s is C source file", s);
    return IFTc;
 }
@@ -198,7 +199,7 @@ optparse(char **args)
          const char *s = *++args;
          if (!s) fatal(NULL, "missing target name");
          task.targ = s;
-      } else if (*arg == 'l' || *arg == 'L' || *arg == 'B') {
+      } else if (*arg == 'l' || *arg == 'L' || *arg == 'B' || !strcmp(arg, "shared")) {
          vpush(&task.linkargs, arg-1);
       } else if (!strcmp(arg, "v") || !strcmp(arg, "-verbose")) {
          task.verbose = 1;
@@ -359,7 +360,8 @@ compileobjs(void)
 
    if (!ccopt.dbg.any && !task.syntaxonly) mktemps();
    for (int i = 0; i < task.inf.n; ++i) {
-      if (task.inf.p[i].ft == IFTc) {
+      enum inft ft = task.inf.p[i].ft;
+      if (ft == IFTc) {
          if ((p = fork()) < 0) {
             error(NULL, "fork(): %s\n", strerror(errno));
             exit(1);
@@ -372,7 +374,8 @@ compileobjs(void)
             cleantemps();
             exit(WEXITSTATUS(wstat));
          }
-      } else if (task.inf.p[i].ft == IFTobj || task.inf.p[i].ft == IFTar) {
+      } else if (ft == IFTobj || ft == IFTar || ft == IFTdll) {
+         // passthru
       } else assert(!"not obj");
    }
    if (!ccopt.dbg.any && !task.syntaxonly) {
@@ -474,7 +477,7 @@ dolink(void)
       const char *o;
       switch (task.inf.p[i].ft) {
       case IFTc: o = task.inf.p[i].temp; break;
-      case IFTobj: case IFTar:
+      case IFTobj: case IFTar: case IFTdll:
          o = task.inf.p[i].path; break;
       default: assert(!"link obj?");
       }

@@ -90,8 +90,8 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          }
          if (docopy)
             *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, con->cls, *r));
-      } else if (op != Omove && con->issym && ins && r == &ins->r) {
-         *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, mkaddr((struct addr){*r})));
+      } else if (op != Omove && (con->issym || (con->isdat && !con->deref)) && ins && r == &ins->r) {
+         *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, *r));
       } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls))
          goto DivImm;
    } else if (r->t == RICON && in_range(op, Odiv, Ourem) && kisint(ins->cls) && r == &ins->r) {
@@ -107,6 +107,8 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          *ins = adr;
       else
          *r = insertinstr(blk, (*curi)++, adr);
+   } else if (r->bits == UNDREF.bits && ins->op != Ocopy) {
+      *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, *r));
    }
    picfixsym(r, blk, curi);
 }
@@ -387,7 +389,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Ointrin:
       break;
    case Oshl: case Osar: case Oslr:
-      if (!iscon(ins->r)) {
+      if (!isintcon(ins->r)) {
          /* shift amount register is always CL */
          insertinstr(blk, (*curi)++, mkinstr(Omove, KI32, mkref(RREG, RCX), ins->r));
          ins->r = mkref(RREG, RCX);
@@ -396,7 +398,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Oequ: case Oneq:
    case Olth: case Ogth: case Olte: case Ogte:
    case Oulth: case Ougth: case Oulte: case Ougte:
-      if (iscon(ins->l)) {
+      if (iscon(ins->l) && !iscon(ins->r)) {
          /* lth imm, x -> gth x, imm */
          if (!in_range(ins->op, Oequ, Oneq))
             ins->op = ((op - Olth) ^ 1) + Olth;
