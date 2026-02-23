@@ -376,6 +376,20 @@ bsiter(uint *i, struct bitset bs[/*siz*/], uint siz)
 }
 #define bs_each(T, var, bs, siz) for (T (var) = 0; bsiter(&(var), (bs), (siz)); ++(var))
 
+static inline bool
+bsiterzr(uint *i, struct bitset bs[/*siz*/], uint siz)
+{
+   uint k = *i/BSNBIT, j = *i%BSNBIT;
+   if (k >= siz) return 0;
+   size_t t = ~bs[k].u & ~(((size_t)1 << j) - 1);
+   while (!t) {
+      if (++k >= siz) return 0;
+      t = ~bs[k].u;
+   }
+   *i = k*BSNBIT + lowestsetbit(t);
+   return 1;
+}
+
 /********/
 /** IO **/
 /********/

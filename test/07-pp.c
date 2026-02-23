@@ -7,6 +7,8 @@ join: "x ## y"
 wide   L"abc123 猫,€á💫",  U+1f98b
 Output ends here
 ok ...
+11
+11
 */
 
 #include "07-pp.h"
@@ -62,6 +64,11 @@ static void f(void) {
    (void)strchr("",0);
 }
 
+#define xcat(a,b) CAT(a,b)
+#define uniq(p) xcat(p,__COUNTER__)
+#define xcountertest(f) int f; f = 11; printf("%d\n", f);
+#define countertest(v) xcountertest(uniq(v))
+
 #ifdef CMD_WORKING
 int
 main(V)
@@ -92,6 +99,9 @@ S\
                */
 );
    gnu_ext(printf, "ok %s", "...") gnu_ext(printf, "\n");
+
+   countertest(ww);
+   countertest(ww);
 
    CAT(ret,urn) 0;
 }
