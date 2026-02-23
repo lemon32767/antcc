@@ -1137,6 +1137,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
       ++i;
    }
    joinspan(&span->ex, tk.span.ex);
+   int expargs0 = argsbuf.n;
    for (int i = 0; i < mac->nparam; ++i) {
       struct argtks *arg = &args[i];
       if (i >= narg) {
@@ -1184,7 +1185,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
       warn(&excessspan, "macro `%s' passed %d arguments, but takes just %d", mname, narg, mac->nparam);
    }
    if (mac->special) {
-      mac->handlerfn(lx, &tk, (struct rlist){argsbuf.p, argsbuf.n});
+      mac->handlerfn(lx, &tk, (struct rlist){argsbuf.p+expargs0, argsbuf.n-expargs0});
       pushmacstk(lx, span, &(struct macrostack){
          .rlist = { alloccopy(lx->tmparena, &tk, sizeof tk, 0), 1 },
          .macid = mac->id,
@@ -2170,11 +2171,16 @@ mac__has_builtin(struct lexer *lx, struct token *tk, struct rlist arg)
    extern bool hasbuiltin(const char *, uint n);
    bool has = 0;
    tk->t = TKNUMLIT, tk->len = 1;
-   if (arg.n == 1) {
+   if (arg.n >= 1) {
       if (arg.tk->t == TKIDENT)
          has = hasbuiltin(arg.tk->s, arg.tk->len);
       else if (in_range(arg.tk->t, TKWBEGIN_, TKWEND_))
          has = arg.tk->len >= sizeof "__builtin_" && !memcmp(arg.tk->s, "__builtin_", 10);
+      else goto Bad;
+      if (arg.n != 1)
+         error(&arg.tk[1].span, "expected `)' after '%tk'", &arg.tk[0]);
+   } else Bad: {
+      error(arg.n ? &arg.tk->span : &tk->span, "'__has_builtin' requires an identifier");
    }
    tk->s = &"01"[has];
 }
