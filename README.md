@@ -68,6 +68,7 @@ There are tests in the `test` directory:
   - `test/lua.sh`: compile Lua 5.4.0 and run its testsuite
   - `test/c-testsuite.sh`: run [c-testsuite](https://github.com/c-testsuite/c-testsuite)
   - `test/sqlite.sh`: compile SQLite and run its testsuite (must pull in external sqlite submodule: `git submodule update --init --recursive`)
+  - `test/metalang99.sh`: compile and run [metalang99](https://github.com/hirrolot/metalang99) tests (preprocessor stress testing)
 
 ## Issues and contributing
 
