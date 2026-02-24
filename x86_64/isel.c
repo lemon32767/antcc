@@ -405,7 +405,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          rswap(ins->l, ins->r);
       }
       if (ins->l.t != RTMP && ins->l.t != RREG && ins->l.t != RSTACK)
-         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, insrescls(*ins), ins->l));
+         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
       else
          fixarg(&ins->l, ins, blk, curi);
       fixarg(&ins->r, ins, blk, curi);
