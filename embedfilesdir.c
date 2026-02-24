@@ -14,7 +14,9 @@ struct embedfile embedfilesdir[] = {
 typedef __typeof__((char*)0 - (char*)0) ptrdiff_t;\n\
 typedef __typeof__(sizeof 0) size_t;\n\
 typedef __typeof__(L'a') wchar_t;\n\
+#undef NULL\n\
 #define NULL ((void *)0)\n\
+#undef offsetof\n\
 #define offsetof(type, memb) ((size_t)((char *)&((type *)0)->memb - (char *)0))\n\
 ")},
 
@@ -33,9 +35,11 @@ typedef __builtin_va_list __gnuc_va_list;\n\
 
 {"stdbool.h", S("\
 #pragma once\n\
+#if __STDC_VERSION__ < 202311L /* in C23 they are keywords */\n\
 #define bool _Bool \n\
 #define true 1\n\
 #define false 0\n\
+#endif\n\
 #define __bool_true_false_are_defined 1\n\
 ")},
 

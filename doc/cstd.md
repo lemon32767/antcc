@@ -25,7 +25,6 @@ A list of missing standard C features:
   - Digit separator '
   - Attributes (`[[...]]` syntax)
   - Labels followed by declarations and }
-  - `true` and `false` keywords
   - `auto` for type inference, `typeof_unqual`, `constexpr`
   - `unreachable` macro in `<stddef.h>`
   - checked int arithmetic (`<stdckdint.h>`)

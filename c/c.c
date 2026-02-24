@@ -161,7 +161,7 @@ isexprtok(struct comp *cm)
       static const bool tks[] = {
 #define tk(x) [x] = 1
          tk('+'), tk('-'), tk('*'), tk('&'), tk('~'), tk('!'), tk(TKINC), tk(TKDEC),
-         tk(TKWsizeof), tk(TKW_Alignof), tk(TKWalignof),
+         tk(TKWsizeof), tk(TKW_Alignof), tk(TKWalignof), tk(TKWtrue), tk(TKWfalse),
          tk('('), tk(TKNUMLIT), tk(TKCHRLIT), tk(TKSTRLIT), tk(TKW_Generic)
 #undef tk
       };
@@ -1079,6 +1079,9 @@ Unary:
       if (!(ty.t = parsenumlit(&ex.u, &ex.f, &tk, 0)))
          error(&tk.span, "bad %s literal %'tk", tk.t == TKNUMLIT ? "number" : "character", &tk);
       ex.ty.t = ty.t ? ty.t : TYINT;
+      break;
+   case TKWtrue: case TKWfalse:
+      ex = mkexpr(ENUMLIT, tk.span, mktype(TYBOOL), .u = tk.t == TKWtrue);
       break;
    case TKSTRLIT:
       ty = mktype(((const char []){TYCHAR, TYSHORT, TYINT})[tk.wide]);
@@ -2312,8 +2315,7 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
       case TKWunsigned:
          arith |= KUNSIGNED;
          break;
-      case TKW_Bool:
-      case TKWbool:
+      case TKW_Bool: case TKWbool:
          if (arith & KBOOL) goto DupArith;
          arith |= KBOOL;
          break;
