@@ -104,6 +104,7 @@ maybeinlinee(struct function *fn)
 static union ref
 mapref(short *instrmap, struct savedfunc *sv, union ref r)
 {
+   assert(r.bits);
    if (r.t == RTMP) return r.i = instrmap[r.i], r;
    if (r.t == RXCON) return newxcon(&sv->contab[r.i]);
    assert(r.t != RADDR);
@@ -219,7 +220,7 @@ inlcall(struct function *fn, struct block *blk, int curi, struct savedfunc *sv)
       if (b->jmp.t == Jret) {
          new->jmp.t = Jb;
          new->s1 = exit;
-         retvals[iret++] = mapref(instrmap, sv, b->jmp.arg[0]);
+         retvals[iret++] = b->jmp.arg[0].bits ? mapref(instrmap, sv, b->jmp.arg[0]) : UNDREF;
          addpred(exit, new);
       } else {
          new->jmp.t = b->jmp.t;
