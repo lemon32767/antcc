@@ -1668,6 +1668,7 @@ tryinclude(struct lexer *lx, const struct span *span, char *path)
    case LXOK:
       new.save = xmalloc(sizeof *new.save);
       lx->inclnerror = nerror;
+      lx->inclnwarn = nwarn;
       memcpy(new.save, lx, sizeof *lx);
       *lx = new;
 
@@ -2036,7 +2037,7 @@ Begin:
                markfileonce(lx->fileid, lx->inclguard);
             }
             struct lexer *sv = lx->save;
-            if (sv->inclnerror != nerror) {
+            if (sv->inclnerror != nerror || sv->inclnwarn != nwarn) {
                int line;
                const char *f = getfilepos(&line, NULL, sv->fileid, sv->chridx-2);
                note(NULL, "in file included from %s:%d", f, line);

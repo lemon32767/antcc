@@ -88,7 +88,7 @@ struct token {
     */
 };
 
-extern int nerror;
+extern int nerror, nwarn;
 struct lexer {
    struct lexer *save;
    short fileid;
@@ -102,7 +102,7 @@ struct lexer {
    struct arena **tmparena;
    bool firstdirective;
    short nppcnd0;
-   short inclnerror;
+   short inclnerror, inclnwarn;
    internstr inclguard;
    uchar chrbuf[1<<10];
    uint chridxbuf[1<<10];

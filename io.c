@@ -1111,7 +1111,7 @@ fatal(const struct span *span, const char *fmt, ...)
    exit(1);
 }
 
-int nerror;
+int nerror, nwarn;
 enum { MAXERROR = 20 };
 
 void
@@ -1136,9 +1136,14 @@ warn(const struct span *span, const char *fmt, ...)
 
    if (ccopt.wnone) return;
    if (ccopt.werror) ++nerror;
+   else ++nwarn;
    va_start(ap, fmt);
    vdiag(span, ccopt.werror ? DGERROR : DGWARN, fmt, ap);
    va_end(ap);
+   if (nerror > MAXERROR) {
+      efmt("Too many errors emitted, stopping now.\n");
+      exit(1);
+   }
 }
 
 void
