@@ -663,7 +663,7 @@ irfini(struct function *fn)
    if (objout.code)
       mctarg->emit(fn);
 
-Fin:
+//Fin:
    freearena(fn->passarena);
    freefn(fn);
 }

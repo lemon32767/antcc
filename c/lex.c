@@ -722,7 +722,7 @@ delmac(internstr name)
    pmap_del(&macroht, name);
 }
 
-static internstr
+static inline internstr
 macname(struct macro *mac)
 {
    return macroht.mb.k[mac - macroht.v];

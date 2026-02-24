@@ -3,7 +3,6 @@
 void
 lowerstack(struct function *fn)
 {
-   extern int ninstr;
    fn->stksiz = 0;
    FREQUIRE(FNUSE);
 

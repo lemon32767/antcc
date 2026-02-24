@@ -71,15 +71,14 @@ foldflt(enum op op, enum irclass k, union ref lr, union ref rr)
    case Osub: x = l - r; break;
    case Omul: x = l * r; break;
    case Odiv: x = l / r; break;
-   case Oequ: xi = l == r; break;
-   case Oneq: xi = l != r; break;
-   case Olth: xi = l < r; break;
-   case Ogth: xi = l > r; break;
-   case Olte: xi = l <= r; break;
-   case Ogte: xi = l >= r; break;
+   case Oequ: xi = l == r; goto Cmp;
+   case Oneq: xi = l != r; goto Cmp;
+   case Olth: xi = l < r; goto Cmp;
+   case Ogth: xi = l > r; goto Cmp;
+   case Olte: xi = l <= r; goto Cmp;
+   case Ogte: xi = l >= r; Cmp: return mkref(RICON, xi);
    default: assert(0);
    }
-   if (oiscmp(op)) return mkref(RICON, xi);
    if (!w) x = (float)x;
    return mkfltcon(k, x);
 }

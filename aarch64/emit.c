@@ -759,7 +759,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       break;
    case Oshl:
       if (ins->r.t == RICON) {
-         uint nbit = cls == KI32 ? 32 : 64, s = ins->r.i & nbit-1;
+         uint nbit = cls == KI32 ? 32 : 64, s = ins->r.i & (nbit-1);
          assert(s > 0);
          Xubfm(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), nbit-s, nbit-s-1);
       } else {
@@ -769,7 +769,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       break;
    case Oslr:
       if (ins->r.t == RICON) {
-         uint nbit = cls == KI32 ? 32 : 64, s = ins->r.i & nbit-1;
+         uint nbit = cls == KI32 ? 32 : 64, s = ins->r.i & (nbit-1);
          assert(s > 0);
          Xubfm(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), s, nbit-1);
       } else {
@@ -779,7 +779,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       break;
    case Osar:
       if (ins->r.t == RICON) {
-         uint nbit = cls == KI32 ? 32 : 64, s = ins->r.i & nbit-1;
+         uint nbit = cls == KI32 ? 32 : 64, s = ins->r.i & (nbit-1);
          assert(s > 0);
          Xsbfm(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), s, nbit-1);
       } else {

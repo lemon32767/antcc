@@ -385,7 +385,6 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Ocall:
       selcall(fn, ins, blk, curi);
       break;
-   case Ocall2r: assert(0);
    case Ointrin:
       break;
    case Oshl: case Osar: case Oslr:
