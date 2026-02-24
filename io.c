@@ -1025,22 +1025,30 @@ closefile(int id)
 void
 vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
 {
+   /* to avoid concurrent invocations of the compiler mixing up the diagnostics
+    * in the unbuffered stderr output, use a separate buffer here and write()
+    * it all out bypassing stdio */
+   static char ebuf[4096];
+   struct wbuf out = FDBUF(ebuf, sizeof ebuf, STDERR_FILENO);
+   static int depth = 0; /* needed for nested note() calls */
+
    static const char *label[] = { "error", "warning", "note" };
    static const char *color[] = { "%g1;31.", "%g1;35.", "%g1;36." };
    int line, col;
    struct memfile *f;
    const struct span0 *loc;
 
+   ++depth;
    if (span) {
       loc = span->ex.len ? &span->ex : &span->sl;
       f = getfile(loc->file);
       const char *file = getfilepos(&line, &col, loc->file, loc->off);
-      efmt("%s:%d:%d: ", file, line, col);
+      bfmt(&out, "%s:%d:%d: ", file, line, col);
    }
-   efmt(color[kind]);
-   efmt("%s: %g.", label[kind]);
-   vbfmt(&bstderr, fmt, ap);
-   efmt("\n");
+   bfmt(&out, color[kind]);
+   bfmt(&out, "%s: %g.", label[kind]);
+   vbfmt(&out, fmt, ap);
+   bfmt(&out, "\n");
    if (span) {
       uint i;
       int nmark;
@@ -1053,7 +1061,7 @@ vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
       nmark = loc->len;
       while (i < loc->off + loc->len) {
          int j, end;
-         int curoff = efmt("%5d | ", line);
+         int curoff = bfmt(&out, "%5d | ", line);
          const uchar *linep = &f->p[i];
          bool begintabs = 1;
          for (end = 0; f->p[i] != '\n' && i < f->n; ++i, ++end) {
@@ -1063,13 +1071,13 @@ vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
             } else {
                begintabs = 0;
             }
-            ioputc(&bstderr, c);
+            ioputc(&out, c);
          }
-         ioputc(&bstderr, '\n');
+         ioputc(&out, '\n');
          ++i;
 
          for (j = -curoff; j < 0; ++j)
-            ioputc(&bstderr, j == -2 ? '|' : ' ');
+            ioputc(&out, j == -2 ? '|' : ' ');
          for (begintabs = 1; j < col-1; ++j) {
             uchar c = *linep++;
             if (c == '\t') {
@@ -1078,24 +1086,26 @@ vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
                c = ' ';
                begintabs = 0;
             }
-            ioputc(&bstderr, c);
+            ioputc(&out, c);
          }
-         efmt(color[kind]);
+         bfmt(&out, color[kind]);
          do {
-            ioputc(&bstderr, mark);
+            ioputc(&out, mark);
             mark = '~';
          } while (--nmark > 0 && ++j < end);
          col = 1;
          ++line;
-         efmt("%g.\n");
+         bfmt(&out, "%g.\n");
          --nmark;
       }
-      ioputc(&bstderr,  '\n');
+      ioputc(&out, '\n');
    }
 
    if (span && loc == &span->ex && span->sl.len)
       if (span->ex.file != span->sl.file || !((uint) span->sl.off - span->ex.off < span->ex.len))
          note(&(struct span){ span->sl }, "expanded from here");
+
+   if (--depth == 0) ioflush(&out);
 }
 
 void _Noreturn
