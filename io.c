@@ -1029,7 +1029,7 @@ vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
     * in the unbuffered stderr output, use a separate buffer here and write()
     * it all out bypassing stdio */
    static char ebuf[4096];
-   struct wbuf out = FDBUF(ebuf, sizeof ebuf, STDERR_FILENO);
+   static struct wbuf out = FDBUF(ebuf, sizeof ebuf, STDERR_FILENO);
    static int depth = 0; /* needed for nested note() calls */
 
    static const char *label[] = { "error", "warning", "note" };
