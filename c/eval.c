@@ -316,7 +316,8 @@ eval(struct expr *ex, enum evalmode mode)
       return 1;
    }
    if (ex->t == ESTRLIT && mode > EVINTCONST) return 1;
-   if (mode == EVSTATICINI && isptrcvt(ex->ty) && isaddrconst(ex)) {
+   if (mode == EVSTATICINI && (isptrcvt(ex->ty) || (isint(ex->ty) && typesize(ex->ty) == targ_primsizes[TYPTR]))
+    && isaddrconst(ex)) {
       struct expr *e = ex;
       while (e->t == ECAST) e = e->sub;
       if (e != ex) {

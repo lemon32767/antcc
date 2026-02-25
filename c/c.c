@@ -1418,7 +1418,8 @@ expr2reloc(union ref *psym, const struct expr *ex)
 {
    if (ex->t == EADDROF && globsym(psym, ex->sub)) {
       return 0;
-   } else if (isptrcvt(ex->ty) && globsym(psym, ex)) {
+   } else if ((isptrcvt(ex->ty) || (isint(ex->ty) && typesize(ex->ty) == targ_primsizes[TYPTR]))
+            && globsym(psym, ex)) {
       return 0;
    } else if (ex->t == EADDROF && ex->sub->t == EGETF && globsym(psym, ex->sub->sub)) {
       return ex->sub->fld.off;
