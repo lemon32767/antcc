@@ -101,7 +101,8 @@ S\
    gnu_ext(printf, "ok %s", "...") gnu_ext(printf, "\n");
 
    countertest(ww);
-   countertest(ww);
+   countertest/* comment
+                 */(ww);
 
    CAT(ret,urn) 0;
 }

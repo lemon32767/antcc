@@ -469,14 +469,11 @@ Begin:
                   lx->chridx = lx->chridxbuf[lx->chrbuf0++];
                   lx->eof = lx->chridx >= lx->ndat;
                   RET('\n');
-               }
+               } else if (lx->eof) RET(TKEOF);
             } while (++lx->chrbuf0 < countof(lx->chrbuf));
             fillchrbuf(lx);
             lx->chridx = lx->chridxbuf[lx->chrbuf0];
-            if ((lx->eof = (lx->chridx >= lx->ndat))) {
-               struct span span = {{ idx, lx->chridx - idx, lx->fileid }};
-               fatal(&span, "unterminated comment");
-            }
+            lx->eof = lx->chridx >= lx->ndat;
          }
       } else if (match(lx, '*')) {
          // /* multi line comment */
@@ -1051,13 +1048,35 @@ tryexpand(struct lexer *lx, struct token *tk)
          popmac(lx, 1);
          s = lx->macstk;
       }
-      if (!s) {
+      if (!s) { /* top-level context: looking ahead in file data */
          struct token tk;
          int t;
-         while (aisspace(t = peek(lx, 0))) next(lx);
+         for (;;) { /* skip whitespace and comments */
+            if (aisspace(t = peek(lx, 0))) next(lx);
+            else if (t == '/') {
+               int idx = lx->chridx;
+               switch (peek(lx, 1)) {
+               case '/':
+                  while (!lx->eof && next(lx) != '\n') ;
+                  continue;
+               case '*':
+                  next(lx), next(lx);
+                  while (peek(lx, 0) != '*' || peek(lx, 1) != '/') {
+                     if (lx->eof) {
+                        struct span span = {{ idx, lx->chridx - idx, lx->fileid }};
+                        lxfatal(lx, &span, "unterminated comment");
+                     }
+                     next(lx);
+                  }
+                  next(lx), next(lx);
+                  continue;
+               }
+               break;
+            } else break;
+         }
          if (t != '(') return 0;
          lex0(lx, &tk);
-      } else {
+      } else { /* expansion context: look ahead in macro stack */
          if (s->idx >= s->rl.n || stkgetrl(s)[s->idx].t != '(') return 0;
          ++s->idx;
       }
