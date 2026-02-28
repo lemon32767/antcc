@@ -74,7 +74,7 @@ There are tests in the `test` directory:
 
 You can report issues on the [issue tracker](https://codeberg.org/lsof/antcc/issues).
 
-Contributions are welcome, send as pull requests [on Codeberg](https://codeberg.org/lsof/antcc/pulls).
+Contributions are welcome as long as they aren't low-effort AI slop, send as pull requests [on Codeberg](https://codeberg.org/lsof/antcc/pulls).
 
 ## Internals & Design
 
