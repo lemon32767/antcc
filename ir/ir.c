@@ -36,7 +36,8 @@ struct calltab calltab;
 struct phitab phitab;
 struct dattab dattab;
 struct contab contab;
-struct addr addrht[1 << 12];
+struct addrtab addrtab;
+static ushort *addrht;
 static int naddrht;
 int visitmark;
 
@@ -47,6 +48,7 @@ irinit(struct function *fn)
    static union ref *phisbuf[64];
    static struct irdat datsbuf[64];
    static struct xcon consbuf[64];
+   static struct addr addrsbuf[64];
 
    assert(fn->arena && !fn->passarena);
 
@@ -59,8 +61,11 @@ irinit(struct function *fn)
    vinit(&phitab, phisbuf, countof(phisbuf));
    vinit(&contab, consbuf, countof(consbuf));
    if (!dattab.p) vinit(&dattab, datsbuf, countof(datsbuf));
-   if (naddrht >= countof(addrht)/2)
-      memset(addrht, naddrht = 0, sizeof addrht);
+   naddrht = 128;
+   if (!addrht) xbgrowz(&addrht, naddrht);
+   else if (addrtab.n) memset(addrht, 0, xbcap(addrht) * sizeof *addrht);
+   vinit(&addrtab, addrsbuf, countof(addrsbuf));
+   
    if (!type2cls[TYINT]) {
       for (int i = TYBOOL; i <= TYUVLONG; ++i) {
          int siz = targ_primsizes[i];
@@ -84,18 +89,28 @@ irinit(struct function *fn)
 static int
 newaddr(const struct addr *addr)
 {
-   uint h = hashb(0, addr, sizeof *addr);
-   uint i = h, n = countof(addrht);
-   for (;; ++i) {
-      i &= countof(addrht) - 1;
-      if (!addrht[i].base.bits && !addrht[i].index.bits) {
-         addrht[i] = *addr;
-         ++naddrht;
-         return i;
-      } else if (!memcmp(&addrht[i], addr, sizeof *addr)) {
-         return i;
+   if (addrtab.n >= naddrht/4*3 /*75% load factor */) {
+      xbgrowz(&addrht, naddrht*2);
+      memset(addrht, 0, naddrht * sizeof *addrht);
+      naddrht *= 2;
+      for (int i = 0; i < addrtab.n; ++i) { /* rehash */
+         const struct addr *addr = &addrtab.p[i];
+         for (uint h = hashb(0, addr, sizeof *addr), j = h;; ++j) {
+            if (!addrht[j &= naddrht - 1]) {
+               addrht[j] = i+1;
+               break;
+            }
+         }
       }
-      assert(--n > 0 && "addrht full");
+   }
+   for (uint h = hashb(0, addr, sizeof *addr), i = h;; ++i) {
+      i &= naddrht - 1;
+      if (!addrht[i]) {
+         vpush(&addrtab, *addr);
+         return (addrht[i] = addrtab.n) - 1;
+      } else if (!memcmp(&addrtab.p[addrht[i]-1], addr, sizeof *addr)) {
+         return addrht[i] - 1;
+      }
    }
 }
 

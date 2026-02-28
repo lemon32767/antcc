@@ -127,7 +127,7 @@ mkmemoper(union ref r)
       assert(wop.t == OREG);
       return mkoper(OMEM, .base = wop.reg, .index = NOINDEX);
    } else if (r.t == RADDR) {
-      const struct addr *addr = &addrht[r.i];
+      const struct addr *addr = &addrtab.p[r.i];
       assert(addr->shift <= 3);
       if (isaddrcon(addr->base,0)) {
          return mkoper(OSYM, .con = addr->base.i,
@@ -835,7 +835,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
    if (val.t == RADDR) {
       /* this is a LEA, but maybe it can be lowered to a 2-address instruction,
        * which may clobber flags */
-      const struct addr *addr = &addrht[val.i];
+      const struct addr *addr = &addrtab.p[val.i];
       if (flagslivep(blk, curi)) goto Lea;
       if (addr->base.t != RREG) goto Lea;
       if (addr->base.bits && dst.reg == mkregoper(addr->base).reg) { /* base = dst */

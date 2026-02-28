@@ -245,7 +245,7 @@ extern struct calltab {vec_of(struct call);} calltab;
 extern struct phitab {vec_of(union ref *);} phitab;
 extern struct dattab {vec_of(struct irdat);} dattab;
 extern struct contab {vec_of(struct xcon);} contab;
-extern struct addr addrht[];
+extern struct addrtab {vec_of(struct addr);} addrtab;
 extern int visitmark;
 #define mkinstr(O, C, ...) ((struct instr) { .op = (O), .cls = (C), .reg=0, __VA_ARGS__ })
 #define mkarginstr(ty, x) mkinstr(Oarg, 0, mktyperef(ty), (x))

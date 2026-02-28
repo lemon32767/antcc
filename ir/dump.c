@@ -137,7 +137,7 @@ dumpref(enum op o, union ref ref)
       break;
    case RADDR:
       {
-         const struct addr *addr = &addrht[ref.i];
+         const struct addr *addr = &addrtab.p[ref.i];
          bool k = 0;
          bfmt(out, "addr [");
          if ((k = addr->base.bits)) dumpref(0, addr->base);

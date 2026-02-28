@@ -54,7 +54,7 @@ mkmemoper(uint msiz, union ref r)
    } else if (isaddrcon(r,1)) {
       return mkoper(OSYM, .con = r.i,);
    } else if (r.t == RADDR) {
-      const struct addr *addr = &addrht[r.i];
+      const struct addr *addr = &addrtab.p[r.i];
       assert(addr->shift <= 3 && (!addr->disp || !addr->index.bits));
       if (isaddrcon(addr->base,0)) {
          assert(!addr->index.bits);
@@ -552,7 +552,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
       else if (src.t == OIMM && src.imm == 0)
          Xfmov(pcode, cls, dst, REGZR);
       else assert(0);
-   } else if (isaddrcon(val,0) || (val.t == RADDR && isaddrcon(addrht[val.i].base,0))) {
+   } else if (isaddrcon(val,0) || (val.t == RADDR && isaddrcon(addrtab.p[val.i].base,0))) {
       if ((ccopt.pic || (contab.p[val.i].flag & SFUNC)) && !(contab.p[val.i].flag & SLOCAL)) {
          Xadrp(pcode, KPTR, dst, src);
          Xadd(pcode, KPTR, dst, dst, src);

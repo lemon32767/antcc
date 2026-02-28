@@ -62,8 +62,8 @@ liveuse(struct bitset *defined, struct instr *ins, union ref *r, struct block *b
 {
    int var;
    if (r->t == RADDR) {
-      liveuse(defined, ins, &addrht[r->i].base, blk);
-      liveuse(defined, ins, &addrht[r->i].index, blk);
+      liveuse(defined, ins, &addrtab.p[r->i].base, blk);
+      liveuse(defined, ins, &addrtab.p[r->i].index, blk);
       return;
    } else if (r->t != RTMP) return;
    var = r->i;
@@ -736,8 +736,8 @@ buildintervals(struct rega *ra)
                usereg(ra, r.i, blk, pos);
             } else if (r.t == RADDR) {
                reghint = -1;
-               queue[nqueue++] = addrht[r.i].base;
-               queue[nqueue++] = addrht[r.i].index;
+               queue[nqueue++] = addrtab.p[r.i].base;
+               queue[nqueue++] = addrtab.p[r.i].index;
             }
          }
       }
@@ -970,10 +970,17 @@ linearscan(struct rega *ra)
          avail &= ~excl;
 
          if (!avail) {
+            /* XXX heuristically pick a better interval to spill */
             /* spill current */
             current->alloc = allocstk(ra);
             DBG("%%%d got stk%d\n", this, current->alloc.a);
             /* move current to active */
+            /* XXX spilled intervals are being put in active so their stack
+             * slots can be freed when expiring old intervals but it turns the
+             * linear scan algorithmic complexity closer to O(n^2), so is a
+             * performance downgrade. in the referenced paper, they are moved
+             * to handled.  this should be fixed by doing stack slot allocation
+             * separately */
             current->next = *active;
             *active = current;
             continue;
@@ -1071,7 +1078,7 @@ devirt(struct rega *ra, struct block *blk)
       for (int i = 0; i < 2; ++i) {
          union ref *r = &i[&ins->l];
          if (r->t == RADDR) {
-            struct addr *a = &addrht[r->i];
+            struct addr *a = &addrtab.p[r->i];
             ++naddr;
             newaddr = *a;
             argref[nargref++] = &newaddr.base;

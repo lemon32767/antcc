@@ -248,7 +248,7 @@ aadd(struct addr *addr, struct block *blk, int *curi, union ref r)
          if (!ascale(addr, ins->l, ins->r)) goto Ref;
          ins->skip = 1;
       } else if (ins->op == Ocopy && ins->l.t == RADDR) {
-         struct addr save = *addr, *addr2 = &addrht[ins->l.i];
+         struct addr save = *addr, *addr2 = &addrtab.p[ins->l.i];
          if ((!addr2->base.bits || aadd(addr, blk, curi, addr2->base))
           && aimm(addr, addr2->disp)
           && (!addr2->index.bits || ascale(addr, addr2->index, mkref(RICON, addr2->shift))))
@@ -290,7 +290,7 @@ fuseaddr(union ref *r, struct block *blk, int *curi)
 
    if (isaddrcon(*r,1)) return 1;
    if (r->t == RADDR) {
-      const struct addr *a0 = &addrht[r->i];
+      const struct addr *a0 = &addrtab.p[r->i];
       if (aadd(&addr, blk, curi, a0->base)
         && (!addr.index.bits || ascale(&addr, a0->index, mkref(RICON, a0->shift)))
         && aadd(&addr, blk, curi, mkintcon(KPTR, a0->disp))) {
