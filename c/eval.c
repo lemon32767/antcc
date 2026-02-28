@@ -166,6 +166,7 @@ isaddrconst(struct expr *ex)
 {
    if (ex->t == ECAST)
       return isaddrconst(ex->sub) || (eval(ex->sub, EVSTATICINI) && ex->sub->t == ENUMLIT);
+   if (!isptrcvt(ex->ty)) return 0;
    if (ex->t == EADDROF && (isglobsym(ex->sub) || (ex->sub->t == EGETF && isglobsym(ex->sub->sub))))
       return 1;
    if (ex->t == EADDROF && ex->sub->t == EDEREF && isaddrconst(ex->sub->sub)) {
