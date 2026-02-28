@@ -1,10 +1,10 @@
 #ifndef VERSION_H_
 #define VERSION_H_
 
-/* 0.1.8 */
+/* 0.1.9 */
 #define ANTCC_VERSION_MAJOR 0
 #define ANTCC_VERSION_MINOR 1
-#define ANTCC_VERSION_PATCH 8
+#define ANTCC_VERSION_PATCH 9
 
 #define XSTR_(...) #__VA_ARGS__
 #define XSTR(...) XSTR_(__VA_ARGS__)
