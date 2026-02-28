@@ -1033,6 +1033,19 @@ linearscan(struct rega *ra)
    DBG("\n");
 }
 
+static bool
+isstoreimm(union ref r)
+{
+   if (r.t == RTMP) return 1; /* register OK */
+   if (isintcon(r)) switch (target.arch) {
+   case ISxxx: assert(0);
+   /* TODO don't hard code this architecture dependent dispatch */
+   case ISx86_64: return concls(r) == KI32; /* x86: MOV [addr], imm32 */
+   case ISaarch64: return r.i == 0; /* arm doesn't have STR <imm>, but has zero register */
+   }
+   return 0;
+}
+
 /* replace temps with physical regs, add loads & stores for spilled temps */
 static bool
 devirt(struct rega *ra, struct block *blk)
@@ -1139,7 +1152,7 @@ devirt(struct rega *ra, struct block *blk)
          enum irclass cls = insrescls(*ins);
          int store = cls2store[cls];
          /* t was spilled, gen store */
-         if (ins->op == Ocopy && ins->l.t != RADDR && !isaddrcon(ins->l,0)) {
+         if (ins->op == Ocopy && isstoreimm(ins->l)) {
             ins->op = store;
             ins->r = ins->l;
             addstkslotref(temp, alloc->a*8);

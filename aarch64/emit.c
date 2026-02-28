@@ -831,7 +831,8 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
    case Ostorei32: cls = KI32; X2 = Xstr; goto Store;
    case Ostorei64: cls = KI64; X2 = Xstr;
    Store:
-      X2(pcode, cls, ref2oper(ins->r), mkmemoper(1<<(ins->op-Ostorei8), ins->l));
+      X2(pcode, cls, ins->r.bits == ZEROREF.bits ? REGZR : ref2oper(ins->r),
+            mkmemoper(1<<(ins->op-Ostorei8), ins->l));
       break;
    case Ostoref32: case Ostoref64:
       Xfstr(pcode, KF32 + ins->op-Ostoref32, ref2oper(ins->r), mkmemoper(ins->op == Oloadf32 ? 4 : 8, ins->l));
