@@ -52,13 +52,19 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
 {
    int sh;
    enum op op = ins ? ins->op : 0;
+   enum irclass cls = ins ? ins->cls : 0;
 
+Begin:
    if (r->t == RXCON) {
       struct xcon *con = &contab.p[r->i];
       if (in_range(op, Oshl, Oslr) && r == &ins->r) {
          sh = con->i;
          goto ShiftImm;
-      } else if (in_range(op, Oadd, Osub) && con->i == 2147483648 && r == &ins->r) {
+      } else if (cls == KI32 && in_range(con->cls, KI64, KPTR)) {
+         *r = mkintcon(KI32, (int)con->i);
+         goto Begin;
+      }
+      if (in_range(op, Oadd, Osub) && con->i == 2147483648 && r == &ins->r) {
          /* add X, INT32MAX+1 -> sub X, INT32MIN */
          ins->op = Oadd + (op == Oadd);
          *r = mkintcon(KI32, -2147483648);
@@ -74,8 +80,8 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          uint ksiz = cls2siz[con->cls];
          union type ctype;
          /* can't use memory arg in rhs if lhs is memory */
-         bool docopy = &ins->l != r && (oisstore(ins->op) || ins->l.t == RADDR);
-         if (con->cls <= KPTR && in_range(ins->op, Ocopy, Omove)) /* in this case we can use movabs */
+         bool docopy = ins && &ins->l != r && (oisstore(ins->op) || ins->l.t == RADDR);
+         if (con->cls <= KPTR && in_range(op, Ocopy, Omove)) /* in this case we can use movabs */
             return;
          else if (!docopy || con->cls >= KF32) {
             if (con->cls != KF32) {
