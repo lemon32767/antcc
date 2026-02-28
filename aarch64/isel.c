@@ -376,7 +376,19 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          *ins = mkinstr(Oadd, KPTR, mkref(RREG, FP), mkref(RICON, 16+fn->abiarg[ins->l.i].stk));
       break;
    case Oneg: case Onot:
+   case Ocvtf32s: case Ocvtf32u:
+   case Ocvtf32f64: case Ocvtf64s:
+   case Ocvtf64u: case Ocvtf64f32:
+   case Ocvts32f: case Ocvtu32f:
+   case Ocvts64f: case Ocvtu64f:
+   case Oexts8: case Oextu8:
+   case Oexts16: case Oextu16:
+   case Oexts32:
       regarg(&ins->l, ins->cls, blk, curi);
+      break;
+   case Oextu32:
+      regarg(&ins->l, ins->cls, blk, curi);
+      ins->op = Ocopy;
       break;
    case Oadd:
       if (isnumcon(ins->l)) {
@@ -402,20 +414,16 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          ins->r = tmp;
       }
    case Oshl: case Osar: case Oslr:
-      regarg(&ins->l, ins->cls, blk, curi);
-      fixarg(&ins->r, ins, blk, curi);
-      break;
-   case Omul: case Odiv:
-      if (ins->l.t != RTMP)
-         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
-      if (ins->r.t != RTMP)
-         ins->r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->r));
-      break;
    case Oequ: case Oneq:
    case Olth: case Ogth: case Olte: case Ogte:
    case Oulth: case Ougth: case Oulte: case Ougte:
+   case Omove:
       regarg(&ins->l, ins->cls, blk, curi);
       fixarg(&ins->r, ins, blk, curi);
+      break;
+   case Omul: case Odiv: case Oudiv: case Ourem:
+      regarg(&ins->l, ins->cls, blk, curi);
+      regarg(&ins->r, ins->cls, blk, curi);
       break;
    case Oarg:
       fixarg(&ins->r, ins, blk, curi);
@@ -452,7 +460,6 @@ seljmp(struct function *fn, struct block *blk)
          sel(fn, &instrtab[c.i], blk, &curi);
       }
       if (!oiscmp(instrtab[c.i].op)) {
-         int curi = blk->ins.n;
          enum irclass k = insrescls(instrtab[c.i]);
          blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, k, c, kisint(k) ? ZEROREF : mkfltcon(k, 0)));
          struct instr *ins = &instrtab[blk->jmp.arg[0].i];
@@ -462,10 +469,9 @@ seljmp(struct function *fn, struct block *blk)
       }
    } else if (blk->jmp.t == Jret) {
       if (blk->jmp.arg[0].bits) {
-         int curi;
          union ref r = mkref(RREG, fn->abiret[0].reg);
          struct instr *ins = &instrtab[insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[0].ty.cls, r, blk->jmp.arg[0])).i];
-         curi = blk->ins.n-1;
+         int curi = blk->ins.n-1;
          fixarg(&ins->r, ins, blk, &curi);
          blk->jmp.arg[0] = r;
          if (blk->jmp.arg[1].bits) {
@@ -479,7 +485,6 @@ seljmp(struct function *fn, struct block *blk)
 void
 aarch64_isel(struct function *fn)
 {
-   extern int ninstr;
    struct block *blk = fn->entry;
 
    do {
