@@ -12,7 +12,7 @@ ok ...
 token spacing:
 ++ -- ++ === (0)~> ++ 3>0$
 sum = 1 + 2 +3;$
-[ baz]$
+[ baz] ;$
 +. *$
 */
 
@@ -121,7 +121,8 @@ S\
 #define foo bar
 #define bar EMPTY baz
 #define EMPTY
-        xstr([foo] EMPTY) "$\n"
+#define EMPTY2 EMPTY
+        xstr([foo] EMPTY2;) "$\n"
 #define qx1(...)/**/__VA_ARGS__
 #define qx2(a) qx1 ( a )
         xstr(+qx2 ( .)//

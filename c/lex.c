@@ -1214,8 +1214,10 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
          arg->idx2 = argsbuf.n;
          arg->nfirstx = arg->nlastx = 1;
          int ilastx = -1;
-         for (;;) {
+         for (bool pad = 0;;) {
+            struct macrostack *sprev = lx->macstk;
             if (!advancemacstk(lx, &tk)) {
+               pad |= tk.space && lx->macstk == sprev; /* preserve whitespace empty macro */
                if (lx->macstk == l && l->idx == 1)
                   arg->nfirstx = argsbuf.n - arg->idx2;
                if (lx->macstk == l+1 && lx->macstk->idx == 0 && l->idx == l->rl.n)
@@ -1224,8 +1226,10 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
             }
             if (tk.t == TKEOF) break;
             size_t off = l->rl.p - argsbuf.p;
+            tk.space |= pad;
             vpush(&argsbuf, tk);
             l->rl.p = argsbuf.p + off;
+            pad = 0;
          }
          arg->n2 = argsbuf.n - arg->idx2;
          arg->nlastx = ilastx < 0 ? 1 : args->n2 - ilastx;
