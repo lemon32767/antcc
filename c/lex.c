@@ -412,6 +412,7 @@ static int
 lex0(struct lexer *lx, struct token *tk)
 {
    int idx,q;
+   bool space = 0;
 Begin:
    idx = lx->chridx;
    if (lx->chrbuf0+4 >= countof(lx->chrbuf))
@@ -434,6 +435,7 @@ Begin:
    }
 
    case ' ': case '\t': case '\f': case '\v': case '\r':
+      space = 1;
       goto Begin;
       break;
    case '(': case ')': case ',': case ':':
@@ -484,6 +486,7 @@ Begin:
                   lx->chridx = lx->chridxbuf[lx->chrbuf0+1];
                   lx->chrbuf0 += 2;
                   lx->eof = lx->chridx >= lx->ndat;
+                  space = 1;
                   goto Begin;
                }
             } while (++lx->chrbuf0+1 < countof(lx->chrbuf));
@@ -599,6 +602,7 @@ Begin:
    fatal(&(struct span) {{ idx, lx->chridx - idx, lx->fileid }},
          "unexpected character %'c at %d (%d)", c, idx, lx->idx);
 End:
+   tk->space = space;
    tk->span.sl.file = lx->fileid;
    tk->span.sl.off = idx;
    tk->span.sl.len = lx->chridx - idx;
@@ -624,13 +628,6 @@ tokequ(const struct token *a, const struct token *b)
       return a->argidx == b->argidx;
    }
    return 1;
-}
-
-static bool /* whitespace separating tokens? */
-wsseparated(const struct token *l, const struct token *r)
-{
-   if (l->span.sl.file != r->span.sl.file) return 1;
-   return l->span.sl.off + l->span.sl.len != r->span.sl.off;
 }
 
 static vec_of(struct token) mtoksbuf, /* buffers for macro replacement list tokens */
@@ -673,7 +670,7 @@ macroequ(const struct macro *a, const struct macro *b)
    for (int i = 0; i < a->rl.n; ++i) {
       if (!tokequ(&tka[i], &tkb[i]))
          return 0;
-      if (i > 0 && wsseparated(&tka[i-1], &tka[i]) != wsseparated(&tkb[i-1], &tkb[i]))
+      if (i > 0 && tka[i].space != tkb[i].space)
          return 0;
    }
    return 1;
@@ -747,7 +744,7 @@ static struct macrostack {
    struct span0 exspan;
    int idx;
    short macid; /* -1 for argument undergoing expansion */
-   bool stop, dyn;
+   bool space : 1, stop : 1, dyn;
 } mstk[1200];
 
 static void NORETURN
@@ -803,21 +800,18 @@ ppskipline(struct lexer *lx)
 static bool
 tokpaste(struct lexer *lx, struct token *dst, const struct token *l, const struct token *r)
 {
-   memset(dst, 0, sizeof *dst);
-   dst->span = l->span;
-   if (dst->span.ex.file == r->span.ex.file && dst->span.ex.off < r->span.ex.off)
-      joinspan(&dst->span.ex, r->span.ex);
+   int t;
    if (isppident(*l) && (isppident(*r) || r->t == TKNUMLIT)) {
       /* foo ## bar  ;   foo ## 123 */
-      dst->t = TKIDENT;
+      t = TKIDENT;
    } else if (l->t == TKNUMLIT && (isppident(*r) || r->t == TKNUMLIT)) {
       /* 0x ## abc   ;   213 ## 456 */
-      dst->t = TKNUMLIT;
+      t = TKNUMLIT;
    } else if (l->t && !r->t) {
-      *dst = *l;
+      if (dst) *dst = *l;
       return 1;
    } else if (!l->t && r->t) {
-      *dst = *r;
+      if (dst) *dst = *r;
       return 1;
    } else {
       static const struct { char s[2]; char t; } tab[] = {
@@ -828,21 +822,33 @@ tokpaste(struct lexer *lx, struct token *dst, const struct token *l, const struc
          {"%=", TKSETREM}, {"|=", TKSETIOR}, {"^=", TKSETXOR}, {"&=", TKSETAND},
          {{TKSHL,'='}, TKSETSHL}, {{TKSHR,'='}, TKSETSHR}
       };
-      for (int i = 0; i < countof(tab); ++i)
-         if (tab[i].s[0] == l->t && tab[i].s[1] == r->t)
-            return dst->t = tab[i].t, 1;
+      for (int i = 0; i < countof(tab); ++i) {
+         if (tab[i].s[0] == l->t && tab[i].s[1] == r->t) {
+            if (dst) dst->t = tab[i].t;
+            return 1;
+         }
+      }
 
-      error(&l->span, "pasting %'tk and %'tk does not form a valid preprocessing token", l, r);
-      note(&r->span, "right-hand side");
+      if (dst) {
+         error(&l->span, "pasting %'tk and %'tk does not form a valid preprocessing token", l, r);
+         note(&r->span, "right-hand side");
+      }
       return 0;
    }
 
+   if (!dst) return 1;
    char buf[200];
+   memset(dst, 0, sizeof *dst);
+   dst->span = l->span;
+   if (dst->span.ex.file == r->span.ex.file && dst->span.ex.off < r->span.ex.off)
+      joinspan(&dst->span.ex, r->span.ex);
+   dst->t = t;
    dst->len = l->len + r->len;
    char *s = (isppident(*dst) && dst->len + 1 < sizeof buf) ? buf : alloc(lx->tmparena, dst->len + 1, 1);
    memcpy(s, l->s, l->len);
    memcpy(s + l->len, r->s, r->len);
    s[dst->len] = 0;
+   dst->space = l->space;
    if (isppident(*dst)) {
       dst->blue = 0;
       dst->name = intern(s);
@@ -912,7 +918,7 @@ ppdefine(struct lexer *lx)
    /* gather replacement list */
    mac.rl.off = mtoksbuf.n;
    for (int n = 0; lex0(lx, &tk) != '\n' && tk.t != TKEOF;) {
-      if (!n && !wsseparated(&tk0, &tk))
+      if (n == 0 && !tk.space)
          warn(&tk.span, "no whitespace after macro name");
       struct token *prev = n ? &mtoksbuf.p[mtoksbuf.n-1] : NULL;
       if (mac.fnlike && tk.t == TKIDENT) {
@@ -1038,6 +1044,7 @@ tryexpand(struct lexer *lx, struct token *tk)
       }
    }
 
+   struct macrostack *stkprev = lx->macstk;
    if (mac->special && !mac->fnlike) {
       mac->handler(lx, tk);
       return EXPINL;
@@ -1090,7 +1097,11 @@ tryexpand(struct lexer *lx, struct token *tk)
       pushmacstk(lx, &span, &(struct macrostack){
          .rl = { .off = mac->rl.off, .n = mac->rl.n },
          .macid = mac->id,
+         .space = tk->space,
       });
+   }
+   if (lx->macstk != stkprev) {
+      lx->macstk->space = tk->space;
    }
    return EXPSTACK;
 }
@@ -1108,7 +1119,13 @@ advancemacstk(struct lexer *lx, struct token *tk)
       popmac(lx, 1);
       return 0;
    }
-   *tk = stkgetrl(s)[s->idx++];
+   *tk = stkgetrl(s)[s->idx];
+   if (s->idx == 0) {
+      /* the first token of the replaced expansion gets its space from the
+       * context in which it is expanded */
+      tk->space = s->space;
+   }
+   ++s->idx;
    assert(tk->t && tk->t != TKEOF);
    tk->span.ex = s->exspan;
    return tryexpand(lx, tk) != EXPSTACK;
@@ -1133,7 +1150,14 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
 
    cur = i = bal = len = narg = 0;
    for (struct macrostack *s = lx->macstk;;) {
-      if (!s) do lex0(lx, &tk); while (tk.t == '\n');
+      if (!s) {
+         bool nl = 0;
+         for (;; nl = 1) {
+            lex0(lx, &tk);
+            if (tk.t != '\n') break;
+         }
+         tk.space |= nl;
+      }
       else {
          tk = s->idx < s->rl.n ? stkgetrl(s)[s->idx++] : (struct token){TKEOF};
       }
@@ -1226,7 +1250,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
          .macid = mac->id,
       });
    } else if (mac->nparam > 0) { /* make new rlist with args replaced */
-      bool vaoptskip = 0;
+      bool vaoptskip = 0, spacepad = 0;
       int vaoptbal = 0;
       uint off = mdyntoksbuf.n;
       for (int i = 0; i < mac->rl.n; ++i) {
@@ -1243,6 +1267,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
          if (tki->t == TKPPCAT && i > 0 && i < mac->rl.n-1) { /* concatenation */
             const struct token *lhs = tki-1,
                                *rhs = tki+1;
+            bool space = lhs->space | spacepad;
             if (lhs->t == ',' && mac->variadic
              && rhs->t == TKPPMACARG && rhs->argidx == mac->nparam-1) {
                /* handle GNU extension:  ', ## __VA_ARGS__' */
@@ -1252,6 +1277,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
                   --mdyntoksbuf.n;
                } else { /* otherwise put comma and substitute vaargs */
                   vpushn(&mdyntoksbuf, argsbuf.p+arg->idx2, arg->n2);
+                  mdyntoksbuf.p[mdyntoksbuf.n - arg->n2].space |= rhs->space | tk.space;
                }
                ++i; /* we already handled rhs (__VA_ARGS__) */
                continue;
@@ -1263,6 +1289,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
             } else if (lhs->t == TKPPMACARG) {
                arg = &args[lhs->argidx];
                lhs = arg->n ? &argsbuf.p[arg->idx + arg->n-1] : NULL;
+               if (lhs && arg->n > 1) space |= lhs->space;
             } else {
                --mdyntoksbuf.n;
             }
@@ -1273,15 +1300,17 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
                ++i;
             }
             if (!lhs && !rhs) continue;
+            spacepad = 0;
             if (!lhs) vpush(&mdyntoksbuf, *rhs);
             else if (!rhs) vpush(&mdyntoksbuf, *lhs);
             else {
                struct token new;
                if (tokpaste(lx, &new, lhs, rhs)) {
                   new.span.sl = tki->span.sl;
-                  vpush(&mdyntoksbuf, new);
                }
+               vpush(&mdyntoksbuf, new);
             }
+            mdyntoksbuf.p[mdyntoksbuf.n-1].space = space;
          } else if (tki->t != TKPPMACARG && tki->t != TKPPMACSTR) { /* regular token */
             if (tki->t == TKIDENT && mac->variadic) {
                /* handle GNUC __VA_OPT__(...) */
@@ -1302,21 +1331,34 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
                }
             }
             vpush(&mdyntoksbuf, *tki);
+            mdyntoksbuf.p[mdyntoksbuf.n-1].space |= spacepad;
+            spacepad = 0;
          } else if (tki->t == TKPPMACARG) {
             arg = &args[tki->argidx];
-            if (arg->n == 0) continue;
+            if (arg->n == 0) {
+               spacepad = 1;
+               continue;
+            }
             struct token *rl = argsbuf.p + arg->idx2;
             int n = arg->n2;
+            bool skipfirst = 0;
             if (i > 0 && tki[-1].t == TKPPCAT) {
                /* skip first unexpanded token, was pasted */
                rl += arg->nfirstx;
                n -= arg->nfirstx;
+               skipfirst = 1;
             }
             if (i < mac->rl.n-2 && tki[1].t == TKPPCAT) {
                /* skip last unexpanded token, will be pasted */
                n -= arg->nlastx;
             }
-            if (n > 0) vpushn(&mdyntoksbuf, rl, n);
+            if (n > 0) {
+               vpushn(&mdyntoksbuf, rl, n);
+               if (!skipfirst)
+                  /* the first token of the expanded body gets its space from the replacement list */
+                  mdyntoksbuf.p[mdyntoksbuf.n - n].space = tki->space | spacepad;
+            }
+            spacepad = 0;
          } else { /* PPMACSTR */
             char tmp[200];
             struct wbuf buf = MEMBUF(tmp, sizeof tmp);
@@ -1329,7 +1371,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
          Redo:
             for (int i = 0; i < arg->n; ++i) {
                struct token *tk = &argsbuf.p[arg->idx + i];
-               if (i > 0 && wsseparated(tk-1, tk))
+               if (i > 0 && tk->space)
                   n += bfmt(&buf, " ");
                n += bfmt(&buf, "%tk", tk);
             }
@@ -1340,13 +1382,14 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
                memcpy(&buf, &new, sizeof buf);
                goto Redo;
             }
-            struct token tk = {
+            vpush(&mdyntoksbuf, ((struct token) {
                .t = TKSTRLIT,
                .wide = 0,
+               .space = tki->space | spacepad,
                .s = buf.buf != tmp ? buf.buf : alloccopy(lx->tmparena, buf.buf, buf.len, 1),
                .len = buf.len-1,
-            };
-            vpush(&mdyntoksbuf, tk);
+            }));
+            spacepad = 0;
          }
       }
       uint n = mdyntoksbuf.n - off;
@@ -2379,7 +2422,8 @@ lexerdump(struct lexer *lx, struct wbuf *out)
          line = tkline;
          col = 1;
          lexerfreetemps(lx);
-      } else if (prev.t && wsseparated(&prev, &tok)) {
+      } else if (prev.t && (tok.space || tokpaste(lx, NULL, &prev, &tok))) {
+         /* preserve whitespace & paste avoidance */
          ioputc(out, ' ');
          ++col;
       }

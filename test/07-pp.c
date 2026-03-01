@@ -9,6 +9,11 @@ Output ends here
 ok ...
 11
 11
+token spacing:
+++ -- ++ === (0)~> ++ 3>0$
+sum = 1 + 2 +3;$
+[ baz]$
++. *$
 */
 
 #include "07-pp.h"
@@ -103,6 +108,25 @@ S\
    countertest(ww);
    countertest/* comment
                  */(ww);
+
+#define PLUS +
+#define EMPTY
+      (void)+PLUS(0); /* (void) + + 0 */
+   printf("token spacing:\n"
+#define f(x) =x=
+#define g(t,k) t##k>
+         xstr(+PLUS -EMPTY- PLUS+ f(=) (0)g(,~) g(+,+ 3)0) "$\n"
+#define add(x, y, z) x + y +z;
+         xstr(sum = add (1,2, 3)) "$\n"
+#define foo bar
+#define bar EMPTY baz
+#define EMPTY
+        xstr([foo] EMPTY) "$\n"
+#define qx1(...)/**/__VA_ARGS__
+#define qx2(a) qx1 ( a )
+        xstr(+qx2 ( .)//
+qx2(*) ) "$\n"
+        );
 
    CAT(ret,urn) 0;
 }

@@ -57,7 +57,8 @@ struct token {
         blue : 1, /* preprocessor token painted blue */
         extwarn : 1; /* warn this keyword token is an extension */
    uchar wide : 2, /* for CHRLIT & STRLIT; 1 -> 16bit, 2 -> 32bit */
-         wideuni : 1; /* ditto, 0 -> 'L', 1 -> 'u'/'U' (C11) */
+         wideuni : 1, /* ditto, 0 -> 'L', 1 -> 'u'/'U' (C11) */
+         space : 1; /* preceded by whitespace? */
    union {
       uint len;
       ushort argidx;
