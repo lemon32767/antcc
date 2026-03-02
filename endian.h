@@ -2,6 +2,7 @@
 #define ENDIAN_H_
 
 #include "common.h"
+extern bool targ_bigendian;
 
 /*** Macros and functions for endian specific memory access ***/
 
@@ -121,7 +122,7 @@ rd32targ(uchar *p)
 {
    uint x;
    memcpy(&x, p, sizeof x);
-   if (!hostntarg_sameendian()) x = bswap16(x);
+   if (!hostntarg_sameendian()) x = bswap32(x);
    return x;
 }
 
@@ -130,7 +131,7 @@ rd64targ(uchar *p)
 {
    uvlong x;
    memcpy(&x, p, sizeof x);
-   if (!hostntarg_sameendian()) x = bswap16(x);
+   if (!hostntarg_sameendian()) x = bswap64(x);
    return x;
 }
 

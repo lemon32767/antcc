@@ -108,6 +108,7 @@ struct function;
 int envadddecl(struct env *env, const struct decl *d);
 bool assigncheck(union type t, const struct expr *src);
 union ref expraddr(struct function *, const struct expr *);
+union ref scalarcvt(struct function *, union type to, union type from, union ref);
 union ref compileexpr(struct function *, const struct expr *, bool discard);
 
 /** builtin.c **/

@@ -1,4 +1,5 @@
 #include "ir.h"
+#include "../endian.h"
 
 static union ref
 foldint(enum op op, enum irclass k, union ref lr, union ref rr)
@@ -24,6 +25,9 @@ foldint(enum op op, enum irclass k, union ref lr, union ref rr)
    case Oextu16: x = (ushort)l.s; break;
    case Oexts32: x = (int)l.s; break;
    case Oextu32: x = (uint)l.s; break;
+   case Obswap16: x = bswap16(l.u); break;
+   case Obswap32: x = bswap32(l.u); break;
+   case Obswap64: x = bswap64(l.u); break;
    case Oadd:  x = l.u + r.u; break;
    case Osub:  x = l.u - r.u; break;
    case Omul:  x = l.u * r.u; break;

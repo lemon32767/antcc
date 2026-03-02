@@ -560,6 +560,14 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Ocopy:
       fixarg(&ins->l, ins, blk, curi);
       break;
+   case Obswap16: case Obswap32: case Obswap64:
+      ins->inplace = 1;
+      if (ins->l.t != RTMP) {
+         ins->l = insertinstr(blk, *curi, mkinstr(Ocopy, ins->cls, ins->l));
+         fixarg(&instrtab[ins->l.i].l, ins, blk, curi);
+         ++*curi;
+      }
+      break;
    case Oxvaprologue:
       fuseaddr(&ins->l, blk, curi);
       assert(ins->l.t == RADDR);

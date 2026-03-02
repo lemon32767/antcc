@@ -191,6 +191,8 @@ irunop(struct function *fn, enum op op, enum irclass k, union ref a)
    case Oexts32: case Oextu32:
    case Ocopy:
       break;
+   case Obswap16: case Obswap32: case Obswap64:
+      break;
    default: assert(!"unop?");
    }
    return fn ? addinstr(fn, mkinstr(op, k, a)) : NOREF;

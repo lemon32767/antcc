@@ -3146,8 +3146,8 @@ isboollike(struct function *fn, union ref r)
    return 0;
 }
 
-static union ref
-cvt(struct function *fn, union type to, union type from, union ref ref)
+union ref
+scalarcvt(struct function *fn, union type to, union type from, union ref ref)
 {
    enum irclass kto = type2cls[scalartypet(to)], kfrom = type2cls[scalartypet(from)];
    enum op op;
@@ -3172,7 +3172,7 @@ cvt(struct function *fn, union type to, union type from, union ref ref)
       if (to.t == TYBOOL) {
          if (from.t == TYBOOL) return ref;
          if (isboollike(fn, ref))
-            return kfrom == KI32 ? ref : cvt(fn, mktype(TYINT), from, ref);
+            return kfrom == KI32 ? ref : scalarcvt(fn, mktype(TYINT), from, ref);
          return irbinop(fn, Oneq, kfrom, ref, ZEROREF);
       }
       else if (kfrom == KI32 && issigned(from)) op = Oexts32;
@@ -3223,7 +3223,7 @@ genptroff(struct function *fn, enum op op, uint siz, union ref ptr,
    union ref off;
    assert(siz);
 
-   idx = cvt(fn, mktype(targ_sizetype), t, idx);
+   idx = scalarcvt(fn, mktype(targ_sizetype), t, idx);
    if (siz == 1) off = idx;
    else if (idx.t == RICON) {
       if (op == Osub) op = Oadd, idx.i = -idx.i;
@@ -3340,7 +3340,7 @@ Recur:
       } else {
          union ref val = exprvalue(fn, ex);
          if (isscalar(phis->typ))
-            val = cvt(fn, phis->typ, ex->ty, val);
+            val = scalarcvt(fn, phis->typ, ex->ty, val);
          else assert(ex->ty.bits == phis->typ.bits);
          vpush(&phis->ref, val);
       }
@@ -3396,7 +3396,7 @@ compilecall(struct function *fn, const struct expr *ex)
    for (int i = 0; i < ex->narg; ++i) {
       struct expr *arg = &sub[i+1];
       union type ty = i < td->nmemb ? td->param[i] : argpromote(arg->ty);
-      union ref r = cvt(fn, ty, typedecay(arg->ty), exprvalue(fn, arg));
+      union ref r = scalarcvt(fn, ty, typedecay(arg->ty), exprvalue(fn, arg));
       vpush(&insns, mkarginstr(mkirtype(ty), r));
    }
    for (int i = 0; i < insns.n; ++i)
@@ -3541,7 +3541,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    case EPLUS:
       r = compileexpr(fn, sub, discard);
       if (discard) return NOREF;
-      r = cvt(fn, ex->ty, sub->ty, r);
+      r = scalarcvt(fn, ex->ty, sub->ty, r);
       if (isint(ex->ty) && (typesize(ex->ty) < typesize(sub->ty) || issigned(ex->ty) != issigned(sub->ty)))
          return narrow(fn, type2cls[scalartypet(ex->ty)], ex->ty, r, 0);
       return r;
@@ -3553,7 +3553,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    Unary:
       l = compileexpr(fn, sub, discard);
       if (discard) return NOREF;
-      l = cvt(fn, ex->ty, sub->ty, l);
+      l = scalarcvt(fn, ex->ty, sub->ty, l);
       return irunop(fn, op, cls, l);
    case ELOGNOT:
       for (; sub->t == ELOGNOT; ex = sub, sub = sub->sub)
@@ -3561,7 +3561,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       op = Oequ + swp;
       l = compileexpr(fn, sub, discard);
       if (discard) return NOREF;
-      l = cvt(fn, ex->ty, sub->ty, l);
+      l = scalarcvt(fn, ex->ty, sub->ty, l);
       r = mkintcon(cls, 0);
       return irbinop(fn, op, cls, l, r);
    case EDEREF:
@@ -3609,8 +3609,8 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          return genptrdiff(fn, typesize(typechild(sub[0].ty)), l, r);
       } else if ((op != Oadd && op != Osub) || cls != KPTR) {
          /* num OP num */
-         l = cvt(fn, ex->ty, sub[0].ty, l);
-         r = cvt(fn, ex->ty, sub[1].ty, r);
+         l = scalarcvt(fn, ex->ty, sub[0].ty, l);
+         r = scalarcvt(fn, ex->ty, sub[1].ty, r);
       } else {
          assert(isptrcvt(sub[0].ty));
          /* ptr +/- num */
@@ -3680,13 +3680,13 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       l = compileexpr(fn, &sub[0], discard);
       r = compileexpr(fn, &sub[1], discard);
       if (discard) return NOREF;
-      l = cvt(fn, ty, sub[0].ty, l);
-      r = cvt(fn, ty, sub[1].ty, r);
+      l = scalarcvt(fn, ty, sub[0].ty, l);
+      r = scalarcvt(fn, ty, sub[1].ty, r);
       cls = type2cls[ty.t];
       return irbinop(fn, op, cls, l, r);
    case ESET:
       assert(isscalar(ex->ty));
-      q = cvt(fn, sub[0].ty, sub[1].ty, exprvalue(fn, &sub[1]));
+      q = scalarcvt(fn, sub[0].ty, sub[1].ty, exprvalue(fn, &sub[1]));
       if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
          /* bit-field */
          adr = expraddr(fn, &sub[0].sub[0]);
@@ -3744,10 +3744,10 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          adr = expraddr(fn, &sub[0]);
          l = genload(fn, ex->ty, adr, ex->qual & QVOLATILE);
          if ((op != Oadd && op != Osub) || cls != KPTR) {
-            l = cvt(fn, ty, sub[0].ty, l);
-            r = cvt(fn, ty, sub[1].ty, r);
+            l = scalarcvt(fn, ty, sub[0].ty, l);
+            r = scalarcvt(fn, ty, sub[1].ty, r);
             q = irbinop(fn, op, type2cls[ty.t], l, r);
-            q = cvt(fn, ex->ty, ty, q);
+            q = scalarcvt(fn, ex->ty, ty, q);
          } else {
             q = genptroff(fn, op, typesize(typechild(ex->ty)), l, sub[1].ty, r);
          }
@@ -3764,7 +3764,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       for (bool c; knowntruthy(&c, &ex->sub[0]);) {
          r = compileexpr(fn, &ex->sub[2-c], discard);
          if (discard) return NOREF;
-         return cvt(fn, ex->ty, ex->sub[2-c].ty, r);
+         return scalarcvt(fn, ex->ty, ex->sub[2-c].ty, r);
       }
 
       if (ex->ty.t == TYVOID || discard) {
@@ -3789,7 +3789,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          c ^= ex->t == ELOGIOR;
          r = compileexpr(fn, &ex->sub[c], discard);
          if (discard) return NOREF;
-         return cvt(fn, mktype(TYBOOL), ex->sub[c].ty, r);
+         return scalarcvt(fn, mktype(TYBOOL), ex->sub[c].ty, r);
       }
       return condexprvalue(fn, ex, discard);
    case ESEQ:
@@ -4314,7 +4314,7 @@ stmt(struct comp *cm, struct function *fn)
          }
          EMITS {
             if (isscalar(fn->retty))
-               r = cvt(fn, fn->retty, ex.ty, exprvalue(fn, &ex));
+               r = scalarcvt(fn, fn->retty, ex.ty, exprvalue(fn, &ex));
             else if (fn->retty.t == TYVOID)
                r = (expreffects(fn, &ex), NOREF);
             else
@@ -4424,7 +4424,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                         structcopy(fn, ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
                      else {
                         genstore(fn, ty, mkref(RTMP, decl.id),
-                              cvt(fn, ty, ini.ty, exprvalue(fn, &ini)));
+                              scalarcvt(fn, ty, ini.ty, exprvalue(fn, &ini)));
                      }
                   }
                } else if (decl.scls == SCEXTERN) {

@@ -32,13 +32,13 @@ callcheck(const struct span *span, int nparam, const union type *param, int narg
       return callcheck(&ex->span, countof(par)-1, par+1, ex->narg, ex->sub+1); \
    }
 
+/* __builtin_va_start */
 static bool
 va_start_sema(struct comp *cm, struct expr *ex)
 {
    ex->ty = mktype(TYVOID);
    return callcheck(&ex->span, 1, &cvalistty, ex->narg, ex->sub+1);
 }
-
 static union ref
 va_start_comp(struct function *fn, struct expr *ex, bool discard)
 {
@@ -50,8 +50,7 @@ va_start_comp(struct function *fn, struct expr *ex, bool discard)
    return NOREF;
 }
 
-DEF_FNLIKE_SEMA(trap, mktype(TYVOID), )
-
+/* __builtin_va_end */
 static bool
 va_end_sema(struct comp *cm, struct expr *ex)
 {
@@ -65,13 +64,13 @@ va_end_comp(struct function *fn, struct expr *ex, bool discard)
    return NOREF;
 }
 
+/* __builtin_va_copy */
 DEF_FNLIKE_SEMA(va_copy, mktype(TYVOID), cvalistty, cvalistty)
-
 static union ref
 va_copy_comp(struct function *fn, struct expr *ex, bool discard)
 {
    union irtype typ = mkirtype(cvalistty.t == TYARRAY ? typechild(cvalistty) : cvalistty);
-   for (int i = 1; i < 2; ++i)
+   for (int i = 1; i <= 2; ++i)
       assert(typedecay(ex->sub[i].ty).bits == typedecay(cvalistty).bits);
    union ref dst = compileexpr(fn, &ex->sub[1], 0), src = compileexpr(fn, &ex->sub[2], 0);
    addinstr(fn, mkarginstr(typ, dst));
@@ -80,6 +79,8 @@ va_copy_comp(struct function *fn, struct expr *ex, bool discard)
    return NOREF;
 }
 
+/* __builtin_trap */
+DEF_FNLIKE_SEMA(trap, mktype(TYVOID), )
 static union ref
 trap_comp(struct function *fn, struct expr *ex, bool discard)
 {
@@ -88,17 +89,51 @@ trap_comp(struct function *fn, struct expr *ex, bool discard)
    return NOREF;
 }
 
-union ref
-builtin_va_arg_comp(struct function *fn, const struct expr *ex, bool discard)
+static inline union ref
+cvtintref(struct function *fn, enum irclass dst, union ref src)
 {
-   assert(ex->t == EVAARG && ex->ty.t);
-   enum irclass k = isagg(ex->ty) ? KPTR : type2cls[scalartypet(ex->ty)];
-   return addinstr(fn, mkinstr(Ovaarg, k, compileexpr(fn, ex->sub, 0), mktyperef(mkirtype(ex->ty))));
+   if (src.t == RTMP) {
+      if (insrescls(instrtab[src.i]) != dst)
+         return addinstr(fn, mkinstr(Ocopy, dst, src));
+      return src;
+   } else if (isintcon(src)) {
+      vlong x = intconval(src);
+      return mkintcon(dst, cls2siz[dst] == 4 ? (int)x : x);
+   }
+   assert(!"int ref?");
+}
+
+/* __builtin_bswap16 */
+DEF_FNLIKE_SEMA(bswap16, mktype(TYUSHORT), mktype(TYUSHORT))
+static union ref
+bswap16_comp(struct function *fn, struct expr *ex, bool discard)
+{
+   assert(isint(ex->ty));
+   return irunop(fn, Obswap16, KI32, scalarcvt(fn, ex->ty, ex->sub[1].ty,
+            compileexpr(fn, &ex->sub[1], 0)));
+}
+/* __builtin_bswap32 */
+DEF_FNLIKE_SEMA(bswap32, mktype(TYUINT), mktype(TYUINT))
+static union ref
+bswap32_comp(struct function *fn, struct expr *ex, bool discard)
+{
+   assert(isint(ex->ty));
+   return irunop(fn, Obswap32, KI32, scalarcvt(fn, ex->ty, ex->sub[1].ty,
+            compileexpr(fn, &ex->sub[1], 0)));
+}
+/* __builtin_bswap64 */
+DEF_FNLIKE_SEMA(bswap64, mktype(TYUVLONG), mktype(TYUVLONG))
+static union ref
+bswap64_comp(struct function *fn, struct expr *ex, bool discard)
+{
+   assert(isint(ex->ty));
+   return irunop(fn, Obswap64, KI64, scalarcvt(fn, ex->ty, ex->sub[1].ty,
+            compileexpr(fn, &ex->sub[1], 0)));
 }
 
 #define LIST_BUILTINS(_) \
    _(va_start) _(va_copy) _(va_end) \
-   _(trap)
+   _(trap) _(bswap16) _(bswap32) _(bswap64)
 
 static const struct {
    const char *name;
@@ -119,6 +154,15 @@ putbuiltins(struct env *env)
          .builtin = &tab[i].b,
       });
    }
+}
+
+/* this is separate because it's a keyword */
+union ref
+builtin_va_arg_comp(struct function *fn, const struct expr *ex, bool discard)
+{
+   assert(ex->t == EVAARG && ex->ty.t);
+   enum irclass k = isagg(ex->ty) ? KPTR : type2cls[scalartypet(ex->ty)];
+   return addinstr(fn, mkinstr(Ovaarg, k, compileexpr(fn, ex->sub, 0), mktyperef(mkirtype(ex->ty))));
 }
 
 bool

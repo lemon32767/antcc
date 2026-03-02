@@ -201,6 +201,7 @@ enum operenc {
    EN_MI8,    /* mem, imm8 with /x */
    EN_MI16,   /* mem, imm16 with /x */
    EN_MI32,   /* mem, imm32 with /x */
+   EN_O,      /* reg with op + reg */
    EN_OI,     /* reg, imm32 with op + reg */
    EN_I8,     /* imm8 */
    EN_I32,    /* imm32 */
@@ -409,12 +410,12 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
       else if (en->operenc == EN_RI8)
          B(src.imm);
       break;
-   case EN_OI:
+   case EN_O: case EN_OI:
       rex |= (dst.reg >> 3) << 0; /* REX.B */
       if (rex) B(0x40 | rex);
-      B(*opc++ + (dst.reg & 7));
       D(opc, nopc - 1);
-      I32(src.imm);
+      B(opc[nopc-1] + (dst.reg & 7));
+      if (en->operenc == EN_OI) I32(src.imm);
       break;
    case EN_I8:
       if (rex) B(0x40 | rex);
@@ -607,6 +608,9 @@ DEFINSTR2(Xsar,
    {4|8, PGPR, PI32, O("\xC1"), EN_RI8, .ext=7}, /* SAR r32/64, imm */
    {4|8, PGPR, PRCX, O("\xD3"), EN_R, .ext=7},   /* SAR r32/64, CL */
 )
+DEFINSTR2(Xrolw,
+   {-1,  PGPR, PI8, O("\x66\xC1"), EN_RI8}, /* ROL r16, imm */
+)
 DEFINSTR2(Xshr,
    {4|8, PGPR, P1,   O("\xD1"), EN_R, .ext=5},   /* SHR r32/64, 1 */
    {4|8, PGPR, PI32, O("\xC1"), EN_RI8, .ext=5}, /* SHR r32/64, imm */
@@ -649,6 +653,9 @@ DEFINSTR1(Xidiv,
 DEFINSTR1(Xdiv,
    {4|8, PGPR, 0, O("\xF7"), EN_R, .ext=6}, /* DIV r32/64 */
    {4|8, PMEM, 0, O("\xF7"), EN_M, .ext=6}, /* DIV m32/64 */
+)
+DEFINSTR1(Xbswap,
+   {4|8, PGPR, 0, O("\x0F\xC8"), EN_O}, /* BSWAP r32/64 */
 )
 DEFINSTR1(Xcall,
    {-1, PSYM, 0, O("\xE8"), EN_R32, .norexw=1}, /* CALL rel32 */
@@ -1084,6 +1091,18 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       assert(ins->reg-1 == dst.reg);
       X1(pcode, cls, dst);
       break;
+   case Obswap16:
+      dst = mkregoper(ins->l);
+      assert(ins->reg-1 == dst.reg);
+      if (dst.reg < 4) { /* AX,BX,CX,DX */
+         /* XCHG rH, rL */
+         B(0x86), B(0xC4 | dst.reg | (dst.reg)<<3);
+      } else {
+         /* ROL r16,8 */
+         Xrolw(pcode, KI32, dst, mkoper(OIMM, .imm = 8));
+      }
+      break;
+   case Obswap32: case Obswap64: X1 = Xbswap; goto ALU1;
    case Omul:
       if (kisint(cls))
          Ximul(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r));
