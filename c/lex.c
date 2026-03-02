@@ -2175,7 +2175,11 @@ cpppredef(bool undef, const char *cmd)
    char line[1024];
    struct wbuf wbuf = MEMBUF(line, sizeof line);
    if (!ppcmdline.p) vinit(&ppcmdline, NULL, 1<<10);
-   int n = bfmt(&wbuf, "%s %S %s\n", undef ? "#undef" : "#define", cmd, namelen, body);
+   int n;
+   if (undef)
+      n = bfmt(&wbuf, "#undef %S\n", cmd, namelen);
+   else
+      n = bfmt(&wbuf, "#define %S %s\n", cmd, namelen, body);
    assert(n <= sizeof line);
    vpushn(&ppcmdline, line, n);
 }

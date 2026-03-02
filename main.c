@@ -199,7 +199,7 @@ optparse(char **args)
          const char *s = *++args;
          if (!s) fatal(NULL, "missing target name");
          task.targ = s;
-      } else if (*arg == 'l' || *arg == 'L' || *arg == 'B' || !strcmp(arg, "shared")) {
+      } else if (*arg == 'l' || *arg == 'L' || *arg == 'B' || !strcmp(arg, "shared") || !strcmp(arg, "pthread")) {
          vpush(&task.linkargs, arg-1);
       } else if (!strcmp(arg, "v") || !strcmp(arg, "-verbose")) {
          task.verbose = 1;
