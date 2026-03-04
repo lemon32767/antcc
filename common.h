@@ -150,7 +150,7 @@ struct option {
               l : 1, /* after liveness fixup */
               r : 1; /* after regalloc */
       };
-      uchar any;
+      uint any;
    } dbg;
    struct wbuf *dbgout;
 };
