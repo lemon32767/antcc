@@ -1159,7 +1159,7 @@ devirt(struct rega *ra, struct block *blk)
          enum irclass cls = insrescls(*ins);
          int store = cls2store[cls];
          /* t was spilled, gen store */
-         if (ins->op == Ocopy && isstoreimm(ins->l)) {
+         if (ins->op == Ocopy && (ins->l.t == RREG || isstoreimm(ins->l))) {
             ins->op = store;
             ins->r = ins->l;
             addstkslotref(temp, alloc->a*8);
