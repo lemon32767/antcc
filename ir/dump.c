@@ -9,7 +9,13 @@ static struct wbuf *out = &bstdout;
 static bool
 prilitdat(const struct irdat *dat, const char *prefix)
 {
-   uchar *p = (dat->section == Sdata ? objout.data.p : objout.rodata.p) + dat->off;
+   uchar *p;
+   switch (dat->section) {
+      default: assert(0);
+      case Sdata: p = objout.data.p + dat->off; break;
+      case Srodata: p = objout.rodata.p + dat->off; break;
+      case Stext: p = objout.textbegin + dat->off; break;
+   }
    if (dat->ctype.t == TYARRAY && typechild(dat->ctype).t == TYCHAR && dat->siz-1 < 60 && p[dat->siz-1] == 0) {
       bfmt(out, "%s%'S", prefix, p, dat->siz-1);
    } else if (dat->ctype.t == TYFLOAT) {
@@ -25,15 +31,21 @@ prilitdat(const struct irdat *dat, const char *prefix)
 static void
 pridat(const struct irdat *dat)
 {
-   uchar *p = (dat->section == Sdata ? objout.data.p : objout.rodata.p) + dat->off;
+   static const char *snames[] = { [Sdata] = ".data", [Srodata] = ".rodata", [Stext] = ".text" };
+   uchar *p;
+   switch (dat->section) {
+      default: assert(0);
+      case Sdata: p = objout.data.p + dat->off; break;
+      case Srodata: p = objout.rodata.p + dat->off; break;
+      case Stext: p = objout.textbegin + dat->off; break;
+   }
    enum {
       MINZERO = 4,
       MAXLINE = 60,
    };
    int npri = 0;
    int strbegin = 0, nstr = 0;
-   assert(dat->section == Sdata || dat->section == Srodata);
-   bfmt(out, "%s %ty %y(align %d, size %d):\n\t", dat->section == Sdata ? "data" : "rodata", dat->ctype, dat->name, dat->align, dat->siz);
+   bfmt(out, "%s %ty %y(align %d, size %d):\n\t", snames[dat->section], dat->ctype, dat->name, dat->align, dat->siz);
    if (!prilitdat(dat, "lit: ")) {
       for (int i = 0; i < dat->siz; ++i) {
          int c = p[i];
