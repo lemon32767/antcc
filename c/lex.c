@@ -1786,12 +1786,14 @@ ppinclude(struct lexer *lx, const struct span *span0)
       expecteol(lx, "include");
       joinspan(&span.ex, tk.span.ex);
       if (tk.t == TKPPHDRQ) {
-         /* try raw path: absolute or relative to working dir */
-         xbgrow(&path, tk.len + 1);
-         memcpy(path, tk.s, tk.len);
-         path[tk.len] = 0;
-         if (tryinclude(lx, &span, path)) return;
-         if (tk.s[0] == '/') goto NotFound;
+         if (tk.s[0] == '/') {
+            /* try absolute path */
+            xbgrow(&path, tk.len + 1);
+            memcpy(path, tk.s, tk.len);
+            path[tk.len] = 0;
+            if (tryinclude(lx, &span, path)) return;
+            goto NotFound;
+         }
 
          /* try relative to current file's directory */
          base = getfilename(lx->fileid, 0);
