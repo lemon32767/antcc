@@ -59,6 +59,8 @@ void f() {
 
 void *rec[1] = {rec+1};
 
+int static_eval = sizeof(char[ 1 ? 1 : 0/0]);
+
 int printf(char *, ...);
 int main() {
    printf("gexplicit[4] -> %d,%d,%d,%d\n", gexplicit[0], gexplicit[1], gexplicit[2], gexplicit[3]);

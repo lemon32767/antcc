@@ -338,8 +338,6 @@ eval(struct expr *ex, enum evalmode mode)
    }
    if (ex->t == ECOND) {
       if (!eval(&ex->sub[0], mode) || ex->sub[0].t != ENUMLIT) return 0;
-      if (!eval(&ex->sub[1], mode)) return 0;
-      if (!eval(&ex->sub[2], mode)) return 0;
       *ex = ex->sub[!ex->sub[0].u + 1];
       return eval(ex, mode);
    }
