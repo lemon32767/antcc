@@ -1745,7 +1745,7 @@ ppelse(struct lexer *lx, const struct span *span)
 
 enum { MAXINCLUDE = 200 };
 static bool
-tryinclude(struct lexer *lx, const struct span *span, char *path)
+tryincludepath(struct lexer *lx, const struct span *span, char *path)
 {
    struct lexer new;
    const char *err;
@@ -1773,6 +1773,64 @@ tryinclude(struct lexer *lx, const struct span *span, char *path)
 }
 
 static void
+doinclude(struct lexer *lx, const struct span *span, bool quote, const char *str, size_t slen)
+{
+   char *path = NULL;
+   const char *base, *end;
+   if (quote) {
+      if (str[0] == '/') {
+         /* try absolute path */
+         xbgrow(&path, slen + 1);
+         memcpy(path, str, slen);
+         path[slen] = 0;
+         if (tryincludepath(lx, span, path)) return;
+         goto NotFound;
+      }
+
+      /* try relative to current file's directory */
+      base = getfilename(lx->fileid, 0);
+      for (end = base; *end != 0; ++end) {}
+      for (--end; *end != '/' && end != base; --end) {}
+      if (*end == '/') ++end;
+      xbgrow(&path, end - base + slen + 1);
+      memcpy(path, base, end - base);
+      memcpy(path + (end - base), str, slen);
+      path[end - base + slen] = 0;
+      if (tryincludepath(lx, span, path)) return;
+   }
+   /* try system paths. order:
+    * 1. -iquote
+    * 2. -I
+    * 3. -isystem
+    * 4. embedded include files
+    * 5. standard system includes
+    * 6. -idirafter
+    */
+   for (int i = quote ? CINCL_iquote : CINCL_I; i < countof(cinclpaths); ++i) {
+      for (struct inclpath *p = cinclpaths[i].list; p; p = p->next) {
+         if (i == CINCLsys) {
+            /* try embedded files pseudo-path */
+            xbgrow(&path, slen + 3);
+            path[0] = '@', path[1] = ':';
+            memcpy(path+2, str, slen);
+            path[slen+2] = 0;
+            if (tryincludepath(lx, span, path)) return;
+         }
+         int ndir = strlen(p->path);
+         xbgrow(&path, ndir + slen + 2);
+         memcpy(path, p->path, ndir);
+         path[ndir++] = '/';
+         memcpy(path + ndir, str, slen);
+         path[ndir + slen] = 0;
+         if (tryincludepath(lx, span, path)) return;
+      }
+   }
+NotFound:
+   error(span, "file not found: %'S", str, slen);
+   xbfree(path);
+}
+
+static void
 ppinclude(struct lexer *lx, const struct span *span0)
 {
    struct token tk;
@@ -1780,66 +1838,51 @@ ppinclude(struct lexer *lx, const struct span *span0)
 
    lexingheadername = 1;
    if (in_range(lex0(lx, &tk), TKPPHDRH, TKPPHDRQ)) {
-      char *path = NULL;
-      const char *base, *end;
-
       expecteol(lx, "include");
       joinspan(&span.ex, tk.span.ex);
-      if (tk.t == TKPPHDRQ) {
-         if (tk.s[0] == '/') {
-            /* try absolute path */
-            xbgrow(&path, tk.len + 1);
-            memcpy(path, tk.s, tk.len);
-            path[tk.len] = 0;
-            if (tryinclude(lx, &span, path)) return;
-            goto NotFound;
-         }
-
-         /* try relative to current file's directory */
-         base = getfilename(lx->fileid, 0);
-         for (end = base; *end != 0; ++end) {}
-         for (--end; *end != '/' && end != base; --end) {}
-         if (*end == '/') ++end;
-         xbgrow(&path, end - base + tk.len + 1);
-         memcpy(path, base, end - base);
-         memcpy(path + (end - base), tk.s, tk.len);
-         path[end - base + tk.len] = 0;
-         if (tryinclude(lx, &span, path)) return;
-      }
-      /* try system paths. order:
-       * 1. -iquote
-       * 2. -I
-       * 3. -isystem
-       * 4. embedded include files
-       * 5. standard system includes
-       * 6. -idirafter
-       */
-      for (int i = (tk.t != TKPPHDRQ); i < countof(cinclpaths); ++i) {
-         for (struct inclpath *p = cinclpaths[i].list; p; p = p->next) {
-            if (i == CINCLsys) {
-               /* try embedded files pseudo-path */
-               xbgrow(&path, tk.len + 3);
-               path[0] = '@', path[1] = ':';
-               memcpy(path+2, tk.s, tk.len);
-               path[tk.len+2] = 0;
-               if (tryinclude(lx, &span, path)) return;
-            }
-            int ndir = strlen(p->path);
-            xbgrow(&path, ndir + tk.len + 2);
-            memcpy(path, p->path, ndir);
-            path[ndir++] = '/';
-            memcpy(path + ndir, tk.s, tk.len);
-            path[ndir + tk.len] = 0;
-            if (tryinclude(lx, &span, path)) return;
-         }
-      }
-   NotFound:
-      error(&tk.span, "file not found: %'S", tk.s, tk.len);
-      xbfree(path);
+      doinclude(lx, &span, tk.t == TKPPHDRQ, tk.s, tk.len);
+   } else if (tk.t == '\n' || tk.t == TKEOF) {
+      lexingheadername = 0;
+      goto BadSyntax;
    } else {
-      error(&tk.span, "expected \"header\" or <header>");
-      ppskipline(lx);
-      return;
+      /* '#include pp-tokens'
+       * gather and expand pp-tokens */
+      struct token tksbuf[8];
+      vec_of(struct token) tks = VINIT(tksbuf, countof(tksbuf));
+      lexingheadername = 0;
+      for (;;) {
+         if (!lx->macstk) {
+            if (tryexpand(lx, &tk) == EXPSTACK) continue;
+            vpush(&tks, tk);
+         } else if (advancemacstk(lx, &tk)) {
+            vpush(&tks, tk);
+            continue;
+         }
+         if (lex0(lx, &tk) == '\n' || tk.t == TKEOF) break;
+      }
+      if (tks.n >= 1 && tks.p[0].t == TKSTRLIT) { /* "header.h" */
+         if (tks.n > 1)
+            (ccopt.pedant ? error : warn)(&tks.p[1].span, "extra tokens after #include");
+         joinspan(&span.ex, tks.p[0].span.ex);
+         doinclude(lx, &span, 1, tks.p[0].s, tks.p[0].len);
+      } else if (tks.n > 2 && tks.p[0].t == '<' && tks.p[tks.n-1].t == '>') { /* <header.h> */
+         /* this is multiple tokens, concatenate them together */
+         char buf[4096];
+         struct wbuf wbuf = MEMBUF(buf, sizeof buf);
+         for (int i = 1; i < tks.n-1; ++i) {
+            struct token *tk = &tks.p[i];
+            bfmt(&wbuf, &" %tk"[!tk->space], tk);
+         }
+         joinspan(&span.ex, tks.p[tks.n-1].span.ex);
+         if (wbuf.err) error(&span, "path too long");
+         else {
+            doinclude(lx, &span, 0, buf, wbuf.len);
+         }
+      } else {
+      BadSyntax:
+         error(&tk.span, "expected \"header\" or <header>");
+         ppskipline(lx);
+      }
    }
 }
 
