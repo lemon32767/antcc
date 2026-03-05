@@ -404,12 +404,9 @@ isppnum(char prev, char c)
    return 0;
 }
 
-/* special mode to parse header path for #include */
-static bool lexingheadername = 0;
-
 enum { MAXLITLEN = 256 }; /* maximum length of num literals and identifiers */
 static int
-lex0(struct lexer *lx, struct token *tk)
+lex0(struct lexer *lx, struct token *tk, bool includeheader)
 {
    int idx,q;
    bool space = 0;
@@ -509,9 +506,8 @@ Begin:
       TK2('=', TKEQU);
       RET(c);
    case '<':
-      if (lexingheadername) {
+      if (includeheader) {
          readheadername(lx, tk, '>');
-         lexingheadername = 0;
          goto End;
       }
       TK2('=', TKLTE);
@@ -532,9 +528,8 @@ Begin:
       TK2('=', TKSETIOR);
       RET(c);
    case '"':
-      if (lexingheadername) {
+      if (includeheader) {
          readheadername(lx, tk, '"');
-         lexingheadername = 0;
       } else {
    case '\'':
          tk->wideuni = 0;
@@ -868,7 +863,7 @@ ppdefine(struct lexer *lx)
    struct macro mac = {0};
    struct bitset usedparams[BSSIZE(MAXMACROARGS)] = {0};
 
-   lex0(lx, &tk0);
+   lex0(lx, &tk0, 0);
    if (tk0.t != TKIDENT) {
       error(&tk0.span, "macro name missing");
       ppskipline(lx);
@@ -882,7 +877,7 @@ ppdefine(struct lexer *lx)
       vec_of(internstr) params = {0};
       vinit(&params, NULL, 4);
       mac.fnlike = 1;
-      while (lex0(lx, &tk) != ')') {
+      while (lex0(lx, &tk, 0) != ')') {
          if (mac.variadic) {
             error(&tk.span, "expected `)' after `...'");
             if (tk.t == TKEOF || tk.t == '\n') return;
@@ -897,7 +892,7 @@ ppdefine(struct lexer *lx)
                if (tk.t == TKEOF || tk.t == '\n') return;
                break;
             }
-            lex0(lx, &tk);
+            lex0(lx, &tk, 0);
          }
          if (tk.t == TKIDENT)
             vpush(&params, tk.name);
@@ -917,7 +912,7 @@ ppdefine(struct lexer *lx)
 
    /* gather replacement list */
    mac.rl.off = mtoksbuf.n;
-   for (int n = 0; lex0(lx, &tk) != '\n' && tk.t != TKEOF;) {
+   for (int n = 0; lex0(lx, &tk, 0) != '\n' && tk.t != TKEOF;) {
       if (n == 0 && !tk.space)
          warn(&tk.span, "no whitespace after macro name");
       struct token *prev = n ? &mtoksbuf.p[mtoksbuf.n-1] : NULL;
@@ -969,7 +964,7 @@ expecteol(struct lexer *lx, const char *ppname)
 {
    struct token tk;
    assert(!lx->macstk);
-   if (lex0(lx, &tk) != '\n' && tk.t != TKEOF) {
+   if (lex0(lx, &tk, 0) != '\n' && tk.t != TKEOF) {
       (ccopt.pedant ? error : warn)(&tk.span, "extra tokens after #%s", ppname);
       ppskipline(lx);
    }
@@ -979,7 +974,7 @@ ppundef(struct lexer *lx)
 {
    struct token tk;
 
-   lex0(lx, &tk);
+   lex0(lx, &tk, 0);
    if (tk.t != TKIDENT) {
       error(&tk.span, "macro name missing");
       ppskipline(lx);
@@ -1082,7 +1077,7 @@ tryexpand(struct lexer *lx, struct token *tk)
             } else break;
          }
          if (t != '(') return 0;
-         lex0(lx, &tk);
+         lex0(lx, &tk, 0);
       } else { /* expansion context: look ahead in macro stack */
          if (s->idx >= s->rl.n || stkgetrl(s)[s->idx].t != '(') return 0;
          ++s->idx;
@@ -1153,7 +1148,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
       if (!s) {
          bool nl = 0;
          for (;; nl = 1) {
-            lex0(lx, &tk);
+            lex0(lx, &tk, 0);
             if (tk.t != '\n') break;
          }
          tk.space |= nl;
@@ -1431,7 +1426,7 @@ elex(struct lexer *lx, struct token *tk)
       return tk->t;
    }
 
-   lex0(lx, tk);
+   lex0(lx, tk, 0);
    return tk->t;
 }
 
@@ -1511,13 +1506,13 @@ Switch:
          if (!strcmp(tk.s, "defined")) {
             /* 'defined' ppident */
             bool paren = 0;
-            lex0(lx, &tk);
-            if ((paren = tk.t == '(')) lex0(lx, &tk);
+            lex0(lx, &tk, 0);
+            if ((paren = tk.t == '(')) lex0(lx, &tk, 0);
             if (!isppident(tk)) {
                error(&tk.span, "expected macro name");
                goto Err;
             }
-            if (paren && lex0(lx, &tk) != ')') {
+            if (paren && lex0(lx, &tk, 0) != ')') {
                error(&tk.span, "expected `)'");
                goto Err;
             }
@@ -1646,7 +1641,7 @@ ppifxdef(struct lexer *lx, bool defp, const struct span *span)
 {
    struct token tk;
 
-   lex0(lx, &tk);
+   lex0(lx, &tk, 0);
    if (tk.t != TKIDENT) {
       error(&tk.span, "macro name missing");
       ppskipline(lx);
@@ -1699,7 +1694,7 @@ ppelifxdef(struct lexer *lx, bool defp, const struct span *span)
       error(span, "#elif%sdef after #else", &"n"[defp]);
       return;
    }
-   lex0(lx, &tk);
+   lex0(lx, &tk, 0);
    if (tk.t != TKIDENT) {
       error(&tk.span, "macro name missing");
       ppskipline(lx);
@@ -1836,20 +1831,17 @@ ppinclude(struct lexer *lx, const struct span *span0)
    struct token tk;
    struct span span = *span0;
 
-   lexingheadername = 1;
-   if (in_range(lex0(lx, &tk), TKPPHDRH, TKPPHDRQ)) {
+   if (in_range(lex0(lx, &tk, 1), TKPPHDRH, TKPPHDRQ)) {
       expecteol(lx, "include");
       joinspan(&span.ex, tk.span.ex);
       doinclude(lx, &span, tk.t == TKPPHDRQ, tk.s, tk.len);
    } else if (tk.t == '\n' || tk.t == TKEOF) {
-      lexingheadername = 0;
       goto BadSyntax;
    } else {
       /* '#include pp-tokens'
        * gather and expand pp-tokens */
       struct token tksbuf[8];
       vec_of(struct token) tks = VINIT(tksbuf, countof(tksbuf));
-      lexingheadername = 0;
       for (;;) {
          if (!lx->macstk) {
             if (tryexpand(lx, &tk) == EXPSTACK) continue;
@@ -1858,7 +1850,7 @@ ppinclude(struct lexer *lx, const struct span *span0)
             vpush(&tks, tk);
             continue;
          }
-         if (lex0(lx, &tk) == '\n' || tk.t == TKEOF) break;
+         if (lex0(lx, &tk, 0) == '\n' || tk.t == TKEOF) break;
       }
       if (tks.n >= 1 && tks.p[0].t == TKSTRLIT) { /* "header.h" */
          if (tks.n > 1)
@@ -1901,7 +1893,7 @@ ppline(struct lexer *lx, struct token *tk0)
       if (lx->macstk && advancemacstk(lx, &tk)) {
          tks[ntk++] = tk;
          if (lx->macstk->idx >= lx->macstk->rl.n) popmac(lx, 1);
-      } else if (!lx->macstk && (lex0(lx, &tk) == '\n' || tk.t == TKEOF)) {
+      } else if (!lx->macstk && (lex0(lx, &tk, 0) == '\n' || tk.t == TKEOF)) {
          break;
       } else if (tk.t == TKIDENT && tryexpand(lx, &tk) == EXPSTACK) {
          continue;
@@ -1953,7 +1945,7 @@ pppragma(struct lexer *lx, const struct span *span0)
 {
    struct token tk;
    struct span span = *span0;
-   if (lex0(lx, &tk) == TKIDENT && !strcmp(tk.s, "once")) {
+   if (lex0(lx, &tk, 0) == TKIDENT && !strcmp(tk.s, "once")) {
       markfileonce(lx->fileid, NULL);
    } else {
       joinspan(&span.ex, tk.span.ex);
@@ -2100,9 +2092,9 @@ Begin:
         skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
    enum directive lastcmd = 0;
    for (;;) {
-      while ((t = lex0(lx, tk)) == '\n') linebegin = 1;
+      while ((t = lex0(lx, tk, 0)) == '\n') linebegin = 1;
       if (t == '#' && linebegin) {
-         if (lex0(lx, tk) == '\n') { }
+         if (lex0(lx, tk, 0) == '\n') { }
          else if (tk->t == TKNUMLIT || tk->t == TKIDENT) {
             lastcmd = tk->t == TKNUMLIT ? PPLINE : findppcmd(tk);
             if (nppcnd == lx->nppcnd0) lx->inclguard = NULL;
