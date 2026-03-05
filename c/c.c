@@ -1410,7 +1410,6 @@ globsym(union ref *psym, const struct expr *ex)
       return 1;
    }
    return 0;
-
 }
 
 static vlong /* -> returns addend */
@@ -1432,8 +1431,8 @@ expr2reloc(union ref *psym, const struct expr *ex)
    } else if (ex->t == EADD) {
       int swp = ex->sub[0].t == ENUMLIT;
       struct expr *a = &ex->sub[swp], *b = &ex->sub[swp ^ 1];
-      if (globsym(psym, a) && isint(b->ty) && b->t == ENUMLIT) {
-         return b->i * typesize(typechild(a->ty));
+      if (isint(b->ty) && b->t == ENUMLIT) {
+         return expr2reloc(psym, a) + b->i * typesize(typechild(a->ty));
       }
    }
    fatal(&ex->span, "internal bug: non static reloc?");
