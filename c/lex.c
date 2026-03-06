@@ -1875,6 +1875,7 @@ ppinclude(struct lexer *lx, const struct span *span0)
          error(&tk.span, "expected \"header\" or <header>");
          ppskipline(lx);
       }
+      vfree(&tks);
    }
 }
 
