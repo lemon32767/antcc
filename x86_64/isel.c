@@ -40,11 +40,12 @@ static const uchar opflags[NOPER] = {
 
 static int iflagsrc = -1;
 
+#define inscopy(blk, pcuri, k, r) insertinstr((blk), (*(pcuri))++, mkinstr(Ocopy, k, .l = (r)))
 static void
 picfixsym(union ref *r, struct block *blk, int *curi)
 {
    if (!ccopt.pic || !isaddrcon(*r,0)) return;
-   *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, .l = *r));
+   *r = inscopy(blk, curi, KPTR, *r);
 }
 
 static void
@@ -73,7 +74,7 @@ Begin:
          if (in_range(op, Ocopy, Omove) || op == Ophi)
             *r = ZEROREF;
          else
-            *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, con->cls, ZEROREF));
+            *r = inscopy(blk, curi, con->cls, ZEROREF);
       } else if (con->cls >= KI64) {
          /* float immediates & 64bit immediates are loaded from memory */
          uchar data[8];
@@ -81,7 +82,8 @@ Begin:
          union type ctype;
          /* can't use memory arg in rhs if lhs is memory */
          bool docopy = ins && &ins->l != r && (oisstore(ins->op) || ins->l.t == RADDR);
-         if (con->cls <= KPTR && in_range(op, Ocopy, Omove)) /* in this case we can use movabs */
+         if (con->cls <= KPTR && (in_range(op, Ocopy, Omove) || op == Ophi))
+            /* in this case we can use movabs */
             return;
          else if (!docopy || con->cls >= KF32) {
             if (con->cls != KF32) {
@@ -95,14 +97,14 @@ Begin:
             *r = mkdatref(NULL, ctype, ksiz, /*align*/ksiz, data, ksiz, /*deref*/1);
          }
          if (docopy)
-            *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, con->cls, *r));
-      } else if (op != Omove && (con->issym || (con->isdat && !con->deref)) && ins && r == &ins->r) {
-         *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, *r));
+            *r = inscopy(blk, curi, con->cls, *r);
+      } else if (op != Omove && ins && isaddrcon(*r,0) && r == &ins->r) {
+         *r = inscopy(blk, curi, KPTR, *r);
       } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls))
          goto DivImm;
    } else if (r->t == RICON && in_range(op, Odiv, Ourem) && kisint(ins->cls) && r == &ins->r) {
    DivImm: /* there is no division by immediate, must be copied to a register */
-      *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, *r));
+      *r = inscopy(blk, curi, ins->cls, *r);
    } else if (r->t == RICON && in_range(op, Oshl, Oslr) && r == &ins->r) {
       sh = r->i;
    ShiftImm: /* shift immediate is always 8bit */
@@ -113,8 +115,8 @@ Begin:
          *ins = adr;
       else
          *r = insertinstr(blk, (*curi)++, adr);
-   } else if (r->bits == UNDREF.bits && ins->op != Ocopy) {
-      *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, *r));
+   } else if (r->bits == UNDREF.bits && ins && !in_range(op, Ocopy, Omove) && op != Ophi) {
+      *r = inscopy(blk, curi, ins->cls, *r);
    }
    picfixsym(r, blk, curi);
 }
@@ -167,7 +169,7 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    if (isimm32(ins->l))
       ins->l = mkaddr((struct addr){.base = ins->l});
    else if (isintcon(ins->l))
-      ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->l));
+      ins->l = inscopy(blk, curi, KPTR, ins->l);
 
    if (call->vararg >= 0) {
       /* variadic calls write number of sse regs used to AL */
@@ -233,51 +235,56 @@ ascale(struct addr *addr, union ref a, union ref b)
 }
 
 static bool
-aadd(struct addr *addr, struct block *blk, int *curi, union ref r)
+aadd(struct addr *out, struct block *blk, int *curi, union ref r, bool recurring)
 {
    if (r.t == RSTACK) {
-      if (addr->base.bits || !aimm(addr, -r.i)) goto Ref;
-      addr->base = mkref(RREG, RBP);
+      if (out->base.bits || !aimm(out, -r.i)) {
+         r = insertinstr(blk, (*curi)++, mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, -r.i)));
+         goto Ref;
+      }
+      out->base = mkref(RREG, RBP);
    } else if (r.t == RTMP) {
       struct instr *ins = &instrtab[r.i];
+      struct addr adr = {0};
       if (ins->op == Oadd) {
-         if (!aadd(addr, blk, curi, ins->l)) goto Ref;
-         if (!aadd(addr, blk, curi, ins->r)) goto Ref;
-         ins->skip = 1;
-      } else if (ins->op == Oshl) {
-         if (!ascale(addr, ins->l, ins->r)) goto Ref;
-         ins->skip = 1;
-      } else if (ins->op == Ocopy && ins->l.t == RADDR) {
-         struct addr save = *addr, *addr2 = &addrtab.p[ins->l.i];
-         if ((!addr2->base.bits || aadd(addr, blk, curi, addr2->base))
-          && aimm(addr, addr2->disp)
-          && (!addr2->index.bits || ascale(addr, addr2->index, mkref(RICON, addr2->shift))))
-         {
+         if (recurring) goto Ref;
+         if (aadd(&adr, blk, curi, ins->l, 1) && aadd(&adr, blk, curi, ins->r, 1)) {
+         Add2:;
+            int n1 = !!out->base.bits + !!out->index.bits;
+            int n2 = !!adr.base.bits + !!adr.index.bits;
+            vlong off = (vlong) out->disp + adr.disp;
+            if (n1+n2 > 2 || (int)off != off) goto Ref;
+            if (n1 == 0) {
+               *out = adr;
+            } else if (n1 == 1 && n2 == 1) {
+               assert(!out->index.bits);
+               out->index = adr.index.bits ? adr.index : adr.base;
+               out->shift = adr.shift;
+            } else assert(n1 <= 2 && n2 == 0);
+            out->disp = off;
             ins->skip = 1;
-         } else {
-            *addr = save;
-            goto Ref;
-         }
-      } else if (ins->op == Ocopy) {
-         if (!aadd(addr, blk, curi, ins->l)) goto Ref;
+         } else return 0;
+      } else if (ins->op == Ocopy && ins->l.t == RADDR) {
+         const struct addr *adr2 = &addrtab.p[ins->l.i];
+         adr = *adr2;
+         goto Add2;
+      } else if (ins->op == Oshl) {
+         if (!ascale(out, ins->l, ins->r)) goto Ref;
          ins->skip = 1;
       } else goto Ref;
    } else if (isnumcon(r)) {
       assert(isintcon(r));
-      return aimm(addr, intconval(r));
+      return aimm(out, intconval(r));
    } else if (isaddrcon(r,1)) {
-      if (!addr->base.bits && !isaddrcon(addr->index,1)) addr->base = r;
+      if (!out->base.bits && !isaddrcon(out->index,1)) out->base = r;
       else return 0;
    } else if (r.t == RREG) {
       /* temporaries are single assignment, but register aren't, so they can't be *
        * safely hoisted into an address value, unless they have global lifetime */
       if (!rstest(mctarg->rglob, r.i)) return 0;
    Ref:
-      if (r.t == RSTACK && (addr->base.bits || addr->index.bits)) {
-         r = insertinstr(blk, (*curi)++, mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, -r.i)));
-      }
-      if (!addr->base.bits) addr->base = r;
-      else if (!addr->index.bits) addr->index = r;
+      if (!out->base.bits) out->base = r;
+      else if (!out->index.bits) out->index = r;
       else return 0;
    } else return 0;
    return 1;
@@ -289,24 +296,14 @@ fuseaddr(union ref *r, struct block *blk, int *curi)
    struct addr addr = { 0 };
 
    if (isaddrcon(*r,1)) return 1;
-   if (r->t == RADDR) {
-      const struct addr *a0 = &addrtab.p[r->i];
-      if (aadd(&addr, blk, curi, a0->base)
-        && (!addr.index.bits || ascale(&addr, a0->index, mkref(RICON, a0->shift)))
-        && aadd(&addr, blk, curi, mkintcon(KPTR, a0->disp))) {
-         *r = mkaddr(addr);
-      }
-      return 1;
-   }
-   if (r->t != RSTACK && r->t != RTMP) return 0;
-   if (!aadd(&addr, blk, curi, *r)) return 0;
+   if (!aadd(&addr, blk, curi, *r, 0)) return 0;
 
    if (isaddrcon(addr.base,0) && (ccopt.pic || (ccopt.pie && addr.index.bits) || (contab.p[addr.base.i].flag & SFUNC))) {
       /* pic needs to load from GOT */
       /* pie cannot encode RIP-relative address with index register */
       /*     first load symbol address into a temp register */
       union ref temp = mkaddr((struct addr){.base = addr.base, .disp = ccopt.pic ? 0 : addr.disp});
-      addr.base = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, .l = temp));
+      addr.base = inscopy(blk, curi, KPTR, temp);
       if (!ccopt.pic) addr.disp = 0;
    }
 
@@ -326,11 +323,11 @@ static bool
 addarg4addrp(union ref r)
 {
    struct instr *ins;
-   if (r.t == RXCON && !contab.p[r.i].cls && !contab.p[r.i].deref) return 1; /* sym or dat ref */
+   if (isaddrcon(r, 0)) return 1;
    if (r.t == RSTACK) return 1;
    if (r.t != RTMP) return 0;
    ins = &instrtab[r.i];
-   return ins->op == Oshl || (ins->op == Ocopy && ins->l.t == RADDR) || ins->op == Oadd;
+   return (ins->op == Ocopy && ins->l.t == RADDR) || ins->op == Oadd || ins->op == Oshl;
 }
 
 static void
@@ -340,8 +337,8 @@ loadstoreaddr(struct block *blk, union ref *r, int *curi)
       *r = mkaddr((struct addr){.base = *r});
    } else if (isaddrcon(*r, 0)) {
       picfixsym(r, blk, curi);
-   } else if (r->t == RTMP || r->t == RSTACK) {
-      if (addarg4addrp(*r)) fuseaddr(r, blk, curi);
+   } else if (r->t == RSTACK || (r->t == RTMP && addarg4addrp(*r))) {
+      fuseaddr(r, blk, curi);
    } else if (r->t != RREG) {
       *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, *r));
    }
@@ -410,7 +407,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          rswap(ins->l, ins->r);
       }
       if (ins->l.t != RTMP && ins->l.t != RREG && ins->l.t != RSTACK)
-         ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ins->cls, ins->l));
+         ins->l = inscopy(blk, curi, ins->cls, ins->l);
       else
          fixarg(&ins->l, ins, blk, curi);
       fixarg(&ins->r, ins, blk, curi);
@@ -456,30 +453,11 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       }
       /* fallthru */
    case Oadd:
-      if (kisint(ins->cls)) {
-         if ((addarg4addrp(ins->l) || addarg4addrp(ins->r))) {
-            temp.op = Ocopy;
-            temp.cls = ins->cls;
-            temp.l = mkref(RTMP, t);
-            if (fuseaddr(&temp.l, blk, curi)) {
-               *ins = temp;
-               break;
-            } else if (ins->l.t == RSTACK && (ins->r.t == RTMP || isintcon(ins->r))) {
-               /* handles an edge case with 'add [stack], %{add x,y}' (not ideal) */
-               struct addr addr = {0};
-               bool ok = aadd(&addr, blk, curi, ins->l);
-               assert(ok);
-               if (ins->r.t == RTMP) {
-                  addr.index = ins->r;
-                  temp.l = mkaddr(addr);
-                  *ins = temp;
-                  break;
-               } else if (aadd(&addr, blk, curi, ins->r)) { /* aadd handles disp being too large */
-                  temp.l = mkaddr(addr);
-                  *ins = temp;
-                  break;
-               }
-            }
+      if (kisint(ins->cls) && (addarg4addrp(ins->l) || addarg4addrp(ins->r))) {
+         union ref it = mkref(RTMP, ins - instrtab);
+         if (fuseaddr(&it, blk, curi)) {
+            *ins = mkinstr(Ocopy, ins->cls, it);
+            break;
          }
       }
       /* fallthru */
