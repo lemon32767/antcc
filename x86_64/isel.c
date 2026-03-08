@@ -447,7 +447,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          goto ALU;
       } else if (kisint(ins->cls) && isintcon(ins->r)) {
          ins->op = op = Oadd;
-         ins->r = mkintcon(concls(ins->r), -intconval(ins->r));
+         ins->r = mkintcon(concls(ins->r), -(uvlong)intconval(ins->r));
       } else {
          goto ALU;
       }

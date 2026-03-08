@@ -370,7 +370,7 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
             if (mem.index == NOINDEX && mem.shift == 0) sib = 0;
             else sib = 1;
             mod = !mem.disp ? 0                    /* disp = 0 -> mod = 00 */
-                : (uint)(mem.disp + 128) < 256 ? 1 /* disp8 -> mod = 01 */
+                : (schar)mem.disp == mem.disp ? 1  /* disp8 -> mod = 01 */
                 : 2;                               /* disp32 -> mod = 10 */
             if (mod == 0 && (mem.base == RBP || mem.base == R13)) mod = 1;
             if (mem.base == RSP || mem.base == R12) sib = 1;
@@ -1030,7 +1030,7 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
       } else if (ins->reg-1 == dst.reg) { /* two-address add */
          src = ref2oper(ins->r);
          if (src.t == OIMM && src.imm < 0) /* ADD -imm -> SUB imm, for niceness */
-            Xsub(pcode, cls, dst, (src.imm = -src.imm, src));
+            Xsub(pcode, cls, dst, (src.imm = -(uint)src.imm, src));
          else
             Xadd(pcode, cls, dst, src);
       } else if (isregref(ins->r) && ins->reg-1 == mkregoper(ins->r).reg) {
