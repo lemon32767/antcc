@@ -1,6 +1,10 @@
 #include "ir.h"
 #include "../endian.h"
+#include <limits.h>
 
+#ifdef __clang__
+__attribute__((no_sanitize("float-cast-overflow"))) /* silence UBsan for float->int overflow */
+#endif
 static union ref
 foldint(enum op op, enum irclass k, union ref lr, union ref rr)
 {
@@ -15,10 +19,16 @@ foldint(enum op op, enum irclass k, union ref lr, union ref rr)
    case Ocopy: x = l.s; break;
    case Oneg:  x = -l.s; break;
    case Onot:  x = ~l.s; break;
-   case Ocvtf32s: x = (int)(float)fltconval(lr); break;
-   case Ocvtf32u: x = (uint)(float)fltconval(lr); break;
-   case Ocvtf64s: x = (vlong)fltconval(lr); break;
-   case Ocvtf64u: x = (uvlong)fltconval(lr); break;
+#define CVTF2I(TF, TI) do { \
+   TF f = fltconval(lr);    \
+   if (f != f) x = 0;       \
+   else x = (TI)f;          \
+} while (0)
+   case Ocvtf32s: if (w) CVTF2I(float,   vlong); else CVTF2I(float,  int);  break;
+   case Ocvtf32u: if (w) CVTF2I(float,  uvlong); else CVTF2I(float,  uint); break;
+   case Ocvtf64s: if (w) CVTF2I(double,  vlong);  else CVTF2I(double, int);  break;
+   case Ocvtf64u: if (w) CVTF2I(double, uvlong); else CVTF2I(double, uint); break;
+#undef CVTF2I
    case Oexts8:  x = (schar)l.s; break;
    case Oextu8:  x = (uchar)l.s; break;
    case Oexts16: x = (short)l.s; break;
