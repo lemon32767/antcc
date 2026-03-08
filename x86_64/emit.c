@@ -496,6 +496,10 @@ static void Xmov(uchar **pcode, enum irclass k, struct oper dst, struct oper src
       [KF32] = 7,
       [KF64] = 10,
    };
+   if (kisflt(k) && src.t == OIMM && src.imm == 0) {
+      /* special case for storing zero float : use integer instruction with zero immediate */
+      k = KI32 + (k - KF32);
+   }
    encode(pcode, all + k2off[k], countof(all) - k2off[k], k, dst, src);
 }
 DEFINSTR2(Xmovsxl,
@@ -704,7 +708,7 @@ Ximul(uchar **pcode, enum irclass k, struct oper dst, struct oper s1, struct ope
       return;
    }
    assert(s2.t == OIMM);
-   if ((uint)(s2.imm + 128) < 256) {
+   if (-128 <= s2.imm && s2.imm < 128) {
       encode(pcode, imul3_imm8tab, countof(imul3_imm8tab), k, dst, s1);
       B(s2.imm);
    } else {
