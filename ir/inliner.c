@@ -1,7 +1,6 @@
 #include "ir.h"
 
 struct savedfunc {
-   int mark;
    uint ninstr;
    struct instr *instrtab;
    struct xcon *contab;
@@ -255,16 +254,22 @@ inlcall(struct function *fn, struct block *blk, int curi, struct savedfunc *sv)
    return exit;
 }
 
+enum { MAX_REC_INLINE = 16 };
 void
 doinline(struct function *fn)
 {
    if (calltab.n == 0) return;
    struct block *b = fn->entry;
-   static int visitmark = 1; /* stops infinite recursion */
-   struct block *vnext = NULL;
+   struct stack { /* stack of callees being inline expanded */
+      struct block *b; /* block after the end of expansion */
+      struct savedfunc *sv;
+   } stkbuf[MAX_REC_INLINE], *stk = stkbuf + MAX_REC_INLINE, *stkend = stk;
    bool dumpbefore = 0;
    do {
-      if (b == vnext) ++visitmark;
+      if (stk != stkend && b == stk->b)
+         ++stk; /* pop */
+      else if (stk == stkbuf) /* stack full? */
+         continue;
       for (int i = 0; i < b->ins.n; ++i) {
          struct instr *ins = &instrtab[b->ins.p[i]];
          if (ins->op != Ocall) continue;
@@ -274,11 +279,12 @@ doinline(struct function *fn)
          struct savedfunc **pcallee, *sv;
          if ((pcallee = pmap_get(&savedfns, fname))
            && (sv = *pcallee)->nabiarg == call->narg && call->vararg == -1
-           && sv->mark != visitmark
            && call->narg == sv->nabiarg
            && (!call->narg || !memcmp(sv->abiarg, call->abiarg, sizeof *sv->abiarg * sv->nabiarg))
            && !memcmp(sv->abiret, call->abiret, sizeof sv->abiret)) {
-            sv->mark = visitmark;
+            for (struct stack *s = stk; s != stkend; ++s) {
+               if (s->sv == sv) goto Skip; /* recursion encountered */
+            }
             if (ccopt.dbg.y) {
                if (!dumpbefore) {
                   bfmt(ccopt.dbgout, "<< Before inlining >>\n");
@@ -286,13 +292,16 @@ doinline(struct function *fn)
                   dumpbefore = 1;
                }
             }
-            vnext = inlcall(fn, b, i, *pcallee);
+
+            (--stk)->b = inlcall(fn, b, i, *pcallee);
+            stk->sv = sv;
             if (ccopt.dbg.y) {
-               bfmt(ccopt.dbgout, "<< After inlining '%s' >>\n", fname);
+               bfmt(ccopt.dbgout, "<< After inlining '%s' (@%d-@%d) >>\n", fname, b->lnext->id, stk->b->id);
                irdump(fn);
             }
             break;
          }
+      Skip:;
       }
    } while ((b = b->lnext) != fn->entry);
 }
