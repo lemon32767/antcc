@@ -215,15 +215,16 @@ binop(struct expr *ex, enum evalmode mode)
 
    if (ex->ty.t == TYPTR) mode = EVFOLD;
    if (!eval(lhs, mode)) return 0;
-   if (!eval(rhs, mode)) return 0;
    if (in_range(ex->t, EADD, ESHR))
       oty = ex->ty;
    else
       oty = cvtarith(lhs->ty, rhs->ty);
-   if (!numcast(oty, lhs, lhs)) return 0;
-   if (!numcast(oty, rhs, rhs)) return 0;
    flt = isflt(oty);
    sgn = issigned(oty);
+   if (ex->t != ELOGAND && ex->t != ELOGIOR) {
+      if (!numcast(oty, lhs, lhs)) return 0;
+      if (!eval(rhs, mode) || !numcast(oty, rhs, rhs)) return 0;
+   }
    switch (ex->t) {
 #define ef else if
    case EADD: if (flt) lhs->f += rhs->f;
@@ -264,14 +265,6 @@ binop(struct expr *ex, enum evalmode mode)
                ef (sgn) lhs->i >>= rhs->i;
                else     lhs->u >>= rhs->u;
                break;
-   case ELOGAND: if (flt) t = lhs->f && rhs->f;
-                 else     t = lhs->u && rhs->u;
-                 lhs->u = t;
-                 break;
-   case ELOGIOR: if (flt) t = lhs->f || rhs->f;
-                 else     t = lhs->u || rhs->u;
-                 lhs->u = t;
-                 break;
    case EEQU: if (flt) t = lhs->f == rhs->f;
               else     t = lhs->u == rhs->u;
               lhs->u = t;
@@ -300,12 +293,30 @@ binop(struct expr *ex, enum evalmode mode)
               else     t = lhs->u >= rhs->u;
               lhs->u = t;
               break;
+   case ELOGAND: if (flt) t = lhs->f; else t = lhs->u;
+                 if (t) {
+                    if (!eval(rhs, mode) || !numcast(oty, rhs, rhs)) return 0;
+                    if (flt) t = t && lhs->f;
+                    else     t = t && lhs->u;
+                 }
+                 lhs->u = t;
+                 break;
+   case ELOGIOR: if (flt) t = lhs->f; else t = lhs->u;
+                 if (!t) {
+                    if (!eval(rhs, mode) || !numcast(oty, rhs, rhs)) return 0;
+                    if (flt) t = t || lhs->f;
+                    else     t = t || lhs->u;
+                 }
+                 lhs->u = t;
+                 break;
    default: return 0;
 #undef ef
    }
 
-   if (!in_range(ex->t, EADD, ESHR))
+   if (!in_range(ex->t, EADD, ESHR)) {
+      lhs->t = ENUMLIT;
       lhs->ty = mktype(TYINT);
+   }
    return numcast(ex->ty, ex, lhs);
 }
 

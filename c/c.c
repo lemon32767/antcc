@@ -476,17 +476,23 @@ subscriptcheck(const struct expr *ex, const struct expr *rhs, const struct span 
    return ty;
 }
 
-static void /* 6.5.3.4 The sizeof and _Alignof operators */
+static uint /* 6.5.3.4 The sizeof and _Alignof operators */
 sizeofalignofcheck(const struct span *span, enum toktag tt, union type ty, const struct expr *ex)
 {
-   if (isincomplete(ty))
+   uint r = (tt == TKWsizeof ? typesize : typealign)(ty);
+   if (ty.t == TYVOID) {
+      if (ccopt.pedant) warn(span, "applying %'tt to void type", tt);
+      r = 1;
+   } else if (isincomplete(ty)) {
       error(span, "cannot apply %'tt to incomplete type '%ty'", tt, ty);
-   else if (ty.t == TYFUNC)
+   } else if (ty.t == TYFUNC) {
       error(span, "cannot apply %'tt to function type '%ty'", tt, ty);
-   else if (tt == TKWsizeof && ex && ex->t == EGETF && ex->fld.bitsiz)
+   } else if (tt == TKWsizeof && ex && ex->t == EGETF && ex->fld.bitsiz) {
       error(span, "cannot apply %'tt to bitfield", tt);
+   }
    if (tt != TKWsizeof && ex && ccopt.pedant)
       warn(span, "%'tt applied to an expression is a GNU extension", tt);
+   return r;
 }
 
 static bool /* 6.5.8 Relational operators */
@@ -506,9 +512,11 @@ static bool
 isnullpo(const struct expr *ex) /* match '0' or '(void *) 0' */
 {
    static const union type voidptr = {{ TYPTR, .flag = TFCHLDPRIM, .child = TYVOID }};
-   if (ex->t == ECAST && ex->ty.bits == voidptr.bits)
+   while (ex->t == ECAST && ex->ty.bits == voidptr.bits)
       ex = ex->sub;
-   return iszero(*ex);
+   if (iszero(*ex)) return 1;
+   return eval((struct expr *)ex, EVINTCONST) /* GNU extension. should we warn? */
+       && iszero(*ex);
 }
 
 static bool /* 6.5.9 Equality operators */
@@ -531,14 +539,14 @@ condtype(const struct expr *a, const struct expr *b)
    union type t1 = typedecay(a->ty), t2 = typedecay(b->ty), s1, s2;
    if (isarith(t1) && isarith(t2)) return cvtarith(t1, t2);
    if (t1.bits == t2.bits) return t1;
+   if (t1.t == TYPTR && isnullpo(b)) return t1;
+   if (isnullpo(a) && t2.t == TYPTR) return t2;
    if (t1.t == TYPTR && t2.t == TYPTR) {
       s1 = typechild(t1), s2 = typechild(t2);
       if (s1.bits == s2.bits || s2.t == TYVOID || s1.t == TYVOID) {
          return mkptrtype(s1.t == TYVOID ? s1 : s2, (t1.flag | t2.flag) & TFCHLDQUAL);
       }
    }
-   if (t1.t == TYPTR && isnullpo(b)) return t1;
-   if (isnullpo(a) && t2.t == TYPTR) return t2;
    return mktype(0);
 }
 
@@ -1114,30 +1122,30 @@ Unary:
          ex = mkexpr(ESYM, tk.span, decl->ty, .qual = decl->qual, .decl = decl - declsbuf.p);
       }
       break; }
-   case TKWsizeof: case TKW_Alignof: case TKWalignof:
+   case TKWsizeof: case TKW_Alignof: case TKWalignof: {
+      enum toktag tt = tk.t;
+      uint res;
       span = tk.span;
       if (!match(cm, NULL, '(')) /* sizeof/alignof expr */
          goto Unops;
       else if (isdecltok(cm)) { /* sizeof/alignof (type) */
-         enum toktag tt = tk.t;
          struct declstate st = { DCASTEXPR };
          ty = pdecl(&st, cm).ty;
          peek(cm, &tk);
          if (expect(cm, ')', NULL))
             joinspan(&span.ex, tk.span.ex);
-         sizeofalignofcheck(&span, tt, ty, NULL);
+         res = sizeofalignofcheck(&span, tt, ty, NULL);
       } else { /* sizeof/alignof expr */
-         enum toktag tt = tk.t;
          struct expr tmp = commaexpr(cm);
          peek(cm, &tk);
          if (expect(cm, ')', NULL))
             joinspan(&span.ex, tk.span.ex);
          ppostfixopers(cm, &tmp);
          ty = tmp.ty;
-         sizeofalignofcheck(&span, tt, ty, &tmp);
+         res = sizeofalignofcheck(&span, tt, ty, &tmp);
       }
-      ex = mkexpr(ENUMLIT, span, mktype(targ_sizetype), .u = typesize(ty));
-      break;
+      ex = mkexpr(ENUMLIT, span, mktype(targ_sizetype), .u = res);
+      break; }
    case TKW__builtin_va_arg:
       span = tk.span;
       ex = vaargexpr(cm, &span);
@@ -1187,7 +1195,7 @@ Unary:
          case '*':
             if (ex.ty.t == TYPTR || ex.ty.t == TYARRAY) {
                ty = typechild(ex.ty);
-               if (isincomplete(typedecay(ty))) {
+               if (ty.t != TYVOID && isincomplete(typedecay(ty))) {
                   error(&span, "cannot dereference pointer to incomplete type '%ty'", ty);
                   ty = mktype(TYINT);
                }
@@ -1206,8 +1214,8 @@ Unary:
             ex = mkexpr(EADDROF, span, mkptrtype(ex.ty, ex.qual), .sub = exprdup(cm, &ex));
             break;
          case TKWsizeof: case TKW_Alignof: case TKWalignof:
-            sizeofalignofcheck(&span, unops[nunop].tt, ex.ty, &ex);
-            ex = mkexpr(ENUMLIT, span, mktype(targ_sizetype), .u = typesize(ex.ty));
+            ex = mkexpr(ENUMLIT, span, mktype(targ_sizetype),
+                  .u = sizeofalignofcheck(&span, unops[nunop].tt, ex.ty, &ex));
             break;
          default: assert(0);
          }
