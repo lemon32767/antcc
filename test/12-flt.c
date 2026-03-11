@@ -40,6 +40,11 @@ double nummod(double a, double b) {
    return m;
 }
 
+double branch(double a) {
+   if (a + 1.1) return 0.0;
+   return -a;
+}
+
 int main() {
    NAN/=0.0;
    assert(_(1.0) < _(2.0));

@@ -577,7 +577,7 @@ seljmp(struct function *fn, struct block *blk)
        && (oiscmp(instrtab[c.i].op) || instrtab[c.i].op == Oand || instrtab[c.i].op == Osub)) {
          instrtab[c.i].keep = 1;
       } else {
-         if (!(opflags[instrtab[c.i].op] & ZF) || blk->ins.n == 0 || c.i != blk->ins.p[blk->ins.n - 1]) {
+         if (kisflt(instrtab[c.i].cls) || !(opflags[instrtab[c.i].op] & ZF) || blk->ins.n == 0 || c.i != blk->ins.p[blk->ins.n - 1]) {
             struct instr *ins;
             int curi = blk->ins.n;
             blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, insrescls(instrtab[c.i]), c, ZEROREF));
