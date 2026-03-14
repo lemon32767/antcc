@@ -1,4 +1,5 @@
 #include "c.h"
+#include "../ir/ir.h"
 
 static int
 targ2hosttype(enum typetag t)
@@ -76,6 +77,64 @@ numcast(union type ty, struct expr *dst, const struct expr *src)
    return 1;
 }
 
+static struct expr *
+lit2ssym(struct expr *ex)
+{
+   ex->ssym.sym = xcon2sym(expraddr(NULL, ex).i);
+   ex->ssym.local = 1;
+   ex->ssym.func = ex->ssym.off = 0;
+   ex->t = ESSYMREF;
+   return ex;
+}
+
+static struct expr
+staticaddrof(struct expr *ex, enum evalmode mode)
+{
+   struct expr ret = { .ty = mkptrtype(ex->ty, ex->qual), .span = ex->span };
+   if (ex->t == ESYM && ex->ty.t < NTYPETAG) {
+      const struct decl *decl = &declsbuf.p[ex->decl];
+      if (decl->sym && (decl->scls & (SCAUTO|SCREGISTER)) == 0) {
+         ret.t = ESSYMREF;
+         ret.ssym.sym = decl->sym;
+         ret.ssym.off = 0;
+         ret.ssym.func = decl->ty.t == TYFUNC;
+         ret.ssym.local = (decl->scls == SCSTATIC || decl->isdef);
+      }
+   } else if (ex->t == EDEREF && eval(ex->sub, EVSTATICINI)) {
+      ret = *ex->sub;
+   } else if (ex->t == EGETF && (ret = staticaddrof(ex->sub, mode)).t) {
+      if (ret.t == ESSYMREF) {
+         ex->t = ESSYMREF;
+         vlong off = (vlong) ret.ssym.off + ex->fld.off;
+         if ((int) off != off) return ret.t = 0, ret;
+         ret.ssym.off = off;
+      } else if (ret.t == ENUMLIT) {
+         ret.u += ex->fld.off;
+      } else assert(0);
+   } else if (ex->t == ESTRLIT || (mode == EVSTATICINI && ex->t == EINIT)) {
+      ret = *lit2ssym(ex);
+   } else if (ex->t == ENUMLIT || ex->t == ESSYMREF) ret = *ex;
+   return ret;
+}
+
+static bool
+isstaticlval(const struct expr *ex, enum evalmode mode)
+{
+   return ex->t == ESTRLIT || ex->t == ESSYMREF || (mode == EVSTATICINI && ex->t == EINIT);
+}
+
+static bool
+truthy(const struct expr *ex)
+{
+   switch (ex->t) {
+   default: assert(0 && "!scalar?");
+   case ENUMLIT:
+      return isflt(ex->ty) ? ex->f != 0.0 : ex->u != 0;
+   case ESTRLIT: case ESSYMREF:
+      return 1;
+   }
+}
+
 static bool
 unop(struct expr *ex, enum evalmode mode)
 {
@@ -86,231 +145,242 @@ unop(struct expr *ex, enum evalmode mode)
       uchar *p;
       uint len;
       uint csiz;
+      /* HACK */
       if (sub->t == ESTRLIT) {
          /*  *"s"  */
          off = 0;
          p = sub->s.p, len = sub->s.n;
          csiz = typesize(typechild(sub->ty));
+      StrRead:
+         if (off > len) return 0;
+         ex->t = ENUMLIT;
+         ex->ty = mktype(TYINT);
+         if (off == len) ex->u = 0;
+         else if (csiz == 1) ex->u = p[off];
+         else if (csiz == 2) ex->u = ((short *)p)[off];
+         else if (csiz == 4) ex->u = ((int *)p)[off];
+         return 1;
       } else if (sub->t == EADD && sub->sub[0].t == ESTRLIT && eval(&sub->sub[1], EVINTCONST)) {
          /*  "s"[0]  */
          assert(sub->sub[1].t == ENUMLIT && isint(sub->sub[1].ty));
          off = sub->sub[1].u;
          p = sub->sub[0].s.p, len = sub->sub[0].s.n;
          csiz = typesize(typechild(sub->sub[0].ty));
+         goto StrRead;
       } else if (sub->t == EADD && sub->sub[1].t == ESTRLIT && eval(&sub->sub[0], EVINTCONST)) {
          /*  0["s"]  */
          assert(sub->sub[0].t == ENUMLIT && isint(sub->sub[0].ty));
          off = sub->sub[0].u;
          p = sub->sub[1].s.p, len = sub->sub[1].s.n;
          csiz = typesize(typechild(sub->sub[1].ty));
+         goto StrRead;
       } else return 0;
-      if (off > len) return 0;
-      ex->t = ENUMLIT;
-      ex->ty = mktype(TYINT);
-      if (off == len) ex->u = 0;
-      else if (csiz == 1) ex->u = p[off];
-      else if (csiz == 2) ex->u = ((short *)p)[off];
-      else if (csiz == 4) ex->u = ((int *)p)[off];
-      return 1;
-   }
-   if (ex->t == EADDROF) {
+   } else if (ex->t == EADDROF) {
       assert(ex->ty.t == TYPTR);
-      /* oh boy */
-      /* match &(*(T *)12345).fld */
-      if (sub->t == EGETF && sub->sub->t == EDEREF && eval(sub->sub->sub, EVFOLD) && sub->sub->sub->t == ENUMLIT) {
-         ex->t = ENUMLIT;
-         ex->u = sub->sub->sub->u + sub->fld.off;
-         return 1;
+      struct expr ex2 = staticaddrof(ex->sub, mode);
+      if (!ex2.t) return 0;
+      ex2.span = ex->span;
+      ex2.ty = ex->ty;
+      *ex = ex2;
+      return 1;
+   } else if (ex->t == EGETF && !ex->fld.bitsiz) {
+      /* <lvalue>.memb -> is an address lvalue if 'memb' is of array type */
+      if (ex->ty.t == TYARRAY) {
+         struct expr ex2;
+         if ((ex2 = staticaddrof(ex->sub, mode)).t) {
+            if (ex2.t == ENUMLIT) {
+               ex->t = ENUMLIT;
+               ex->u = ex2.u + ex->fld.off;
+               return 1;
+            } else {
+               assert(ex2.t == ESSYMREF);
+               ex->t = ESSYMREF;
+               vlong off = (vlong) sub->ssym.off + ex->fld.off;
+               if ((int) off != off) return 0;
+               ex->ssym = ex2.ssym;
+               ex->ssym.off = off;
+               return mode >= EVSTATICINI;
+            }
+         }
       }
+      return 0;
    }
-   if (sub->t != ENUMLIT && !eval(sub, mode)) return 0;
-   if (sub->t != ENUMLIT) return 0;
+   if (!eval(sub, mode)) return 0;
    switch (ex->t) {
    case ECAST:
-      if (ex->ty.t == TYPTR) {
+      if (ex->ty.t == TYPTR && sub->t == ENUMLIT) {
          ex->t = ENUMLIT;
          ex->u = sub->u;
+         return 1;
+      } else if (isstaticlval(sub, mode)
+       && (ex->ty.t == TYPTR || (isint(ex->ty) && typesize(ex->ty) == targ_primsizes[TYPTR]))) {
+         /* ptr -> int */
+         if (sub->t == ESTRLIT || sub->t == EINIT)
+            lit2ssym(sub);
+         sub->span = ex->span, sub->ty = ex->ty;
+         *ex = *sub;
          return 1;
       }
       break;
    case EPLUS:
       break;
    case ENEG:
+      if (sub->t != ENUMLIT) return 0;
       if (isint(sub->ty)) sub->u = -sub->u;
       else assert(isflt(sub->ty)), sub->f = -sub->f;
       break;
    case ECOMPL:
-      if (!isint(sub->ty)) return 0;
+      if (sub->t != ENUMLIT) return 0;
+      assert(isint(sub->ty));
       sub->u = ~sub->u;
       break;
    case ELOGNOT:
-      if (isint(sub->ty) || isptrcvt(sub->ty)) sub->u = !sub->u;
-      else assert(isflt(sub->ty)), sub->u = !sub->f;
+      sub->u = !truthy(sub);
+      sub->t = ENUMLIT;
       break;
    default:
       return 0;
    }
-   if (!numcast(ex->ty, ex, sub)) return 0;
+   if (sub->t != ENUMLIT || !numcast(ex->ty, ex, sub)) return 0;
    return 1;
-}
-
-/* link time constants */
-static bool
-isglobsym(const struct expr *ex)
-{
-   return ex->t == ESTRLIT || (ex->t == ESYM && ex->ty.t < NTYPETAG && (declsbuf.p[ex->decl].scls & (SCSTATIC | SCEXTERN)));
-}
-
-static bool
-isaddrconst(struct expr *ex)
-{
-   if (ex->t == ECAST)
-      return isaddrconst(ex->sub) || (eval(ex->sub, EVSTATICINI) && ex->sub->t == ENUMLIT);
-   if (!isptrcvt(ex->ty)) return 0;
-   if (ex->t == EADDROF && (isglobsym(ex->sub) || (ex->sub->t == EGETF && isglobsym(ex->sub->sub))))
-      return 1;
-   if (ex->t == EADDROF && ex->sub->t == EDEREF && isaddrconst(ex->sub->sub)) {
-      *ex = *ex->sub->sub;
-      return 1;
-   }
-   if (ex->t == EADDROF && ex->sub->t == EINIT)
-      return eval(ex->sub, EVSTATICINI);
-   if (ex->t == EGETF && ex->ty.t == TYARRAY && isglobsym(ex->sub))
-      return 1;
-   if (isglobsym(ex) && in_range(ex->ty.t, TYARRAY, TYFUNC))
-      return 1;
-   if (ex->t == ESUB) {
-      if (isaddrconst(&ex->sub[0]) && isint(ex->sub[1].ty) && eval(&ex->sub[1], EVSTATICINI)) {
-         assert(ex->sub[1].t == ENUMLIT);
-         if (eval(&ex->sub[0], EVSTATICINI) && ex->sub[0].t == ENUMLIT) {
-            /* handles (char *)10 - 5 */
-            ex->u = ex->sub[0].u - ex->sub[1].u * typesize(typechild(ex->sub[0].ty));
-            ex->t = ENUMLIT;
-         }
-         return 1;
-      }
-   } else if (ex->t == EADD) {
-      for (int swp = 0; swp < 2; ++swp)
-         if (isaddrconst(&ex->sub[swp]) && isint(ex->sub[swp^1].ty) && eval(&ex->sub[swp^1], EVSTATICINI)) {
-            assert(ex->sub[swp^1].t == ENUMLIT);
-            if (eval(&ex->sub[swp], EVSTATICINI) && ex->sub[swp].t == ENUMLIT) {
-               /* handles (char *)1234 + 5678 */
-               ex->u = ex->sub[swp].u + ex->sub[swp^1].u * typesize(typechild(ex->sub[swp].ty));
-               ex->t = ENUMLIT;
-            }
-            return 1;
-         }
-   }
-   return 0;
 }
 
 static bool
 binop(struct expr *ex, enum evalmode mode)
 {
-   union type oty;
-   bool flt;
-   bool sgn;
-   int t;
+   union type opty;
    struct expr *lhs = &ex->sub[0], *rhs = &ex->sub[1];
 
-   if (ex->ty.t == TYPTR) mode = EVFOLD;
    if (!eval(lhs, mode)) return 0;
    if (in_range(ex->t, EADD, ESHR))
-      oty = ex->ty;
-   else
-      oty = cvtarith(lhs->ty, rhs->ty);
-   flt = isflt(oty);
-   sgn = issigned(oty);
-   if (ex->t != ELOGAND && ex->t != ELOGIOR) {
-      if (!numcast(oty, lhs, lhs)) return 0;
-      if (!eval(rhs, mode) || !numcast(oty, rhs, rhs)) return 0;
+      opty = ex->ty;
+   else /* compare, logical, set (result type != operation type) */
+      opty = cvtarith(lhs->ty, rhs->ty);
+   if (isstaticlval(lhs, mode)) {
+      if ((ex->t == EADD || ex->t == ESUB) && eval(rhs, mode) && rhs->t == ENUMLIT) {
+         assert(isint(rhs->ty));
+         assert(in_range(lhs->ty.t, TYPTR, TYARRAY));
+         if (lhs->t == ESTRLIT) {
+            lit2ssym(lhs);
+         } else assert(lhs->t == ESSYMREF);
+         vlong addend = rhs->i * typesize(typechild(lhs->ty)),
+               off = lhs->ssym.off + (uvlong) (ex->t == EADD ? addend : -addend);
+         ex->t = ESSYMREF;
+         if ((int) off != off) return 0;
+         ex->ssym = lhs->ssym;
+         ex->ssym.off = off;
+         return 1;
+      }
+      return 0;
    }
-   switch (ex->t) {
-#define ef else if
-   case EADD: if (flt) lhs->f += rhs->f;
-              else     lhs->u += rhs->u;
-              break;
-   case ESUB: if (oty.t == TYPTR) {
-                 assert(lhs->t == ENUMLIT && rhs->t == ENUMLIT);
-                 assert(!isincomplete(typechild(ex->ty)));
-                 lhs->u = (lhs->u - rhs->u) / typesize(typechild(ex->ty));
-              }
-              ef (flt) lhs->f -= rhs->f;
-              else     lhs->u -= rhs->u;
-              break;
-   case EMUL: if (flt) lhs->f *= rhs->f;
-              ef (sgn) lhs->i *= rhs->i;
-              else     lhs->u *= rhs->u;
-              break;
-   case EDIV: if (!flt && !rhs->i) return 0;
-              ef (flt) lhs->f /= rhs->f;
-              ef (sgn) lhs->i /= rhs->i;
-              else     lhs->u /= rhs->u;
-              break;
-   case EREM: if (!rhs->i) return 0;
-              ef (sgn) lhs->i %= rhs->i;
-              else     lhs->u %= rhs->u;
-              break;
-   case EBAND: lhs->u &= rhs->u;
-               break;
-   case EBIOR: lhs->u |= rhs->u;
-               break;
-   case EXOR:  lhs->u ^= rhs->u;
-               break;
-   case ESHL:  if (sgn && lhs->i < 0) return 0;
-               ef (rhs->i >= 8*targ_primsizes[oty.t]) return 0;
-               lhs->u <<= rhs->u;
-               break;
-   case ESHR:  if (rhs->i >= 8*targ_primsizes[oty.t]) return 0;
-               ef (sgn) lhs->i >>= rhs->i;
-               else     lhs->u >>= rhs->u;
-               break;
-   case EEQU: if (flt) t = lhs->f == rhs->f;
-              else     t = lhs->u == rhs->u;
-              lhs->u = t;
-              break;
-   case ENEQ: if (flt) t = lhs->f != rhs->f;
-              else     t = lhs->u != rhs->u;
-              lhs->u = t;
-              break;
-   case ELTH: if (flt) t = lhs->f < rhs->f;
-              ef (sgn) t = lhs->i < rhs->i;
-              else     t = lhs->u < rhs->u;
-              lhs->u = t;
-              break;
-   case EGTH: if (flt) t = lhs->f > rhs->f;
-              ef (sgn) t = lhs->i > rhs->i;
-              else     t = lhs->u > rhs->u;
-              lhs->u = t;
-              break;
-   case ELTE: if (flt) t = lhs->f <= rhs->f;
-              ef (sgn) t = lhs->i <= rhs->i;
-              else     t = lhs->u <= rhs->u;
-              lhs->u = t;
-              break;
-   case EGTE: if (flt) t = lhs->f >= rhs->f;
-              ef (sgn) t = lhs->i >= rhs->i;
-              else     t = lhs->u >= rhs->u;
-              lhs->u = t;
-              break;
-   case ELOGAND: if (flt) t = lhs->f; else t = lhs->u;
-                 if (t) {
-                    if (!eval(rhs, mode) || !numcast(oty, rhs, rhs)) return 0;
-                    if (flt) t = t && lhs->f;
-                    else     t = t && lhs->u;
-                 }
-                 lhs->u = t;
+
+   enum { U = 0,     S = 1<<8 ,       F = 1<<9 };
+   int op = issigned(opty)<<8 | isflt(opty)<<9 | ex->t;
+   bool b;
+   if (ex->t != ELOGAND && ex->t != ELOGIOR) {
+      if (!numcast(opty, lhs, lhs)) return 0;
+      if (!eval(rhs, mode) || !numcast(opty, rhs, rhs)) return 0;
+   }
+   switch (op) {
+   case EADD|U:
+   case EADD|S: lhs->u += opty.t == TYPTR ? rhs->u * typesize(typechild(opty)) : rhs->u; break;
+   case EADD|F: lhs->f += rhs->f; break;
+
+   case ESUB|U:
+   case ESUB|S: if (opty.t == TYPTR) {
+                   assert(lhs->t == ENUMLIT && rhs->t == ENUMLIT);
+                   assert(!isincomplete(typechild(ex->ty)));
+                   lhs->u = (lhs->u - rhs->u) / typesize(typechild(ex->ty));
+                } else lhs->u -= rhs->u;
+                break;
+   case ESUB|F: lhs->f -= rhs->f; break;
+
+   case EMUL|U:
+   case EMUL|S: lhs->u *= rhs->u; break;
+   case EMUL|F: lhs->f *= rhs->f; break;
+
+   case EDIV|U: if (!rhs->u) return 0;
+                lhs->u /= rhs->u;
+                break;
+   case EDIV|S: if (!rhs->i) return 0;
+                lhs->i /= rhs->i;
+                break;
+   case EDIV|F: lhs->f /= rhs->f; break;
+
+   case EREM|U: if (!rhs->u) return 0;
+                lhs->u %= rhs->u;
+                break;
+   case EREM|S: if (!rhs->i) return 0;
+                lhs->i %= rhs->i;
+                break;
+
+   case EBAND|U:
+   case EBAND|S: lhs->u &= rhs->u; break;
+
+   case EBIOR|U:
+   case EBIOR|S: lhs->u |= rhs->u; break;
+
+   case EXOR|U:
+   case EXOR|S: lhs->u ^= rhs->u; break;
+
+   case ESHL|S: if (lhs->i < 0) return 0;
+   case ESHL|U: if (rhs->u >= 8*targ_primsizes[opty.t]) return 0;
+                lhs->u <<= rhs->u;
+                break;
+
+   case ESHR|U:  if (rhs->u >= 8*targ_primsizes[opty.t]) return 0;
+                 lhs->u >>= rhs->i;
                  break;
-   case ELOGIOR: if (flt) t = lhs->f; else t = lhs->u;
-                 if (!t) {
-                    if (!eval(rhs, mode) || !numcast(oty, rhs, rhs)) return 0;
-                    if (flt) t = t || lhs->f;
-                    else     t = t || lhs->u;
-                 }
-                 lhs->u = t;
+   case ESHR|S:  if (rhs->u >= 8*targ_primsizes[opty.t]) return 0;
+                 lhs->i >>= rhs->i;
                  break;
+
+   case EEQU|U:
+   case EEQU|S: lhs->u = lhs->u == rhs->u; break;
+   case EEQU|F: lhs->u = lhs->f == rhs->f; break;
+
+   case ENEQ|U:
+   case ENEQ|S: lhs->u = lhs->u != rhs->u; break;
+   case ENEQ|F: lhs->u = lhs->f != rhs->f; break;
+
+   case ELTH|U: lhs->u = lhs->u < rhs->u; break;
+   case ELTH|S: lhs->u = lhs->i < rhs->i; break;
+   case ELTH|F: lhs->u = lhs->f < rhs->f; break;
+
+   case EGTH|U: lhs->u = lhs->u > rhs->u; break;
+   case EGTH|S: lhs->u = lhs->i > rhs->i; break;
+   case EGTH|F: lhs->u = lhs->f > rhs->f; break;
+
+   case ELTE|U: lhs->u = lhs->u <= rhs->u; break;
+   case ELTE|S: lhs->u = lhs->i <= rhs->i; break;
+   case ELTE|F: lhs->u = lhs->f <= rhs->f; break;
+
+   case EGTE|U: lhs->u = lhs->u >= rhs->u; break;
+   case EGTE|S: lhs->u = lhs->i >= rhs->i; break;
+   case EGTE|F: lhs->u = lhs->f >= rhs->f; break;
+
+   case ELOGAND|U:
+   case ELOGAND|S:
+   case ELOGAND|F:
+      b = (op & F) ? lhs->f : lhs->u;
+      if (b) {
+         if (!eval(rhs, mode) || !numcast(opty, rhs, rhs)) return 0;
+         b = (op & F) ? rhs->f : rhs->u;
+      }
+      lhs->u = b;
+      break;
+
+   case ELOGIOR|U:
+   case ELOGIOR|S:
+   case ELOGIOR|F:
+      b = op & F ? lhs->f : lhs->u;
+      if (!b) {
+         if (!eval(rhs, mode) || !numcast(opty, rhs, rhs)) return 0;
+         b = (op & F) ? lhs->f : lhs->u;
+      }
+      lhs->u = b;
+      break;
    default: return 0;
-#undef ef
    }
 
    if (!in_range(ex->t, EADD, ESHR)) {
@@ -323,40 +393,41 @@ binop(struct expr *ex, enum evalmode mode)
 bool
 eval(struct expr *ex, enum evalmode mode)
 {
-   if (ex->t == ENUMLIT) {
-      if (mode <= EVINTCONST) return isint(ex->ty);
-      return 1;
-   }
-   if (ex->t == ESTRLIT && mode > EVINTCONST) return 1;
-   if (mode == EVSTATICINI && (isptrcvt(ex->ty) || (isint(ex->ty) && typesize(ex->ty) == targ_primsizes[TYPTR]))
-    && isaddrconst(ex)) {
-      struct expr *e = ex;
-      while (e->t == ECAST) e = e->sub;
-      if (e != ex) {
-         if (e->ty.t != TYARRAY)
-            e->ty = ex->ty;
-         *ex = *e;
-      }
-      return 1;
-   }
-   mode += mode == EVINTCONST;
-   if (isunop(ex->t)) return unop(ex, mode) && eval(ex, mode);
-   if (isbinop(ex->t)) return binop(ex, mode) && eval(ex, mode);
-   if (ex->t == ESEQ) {
+   switch (ex->t) {
+   case EGETF: goto Unop;
+   case ESEQ:
       if (!eval(&ex->sub[0], mode)) return 0;
       *ex = ex->sub[1];
       return eval(ex, mode);
-   }
-   if (ex->t == ECOND) {
-      if (!eval(&ex->sub[0], mode) || ex->sub[0].t != ENUMLIT) return 0;
-      *ex = ex->sub[!ex->sub[0].u + 1];
+   case ECOND:
+      if (!eval(&ex->sub[0], mode)) return 0;
+      *ex = ex->sub[2-truthy(&ex->sub[0])];
       return eval(ex, mode);
-   }
-   if (ex->t == EINIT) {
+   case EINIT:
       for (struct initval *v = ex->init->vals; v; v = v->next) {
          if (!eval(&v->ex, mode)) return 0;
       }
       return 1;
+   case ENUMLIT:
+      if (mode <= EVINTCONST) return !isflt(ex->ty);
+      return 1;
+   case ESYM:
+      if (in_range(ex->ty.t, TYARRAY, TYFUNC)
+       && mode >= EVSTATICINI) {
+         struct expr ex2 = staticaddrof(ex, mode);
+         if (ex2.t) {
+            union type ty = ex->ty;
+            *ex = ex2;
+            ex->ty = ty;
+            return 1;
+         }
+      }
+      return 0;
+   case ESTRLIT: case ESSYMREF:
+      return mode >= EVSTATICINI;
+   default:
+      if (isunop(ex->t)) Unop: return unop(ex, mode);
+      if (isbinop(ex->t)) return binop(ex, mode);
    }
    return 0;
 }

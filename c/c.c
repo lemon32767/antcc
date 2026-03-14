@@ -296,7 +296,6 @@ redeclarationok(const struct decl *old, const struct decl *new)
 static int
 putdecl(struct comp *cm, const struct decl *decl)
 {
-   assert(!decl->isbuiltin);
    for (struct env *env = cm->env; env; env = env->up) {
       struct decl *l;
       if (!env->up) {
@@ -390,7 +389,7 @@ static bool
 islvalue(const struct expr *ex)
 {
    if (ex->t == EGETF) return islvalue(ex->sub);
-   return ex->t == ESYM || ex->t == EDEREF || ex->t == EINIT;
+   return ex->t == ESYM || ex->t == EDEREF || ex->t == EINIT || ex->t == ESTRLIT;
 }
 
 static union type /* 6.5.2.6 default argument promotions */
@@ -996,6 +995,8 @@ static struct expr initializer(struct comp *cm, union type *ty, enum evalmode ev
 
 static internstr istr__func__, istr_main, istr_memset;
 
+static internstr mkhiddensym(const char *fnname, const char *name, int id);
+
 /* parse an expression with the given operator precedence */
 /* param ident is a kludge to support block labels without backtracking or extra lookahead
  * see stmt() */
@@ -1119,6 +1120,14 @@ Unary:
       } else if (decl->isenum) {
          ex = mkexpr(ENUMLIT, tk.span, decl->ty, .i = decl->value);
       } else Sym: {
+         if (decl->name == istr__func__ && decl->isbuiltin) { /* lazy __func__ */
+            internstr fnname = decl->sym;
+            decl->isbuiltin = 0;
+            decl->sym = mkhiddensym(&fnname->c, "__func__", 1);
+            uint off = objnewdat(decl->sym, objout.code ? Stext : Srodata, 0, typesize(decl->ty), typealign(decl->ty));
+            uchar *p = objout.code ? objout.textbegin + off : objout.rodata.p + off;
+            memcpy(p, fnname, typearrlen(decl->ty)-1);
+         }
          ex = mkexpr(ESYM, tk.span, decl->ty, .qual = decl->qual, .decl = decl - declsbuf.p);
       }
       break; }
@@ -1223,7 +1232,10 @@ Unary:
          ty = unops[nunop].ty;
          if (!castcheck(ty, &ex))
             error(&span, "cannot cast value of type '%ty' to '%ty'", ex.ty, ty);
-         ex = mkexpr(ECAST, span, ty, .sub = exprdup(cm, &ex));
+         if (ex.t == ENUMLIT && isint(ex.ty) && ty.t == TYPTR)
+            ex.ty = ty;
+         else
+            ex = mkexpr(ECAST, span, ty, .sub = exprdup(cm, &ex));
       }
    }
 
@@ -1410,38 +1422,16 @@ dumpini(struct initparser *ip)
 }
 #endif
 
-static bool
-globsym(union ref *psym, const struct expr *ex)
-{
-   if (ex->t == EINIT || ex->t == ESTRLIT || (ex->t == ESYM && (declsbuf.p[ex->decl].scls & (SCSTATIC | SCEXTERN)))) {
-      *psym = expraddr(NULL, ex);
-      return 1;
-   }
-   return 0;
-}
-
 static vlong /* -> returns addend */
-expr2reloc(union ref *psym, const struct expr *ex)
+expr2reloc(internstr *psym, const struct expr *ex)
 {
-   if (ex->t == EADDROF && globsym(psym, ex->sub)) {
+   if (ex->t == ESSYMREF) {
+      *psym = ex->ssym.sym;
+      return ex->ssym.off;
+   } else if (ex->t == ESTRLIT || ex->t == EINIT) {
+      if (ex->t == ESTRLIT) assert(ex->ty.t == TYARRAY);
+      *psym = xcon2sym(expraddr(NULL, ex).i);
       return 0;
-   } else if ((isptrcvt(ex->ty) || (isint(ex->ty) && typesize(ex->ty) == targ_primsizes[TYPTR]))
-            && globsym(psym, ex)) {
-      return 0;
-   } else if (ex->t == EADDROF && ex->sub->t == EGETF && globsym(psym, ex->sub->sub)) {
-      return ex->sub->fld.off;
-   } else if (ex->t == EGETF && ex->ty.t == TYARRAY && globsym(psym, ex->sub)) {
-      return ex->sub->fld.off;
-   } else if (globsym(psym, ex) && in_range(ex->ty.t, TYARRAY, TYFUNC)) {
-      return 0;
-   } else if (ex->t == ESUB && globsym(psym, &ex->sub[0]) && isint(ex->sub[1].ty) && ex->sub[1].t == ENUMLIT) {
-      return -ex->sub[1].i * typesize(typechild(ex->sub[0].ty));
-   } else if (ex->t == EADD) {
-      int swp = ex->sub[0].t == ENUMLIT;
-      struct expr *a = &ex->sub[swp], *b = &ex->sub[swp ^ 1];
-      if (isint(b->ty) && b->t == ENUMLIT) {
-         return expr2reloc(psym, a) + b->i * typesize(typechild(a->ty));
-      }
    }
    fatal(&ex->span, "internal bug: non static reloc?");
 }
@@ -1509,17 +1499,16 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
          /* XXX endian for wide strs */
          memcpy(p, ex->s.p, n);
       } else {
-         union ref sym;
+         internstr sym;
          vlong addend = expr2reloc(&sym, ex);
-         assert(sym.t == RXCON);
          if (!ip->dyn) {
             assert(ip->sec != Srodata || rodatarelocok());
-            objreloc(xcon2sym(sym.i), targ_64bit ? REL_ABS64 : REL_ABS32,
+            objreloc(sym, targ_64bit ? REL_ABS64 : REL_ABS32,
                      ip->sec, ip->off + off, addend);
          } else {
             struct dreloc *rel = alloc(ip->arena, sizeof *rel, 0);
             rel->link = ip->drel;
-            rel->sym = xcon2sym(sym.i);
+            rel->sym = sym;
             rel->off = off;
             rel->addend = addend;
             ip->drel = rel;
@@ -1915,6 +1904,64 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
 
       return mkexpr(EINIT, span, *ty, .init = alloccopy(&cm->exarena, &res, sizeof res, 0));
    }
+}
+
+/* debugging */
+void
+dumpexpr(const struct expr *ex, bool prity)
+{
+   static const char *name[] = {
+      [EXXX] = "xxx",         [ENUMLIT] = "numlit", [ESTRLIT] = "strlit",
+      [ESSYMREF] = "ssymref", [ESYM] = "sym",       [EVAARG] = "vaarg",
+      [EINIT] = "init",       [EGETF] = "getf",     [ECALL] = "call",
+      [ECOND] = "cond",       [EPLUS] = "plus",     [ENEG] = "neg",
+      [ECOMPL] = "compl",     [ELOGNOT] = "lognot", [EDEREF] = "deref",
+      [EADDROF] = "addrof",   [ECAST] = "cast",     [EPREINC] = "preinc",
+      [EPOSTINC] = "postinc", [EPREDEC] = "predec", [EPOSTDEC] = "postdec",
+      [EADD] = "add",         [ESUB] = "sub",       [EMUL] = "mul",
+      [EDIV] = "div",         [EREM] = "rem",       [EBAND] = "band",
+      [EBIOR] = "bior",       [EXOR] = "xor",       [ESHL] = "shl",
+      [ESHR] = "shr",         [ELOGAND] = "logand", [ELOGIOR] = "logior",
+      [EEQU] = "equ",         [ENEQ] = "neq",       [ELTH] = "lth",
+      [EGTH] = "gth",         [ELTE] = "lte",       [EGTE] = "gte",
+      [ESET] = "set",         [ESETADD] = "setadd", [ESETSUB] = "setsub",
+      [ESETMUL] = "setmul",   [ESETDIV] = "setdiv", [ESETREM] = "setrem",
+      [ESETAND] = "setand",   [ESETIOR] = "setior", [ESETXOR] = "setxor",
+      [ESETSHL] = "setshl",   [ESETSHR] = "setshr", [ESEQ] = "seq",
+   };
+   ioputc(&bstderr, '(');
+   efmt("%s ", name[ex->t]);
+   if (ex->ty.t && (prity || ex->t == EVAARG || ex->t == ECAST))
+      efmt("<%ty> ", ex->ty);
+   int nsub = 0;
+   switch (ex->t) {
+   case ENUMLIT:  if (!isflt(ex->ty)) efmt(isunsigned(ex->ty) ? "%lu" : "%ld", ex->u);
+                  else efmt("%f", ex->f);
+                  break;
+   case ESTRLIT:  efmt("%'S", ex->s.p, ex->s.n); break; /* XXX widestr */
+   case ESYM:     efmt("%y", declsbuf.p[ex->decl].name); break;
+   case ESSYMREF: efmt("%y%+d", ex->ssym.sym, ex->ssym.off);
+                  if (ex->ssym.func) efmt(" @func");
+                  if (ex->ssym.local) efmt(" @local");
+                  break;
+   case EVAARG: dumpexpr(ex->sub, prity); break;
+   case EGETF:  dumpexpr(ex->sub, prity); efmt(" #+%u", ex->fld.off);
+                if (ex->fld.bitsiz) efmt("[%d:%d]", ex->fld.bitoff, ex->fld.bitsiz);
+                break;
+   case ECALL:  nsub = ex->narg+1; goto Sub;
+   case ECOND:  nsub = ex->narg+1; goto Sub;
+   default:
+      if (in_range(ex->t, EPLUS, EPOSTDEC)) nsub = 1;
+      else nsub = 2;
+   Sub:
+      for (int i = 0; i < nsub; ++i) {
+         if (i) ioputc(&bstderr, ' ');
+         dumpexpr(&ex->sub[i], prity);
+      }
+      break;
+   case EINIT: assert(!"nyi");
+   }
+   ioputc(&bstderr, ')');
 }
 
 /*****************/
@@ -2939,21 +2986,18 @@ expraddr(struct function *fn, const struct expr *ex)
          assert(decl->id >= 0);
          return mkref(RTMP, decl->id);
       case SCEXTERN: case SCNONE: case SCSTATIC:
-         if (!decl->sym) { /* lazy __func__ */
-            assert(decl->name == istr__func__);
-            decl->sym = mkhiddensym(&fn->name->c, &intern("__func__")->c, 1);
-            uint off = objnewdat(decl->sym, objout.code ? Stext : Srodata, 0, typesize(decl->ty), typealign(decl->ty));
-            uchar *p = objout.code ? objout.textbegin + off : objout.rodata.p + off;
-            memcpy(p, fn->name, typearrlen(decl->ty)-1);
-         }
          return mksymref(decl->sym, (SFUNC & -(decl->ty.t == TYFUNC)) | (SLOCAL & -(decl->scls == SCSTATIC || decl->isdef)));
       default:
          assert(0);
       }
       break;
+   case ESSYMREF:
+      return irbinop(fn, Oadd, KPTR,
+               mksymref(ex->ssym.sym, (SFUNC & -ex->ssym.func) | (SLOCAL & -ex->ssym.local)),
+               mkintcon(KPTR, ex->ssym.off));
    case ESTRLIT:
       /* XXX endian for wide strs */
-      return mkdatref(NULL, ex->ty, typesize(ex->ty), typealign(ex->ty), ex->s.p, ex->s.n * typesize(typechild(ex->ty)), /*deref*/0);
+      return mkdatref(NULL, ex->ty, typesize(ex->ty), typealign(ex->ty), ex->s.p, ex->s.n * typesize(typechild(ex->ty)), /*deref*/0, fn != NULL);
    case EDEREF:
       return exprvalue(fn, ex->sub);
    case EGETF:
@@ -3489,9 +3533,7 @@ knowntruthy(bool *t, struct expr *ex)
    case ENUMLIT:
       *t = isflt(ex->ty) ? ex->f != 0.0 : ex->u != 0;
       break;
-   case ESYM:
-      assert(isptrcvt(ex->ty));
-   case ESTRLIT:
+   case ESTRLIT: case ESSYMREF:
       /* string literals & symbol addresses are always truthy */
       *t = 1;
       break;
@@ -3529,6 +3571,8 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
    case ESYM:
       if (discard && !(ex->qual & QVOLATILE)) return NOREF;
       return genload(fn, ex->ty, expraddr(fn, ex), ex->qual & QVOLATILE);
+   case ESSYMREF:
+      return expraddr(fn, ex);
    case EVAARG:
       return builtin_va_arg_comp(fn, ex, discard);
    case EGETF:
@@ -4531,10 +4575,11 @@ function(struct comp *cm, struct function *fn, internstr *pnames, const struct s
       }
    }
 
-   /* put __func__, though its data is generated lazily in expraddr() */
+   /* put __func__, though its data is generated lazily the first time it is encountered */
    putdecl(cm, &(struct decl) {
       .ty = mkarrtype(mktype(TYCHAR), QCONST, strlen(&fn->name->c) + 1), .qual = QCONST,
       .name = istr__func__, .scls = SCSTATIC, .span = (peek(cm, &tk), tk.span),
+      .isbuiltin = 1, .sym = fn->name,
    });
 
    /* end prologue */

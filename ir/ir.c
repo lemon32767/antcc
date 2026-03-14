@@ -159,10 +159,12 @@ mksymref(internstr s, enum symflags symflags)
 }
 
 union ref
-mkdatref(internstr name, union type ctype, uint siz, uint align, const void *bytes, uint n, bool deref)
+mkdatref(internstr name, union type ctype, uint siz, uint align,
+         const void *bytes, uint n, bool deref, bool funclocal)
 {
-   struct irdat dat = { .ctype = ctype, .align = align, .siz = siz, .name = name };
-   dat.section = objout.code && align >= 4 && align <= targ_primsizes[TYPTR] && siz <= 16 ? Stext : Srodata;
+   struct irdat dat = { .ctype = ctype, .align = align, .siz = siz, .name = name, .section = Srodata };
+   if (funclocal && objout.code && align >= 4 && align <= targ_primsizes[TYPTR] && siz <= 16)
+      dat.section = Stext;
 
    assert(n <= siz && siz && align);
    if (!name) {

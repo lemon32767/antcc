@@ -26,7 +26,21 @@ _Static_assert(__is_constexpr(5 &&(1<<3) || 0/0), "");
 _Static_assert(!__is_constexpr(5/0), "");
 _Static_assert(!__is_constexpr(fn1(0)), "");
 
+#include <stddef.h>
+#include <stdint.h>
+struct foo { int *a, b[2]; };
+static intptr_t offst[] = {
+   (long)((struct foo *)0)->b,
+   (long)&((struct foo *)0)->a,
+   (long)&((struct foo *)0)->b[1],
+   (intptr_t)("12" - 5)
+};
+
 extern int printf(const char *, ...);
+#include <assert.h>
 int main() {
    printf("%d\n", fn1(-77ull));
+   assert(offst[0] == offsetof(struct foo, b));
+   assert(offst[1] == offsetof(struct foo, a));
+   assert(offst[2] == offsetof(struct foo, b[1]));
 }

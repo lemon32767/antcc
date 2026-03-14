@@ -94,7 +94,7 @@ Begin:
                wr32le(data, pun.i);
                ctype = mktype(TYFLOAT);
             }
-            *r = mkdatref(NULL, ctype, ksiz, /*align*/ksiz, data, ksiz, /*deref*/1);
+            *r = mkdatref(NULL, ctype, ksiz, /*align*/ksiz, data, ksiz, /*deref*/1 , /*funclocal*/1);
          }
          if (docopy)
             *r = inscopy(blk, curi, con->cls, *r);
@@ -257,9 +257,13 @@ aadd(struct addr *out, struct block *blk, int *curi, union ref r, bool recurring
             if (n1 == 0) {
                *out = adr;
             } else if (n1 == 1 && n2 == 1) {
-               assert(!out->index.bits);
-               out->index = adr.index.bits ? adr.index : adr.base;
-               out->shift = adr.shift;
+               if (!out->index.bits) {
+                  out->index = adr.index.bits ? adr.index : adr.base;
+                  out->shift = adr.index.bits ? adr.shift : 0;
+               } else {
+                  if (adr.index.bits && adr.shift) return 0;
+                  out->base = adr.index.bits ? adr.index : adr.base;
+               }
             } else assert(n1 <= 2 && n2 == 0);
             out->disp = off;
             ins->skip = 1;
@@ -350,9 +354,10 @@ arithfold(struct instr *ins)
    if (isnumcon(ins->l) && (!ins->r.t || isnumcon(ins->r))) {
       union ref r;
       bool ok = ins->r.t ? foldbinop(&r, ins->op, ins->cls, ins->l, ins->r) : foldunop(&r, ins->op, ins->cls, ins->l);
-      assert(ok && "fold?");
-      *ins = mkinstr(Ocopy, insrescls(*ins), r);
-      return 1;
+      if (ok) {
+         *ins = mkinstr(Ocopy, insrescls(*ins), r);
+         return 1;
+      }
    }
    return 0;
 }
@@ -474,7 +479,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          static const uint sf[4] = {0x80000000,80000000,0x80000000,80000000};
          ins->op = Oxor;
          ins->r = mkdatref(NULL, mktype(ins->cls == KF32 ? TYFLOAT : TYDOUBLE), /*siz*/16,
-               /*align*/16, ins->cls == KF32 ? (void *)sf : sd, /*siz*/16, /*deref*/1);
+               /*align*/16, ins->cls == KF32 ? (void *)sf : sd, /*siz*/16, /*deref*/1, /*funclocal*/1);
       }
       /* fallthru */
    case Onot:

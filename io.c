@@ -300,7 +300,7 @@ putdouble(struct wbuf *buf, double x)
 int
 vbfmt(struct wbuf *out, const char *fmt, va_list ap)
 {
-   bool quote, umod, lmod, zmod, lower;
+   bool quote, umod, lmod, zmod, lower, possign;
    int base;
    vlong i;
    int pad, prec, q;
@@ -326,6 +326,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
          continue;
       }
       fmt += quote = *fmt == '\'';
+      fmt += possign = *fmt == '+';
       pad = 0;
       if (aisdigit(*fmt)) { /* left pad */
          for (; aisdigit(*fmt); ++fmt)
@@ -421,16 +422,18 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
            : zmod && sizeof(&i-&i) > sizeof(int) ? va_arg(ap, vlong)
            : (vlong)va_arg(ap, int);
          tmp2.len = 0;
+         if (!umod && i < 0) {
+            n += bputc(buf, '-');
+            i = -(uvlong)i;
+         } else if (possign) {
+            n += bputc(buf, '+');
+         }
          if (quote) {
             switch (base) {
             case  2: n += bwriteS(buf, "0b"); break;
             case  8: n += bwriteS(buf, "0"); break;
             case 16: n += bwriteS(buf, "0x"); break;
             }
-         }
-         if (!umod && i < 0) {
-            n += bputc(buf, '-');
-            i = -(uvlong)i;
          }
          n += putuint(prec > 0 ? &tmp2 : buf, i, base, lower);
          if (prec > 0) {

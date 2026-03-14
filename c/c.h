@@ -6,7 +6,7 @@
 /*************/
 
 enum exprkind {
-   EXXX, ENUMLIT, ESTRLIT, ESYM, EVAARG, EINIT, EGETF, ECALL, ECOND,
+   EXXX, ENUMLIT, ESTRLIT, ESYM, ESSYMREF, EVAARG, EINIT, EGETF, ECALL, ECOND,
    /* unary */
    EPLUS, ENEG, ECOMPL, ELOGNOT, EDEREF, EADDROF, ECAST,
    EPREINC, EPOSTINC, EPREDEC, EPOSTDEC,
@@ -29,25 +29,30 @@ struct expr {
    union type ty;
    struct span span;
    union {
-     struct {
-        struct expr *sub; /* child(ren) */
-        struct exgetfld {
-           ushort off;
-           uchar bitsiz, bitoff;
-        } fld; /* EGETF */
-     };
-     uvlong u; vlong i; double f; /* ENUMLIT */
-     struct {
-        union {
-           uchar *p;
-           ushort *w16;
-           uint *w32;
-        };
-        uint n;
-     } s; /* ESTRLIT */
-     int decl; /* ESYM, index into declsbuf */
-     internstr implicitsym; /* ESYM (undeclared) */
-     struct init *init; /* EINIT */
+      struct {
+         struct expr *sub; /* child(ren) */
+         struct exgetfld {
+            ushort off;
+            uchar bitsiz, bitoff;
+         } fld; /* EGETF */
+      };
+      uvlong u; vlong i; double f; /* ENUMLIT */
+      struct {
+         union {
+            uchar *p;
+            ushort *w16;
+            uint *w32;
+         };
+         uint n;
+      } s; /* ESTRLIT */
+      int decl; /* ESYM, index into declsbuf */
+      internstr implicitsym; /* ESYM (undeclared) */
+      struct {
+         internstr sym;
+         int off;
+         bool func : 1, local : 1;
+      } ssym; /* ESSYMREF (static symbol addr + off) */
+      struct init *init; /* EINIT */
    };
 };
 
@@ -110,6 +115,7 @@ bool assigncheck(union type t, const struct expr *src);
 union ref expraddr(struct function *, const struct expr *);
 union ref scalarcvt(struct function *, union type to, union type from, union ref);
 union ref compileexpr(struct function *, const struct expr *, bool discard);
+void dumpexpr(const struct expr *, bool printtypes);
 
 /** builtin.c **/
 struct builtin {
