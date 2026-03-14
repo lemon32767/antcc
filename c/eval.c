@@ -1,5 +1,6 @@
 #include "c.h"
 #include "../ir/ir.h"
+#include <limits.h>
 
 static int
 targ2hosttype(enum typetag t)
@@ -303,6 +304,7 @@ binop(struct expr *ex, enum evalmode mode)
                 lhs->u /= rhs->u;
                 break;
    case EDIV|S: if (!rhs->i) return 0;
+                if (lhs->i == LLONG_MIN && rhs->i == -1) break;
                 lhs->i /= rhs->i;
                 break;
    case EDIV|F: lhs->f /= rhs->f; break;
@@ -311,6 +313,7 @@ binop(struct expr *ex, enum evalmode mode)
                 lhs->u %= rhs->u;
                 break;
    case EREM|S: if (!rhs->i) return 0;
+                if (lhs->i == LLONG_MIN && rhs->i == -1) lhs->i = 0;
                 lhs->i %= rhs->i;
                 break;
 
