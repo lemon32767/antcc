@@ -38,7 +38,7 @@ $(BUILDDIR)/%.o: %.c hostconfig.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	$(RM) -r $(BUILDDIR)/ test/build/ $(OUT) *.o a.out
+	$(RM) -r -- $(BUILDDIR)/ test/build/ $(OUT) *.o a.out
 
 clean-config: clean
 	$(RM) -r config.mk hostconfig.h
