@@ -1767,7 +1767,7 @@ tryincludepath(struct lexer *lx, const struct span *span, char *path)
    return 1;
 }
 
-static void
+static bool
 doinclude(struct lexer *lx, const struct span *span, bool quote, const char *str, size_t slen)
 {
    char *path = NULL;
@@ -1778,7 +1778,7 @@ doinclude(struct lexer *lx, const struct span *span, bool quote, const char *str
          xbgrow(&path, slen + 1);
          memcpy(path, str, slen);
          path[slen] = 0;
-         if (tryincludepath(lx, span, path)) return;
+         if (tryincludepath(lx, span, path)) return 1;
          goto NotFound;
       }
 
@@ -1791,7 +1791,7 @@ doinclude(struct lexer *lx, const struct span *span, bool quote, const char *str
       memcpy(path, base, end - base);
       memcpy(path + (end - base), str, slen);
       path[end - base + slen] = 0;
-      if (tryincludepath(lx, span, path)) return;
+      if (tryincludepath(lx, span, path)) return 1;
    }
    /* try system paths. order:
     * 1. -iquote
@@ -1809,7 +1809,7 @@ doinclude(struct lexer *lx, const struct span *span, bool quote, const char *str
             path[0] = '@', path[1] = ':';
             memcpy(path+2, str, slen);
             path[slen+2] = 0;
-            if (tryincludepath(lx, span, path)) return;
+            if (tryincludepath(lx, span, path)) return 1;
          }
          int ndir = strlen(p->path);
          xbgrow(&path, ndir + slen + 2);
@@ -1817,15 +1817,16 @@ doinclude(struct lexer *lx, const struct span *span, bool quote, const char *str
          path[ndir++] = '/';
          memcpy(path + ndir, str, slen);
          path[ndir + slen] = 0;
-         if (tryincludepath(lx, span, path)) return;
+         if (tryincludepath(lx, span, path)) return 1;
       }
    }
 NotFound:
    error(span, "file not found: %'S", str, slen);
    xbfree(path);
+   return 0;
 }
 
-static void
+static bool
 ppinclude(struct lexer *lx, const struct span *span0)
 {
    struct token tk;
@@ -1834,7 +1835,7 @@ ppinclude(struct lexer *lx, const struct span *span0)
    if (in_range(lex0(lx, &tk, 1), TKPPHDRH, TKPPHDRQ)) {
       expecteol(lx, "include");
       joinspan(&span.ex, tk.span.ex);
-      doinclude(lx, &span, tk.t == TKPPHDRQ, tk.s, tk.len);
+      return doinclude(lx, &span, tk.t == TKPPHDRQ, tk.s, tk.len);
    } else if (tk.t == '\n' || tk.t == TKEOF) {
       goto BadSyntax;
    } else {
@@ -1856,7 +1857,7 @@ ppinclude(struct lexer *lx, const struct span *span0)
          if (tks.n > 1)
             (ccopt.pedant ? error : warn)(&tks.p[1].span, "extra tokens after #include");
          joinspan(&span.ex, tks.p[0].span.ex);
-         doinclude(lx, &span, 1, tks.p[0].s, tks.p[0].len);
+         return doinclude(lx, &span, 1, tks.p[0].s, tks.p[0].len);
       } else if (tks.n > 2 && tks.p[0].t == '<' && tks.p[tks.n-1].t == '>') { /* <header.h> */
          /* this is multiple tokens, concatenate them together */
          char buf[4096];
@@ -1868,7 +1869,7 @@ ppinclude(struct lexer *lx, const struct span *span0)
          joinspan(&span.ex, tks.p[tks.n-1].span.ex);
          if (wbuf.err) error(&span, "path too long");
          else {
-            doinclude(lx, &span, 0, buf, wbuf.len);
+            return doinclude(lx, &span, 0, buf, wbuf.len);
          }
       } else {
       BadSyntax:
@@ -1877,6 +1878,7 @@ ppinclude(struct lexer *lx, const struct span *span0)
       }
       vfree(&tks);
    }
+   return 1;
 }
 
 static void
@@ -2090,7 +2092,8 @@ Begin:
       return tk->t;
    }
    bool linebegin = 1,
-        skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
+        skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0,
+        inclerror = 0; /* set when #include header file not found: process other directives then abort */
    enum directive lastcmd = 0;
    for (;;) {
       while ((t = lex0(lx, tk, 0)) == '\n') linebegin = 1;
@@ -2112,11 +2115,11 @@ Begin:
                case PPELIFNDEF: ppelifxdef(lx, 0, &tk->span); break;
                case PPELSE:     ppelse(lx, &tk->span); break;
                case PPENDIF:    ppendif(lx, &tk->span); break;
-               case PPINCLUDE:  ppinclude(lx, &tk->span); break;
                case PPLINE:     ppline(lx, tk); break;
                case PPPRAGMA:   pppragma(lx, &tk->span); break;
                case PPWARNING:  ppdiag(lx, &tk->span, 0); break;
                case PPERROR:    ppdiag(lx, &tk->span, 1); break;
+               case PPINCLUDE:  inclerror |= !ppinclude(lx, &tk->span); break;
                default: assert(0&&"nyi");
                }
             } else {
@@ -2175,13 +2178,18 @@ Begin:
             --includedepth;
             linebegin = 1;
             lx->firstdirective = 0;
+         } else if (t == TKEOF && inclerror) {
+            break;
          } else {
             if (nppcnd == lx->nppcnd0) lx->inclguard = NULL;
             if (t == TKIDENT) identkeyword(tk);
-            return tk->t;
+            if (!inclerror) return tk->t;
          }
       }
    }
+   assert(inclerror);
+   efmt("Aborting due to previous error(s).\n");
+   exit(1);
    assert(0);
 }
 
