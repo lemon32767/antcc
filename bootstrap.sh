@@ -12,7 +12,7 @@ test -n "$cflags" || : ${cflags:="-std=c11"}
 if test -n "$V"; then
     opt="$opt -v"
 fi
-src=$(grep -o '\([_A-Za-z0-9/]\)\+\.c' < Makefile)
+src=$(head -n 15 Makefile | grep -o '\([_A-Za-z0-9/]\)\+\.c')
 X() {
     echo "> $@" | (test -n "$V" && cat || sed -s 's/\([^ ]\+\.c \?\)\{10\}$/.../')
     $@

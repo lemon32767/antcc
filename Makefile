@@ -16,6 +16,14 @@ BINDIR=$(PREFIX)/bin
 
 -include config.mk
 
+HOSTCC ?= $(CC)
+
+ifdef V
+	V=
+else
+	V=@
+endif
+
 all: CFLAGS += -g -Og
 all: $(OUT)
 
@@ -26,19 +34,22 @@ dbg: CFLAGS += -g -fsanitize=address,undefined
 dbg: CC:=clang
 dbg: $(OUT)
 
-$(OUT): $(OBJ)
+tool/depgen: tool/depgen.c
+	$(CC) -Wall -g -o $@ $<
+
+$(OUT): tool/depgen $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ)
 
 hostconfig.h:
 	./configure
 
 $(BUILDDIR)/%.o: %.c hostconfig.h
-	@mkdir -p `dirname $@`
-	@cc $(CFLAGS) -w -MMD -MP -fsyntax-only -MF $(BUILDDIR)/$*.d -MT $@ $<  #depfiles
+	$Vmkdir -p `dirname $@`
+	$Vtool/depgen -MP -MF $(BUILDDIR)/$*.d -MT $@ $<
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	$(RM) -r -- $(BUILDDIR)/ test/build/ $(OUT) *.o a.out
+	$(RM) -r -- $(BUILDDIR)/ test/build/ $(OUT) *.o a.out tool/depgen
 
 clean-config: clean
 	$(RM) -r config.mk hostconfig.h
