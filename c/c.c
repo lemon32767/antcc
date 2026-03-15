@@ -2174,7 +2174,9 @@ buildenum(struct comp *cm, internstr name, const struct span *span, int id)
    }
 
    td.backing = 0;
-   for (int t = TYINT; t <= TYUVLONG; ++t) {
+   if (minv >= 0 && maxv <= ~0u) {
+      td.backing = TYUINT;
+   } else for (int t = TYINT; t <= TYUVLONG; ++t) {
       inttyminmax(&tymin, &tymax, t);
       if (minv >= tymin && maxv <= tymax) {
          td.backing = t;
