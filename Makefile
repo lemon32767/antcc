@@ -49,10 +49,13 @@ $(BUILDDIR)/%.o: %.c hostconfig.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	$(RM) -r -- $(BUILDDIR)/ test/build/ $(OUT) *.o a.out tool/depgen
+	$(RM) -r -- $(BUILDDIR)/ test/build/ $(OUT) *.o a.out
+
+clean-tool:
+	$(RM) -r tool/depgen
 
 clean-config: clean
-	$(RM) -r config.mk hostconfig.h
+	$(RM) -r config.mk hostconfig.h tool/depgen
 
 install: all
 	@mkdir -p "$(DESTDIR)$(BINDIR)"
