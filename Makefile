@@ -16,7 +16,7 @@ BINDIR=$(PREFIX)/bin
 
 -include config.mk
 
-HOSTCC ?= $(CC)
+TOOLCC ?= cc
 
 ifdef V
 	V=
@@ -35,7 +35,7 @@ dbg: CC:=clang
 dbg: $(OUT)
 
 tool/depgen: tool/depgen.c
-	$(CC) -Wall -g -o $@ $<
+	$(TOOLCC) -Wall -g -o $@ $<
 
 $(OUT): tool/depgen $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ)
@@ -55,7 +55,7 @@ clean-tool:
 	$(RM) -r tool/depgen
 
 clean-config: clean
-	$(RM) -r config.mk hostconfig.h tool/depgen
+	$(RM) -r config.mk hostconfig.h
 
 install: all
 	@mkdir -p "$(DESTDIR)$(BINDIR)"
