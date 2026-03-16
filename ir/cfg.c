@@ -95,4 +95,36 @@ filldom(struct function *fn)
    fn->prop |= FNBLKID | FNDOM;
 }
 
+static void
+loopmark(struct block *head, struct block *blk)
+{
+   if (blk->id < head->id || blk->visit == head->id) return;
+   blk->visit = head->id;
+   ++blk->loop;
+   for (int i = 0; i < blk->npred; ++i)
+      loopmark(head, blkpred(blk, i));
+}
+
+void
+fillloop(struct function *fn)
+{
+   struct block *b = fn->entry;
+   int id = 0;
+   FREQUIRE(FNRPO);
+   do {
+      b->id = id++;
+      b->visit = -1u;
+      b->loop = 0;
+   } while ((b = b->lnext) != fn->entry);
+   do {
+      for (int i = 0; i < b->npred; ++i) {
+         struct block *p = blkpred(b, i);
+         if (p->id > b->id) { /* b is loop header */
+            loopmark(b, p);
+         }
+      }
+   } while ((b = b->lnext) != fn->entry);
+   fn->prop |= FNBLKID;
+}
+
 /* vim:set ts=3 sw=3 expandtab: */

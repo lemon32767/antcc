@@ -130,6 +130,7 @@ struct block {
    int id;
    int npred;
    int visit;
+   ushort loop;
    int inumstart;
    union {
       struct block *_pred0;
@@ -322,8 +323,9 @@ void mem2reg(struct function *);
 void copyopt(struct function *);
 
 /** cfg.c **/
-void sortrpo(struct function *fn);
-void filldom(struct function *fn);
+void sortrpo(struct function *);
+void filldom(struct function *);
+void fillloop(struct function *);
 
 /** abi0.c **/
 void abi0(struct function *);
