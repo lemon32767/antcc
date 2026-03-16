@@ -147,9 +147,7 @@ The backend performs the following main passes:
     instruction selection, addressing mode utilization, introduction of
     register constraints.
   - Register allocation (`ir/regalloc.c`): performs linear scan register
-    allocation. Spilling has a lot of room for improvement, at the moment the
-    current interval is spilled when there are no free registers, with no other
-    heuristics. A scratch register is reserved for operations with spilled
+    allocation. A scratch register is reserved for operations with spilled
     temporaries.
   - Code emission (`x86_64/emit.c`): binary code for the target architecture is
     emitted directly (not textual assembly). Relocations are deferred to the
