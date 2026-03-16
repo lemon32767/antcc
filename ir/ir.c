@@ -479,7 +479,7 @@ insertphi(struct block *blk, enum irclass cls)
    return mkref(RTMP, new);
 }
 
-void
+uint
 numberinstrs(struct function *fn)
 {
    struct block *blk = fn->entry;
@@ -488,6 +488,7 @@ numberinstrs(struct function *fn)
       blk->inumstart = start;
       start += blk->ins.n+2;
    } while ((blk = blk->lnext) != fn->entry);
+   return start-1;
 }
 
 static bool

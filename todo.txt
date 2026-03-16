@@ -4,10 +4,10 @@
 - DWARF debug information
 - implement GNU extensions: __attribute__, __builtin_*, ...
 - compiler optimizations:
-    - dead store/load optimization,
-    - inlining
-    - loop inversion
+    - dead store/load optimization, forwarding
+    - all kinds of loop optimizations
+    - switch statements (bsearch, maybe jumptables?)
     - instruction scheduling
-    - better regalloc spilling heuristics
+    - use of memory operands in arith instrs in x86
 
-- testing on real world codebases
+- more testing on real world codebases

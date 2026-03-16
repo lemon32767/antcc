@@ -295,7 +295,7 @@ void fillblkids(struct function *);
 #define startbbvisit() (void)(++visitmark)
 #define wasvisited(blk) ((blk)->visit == visitmark)
 #define markvisited(blk) ((blk)->visit = visitmark)
-void numberinstrs(struct function *);
+uint numberinstrs(struct function *);
 bool blkreachable(struct function *fn, struct block *blk);
 
 /** builder.c **/
