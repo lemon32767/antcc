@@ -53,60 +53,46 @@ void _assertfmt(const char *file, int line, const char *func, const char *expr);
 #define assert(x) (void)(!(x) ? _assertfmt(__FILE__,__LINE__,__func__,#x), *(volatile int *)0 : 0)
 #endif
 
-static inline size_t
-hashs(size_t h, const char *s)
-{
-   while (*s) h = (uchar)*s++ + h*65599;
-   return h;
-}
-static inline size_t
-hashb(size_t h, const void *d, size_t n)
-{
-   const uchar *b = d;
-   while (n--) h = *b++ + h*65599;
-   return h;
-}
-static inline size_t
-ptrhash(const void *p) {
-   return (size_t)p * 2654435761u;
-}
+#if HAS_BUILTIN(popcountll)
+#define popcnt(x) __builtin_popcountll(x)
+#else
 static inline uint
 popcnt(uvlong x) {
-#if HAS_BUILTIN(popcountll)
-   return x ? __builtin_popcountll(x) : 0;
-#else
    uint n = 0;
    while (x) n += x&1, x >>= 1;
    return n;
-#endif
 }
+#endif
+
 static inline bool
 ispo2(uvlong x) {
    return (x != 0) & ((x & (x - 1)) == 0);
 }
+
+#if HAS_BUILTIN(ctzll)
+#define ilog2(x) __builtin_ctzll(x)
+#else
 static inline uint
 ilog2(uvlong x) { /* assumes x is a power of 2 */
-#if HAS_BUILTIN(ctzll)
-   return __builtin_ctzll(x);
-#else
    uint n = 0;
    while (x >>= 1) ++n;
    return n;
-#endif
 }
+#endif
+
+#if HAS_BUILTIN(ctzll)
+#define lowestsetbit(x) __builtin_ctzll(x)
+#else
 static inline uint
 lowestsetbit(uvlong x)
 {
-#if HAS_BUILTIN(ctzll)
-   return __builtin_ctzll(x);
-#else
    int i = 0;
    for (uvlong mask = 1;; ++i, mask <<= 1)
       if (x & mask)
          break;
    return i;
-#endif
 }
+#endif
 
 #define aisprint(c) in_range(c, ' ', '~')
 #define aisdigit(c) in_range(c, '0', '9')
@@ -187,13 +173,10 @@ void targ_init(const char *);
 /*********/
 
 /* libc *alloc wrappers */
-void *xmalloc(size_t n, const char *);
-void *xcalloc(size_t n, const char *);
-void *xrealloc(void *, size_t n, const char *);
+void *xmalloc(size_t);
+void *xcalloc(size_t);
+void *xrealloc(void *, size_t);
 void free(void *);
-#define xmalloc(n) xmalloc(n, __func__)
-#define xcalloc(n) xcalloc(n, __func__)
-#define xrealloc(p,n) xrealloc(p, n, __func__)
 
 /* string interning */
 typedef const struct internstr {char c;} *internstr;
@@ -312,83 +295,10 @@ extern char pmap_tombstone_[];
    for (size_t _i = 0; _i < (m)->mb.N && ((kx) = (m)->mb.k[_i], (pvx) = &(m)->v[_i], 1); ++_i) \
       if (kx && kx != pmap_tombstone_)
 
-/** bitset **/
+/** bitset (u_bits.h) **/
 struct bitset { size_t u; };
 enum { BSNBIT = 8 * sizeof(struct bitset) };
 #define BSSIZE(nbit) ((nbit)/BSNBIT + ((nbit)%BSNBIT != 0))
-
-static inline bool
-bstest(const struct bitset *bs, uint i)
-{
-   return bs[i/BSNBIT].u >> i%BSNBIT & 1;
-}
-
-static inline void
-bsset(struct bitset *bs, uint i)
-{
-   bs[i/BSNBIT].u |= 1ull << i%BSNBIT;
-}
-
-static inline void
-bsclr(struct bitset *bs, uint i)
-{
-   bs[i/BSNBIT].u &= ~(1ull << i%BSNBIT);
-}
-
-static inline void
-bszero(struct bitset bs[/*siz*/], uint siz)
-{
-   memset(bs, 0, siz * sizeof *bs);
-}
-
-static inline void
-bscopy(struct bitset dst[/*siz*/], const struct bitset src[/*siz*/], uint siz)
-{
-   while (siz--) dst++->u = src++->u;
-}
-
-static inline void
-bsunion(struct bitset dst[/*siz*/], const struct bitset src[/*siz*/], uint siz)
-{
-   while (siz--) dst++->u |= src++->u;
-}
-
-static inline uint
-bscount(struct bitset bs[/*siz*/], uint siz)
-{
-   uint n = 0;
-   while (siz--) n += popcnt(bs++->u);
-   return n;
-}
-
-static inline bool
-bsiter(uint *i, struct bitset bs[/*siz*/], uint siz)
-{
-   uint k = *i/BSNBIT, j = *i%BSNBIT;
-   if (k >= siz) return 0;
-   size_t t = bs[k].u & ~(((size_t)1 << j) - 1);
-   while (!t) {
-      if (++k >= siz) return 0;
-      t = bs[k].u;
-   }
-   *i = k*BSNBIT + lowestsetbit(t);
-   return 1;
-}
-#define bs_each(T, var, bs, siz) for (T (var) = 0; bsiter(&(var), (bs), (siz)); ++(var))
-
-static inline bool
-bsiterzr(uint *i, struct bitset bs[/*siz*/], uint siz)
-{
-   uint k = *i/BSNBIT, j = *i%BSNBIT;
-   if (k >= siz) return 0;
-   size_t t = ~bs[k].u & ~(((size_t)1 << j) - 1);
-   while (!t) {
-      if (++k >= siz) return 0;
-      t = ~bs[k].u;
-   }
-   *i = k*BSNBIT + lowestsetbit(t);
-   return 1;
-}
 
 /********/
 /** IO **/

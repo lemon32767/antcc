@@ -1,4 +1,5 @@
 #include "c_type.h"
+#include "u_hash.h"
 
 struct typedata typedata[1<<13];
 internstr ttypenames[1<<10];

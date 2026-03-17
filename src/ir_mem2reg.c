@@ -1,4 +1,5 @@
 #include "ir.h"
+#include "u_bits.h"
 #include <stdlib.h> /* qsort */
 
 static const uchar loadszcls[] = {

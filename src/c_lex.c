@@ -1,5 +1,6 @@
 #include "c_lex.h"
 #include "version.h"
+#include "u_bits.h"
 #include <string.h>
 #include <stdlib.h>
 

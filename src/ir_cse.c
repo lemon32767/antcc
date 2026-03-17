@@ -1,4 +1,5 @@
 #include "ir.h"
+#include "u_hash.h"
 
 static inline bool
 pure(const struct instr *ins)

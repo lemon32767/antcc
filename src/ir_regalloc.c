@@ -1,4 +1,5 @@
 #include "ir.h"
+#include "u_bits.h"
 
 /** Implements linear scan register allocation **/
 /* Some references:

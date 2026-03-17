@@ -1,5 +1,6 @@
 #include "ir.h"
 #include "obj.h"
+#include "u_hash.h"
 
 uchar type2cls[NTYPETAG];
 uchar cls2siz[] = { [KI32] = 4, [KI64] = 8, [KF32] = 4, [KF64] = 8 };

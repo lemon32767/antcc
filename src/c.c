@@ -1,6 +1,7 @@
 #include "c.h"
 #include "c_lex.h"
 #include "u_endian.h"
+#include "u_bits.h"
 #include "ir.h"
 #include "obj.h"
 

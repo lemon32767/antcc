@@ -1,4 +1,5 @@
 #include "c_lex.h"
+#include "u_hash.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>

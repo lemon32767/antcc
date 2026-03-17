@@ -1,38 +1,40 @@
 #include "antcc.h"
+#include "u_hash.h"
+#include "u_bits.h"
 #include <stdlib.h>
 #include <errno.h>
 #include <stdint.h>
 
 static void
-allocerr(const char *f)
+allocerr(void)
 {
-   efmt("%s: %s\n", f, strerror(errno));
+   efmt("antcc fatal: %s\n", strerror(errno));
    ioflush(&bstdout);
    ioflush(&bstderr);
    abort();
 }
 
 void *
-(xmalloc)(size_t n, const char *f)
+xmalloc(size_t n)
 {
    void *p = malloc(n);
-   if (!p) allocerr(f);
+   if (!p) allocerr();
    return p;
 }
 
 void *
-(xcalloc)(size_t n, const char *f)
+xcalloc(size_t n)
 {
    void *p = calloc(n, 1);
-   if (!p) allocerr(f);
+   if (!p) allocerr();
    return p;
 }
 
 void *
-(xrealloc)(void *p, size_t n, const char *f)
+xrealloc(void *p, size_t n)
 {
    p = p ? realloc(p, n) : malloc(n);
-   if (!p) allocerr(f);
+   if (!p) allocerr();
    return p;
 }
 
