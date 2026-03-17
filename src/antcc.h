@@ -36,16 +36,6 @@ typedef unsigned uint;
 #define alignup(x, A) (((x) + ((A) - 1)) & -(A))
 #define countof(a) (sizeof(a) / sizeof 0[a])
 
-enum { SPANFILEBITS = 10 };
-struct span {
-   struct span0 {
-      uint off;
-      uint len  : 32-SPANFILEBITS,
-           file : SPANFILEBITS;
-   } sl, /* original source location */
-     ex; /* the location after #include/macro expansion */
-};
-
 void _assertfmt(const char *file, int line, const char *func, const char *expr);
 #if HAS_BUILTIN(trap)
 #define assert(x) (!(x) ? _assertfmt(__FILE__,__LINE__,__func__,#x), __builtin_trap() : (void)0)
@@ -359,6 +349,16 @@ void markfileonce(int id, internstr guard);
 void markfileseen(int id);
 bool isfileseen(int id);
 void closefile(int id);
+
+enum { SPANFILEBITS = 10 };
+struct span {
+   struct span0 {
+      uint off;
+      uint len  : 32-SPANFILEBITS,
+           file : SPANFILEBITS;
+   } sl, /* original source location */
+     ex; /* the location after #include/macro expansion */
+};
 
 enum diagkind { DGERROR, DGWARN, DGNOTE, };
 void vdiag(const struct span *, enum diagkind, const char *, va_list);
