@@ -1,13 +1,7 @@
 OUT?=antcc
 BUILDDIR?=build
-SRC=main.c io.c mem.c c/c.c c/lex.c c/eval.c c/builtin.c type.c targ.c \
-	ir/ir.c ir/builder.c ir/fold.c ir/dump.c ir/ssa.c ir/cfg.c ir/intrin.c ir/abi0.c ir/mem2reg.c ir/regalloc.c ir/simpl.c ir/stack.c \
-	ir/cse.c ir/inliner.c \
-	x86_64/sysv.c x86_64/isel.c x86_64/emit.c \
-	aarch64/aapcs.c aarch64/isel.c aarch64/emit.c \
-	obj/obj.c obj/elf.c \
-	embedfilesdir.c
-OBJ=$(patsubst %.c,build/%.o,$(SRC))
+SRC=$(wildcard src/*.c)
+OBJ=$(patsubst src/%.c,build/%.o,$(SRC))
 DEP=$(OBJ:.o=.d)
 
 CFLAGS=-Wall -std=c11 -pedantic
@@ -40,10 +34,10 @@ tool/depgen: tool/depgen.c
 $(OUT): tool/depgen $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ)
 
-hostconfig.h:
+src/hostconfig.h:
 	./configure
 
-$(BUILDDIR)/%.o: %.c hostconfig.h
+$(BUILDDIR)/%.o: src/%.c src/hostconfig.h
 	$Vmkdir -p `dirname $@`
 	$Vtool/depgen -MP -MF $(BUILDDIR)/$*.d -MT $@ $<
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -55,7 +49,7 @@ clean-tool:
 	$(RM) -r tool/depgen
 
 clean-config: clean
-	$(RM) -r config.mk hostconfig.h
+	$(RM) -r config.mk src/hostconfig.h
 
 install: all
 	@mkdir -p "$(DESTDIR)$(BINDIR)"

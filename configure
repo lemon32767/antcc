@@ -116,11 +116,11 @@ echo "/** GENERATED WITH $0 $@ **/
 #define HOST_INCLUDE_DIRS $host_include_dirs
 #define HOST_CC \"$CC\"
 
-#endif // HOSTCONFIG_H_"  > hostconfig.h
+#endif // HOSTCONFIG_H_"  > src/hostconfig.h
 
 echo "# GENERATED WITH $0 $@
 PREFIX = $prefix
 CC     = $CC
 CFLAGS = ${CFLAGS:--Wall -std=c11 -pedantic}" > config.mk
 
-echo config written to hostconfig.h, config.mk
+echo config written to src/hostconfig.h, config.mk

@@ -16,14 +16,9 @@
 !Makefile
 !bootstrap.sh
 
-!/*.h
-hostconfig.h
-!/*.c
-!/c/
-!/ir/
-!/x86_64/
-!/aarch64/
-!/obj/
+src/hostconfig.h
+!/src/
+!/src/*
 !/tool/
 
 !/test/
