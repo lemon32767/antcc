@@ -1,6 +1,6 @@
 #include "ir.h"
-#include "../obj/obj.h"
-#include "../endian.h"
+#include "obj.h"
+#include "u_endian.h"
 
 static int nextdat;
 
@@ -91,7 +91,7 @@ prityp(union irtype typ)
 static const char *intrinname[] = {
    "?\??",
 #define _(b,...) #b,
-#include "intrin.def"
+#include "ir_intrin.def"
 #undef _
 };
 

@@ -1,4 +1,4 @@
-#include "all.h"
+#include "t_x86-64.h"
 
 static int classify(uchar cls[2], const struct typedata *td, uint off);
 

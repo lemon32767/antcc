@@ -1,5 +1,5 @@
 #include "ir.h"
-#include "../obj/obj.h"
+#include "obj.h"
 
 uchar type2cls[NTYPETAG];
 uchar cls2siz[] = { [KI32] = 4, [KI64] = 8, [KF32] = 4, [KF64] = 8 };
@@ -15,14 +15,14 @@ const uchar siz2intcls[] = { [1] = KI32, [2] = KI32, [4] = KI32, [8] = KI64 };
 const char *opnames[] = {
    "?\??",
 #define _(o,...) #o,
-#include "op.def"
+#include "ir_op.def"
 #undef _
 };
 
 const uchar opnarg[] = {
    0,
 #define _(o,n) n,
-#include "op.def"
+#include "ir_op.def"
 #undef _
 };
 

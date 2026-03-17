@@ -1,5 +1,5 @@
-#include "lex.h"
-#include "../version.h"
+#include "c_lex.h"
+#include "version.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -2040,7 +2040,7 @@ identkeyword(struct token *tk)
       const char *alias[2];
    } kwtab[] = {
 #define _(kw, cstd, ...) { #kw, {TKW##kw, cstd}, __VA_ARGS__ },
-#include "keywords.def"
+#include "c_keywords.def"
 #undef _
    };
 #ifdef __GNUC__

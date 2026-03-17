@@ -1,5 +1,5 @@
-#include "../common.h"
-#include "../type.h"
+#include "antcc.h"
+#include "c_type.h"
 
 static inline bool
 joinspan(struct span0 *dst, struct span0 snd)
@@ -45,7 +45,7 @@ enum toktag { /* single-character tokens' tag value is the character itself */
    TKSETSHR, /* >>= */
    TKIDENT = 0x80,
 #define _(kw, stdc, ...) TKW##kw,
-#include "keywords.def"
+#include "c_keywords.def"
 #undef _
    NTOKTAG,
 };

@@ -1,8 +1,8 @@
 #include "c.h"
-#include "lex.h"
-#include "../endian.h"
-#include "../ir/ir.h"
-#include "../obj/obj.h"
+#include "c_lex.h"
+#include "u_endian.h"
+#include "ir.h"
+#include "obj.h"
 
 /** Parsing helper functions **/
 #define peek(Cm,Tk) lexpeek((Cm)->lx,Tk)

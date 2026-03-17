@@ -1,5 +1,5 @@
-#include "common.h"
-#include "type.h"
+#include "antcc.h"
+#include "c_type.h"
 
 extern const struct mctarg t_x86_64_sysv, t_aarch64_aapcs;
 static const struct targ {

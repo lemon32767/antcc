@@ -1,5 +1,5 @@
 #include "obj.h"
-#include "../ir/ir.h"
+#include "ir.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>

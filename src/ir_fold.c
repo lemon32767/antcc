@@ -1,5 +1,5 @@
 #include "ir.h"
-#include "../endian.h"
+#include "u_endian.h"
 #include <limits.h>
 
 #ifdef __clang__

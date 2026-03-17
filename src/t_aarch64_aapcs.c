@@ -1,4 +1,4 @@
-#include "all.h"
+#include "t_aarch64.h"
 
 static int
 abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, union irtype typ)

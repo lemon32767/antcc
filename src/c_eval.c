@@ -1,5 +1,5 @@
 #include "c.h"
-#include "../ir/ir.h"
+#include "ir.h"
 #include <limits.h>
 
 static int

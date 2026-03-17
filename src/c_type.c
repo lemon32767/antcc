@@ -1,4 +1,4 @@
-#include "type.h"
+#include "c_type.h"
 
 struct typedata typedata[1<<13];
 internstr ttypenames[1<<10];

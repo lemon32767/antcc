@@ -1,5 +1,5 @@
-#include "all.h"
-#include "../endian.h"
+#include "t_x86-64.h"
+#include "u_endian.h"
 
 enum flag {
    ZF = 1 << 0,

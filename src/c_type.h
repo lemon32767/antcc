@@ -1,6 +1,6 @@
 #ifndef TYPE_H_
 #define TYPE_H_
-#include "common.h"
+#include "antcc.h"
 
 enum qualifier {
    QCONST    = 1<<0,

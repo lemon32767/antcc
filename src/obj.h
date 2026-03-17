@@ -1,4 +1,4 @@
-#include "../common.h"
+#include "antcc.h"
 
 extern struct objfile {
    const char *infile, *outfile;

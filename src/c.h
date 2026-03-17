@@ -1,5 +1,5 @@
-#include "../common.h"
-#include "../type.h"
+#include "antcc.h"
+#include "c_type.h"
 
 /*************/
 /* EXPR TREE */

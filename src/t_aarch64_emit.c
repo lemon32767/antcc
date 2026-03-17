@@ -1,6 +1,6 @@
-#include "all.h"
-#include "../obj/obj.h"
-#include "../endian.h"
+#include "t_aarch64.h"
+#include "obj.h"
+#include "u_endian.h"
 
 /* References:
  *    ARM ARM https://developer.arm.com/documentation/ddi0628/aa/?lang=en

@@ -1,4 +1,4 @@
-#include "../ir/ir.h"
+#include "ir.h"
 
 enum reg {
    R0 = 0,

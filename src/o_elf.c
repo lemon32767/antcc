@@ -1,7 +1,7 @@
-#include "elf.h"
+#include "o_elf.h"
 #include "obj.h"
-#include "../ir/ir.h" /* mctarg */
-#include "../endian.h"
+#include "ir.h" /* mctarg */
+#include "u_endian.h"
 #include <unistd.h>
 #include <stdlib.h> /* qsort */
 

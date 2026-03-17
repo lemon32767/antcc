@@ -1,6 +1,6 @@
-#include "all.h"
-#include "../obj/obj.h"
-#include "../endian.h"
+#include "t_x86-64.h"
+#include "obj.h"
+#include "u_endian.h"
 
 /** Instruction operands **
  *

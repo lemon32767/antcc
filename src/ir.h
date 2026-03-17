@@ -1,5 +1,5 @@
-#include "../common.h"
-#include "../type.h"
+#include "antcc.h"
+#include "c_type.h"
 
 enum irclass {
    KXXX,
@@ -93,7 +93,7 @@ struct addr {
 enum op {
    Oxxx,
 #define _(o,...) O##o,
-#include "op.def"
+#include "ir_op.def"
 #undef _
    NOPER,
 };
@@ -109,7 +109,7 @@ extern const uchar opnarg[];
 enum intrin {
    INxxx,
 #define _(b,...) IN##b,
-#include "intrin.def"
+#include "ir_intrin.def"
 #undef _
 };
 

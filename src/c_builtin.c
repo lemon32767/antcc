@@ -1,5 +1,5 @@
 #include "c.h"
-#include "../ir/ir.h"
+#include "ir.h"
 
 static bool
 callcheck(const struct span *span, int nparam, const union type *param, int narg, struct expr *args)

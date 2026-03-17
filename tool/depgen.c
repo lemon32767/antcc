@@ -95,18 +95,22 @@ dofile(const char *f)
    files[nfiles++] = f;
    FILE *fp = fopen(f, "r");
    if (!fp) {
+      fprintf(stderr, "depgen ERR: ");
       perror(f);
       return 1;
    }
    char line[MAXLINE], hdr[MAXLINE];
-   while (fgets(line, sizeof line, fp)) {
+   for (int ln = 1; fgets(line, sizeof line, fp); ++ln) {
       if (sscanf(line, " # include \"%[^\"]\"", hdr) == 1) {
          const char *abspath = catpath(dirname(f), hdr);
          for (int i = 0; files[i] && i < MAXFILES; ++i) {
             if (!strcmp(files[i], abspath)) goto Skip;
          }
          fprintf(out, " %s", abspath);
-         ret |= dofile(abspath);
+         if (dofile(abspath) != 0) {
+            fprintf(stderr, "    #included from %s:%d\n", f, ln);
+            ret = 1;
+         }
       }
    Skip:;
    }
@@ -118,7 +122,7 @@ dofile(const char *f)
 int
 main(int argc, char **argv)
 {
-#define DIE(...) return fprintf(stderr, "? "__VA_ARGS__), fputc('\n', stderr), 1
+#define DIE(...) return fprintf(stderr, "depgen ERR: "__VA_ARGS__), fputc('\n', stderr), 1
    const char *src = NULL, *targ = NULL, *mf = NULL;
    int mp = 0;
    for (int i = 1; i < argc; ++i) {

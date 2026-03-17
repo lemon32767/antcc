@@ -1,7 +1,7 @@
-#include "common.h"
+#include "antcc.h"
 #include "version.h"
 #include "hostconfig.h" /* run ./configure */
-#include "obj/obj.h"
+#include "obj.h"
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/types.h>

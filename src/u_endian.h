@@ -1,7 +1,7 @@
 #ifndef ENDIAN_H_
 #define ENDIAN_H_
 
-#include "common.h"
+#include "antcc.h"
 extern bool targ_bigendian;
 
 /*** Macros and functions for endian specific memory access ***/
