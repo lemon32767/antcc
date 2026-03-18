@@ -145,7 +145,7 @@ The backend performs the following main passes:
 
   - Stack lowering (`ir_stack.c`): `alloca` instructions are deleted and
     corresponding stack slots replaced with calculated stack offsets.
-  - Instruction selection (`x86_64/isel.c`): architecture-specific
+  - Instruction selection (`t_x86-64_isel.c`): architecture-specific
     instruction selection, addressing mode utilization, introduction of
     register constraints.
   - Register allocation (`ir_regalloc.c`): performs linear scan register
