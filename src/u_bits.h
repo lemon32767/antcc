@@ -3,43 +3,43 @@
 #include "antcc.h"
 
 static inline bool
-bstest(const struct bitset *bs, uint i)
+bstest(const BitSet *bs, uint i)
 {
    return bs[i/BSNBIT].u >> i%BSNBIT & 1;
 }
 
 static inline void
-bsset(struct bitset *bs, uint i)
+bsset(BitSet *bs, uint i)
 {
    bs[i/BSNBIT].u |= 1ull << i%BSNBIT;
 }
 
 static inline void
-bsclr(struct bitset *bs, uint i)
+bsclr(BitSet *bs, uint i)
 {
    bs[i/BSNBIT].u &= ~(1ull << i%BSNBIT);
 }
 
 static inline void
-bszero(struct bitset bs[/*siz*/], uint siz)
+bszero(BitSet bs[/*siz*/], uint siz)
 {
    memset(bs, 0, siz * sizeof *bs);
 }
 
 static inline void
-bscopy(struct bitset dst[/*siz*/], const struct bitset src[/*siz*/], uint siz)
+bscopy(BitSet dst[/*siz*/], const BitSet src[/*siz*/], uint siz)
 {
    while (siz--) dst++->u = src++->u;
 }
 
 static inline void
-bsunion(struct bitset dst[/*siz*/], const struct bitset src[/*siz*/], uint siz)
+bsunion(BitSet dst[/*siz*/], const BitSet src[/*siz*/], uint siz)
 {
    while (siz--) dst++->u |= src++->u;
 }
 
 static inline uint
-bscount(struct bitset bs[/*siz*/], uint siz)
+bscount(BitSet bs[/*siz*/], uint siz)
 {
    uint n = 0;
    while (siz--) n += popcnt(bs++->u);
@@ -47,7 +47,7 @@ bscount(struct bitset bs[/*siz*/], uint siz)
 }
 
 static inline bool
-bsiter(uint *i, struct bitset bs[/*siz*/], uint siz)
+bsiter(uint *i, BitSet bs[/*siz*/], uint siz)
 {
    uint k = *i/BSNBIT, j = *i%BSNBIT;
    if (k >= siz) return 0;
@@ -62,7 +62,7 @@ bsiter(uint *i, struct bitset bs[/*siz*/], uint siz)
 #define bs_each(T, var, bs, siz) for (T (var) = 0; bsiter(&(var), (bs), (siz)); ++(var))
 
 static inline bool
-bsiterzr(uint *i, struct bitset bs[/*siz*/], uint siz)
+bsiterzr(uint *i, BitSet bs[/*siz*/], uint siz)
 {
    uint k = *i/BSNBIT, j = *i%BSNBIT;
    if (k >= siz) return 0;

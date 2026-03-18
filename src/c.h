@@ -1,10 +1,6 @@
 #include "antcc.h"
 #include "c_type.h"
 
-/*************/
-/* EXPR TREE */
-/*************/
-
 enum exprkind {
    EXXX, ENUMLIT, ESTRLIT, ESYM, ESSYMREF, EVAARG, EINIT, EGETF, ECALL, ECOND,
    /* unary */
@@ -22,16 +18,20 @@ enum exprkind {
 #define isassign(t) in_range(t, ESET, ESETSHR)
 #define assigntobinop(t) ((t) - ESETADD + EADD)
 
-struct expr {
+typedef struct Expr Expr;
+typedef struct ExprGetFld ExprGetFld;
+typedef struct Init Init;
+typedef struct InitElem InitElem;
+struct Expr {
    uchar t;
    uchar qual;
    ushort narg; /* ECALL */
-   union type ty;
-   struct span span;
+   Type ty;
+   Span span;
    union {
       struct {
-         struct expr *sub; /* child(ren) */
-         struct exgetfld {
+         Expr *sub; /* child(ren) */
+         struct ExprGetFld {
             ushort off;
             uchar bitsiz, bitoff;
          } fld; /* EGETF */
@@ -52,31 +52,34 @@ struct expr {
          int off;
          bool func : 1, local : 1;
       } ssym; /* ESSYMREF (static symbol addr + off) */
-      struct init *init; /* EINIT */
+      Init *init; /* EINIT */
    };
 };
 
-struct init {
-   struct bitset zero[BSSIZE(64)]; /* bytes to zero out up to 64 */
-   struct initval {
-      struct initval *next;
+struct Init {
+   BitSet zero[BSSIZE(64)]; /* bytes to zero out up to 64 */
+   struct InitElem {
+      InitElem *next;
       uint off;
       uchar bitoff, bitsiz;
-      struct expr ex;
+      Expr ex;
    } *vals, **tail;
 };
 
+typedef struct Env Env;
+typedef struct Builtin Builtin;
+
 /** C compiler state **/
-struct comp {
-   struct lexer *lx;
-   struct env *env;
-   struct arena *fnarena, *exarena;
-   struct span fnblkspan;
+typedef struct {
+   struct Lexer *lx;
+   Env *env;
+   Arena *fnarena, *exarena;
+   Span fnblkspan;
    uint loopdepth, switchdepth;
-   struct block *breakto, *loopcont;
-   struct switchstmt *switchstmt;
-   struct label *labels;
-};
+   struct Block *breakto, *loopcont;
+   struct SwitchStmt *switchstmt;
+   struct Label *labels;
+} CComp;
 
 enum storageclass {
    SCNONE,
@@ -88,8 +91,8 @@ enum storageclass {
    SCREGISTER = 1<<5,
 };
 
-struct decl {
-   union type ty;
+typedef struct Decl {
+   Type ty;
    uchar scls;
    uchar qual : 2,
          noret : 1,
@@ -97,35 +100,36 @@ struct decl {
          isenum : 1,
          isdef : 1,
          isbuiltin : 1;
-   struct span span;
+   Span span;
    internstr name;
    union {
-      internstr sym;
-      struct { ushort align; int id; };
-      vlong value;
-      const struct builtin *builtin;
+      internstr sym; /* static/extern scls */
+      struct { ushort align; int id; }; /* local var */
+      vlong value; /* enum constant */
+      Builtin *builtin; /* .isbuiltin */
    };
-};
+} Decl;
 
-extern struct envdecls {vec_of(struct decl);} declsbuf;
-extern union type cvalistty;
-struct function;
-int envadddecl(struct env *env, const struct decl *d);
-bool assigncheck(union type t, const struct expr *src);
-union ref expraddr(struct function *, const struct expr *);
-union ref scalarcvt(struct function *, union type to, union type from, union ref);
-union ref compileexpr(struct function *, const struct expr *, bool discard);
-void dumpexpr(const struct expr *, bool printtypes);
+/** c.c **/
+extern struct declsbuf {vec_of(Decl);} declsbuf;
+extern Type cvalistty;
+int envadddecl(Env *env, const Decl *d);
+bool assigncheck(Type t, const Expr *src);
+struct Function;
+union Ref expraddr(struct Function *, const Expr *);
+union Ref scalarcvt(struct Function *, Type to, Type from, union Ref);
+union Ref compileexpr(struct Function *, const Expr *, bool discard);
+void dumpexpr(const Expr *, bool printtypes);
+
+struct Builtin {
+   bool (*sema)(CComp *, Expr *);
+   union Ref (*comp)(struct Function *, Expr *, bool discard);
+};
 
 /** builtin.c **/
-struct builtin {
-   bool (*sema)(struct comp *, struct expr *);
-   union ref (*comp)(struct function *, struct expr *, bool discard);
-};
-void putbuiltins(struct env *);
-union ref builtin_va_arg_comp(struct function *, const struct expr *, bool discard);
+void putbuiltins(Env *);
+union Ref builtin_va_arg_comp(struct Function *, const Expr *, bool discard);
 
-/** eval.c **/
 enum evalmode {
    EVNONE,
    EVINTCONST,
@@ -134,6 +138,7 @@ enum evalmode {
    EVFOLD,
 };
 
-bool eval(struct expr *, enum evalmode);
+/** eval.c **/
+bool eval(Expr *, enum evalmode);
 
 /* vim:set ts=3 sw=3 expandtab: */

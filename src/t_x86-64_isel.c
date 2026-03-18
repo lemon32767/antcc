@@ -42,14 +42,14 @@ static int iflagsrc = -1;
 
 #define inscopy(blk, pcuri, k, r) insertinstr((blk), (*(pcuri))++, mkinstr(Ocopy, k, .l = (r)))
 static void
-picfixsym(union ref *r, struct block *blk, int *curi)
+picfixsym(Ref *r, Block *blk, int *curi)
 {
    if (!ccopt.pic || !isaddrcon(*r,0)) return;
    *r = inscopy(blk, curi, KPTR, *r);
 }
 
 static void
-fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
+fixarg(Ref *r, Instr *ins, Block *blk, int *curi)
 {
    int sh;
    enum op op = ins ? ins->op : 0;
@@ -57,7 +57,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
 
 Begin:
    if (r->t == RXCON) {
-      struct xcon *con = &contab.p[r->i];
+      IRCon *con = &contab.p[r->i];
       if (in_range(op, Oshl, Oslr) && r == &ins->r) {
          sh = con->i;
          goto ShiftImm;
@@ -79,7 +79,7 @@ Begin:
          /* float immediates & 64bit immediates are loaded from memory */
          uchar data[8];
          uint ksiz = cls2siz[con->cls];
-         union type ctype;
+         Type ctype;
          /* can't use memory arg in rhs if lhs is memory */
          bool docopy = ins && &ins->l != r && (oisstore(ins->op) || ins->l.t == RADDR);
          if (con->cls <= KPTR && (in_range(op, Ocopy, Omove) || op == Ophi))
@@ -110,7 +110,7 @@ Begin:
    ShiftImm: /* shift immediate is always 8bit */
       *r = mkref(RICON, sh & 255);
    } else if (r->t == RSTACK) {
-      struct instr adr = mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkintcon(KI32, -r->i));
+      Instr adr = mkinstr(Oadd, KPTR, mkref(RREG, RBP), mkintcon(KI32, -r->i));
       if (op == Ocopy)
          *ins = adr;
       else
@@ -124,17 +124,17 @@ Begin:
 #define isimm32(r) (iscon(r) && concls(r) == KI32)
 
 static void
-selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
+selcall(Function *fn, Instr *ins, Block *blk, int *curi)
 {
-   const struct call *call = &calltab.p[ins->r.i];
+   const IRCall *call = &calltab.p[ins->r.i];
    int iarg = *curi - 1;
    enum irclass cls;
    uint argstksiz = alignup(call->argstksiz, 16);
    int nsse = 0;
 
    for (int i = call->narg - 1; i >= 0; --i) {
-      struct abiarg abi = call->abiarg[i];
-      struct instr *arg;
+      ABIArg abi = call->abiarg[i];
+      Instr *arg;
       for (;; --iarg) {
          assert(iarg >= 0 && i >= 0 && "arg?");
          if ((arg = &instrtab[blk->ins.p[iarg]])->op == Oarg)
@@ -146,7 +146,7 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          *arg = mkinstr(Omove, call->abiarg[i].ty.cls, mkref(RREG, abi.reg), arg->r);
          if (abi.reg >= XMM0) ++nsse;
       } else {
-         union ref adr = mkaddr((struct addr){mkref(RREG, RSP), .disp = abi.stk});
+         Ref adr = mkaddr((IRAddr){mkref(RREG, RSP), .disp = abi.stk});
          int iargsave = iarg;
          if (!abi.ty.isagg) { /* scalar arg in stack */
             *arg = mkinstr(cls2store[abi.ty.cls], 0, adr, arg->r);
@@ -161,13 +161,13 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       }
    }
    if (call->argstksiz) {
-      union ref disp = mkref(RICON, argstksiz);
-      insertinstr(blk, iarg--, (struct instr){Osub, KPTR, .keep=1, .reg = RSP+1, .l=mkref(RREG,RSP), disp});
+      Ref disp = mkref(RICON, argstksiz);
+      insertinstr(blk, iarg--, (Instr){Osub, KPTR, .keep=1, .reg = RSP+1, .l=mkref(RREG,RSP), disp});
       ++*curi;
-      insertinstr(blk, *curi+1, (struct instr){Oadd, KPTR, .keep=1, .reg = RSP+1, .l=mkref(RREG,RSP), disp});
+      insertinstr(blk, *curi+1, (Instr){Oadd, KPTR, .keep=1, .reg = RSP+1, .l=mkref(RREG,RSP), disp});
    }
    if (isimm32(ins->l))
-      ins->l = mkaddr((struct addr){.base = ins->l});
+      ins->l = mkaddr((IRAddr){.base = ins->l});
    else if (isintcon(ins->l))
       ins->l = inscopy(blk, curi, KPTR, ins->l);
 
@@ -193,7 +193,7 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 }
 
 static bool
-aimm(struct addr *addr, vlong disp)
+aimm(IRAddr *addr, vlong disp)
 {
    vlong a = addr->disp;
    a += disp;
@@ -205,7 +205,7 @@ aimm(struct addr *addr, vlong disp)
 }
 
 static bool
-ascale(struct addr *addr, union ref a, union ref b)
+ascale(IRAddr *addr, Ref a, Ref b)
 {
    if (b.t != RICON) return 0;
    if (addr->index.bits) return 0;
@@ -216,7 +216,7 @@ ascale(struct addr *addr, union ref a, union ref b)
       addr->shift = b.i;
       return 1;
    } else if (a.t == RTMP) {
-      struct instr *ins = &instrtab[a.i];
+      Instr *ins = &instrtab[a.i];
       /* factor out shifted immediate from 'shl {add %x, imm}, s' */
       /* XXX maybe we shouldn't do this here because it should be done by a generic
        * arithemetic optimization pass ? */
@@ -235,7 +235,7 @@ ascale(struct addr *addr, union ref a, union ref b)
 }
 
 static bool
-aadd(struct addr *out, struct block *blk, int *curi, union ref r, bool recurring)
+aadd(IRAddr *out, Block *blk, int *curi, Ref r, bool recurring)
 {
    if (r.t == RSTACK) {
       if (out->base.bits || !aimm(out, -r.i)) {
@@ -244,8 +244,8 @@ aadd(struct addr *out, struct block *blk, int *curi, union ref r, bool recurring
       }
       out->base = mkref(RREG, RBP);
    } else if (r.t == RTMP) {
-      struct instr *ins = &instrtab[r.i];
-      struct addr adr = {0};
+      Instr *ins = &instrtab[r.i];
+      IRAddr adr = {0};
       if (ins->op == Oadd) {
          if (recurring) goto Ref;
          if (aadd(&adr, blk, curi, ins->l, 1) && aadd(&adr, blk, curi, ins->r, 1)) {
@@ -269,7 +269,7 @@ aadd(struct addr *out, struct block *blk, int *curi, union ref r, bool recurring
             ins->skip = 1;
          } else return 0;
       } else if (ins->op == Ocopy && ins->l.t == RADDR) {
-         const struct addr *adr2 = &addrtab.p[ins->l.i];
+         const IRAddr *adr2 = &addrtab.p[ins->l.i];
          adr = *adr2;
          goto Add2;
       } else if (ins->op == Oshl) {
@@ -295,9 +295,9 @@ aadd(struct addr *out, struct block *blk, int *curi, union ref r, bool recurring
 }
 
 static bool
-fuseaddr(union ref *r, struct block *blk, int *curi)
+fuseaddr(Ref *r, Block *blk, int *curi)
 {
-   struct addr addr = { 0 };
+   IRAddr addr = { 0 };
 
    if (isaddrcon(*r,1)) return 1;
    if (!aadd(&addr, blk, curi, *r, 0)) return 0;
@@ -306,7 +306,7 @@ fuseaddr(union ref *r, struct block *blk, int *curi)
       /* pic needs to load from GOT */
       /* pie cannot encode RIP-relative address with index register */
       /*     first load symbol address into a temp register */
-      union ref temp = mkaddr((struct addr){.base = addr.base, .disp = ccopt.pic ? 0 : addr.disp});
+      Ref temp = mkaddr((IRAddr){.base = addr.base, .disp = ccopt.pic ? 0 : addr.disp});
       addr.base = inscopy(blk, curi, KPTR, temp);
       if (!ccopt.pic) addr.disp = 0;
    }
@@ -324,9 +324,9 @@ fuseaddr(union ref *r, struct block *blk, int *curi)
 
 /* is add instruction with this arg a candidate to transform into efective addr? */
 static bool
-addarg4addrp(union ref r)
+addarg4addrp(Ref r)
 {
-   struct instr *ins;
+   Instr *ins;
    if (isaddrcon(r, 0)) return 1;
    if (r.t == RSTACK) return 1;
    if (r.t != RTMP) return 0;
@@ -335,10 +335,10 @@ addarg4addrp(union ref r)
 }
 
 static void
-loadstoreaddr(struct block *blk, union ref *r, int *curi)
+loadstoreaddr(Block *blk, Ref *r, int *curi)
 {
    if (isimm32(*r)) {
-      *r = mkaddr((struct addr){.base = *r});
+      *r = mkaddr((IRAddr){.base = *r});
    } else if (isaddrcon(*r, 0)) {
       picfixsym(r, blk, curi);
    } else if (r->t == RSTACK || (r->t == RTMP && addarg4addrp(*r))) {
@@ -349,10 +349,10 @@ loadstoreaddr(struct block *blk, union ref *r, int *curi)
 }
 
 static bool
-arithfold(struct instr *ins)
+arithfold(Instr *ins)
 {
    if (isnumcon(ins->l) && (!ins->r.t || isnumcon(ins->r))) {
-      union ref r;
+      Ref r;
       bool ok = ins->r.t ? foldbinop(&r, ins->op, ins->cls, ins->l, ins->r) : foldunop(&r, ins->op, ins->cls, ins->l);
       if (ok) {
          *ins = mkinstr(Ocopy, insrescls(*ins), r);
@@ -363,10 +363,10 @@ arithfold(struct instr *ins)
 }
 
 static void
-sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
+sel(Function *fn, Instr *ins, Block *blk, int *curi)
 {
    int t = ins - instrtab;
-   struct instr temp = {0};
+   Instr temp = {0};
    enum op op = ins->op;
 
    if (oisarith(ins->op) && arithfold(ins)) {
@@ -444,7 +444,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          /* sub imm, x -> sub x, imm; neg x */
          fixarg(&ins->l, ins, blk, curi);
          ins->inplace = 1;
-         struct instr sub = *ins;
+         Instr sub = *ins;
          rswap(sub.l, sub.r);
          ins->op = op = Oneg;
          ins->l = insertinstr(blk, (*curi)++, sub);
@@ -459,7 +459,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       /* fallthru */
    case Oadd:
       if (kisint(ins->cls) && (addarg4addrp(ins->l) || addarg4addrp(ins->r))) {
-         union ref it = mkref(RTMP, ins - instrtab);
+         Ref it = mkref(RTMP, ins - instrtab);
          if (fuseaddr(&it, blk, curi)) {
             *ins = mkinstr(Ocopy, ins->cls, it);
             break;
@@ -533,7 +533,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Ocvtu64f:
    case Oexts8: case Oextu8: case Oexts16: case Oextu16: case Oexts32:
       if (isnumcon(ins->l)) {
-         union ref it;
+         Ref it;
          bool ok = foldunop(&it, ins->op, ins->cls, ins->l);
          assert(ok);
          ins->op = Ocopy;
@@ -565,12 +565,12 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 }
 
 static void
-seljmp(struct function *fn, struct block *blk)
+seljmp(Function *fn, Block *blk)
 {
    if (blk->jmp.t == Jb && blk->jmp.arg[0].bits) {
       int curi = blk->ins.n;
       fixarg(&blk->jmp.arg[0], NULL, blk, &curi);
-      union ref c = blk->jmp.arg[0];
+      Ref c = blk->jmp.arg[0];
       if (c.t != RTMP) {
          enum irclass cls = c.t == RICON ? KI32 : c.t == RXCON && contab.p[c.i].cls ? contab.p[c.i].cls : KPTR;
          int curi = blk->ins.n;
@@ -583,7 +583,7 @@ seljmp(struct function *fn, struct block *blk)
          instrtab[c.i].keep = 1;
       } else {
          if (kisflt(instrtab[c.i].cls) || !(opflags[instrtab[c.i].op] & ZF) || blk->ins.n == 0 || c.i != blk->ins.p[blk->ins.n - 1]) {
-            struct instr *ins;
+            Instr *ins;
             int curi = blk->ins.n;
             blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, insrescls(instrtab[c.i]), c, ZEROREF));
             ins = &instrtab[blk->jmp.arg[0].i];
@@ -599,8 +599,8 @@ seljmp(struct function *fn, struct block *blk)
    } else if (blk->jmp.t == Jret) {
       if (blk->jmp.arg[0].bits) {
          int curi;
-         union ref r = mkref(RREG, fn->abiret[0].reg);
-         struct instr *ins = &instrtab[insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[0].ty.cls, r, blk->jmp.arg[0])).i];
+         Ref r = mkref(RREG, fn->abiret[0].reg);
+         Instr *ins = &instrtab[insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[0].ty.cls, r, blk->jmp.arg[0])).i];
          curi = blk->ins.n-1;
          fixarg(&ins->r, ins, blk, &curi);
          blk->jmp.arg[0] = r;
@@ -616,14 +616,14 @@ seljmp(struct function *fn, struct block *blk)
 }
 
 void
-x86_64_isel(struct function *fn)
+x86_64_isel(Function *fn)
 {
-   struct block *blk = fn->entry;
+   Block *blk = fn->entry;
 
    do {
       for (int i = 0; i < blk->phi.n; ++i) {
-         struct instr *ins = &instrtab[blk->phi.p[i]];
-         union ref *phi = phitab.p[ins->l.i];
+         Instr *ins = &instrtab[blk->phi.p[i]];
+         Ref *phi = phitab.p[ins->l.i];
          for (int i = 0; i < blk->npred; ++i) {
             int curi = blkpred(blk, i)->ins.n;
             fixarg(&phi[i], ins, blkpred(blk, i), &curi);
@@ -631,7 +631,7 @@ x86_64_isel(struct function *fn)
       }
       iflagsrc = -1;
       for (int i = 0; i < blk->ins.n; ++i) {
-         struct instr *ins = &instrtab[blk->ins.p[i]];
+         Instr *ins = &instrtab[blk->ins.p[i]];
          sel(fn, ins, blk, &i);
          if (ins->op < countof(opflags) && kisint(insrescls(*ins))) {
             if (opflags[ins->op] & ZF) iflagsrc = ins - instrtab;

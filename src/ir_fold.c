@@ -5,8 +5,8 @@
 #ifdef __clang__
 __attribute__((no_sanitize("float-cast-overflow"))) /* silence UBsan for float->int overflow */
 #endif
-static union ref
-foldint(enum op op, enum irclass k, union ref lr, union ref rr)
+static Ref
+foldint(enum op op, enum irclass k, Ref lr, Ref rr)
 {
    vlong x;
    union {
@@ -71,8 +71,8 @@ foldint(enum op op, enum irclass k, union ref lr, union ref rr)
    return mkintcon(k, x);
 }
 
-static union ref
-foldflt(enum op op, enum irclass k, union ref lr, union ref rr)
+static Ref
+foldflt(enum op op, enum irclass k, Ref lr, Ref rr)
 {
    int xi;
    double x, l = fltconval(lr), r = fltconval(rr);
@@ -103,7 +103,7 @@ foldflt(enum op op, enum irclass k, union ref lr, union ref rr)
 }
 
 bool
-foldbinop(union ref *to, enum op op, enum irclass k, union ref l, union ref r)
+foldbinop(Ref *to, enum op op, enum irclass k, Ref l, Ref r)
 {
    if (!oisarith(op))
       return 0;
@@ -118,7 +118,7 @@ foldbinop(union ref *to, enum op op, enum irclass k, union ref l, union ref r)
 }
 
 bool
-foldunop(union ref *to, enum op op, enum irclass k, union ref a)
+foldunop(Ref *to, enum op op, enum irclass k, Ref a)
 {
    if (!isnumcon(a)) return 0;
    if (op != Ocopy && !oisarith(op))

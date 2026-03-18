@@ -1,13 +1,13 @@
 #include "antcc.h"
 
-extern struct objfile {
+typedef struct ObjFile {
    const char *infile, *outfile;
    uchar *textbegin, *textend;
    uchar *code;
    uchar dataalign, rodataalign, bssalign;
    uint nbss;
    vec_of(uchar) data, rodata;
-} objout;
+} ObjFile;
 
 enum relockind {
    REL_ABS64,
@@ -26,6 +26,7 @@ enum relockind {
 };
 enum section { Snone, Stext, Srodata, Sdata, Sbss };
 
+extern ObjFile objout;
 void objini(const char *infile, const char *outfile);
 void objdeffunc(internstr nam, bool globl, uint off, uint siz);
 enum section objhassym(internstr name, uint *off);

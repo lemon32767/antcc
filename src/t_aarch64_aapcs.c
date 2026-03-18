@@ -1,7 +1,7 @@
 #include "t_aarch64.h"
 
 static int
-abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, union irtype typ)
+abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType typ)
 {
    enum { NINT = 8, NFLT = 8 };
    if (!typ.isagg) {
@@ -19,7 +19,7 @@ abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, union 
 }
 
 static int
-abiret(short r[2], uchar cls[2], uchar *r2off, int *ni, union irtype typ)
+abiret(short r[2], uchar cls[2], uchar *r2off, int *ni, IRType typ)
 {
    if (!typ.isagg) {
       r[0] = kisflt(cls[0] = typ.cls) ? V(0) : R0;
@@ -36,13 +36,13 @@ abiret(short r[2], uchar cls[2], uchar *r2off, int *ni, union irtype typ)
 }
 
 static void
-vastart(struct function *fn, struct block *blk, int *curi)
+vastart(Function *fn, Block *blk, int *curi)
 {
    assert(!"nyi");
 }
 
 static void
-vaarg(struct function *fn, struct block *blk, int *curi)
+vaarg(Function *fn, Block *blk, int *curi)
 {
    assert(!"nyi");
 }
@@ -54,7 +54,7 @@ static const char aarch64_rnames[][6] = {
    "V16","V17","V18","V19","V20","V21","V22","V23","V24","V25","V26","V27","V28","V29","V30","V31",
 };
 
-const struct mctarg t_aarch64_aapcs = {
+const MCTarg t_aarch64_aapcs = {
    .gpr0 = R0, .ngpr = 31,
    .bpr = FP,
    .gprscratch = R(16), .fprscratch = V(31),

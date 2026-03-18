@@ -11,7 +11,7 @@ enum operkind { ONONE, OREGZR, OREG, OIMM, OMEM, OSYM };
 enum shiftkind { SLSL, SLSR, SASR, SROR };
 enum addrmode { AIMMIDX, AREGIDX, APREIDX, APOSTIDX };
 enum addrregext { XUXTW = 2, XLSL = 3, XSXTW = 6, XSXTX = 7 };
-struct oper {
+typedef struct Oper {
    uchar t;
    union {
       struct { /* OREG (opt. shifted) */
@@ -37,14 +37,14 @@ struct oper {
          int cdisp;
       };
    };
-};
+} Oper;
 
-#define REGZR ((struct oper){OREGZR, .reg=31})
-#define mkoper(t, ...) ((struct oper){(t), __VA_ARGS__})
+#define REGZR ((Oper){OREGZR, .reg=31})
+#define mkoper(t, ...) ((Oper){(t), __VA_ARGS__})
 #define reg2oper(r) (assert((uint)(r) <= V(31)), mkoper(OREG, .reg = (r)))
 
-static struct oper
-mkmemoper(uint msiz, union ref r)
+static Oper
+mkmemoper(uint msiz, Ref r)
 {
    if (r.t == RTMP) {
       assert(in_range(instrtab[r.i].reg-1, R0, SP));
@@ -54,7 +54,7 @@ mkmemoper(uint msiz, union ref r)
    } else if (isaddrcon(r,1)) {
       return mkoper(OSYM, .con = r.i,);
    } else if (r.t == RADDR) {
-      const struct addr *addr = &addrtab.p[r.i];
+      const IRAddr *addr = &addrtab.p[r.i];
       assert(addr->shift <= 3 && (!addr->disp || !addr->index.bits));
       if (isaddrcon(addr->base,0)) {
          assert(!addr->index.bits);
@@ -78,8 +78,8 @@ mkmemoper(uint msiz, union ref r)
    assert(!"nyi");
 }
 
-static struct oper
-ref2oper(union ref r)
+static Oper
+ref2oper(Ref r)
 {
    switch (r.t) {
    case RTMP: return instrtab[r.i].reg ? mkoper(ONONE,) : reg2oper(instrtab[r.i].reg-1);
@@ -147,16 +147,16 @@ enum operenc {
    EN_FPCMPZ, /* float cmp with zero */
    EN_FPCMP, /* float cmp-imm */
 };
-struct desc {
+typedef struct EncDesc {
    uchar psiz; /* subset of {4,8} */
    uchar pt[3]; /* bitsets of enum operpat, up to 3 operands */
    uint opc;
    uchar operenc; /* enum operenc */
-};
+} EncDesc;
 
 /* match operand against pattern */
 static inline bool
-opermatch(enum operpat pat, enum irclass k, struct oper o)
+opermatch(enum operpat pat, enum irclass k, Oper o)
 {
    switch (pat) {
    case PNONE: return !o.t;
@@ -206,9 +206,9 @@ static int rbpoff;
 /* Given an instruction description table, find the first entry that matches
  * the operands and encode it. */
 static void
-encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct oper o[3])
+encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper o[3])
 {
-   const struct desc *en = NULL;
+   const EncDesc *en = NULL;
    for (int i = 0; i < ntab; ++i) {
       if (!(tab[i].psiz & cls2siz[k])) continue;
       for (int j = 0; j < 3; ++j)
@@ -298,27 +298,28 @@ encode(uchar **pcode, const struct desc *tab, int ntab, enum irclass k, struct o
    }
    W32(ins);
 }
-#define DEFINSTR1(X, ...)                                          \
-   static void                                                     \
-   X(uchar **pcode, enum irclass k, struct oper a)                 \
-   {                                                               \
-      static const struct desc tab[] = { __VA_ARGS__ };            \
-      encode(pcode, tab, countof(tab), k, ((struct oper [3]){a})); \
+#define DEFINSTR1(X, ...)                                   \
+   static void                                              \
+   X(uchar **pcode, enum irclass k, Oper a)                 \
+   {                                                        \
+      static const EncDesc tab[] = { __VA_ARGS__ };         \
+      encode(pcode, tab, countof(tab), k, ((Oper [3]){a})); \
    }
 
-#define DEFINSTR2(X, ...)                                                \
-   static void                                                           \
-   X(uchar **pcode, enum irclass k, struct oper op1, struct oper op2)    \
-   {                                                                     \
-      static const struct desc tab[] = { __VA_ARGS__ };                  \
-      encode(pcode, tab, countof(tab), k, ((struct oper [3]){op1,op2})); \
+#define DEFINSTR2(X, ...)                                         \
+   static void                                                    \
+   X(uchar **pcode, enum irclass k, Oper op1, Oper op2)           \
+   {                                                              \
+      static const EncDesc tab[] = { __VA_ARGS__ };               \
+      encode(pcode, tab, countof(tab), k, ((Oper [3]){op1,op2})); \
    }
-#define DEFINSTR3(X, ...)                                                              \
-   static void                                                                         \
-   X(uchar **pcode, enum irclass k, struct oper op1, struct oper op2, struct oper op3) \
-   {                                                                                   \
-      static const struct desc tab[] = { __VA_ARGS__ };                                \
-      encode(pcode, tab, countof(tab), k, ((struct oper [3]){op1,op2,op3}));           \
+
+#define DEFINSTR3(X, ...)                                             \
+   static void                                                        \
+   X(uchar **pcode, enum irclass k, Oper op1, Oper op2, Oper op3)     \
+   {                                                                  \
+      static const EncDesc tab[] = { __VA_ARGS__ };                   \
+      encode(pcode, tab, countof(tab), k, ((Oper [3]){op1,op2,op3})); \
    }
 
 DEFINSTR2(Xadrp,
@@ -343,7 +344,7 @@ DEFINSTR3(Xsubs,
 )
 
 static void
-Xmadd(uchar **pcode, enum irclass k, struct oper d, struct oper n, struct oper m, struct oper a)
+Xmadd(uchar **pcode, enum irclass k, Oper d, Oper n, Oper m, Oper a)
 {
    assert(opermatch(PGPRZ, k, d) && opermatch(PGPRZ, k, n)
        && opermatch(PGPRZ, k, a) && opermatch(PGPRZ, k, m));
@@ -371,7 +372,7 @@ DEFINSTR3(Xlslv, {4|8, {PGPRZ, PGPRZ, PGPRZ}, 0x1AC02000, EN_ARITH3R})
 DEFINSTR3(Xlsrv, {4|8, {PGPRZ, PGPRZ, PGPRZ}, 0x1AC02400, EN_ARITH3R})
 DEFINSTR3(Xasrv, {4|8, {PGPRZ, PGPRZ, PGPRZ}, 0x1AC02800, EN_ARITH3R})
 static void
-Xubfm(uchar **pcode, enum irclass k, struct oper rd, struct oper rn, uint immr, uint imms)
+Xubfm(uchar **pcode, enum irclass k, Oper rd, Oper rn, uint immr, uint imms)
 {
    uint x = k != KI32;
    uint nbit = x ? 64 : 32;
@@ -379,7 +380,7 @@ Xubfm(uchar **pcode, enum irclass k, struct oper rd, struct oper rn, uint immr, 
    W32(x<<31 | 0x53000000 | x<<22 | immr<<16 | imms<<10 | rn.reg<<5 | rd.reg);
 }
 static void
-Xsbfm(uchar **pcode, enum irclass k, struct oper rd, struct oper rn, uint immr, uint imms)
+Xsbfm(uchar **pcode, enum irclass k, Oper rd, Oper rn, uint immr, uint imms)
 {
    uint x = k != KI32;
    uint nbit = x ? 64 : 32;
@@ -478,7 +479,7 @@ DEFINSTR3(Xfstp,
    {8, {PFPR, PFPR, PMEMPREPOST}, 0x6C800000, EN_MEMPPREPOST} /* STP (immediate, (pre/postinc)) */
 )
 static void
-Xcall(uchar **pcode, struct oper dst)
+Xcall(uchar **pcode, Oper dst)
 {
    if (dst.t == OSYM) {
       objreloc(xcon2sym(dst.con), REL_CALL26, Stext, *pcode - objout.textbegin, 0);
@@ -516,10 +517,10 @@ DEFINSTR2(Xfcmp,
 )
 
 static void
-gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct oper dst, union ref val)
+gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val)
 {
    assert(dst.t == OREG);
-   struct oper src;
+   Oper src;
    if (val.bits == UNDREF.bits) return;
    if (isintcon(val)) {
       assert(dst.reg <= R(31));
@@ -564,7 +565,7 @@ gencopy(uchar **pcode, enum irclass cls, struct block *blk, int curi, struct ope
 
 /* maps blk -> address when resolved; or to linked list of jump displacement
  * relocations */
-static struct blkaddr {
+static struct BlkAddr {
    bool resolved;
    union {
       uint addr;
@@ -579,7 +580,7 @@ enum cc {
 };
 
 static void
-Xbcc(uchar **pcode, enum cc cc, struct block *dst)
+Xbcc(uchar **pcode, enum cc cc, Block *dst)
 {
    int disp, insaddr = *pcode - objout.textbegin;
 
@@ -595,7 +596,7 @@ Xbcc(uchar **pcode, enum cc cc, struct block *dst)
 }
 
 static void
-Xcbcc(uchar **pcode, enum irclass k, uint rt, enum cc cc, struct block *dst)
+Xcbcc(uchar **pcode, enum irclass k, uint rt, enum cc cc, Block *dst)
 {
    int disp, insaddr = *pcode - objout.textbegin;
    if (blkaddr[dst->id].resolved) {
@@ -621,17 +622,17 @@ static const schar icmpop2cc[] = {
 };
 
 static void
-emitbranch(uchar **pcode, struct block *blk)
+emitbranch(uchar **pcode, Block *blk)
 {
    enum irclass cbk = 0;
-   struct oper cbopr;
+   Oper cbopr;
    enum cc cc = CCAL;
    assert(blk->s1);
    if (blk->s2) {
       /* conditional branch.. */
-      union ref arg = blk->jmp.arg[0];
+      Ref arg = blk->jmp.arg[0];
       assert(arg.t == RTMP);
-      struct instr *ins = &instrtab[arg.i];
+      Instr *ins = &instrtab[arg.i];
       if (in_range(ins->op, Oequ, Oneq) && ins->r.bits == ZEROREF.bits) {
          cc = ins->op == Oequ ? CCEQ : CCNE;
          cbk = ins->cls;
@@ -647,7 +648,7 @@ emitbranch(uchar **pcode, struct block *blk)
       if (blk->s1 == blk->lnext) {
          /* if s1 is next adjacent block, swap s1,s2 and flip condition to emit a
           * single jump */
-         struct block *tmp = blk->s1;
+         Block *tmp = blk->s1;
          blk->s1 = blk->s2;
          blk->s2 = tmp;
          cc ^= 1;
@@ -662,15 +663,15 @@ emitbranch(uchar **pcode, struct block *blk)
       Xbcc(pcode, CCAL, blk->s2);
 }
 
-static struct instr *lastcmp;
+static Instr *lastcmp;
 
 static void
-emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struct instr *ins)
+emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins)
 {
-   struct oper dst, o1, o2;
+   Oper dst, o1, o2;
    enum irclass cls = ins->cls;
-   void (*X3)(uchar **, enum irclass, struct oper, struct oper, struct oper) = NULL;
-   void (*X2)(uchar **, enum irclass, struct oper, struct oper) = NULL;
+   void (*X3)(uchar **, enum irclass, Oper, Oper, Oper) = NULL;
+   void (*X2)(uchar **, enum irclass, Oper, Oper) = NULL;
 
    switch (ins->op) {
    default: fatal(NULL, "aarch64 unimplemented instr: %s", opnames[ins->op]);
@@ -843,25 +844,25 @@ emitinstr(uchar **pcode, struct function *fn, struct block *blk, int curi, struc
    }
 }
 
-struct frame {
+typedef struct Frame {
    regset save;
-   struct rpair { uchar a,b; } pairs[10];
+   struct RPair { uchar a,b; } pairs[10];
    uchar single[2];
    uint nfpairs, ngpairs;
-};
+} Frame;
 
 static void
-prologue(uchar **pcode, struct frame *frame, struct function *fn)
+prologue(uchar **pcode, Frame *frame, Function *fn)
 {
-   *frame = (struct frame){0};
+   *frame = (Frame){0};
    regset save = frame->save = (fn->regusage & mctarg->rcallee) | (usefp * BIT(FP)) | (!fn->isleaf * BIT(LR));
    if (save) {
       int prev = 0;
-      struct rpair *p = frame->pairs;
+      struct RPair *p = frame->pairs;
       for (uint reg = V(8); reg <= V(15); ++reg) {
          if (!rstest(save, reg)) continue;
          if (prev) {
-            *p++ = (struct rpair) {prev, reg};
+            *p++ = (struct RPair) {prev, reg};
             ++frame->nfpairs;
             prev = 0;
          } else prev = reg;
@@ -873,7 +874,7 @@ prologue(uchar **pcode, struct frame *frame, struct function *fn)
             frame->single[1] = prev = lowestsetbit(save);
             rsclr(&save, prev);
          } else {
-            *p++ = (struct rpair) {prev, V(0)};
+            *p++ = (struct RPair) {prev, V(0)};
             ++frame->nfpairs;
          }
          prev = 0;
@@ -883,7 +884,7 @@ prologue(uchar **pcode, struct frame *frame, struct function *fn)
       for (uint reg = R(19); reg <= LR; ++reg) {
          if (!rstest(save, reg)) continue;
          if (prev) {
-            *p++ = (struct rpair) {prev, reg};
+            *p++ = (struct RPair) {prev, reg};
             ++frame->ngpairs;
             prev = 0;
          } else prev = reg;
@@ -891,7 +892,7 @@ prologue(uchar **pcode, struct frame *frame, struct function *fn)
       assert(!prev);
 
       p = frame->pairs;
-      struct oper adr = mkoper(OMEM, .m = {.mode = APREIDX, .base = SP, .disp = -16});
+      Oper adr = mkoper(OMEM, .m = {.mode = APREIDX, .base = SP, .disp = -16});
       for (int i = 0; i < frame->nfpairs; ++i, ++p)
          Xfstp(pcode, KF64, reg2oper(p->a), reg2oper(p->b), adr);
       adr.m.disp = -8;
@@ -915,12 +916,12 @@ prologue(uchar **pcode, struct frame *frame, struct function *fn)
 }
 
 static void
-epilogue(uchar **pcode, struct function *fn, struct frame *frame)
+epilogue(uchar **pcode, Function *fn, Frame *frame)
 {
    if (fn->stksiz) Xadd(pcode, KPTR, reg2oper(SP), reg2oper(SP), mkoper(OIMM, .imm = fn->stksiz));
    if (frame->save) {
-      struct rpair *p = frame->pairs + frame->nfpairs + frame->ngpairs - 1;
-      struct oper adr = mkoper(OMEM, .m = {.mode = APOSTIDX, .base = SP, .disp = 16});
+      struct RPair *p = frame->pairs + frame->nfpairs + frame->ngpairs - 1;
+      Oper adr = mkoper(OMEM, .m = {.mode = APOSTIDX, .base = SP, .disp = 16});
       for (int i = 0; i < frame->ngpairs; ++i, --p)
          Xldp(pcode, KPTR, reg2oper(p->a), reg2oper(p->b), adr);
       adr.m.disp = 8;
@@ -933,9 +934,9 @@ epilogue(uchar **pcode, struct function *fn, struct frame *frame)
 }
 
 static void
-emitbin(struct function *fn)
+emitbin(Function *fn)
 {
-   struct block *blk;
+   Block *blk;
    uchar **pcode = &objout.code;
 
    while ((*pcode - objout.textbegin) % 4) ++*pcode;
@@ -946,12 +947,12 @@ emitbin(struct function *fn)
 
    /* only use frame pointer in non-leaf functions and functions that use the stack */
    usefp = !fn->isleaf || fn->stksiz;
-   struct frame frame;
+   Frame frame;
    prologue(pcode, &frame, fn);
 
    if (*pcode - fnstart > 8) {
       /* largue prologue -> largue epilogue -> transform to use single exit point */
-      struct block *exit = NULL;
+      Block *exit = NULL;
       blk = fn->entry->lprev;
       do {
          if (blk->jmp.t == Jret) {
@@ -984,7 +985,7 @@ emitbin(struct function *fn)
 
    blk = fn->entry;
    do {
-      struct blkaddr *bb = &blkaddr[blk->id];
+      struct BlkAddr *bb = &blkaddr[blk->id];
       uint bbaddr = *pcode - objout.textbegin;
       assert(!bb->resolved);
       while (bb->relreloc) {
@@ -1013,7 +1014,7 @@ emitbin(struct function *fn)
 }
 
 void
-aarch64_emit(struct function *fn)
+aarch64_emit(Function *fn)
 {
    fn->stksiz = alignup(fn->stksiz, 8);
    if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);

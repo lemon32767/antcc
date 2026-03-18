@@ -7,22 +7,22 @@
 
 static union {
    ELF_HDRIDENT;
-   struct elf32hdr h32;
-   struct elf64hdr h64;
+   Elf32Hdr h32;
+   Elf64Hdr h64;
 } hdr;
 static vec_of(uchar) strs;
-struct sym {
+typedef struct {
    uint   name;
    uchar  bind : 4,
           type : 4;
    ushort shndx;
    uvlong value,
           size;
-};
-static vec_of(struct sym) symtab;
+} Sym;
+static vec_of(Sym) symtab;
 static pmap_of(ushort) symht;
 static uint ntextrel, nrodatarel, ndatarel;
-struct reloc {
+typedef struct {
    uchar section;
    ushort kind;
    uint off;
@@ -31,8 +31,8 @@ struct reloc {
       uint symidx;
       internstr symname;
    };
-};
-static vec_of(struct reloc) relocs;
+} Reloc;
+static vec_of(Reloc) relocs;
 
 #define O objout
 
@@ -53,15 +53,15 @@ elfinit(void)
    }
    hdr.h32.version = ELFVERSION;
    if (targ_64bit) {
-      hdr.h64.ehsize = sizeof(struct elf64hdr);
-      hdr.h64.shentsize = sizeof(struct elf64shdr);
+      hdr.h64.ehsize = sizeof(Elf64Hdr);
+      hdr.h64.shentsize = sizeof(Elf64Shdr);
    } else {
-      hdr.h32.ehsize = sizeof(struct elf32hdr);
-      hdr.h32.shentsize = sizeof(struct elf32shdr);
+      hdr.h32.ehsize = sizeof(Elf32Hdr);
+      hdr.h32.shentsize = sizeof(Elf32Shdr);
    }
    vinit(&strs, NULL, 4<<10);
-   vpush(&symtab, ((struct sym){0}));
-   vpush(&symtab, ((struct sym){ .type = STT_FILE, .shndx = SHN_ABS}));
+   vpush(&symtab, ((Sym){0}));
+   vpush(&symtab, ((Sym){ .type = STT_FILE, .shndx = SHN_ABS}));
 }
 
 uint
@@ -79,7 +79,7 @@ str2idx(const char *s)
    return i;
 }
 
-static struct sym *
+static Sym *
 findsym(internstr s)
 {
    ushort *idx = pmap_get(&symht, s);
@@ -106,7 +106,7 @@ static const char sect2ndx[] = {
 enum section
 elfhassym(internstr nam, uint *value)
 {
-   struct sym *sym = findsym(nam);
+   Sym *sym = findsym(nam);
    if (sym) {
       if (value) *value = sym->value;
       return shndx2sect[sym->shndx];
@@ -117,7 +117,7 @@ elfhassym(internstr nam, uint *value)
 void
 elfaddsym(internstr nam, int info, enum section sect, uvlong value, uvlong size)
 {
-   struct sym *sym = findsym(nam), sym0;
+   Sym *sym = findsym(nam), sym0;
    if (!sym) {
       sym = &sym0;
       sym->name = str2idx(&nam->c);
@@ -169,11 +169,11 @@ elfreloc(internstr sym, enum relockind kind, enum section section, uint off, vlo
    case Sdata:   ++ndatarel; break;
    }
    assert(kind < NRELOCKIND);
-   vpush(&relocs, ((struct reloc) { section, relktab[target.arch][kind], off, addend, .symname = sym }));
+   vpush(&relocs, ((Reloc) { section, relktab[target.arch][kind], off, addend, .symname = sym }));
 }
 
 static void
-elf64puthdr(struct wbuf *out, struct elf64hdr *hdr)
+elf64puthdr(WriteBuf *out, Elf64Hdr *hdr)
 {
    if (!hostntarg_sameendian()) {
       hdr->type = bswap16(hdr->type);
@@ -194,7 +194,7 @@ elf64puthdr(struct wbuf *out, struct elf64hdr *hdr)
 }
 
 static void
-elf32puthdr(struct wbuf *out, struct elf32hdr *hdr)
+elf32puthdr(WriteBuf *out, Elf32Hdr *hdr)
 {
    if (!hostntarg_sameendian()) {
       hdr->type = bswap16(hdr->type);
@@ -215,7 +215,7 @@ elf32puthdr(struct wbuf *out, struct elf32hdr *hdr)
 }
 
 static void
-elf64putshdr(struct wbuf *out, struct elf64shdr *shdr)
+elf64putshdr(WriteBuf *out, Elf64Shdr *shdr)
 {
    if (!hostntarg_sameendian()) {
       shdr->name = bswap32(shdr->name);
@@ -233,7 +233,7 @@ elf64putshdr(struct wbuf *out, struct elf64shdr *shdr)
 }
 
 static void
-elf32putshdr(struct wbuf *out, struct elf32shdr *shdr)
+elf32putshdr(WriteBuf *out, Elf32Shdr *shdr)
 {
    if (!hostntarg_sameendian()) {
       shdr->name = bswap32(shdr->name);
@@ -251,7 +251,7 @@ elf32putshdr(struct wbuf *out, struct elf32shdr *shdr)
 }
 
 static void
-elf64putsym(struct wbuf *out, struct elf64sym *sym)
+elf64putsym(WriteBuf *out, Elf64Sym *sym)
 {
    if (!hostntarg_sameendian()) {
       sym->name = bswap32(sym->name);
@@ -263,7 +263,7 @@ elf64putsym(struct wbuf *out, struct elf64sym *sym)
 }
 
 static void
-elf32putsym(struct wbuf *out, struct elf32sym *sym)
+elf32putsym(WriteBuf *out, Elf32Sym *sym)
 {
    if (!hostntarg_sameendian()) {
       sym->name = bswap32(sym->name);
@@ -275,21 +275,21 @@ elf32putsym(struct wbuf *out, struct elf32sym *sym)
 }
 
 static void
-putsym(struct wbuf *out, const struct sym *sym)
+putsym(WriteBuf *out, const Sym *sym)
 {
    if (targ_64bit) {
-      elf64putsym(out, &(struct elf64sym) {
+      elf64putsym(out, &(Elf64Sym) {
             sym->name, .info = ELF_S_INFO(sym->bind, sym->type),
             .shndx = sym->shndx, .value = sym->value, .size = sym->size });
    } else {
-      elf32putsym(out, &(struct elf32sym) {
+      elf32putsym(out, &(Elf32Sym) {
             sym->name, .info = ELF_S_INFO(sym->bind, sym->type),
             .shndx = sym->shndx, .value = sym->value, .size = sym->size });
    }
 }
 
 static void
-elf64putrel(struct wbuf *out, struct elf64rel *rel)
+elf64putrel(WriteBuf *out, Elf64Rel *rel)
 {
    if (!hostntarg_sameendian()) {
       rel->offset = bswap64(rel->offset);
@@ -299,7 +299,7 @@ elf64putrel(struct wbuf *out, struct elf64rel *rel)
 }
 
 static void
-elf32putrel(struct wbuf *out, struct elf32rel *rel)
+elf32putrel(WriteBuf *out, Elf32Rel *rel)
 {
    if (!hostntarg_sameendian()) {
       rel->offset = bswap32(rel->offset);
@@ -309,7 +309,7 @@ elf32putrel(struct wbuf *out, struct elf32rel *rel)
 }
 
 static void
-elf64putrela(struct wbuf *out, struct elf64rela *rel)
+elf64putrela(WriteBuf *out, Elf64Rela *rel)
 {
    if (!hostntarg_sameendian()) {
       rel->offset = bswap64(rel->offset);
@@ -320,7 +320,7 @@ elf64putrela(struct wbuf *out, struct elf64rela *rel)
 }
 
 static void
-elf32putrela(struct wbuf *out, struct elf32rela *rel)
+elf32putrela(WriteBuf *out, Elf32Rela *rel)
 {
    if (!hostntarg_sameendian()) {
       rel->offset = bswap32(rel->offset);
@@ -331,22 +331,22 @@ elf32putrela(struct wbuf *out, struct elf32rela *rel)
 }
 
 static void
-putreloc(struct wbuf *out, const struct reloc *rel, bool userela)
+putreloc(WriteBuf *out, const Reloc *rel, bool userela)
 {
    if (userela) {
       if (targ_64bit) {
-         elf64putrela(out, &(struct elf64rela) {
+         elf64putrela(out, &(Elf64Rela) {
                rel->off, ELF64_R_INFO(rel->symidx, rel->kind), rel->addend });
       } else {
-         elf32putrela(out, &(struct elf32rela) {
+         elf32putrela(out, &(Elf32Rela) {
                rel->off, ELF32_R_INFO(rel->symidx, rel->kind), rel->addend });
       }
    } else {
       if (targ_64bit) {
-         elf64putrel(out, &(struct elf64rel) {
+         elf64putrel(out, &(Elf64Rel) {
                rel->off, ELF64_R_INFO(rel->symidx, rel->kind) });
       } else {
-         elf32putrel(out, &(struct elf32rel) {
+         elf32putrel(out, &(Elf32Rel) {
                rel->off, ELF32_R_INFO(rel->symidx, rel->kind) });
       }
    }
@@ -363,7 +363,7 @@ static int
 symcmp(const void *aa, const void *bb)
 {
    const ushort *a = aa, *b = bb;
-   const struct sym *l = &symtab.p[*a], *r = &symtab.p[*b];
+   const Sym *l = &symtab.p[*a], *r = &symtab.p[*b];
    int tmp;
    if ((tmp = l->bind - r->bind)) return tmp; /* locals prio */
    if ((tmp = r->shndx - l->shndx)) return tmp; /* section prio (real sections > SHN_UND) */
@@ -371,7 +371,7 @@ symcmp(const void *aa, const void *bb)
 }
 
 static void
-wordalign(struct wbuf *out, int align)
+wordalign(WriteBuf *out, int align)
 {
    size_t off = out->len + lseek(out->fd, 0, SEEK_CUR);
    while (off++ & (align - 1)) ioputc(out, 0);
@@ -380,7 +380,7 @@ wordalign(struct wbuf *out, int align)
 static const bool userelatab[] = { [ISx86_64] = 1, [ISaarch64] = 1 };
 
 void
-elffini(struct wbuf *out)
+elffini(WriteBuf *out)
 {
    enum {
       shnam_text = 1, shnam_rodata = 7, shnam_data = 15, shnam_bss = 21, shnam_shstrtab = 26,
@@ -409,14 +409,14 @@ elffini(struct wbuf *out)
 
    /* fixup relocs */
    for (int i = 0; i < relocs.n; ++i) {
-      struct reloc *rel = &relocs.p[i];
-      struct sym *sym = findsym(rel->symname);
+      Reloc *rel = &relocs.p[i];
+      Sym *sym = findsym(rel->symname);
       if (sym) {
          uint idx = sym - symtab.p;
          rel->symidx = idx < ndefsym ? defsym2idx[idx] : idx;
       } else {
          assert(symtab.n < 1<<16);
-         vpush(&symtab, ((struct sym) { str2idx(&rel->symname->c), .bind = STB_GLOBAL, .type = STT_NOTYPE, .shndx = SHN_UND }));
+         vpush(&symtab, ((Sym) { str2idx(&rel->symname->c), .bind = STB_GLOBAL, .type = STT_NOTYPE, .shndx = SHN_UND }));
          pmap_set(&symht, rel->symname, symtab.n-1);
          rel->symidx = symtab.n-1;
       }
@@ -492,7 +492,7 @@ elffini(struct wbuf *out)
    /* symtab */
    wordalign(out, align);
    for (int i = 0; i < symtab.n; ++i) {
-      struct sym *sym = &symtab.p[i < ndefsym ? sortedsyms[i] : i];
+      Sym *sym = &symtab.p[i < ndefsym ? sortedsyms[i] : i];
       if (sym->bind == STB_LOCAL) ++nlocal;
       putsym(out, sym);
    }
@@ -502,7 +502,7 @@ elffini(struct wbuf *out)
    assert(relocs.n == ntextrel + nrodatarel + ndatarel);
    for (enum section s = Stext; s <= Sbss; ++s) {
       for (int i = 0; i < relocs.n; ++i) {
-         struct reloc *rel = &relocs.p[i];
+         Reloc *rel = &relocs.p[i];
          if (rel->section != s) continue;
          putreloc(out, rel, userela);
       }
@@ -510,8 +510,8 @@ elffini(struct wbuf *out)
 
    /** Section Headers **/
    wordalign(out, align);
-#define putshdr(...) if (targ_64bit) elf64putshdr(out, &(struct elf64shdr) { __VA_ARGS__ }); \
-                     else            elf32putshdr(out, &(struct elf32shdr) { __VA_ARGS__ });
+#define putshdr(...) if (targ_64bit) elf64putshdr(out, &(Elf64Shdr) { __VA_ARGS__ }); \
+                     else            elf32putshdr(out, &(Elf32Shdr) { __VA_ARGS__ });
    /* §0 null section */
    putshdr(0);
    /* §1 .text */

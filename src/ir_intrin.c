@@ -1,13 +1,13 @@
 #include "ir.h"
 
-struct arg { union ref *arg, *ty; };
+typedef struct { Ref *arg, *ty; } Arg;
 
 static int
-intrin(struct block *blk, int *curi, enum intrin in, struct arg *args, int narg, union irtype ret)
+intrin(Block *blk, int *curi, enum intrin in, Arg *args, int narg, IRType ret)
 {
-   struct instr *this = &instrtab[blk->ins.p[*curi]];
-   const struct typedata *td;
-   union irtype ty;
+   Instr *this = &instrtab[blk->ins.p[*curi]];
+   const TypeData *td;
+   IRType ty;
    uint ncopy, step;
 
    switch (in) {
@@ -31,7 +31,7 @@ intrin(struct block *blk, int *curi, enum intrin in, struct arg *args, int narg,
       } else {
          delinstr(blk, (*curi)--);
          for (int off = 0; off < td->siz; off += step) {
-            union ref psrc = *args[1].arg, pdst = *args[0].arg, src;
+            Ref psrc = *args[1].arg, pdst = *args[0].arg, src;
             if (off) {
                pdst = insertinstr(blk, ++*curi, mkinstr(Oadd, KPTR, *args[0].arg, mkref(RICON, off)));
                psrc = insertinstr(blk, ++*curi, mkinstr(Oadd, KPTR, *args[1].arg, mkref(RICON, off)));
@@ -46,17 +46,17 @@ intrin(struct block *blk, int *curi, enum intrin in, struct arg *args, int narg,
 }
 
 void
-lowerintrin(struct function *fn)
+lowerintrin(Function *fn)
 {
-   struct block *blk = fn->entry;
-   struct arg argsbuf[32];
-   vec_of(struct arg) args = VINIT(argsbuf, countof(argsbuf));
+   Block *blk = fn->entry;
+   Arg argsbuf[32];
+   vec_of(Arg) args = VINIT(argsbuf, countof(argsbuf));
 
    do {
       for (int i = 0; i < blk->ins.n; ++i) {
-         struct instr *ins = &instrtab[blk->ins.p[i]];
+         Instr *ins = &instrtab[blk->ins.p[i]];
          if (ins->op == Oarg)
-            vpush(&args, ((struct arg){ &ins->r, &ins->l }));
+            vpush(&args, ((Arg){&ins->r, &ins->l}));
          else if (ins->op == Ocall)
             vinit(&args, argsbuf, countof(argsbuf));
          else if (ins->op == Ointrin) {

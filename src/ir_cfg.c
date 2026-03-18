@@ -1,7 +1,7 @@
 #include "ir.h"
 
 static void
-porec(int *nblk, struct block ***rpo, struct block *b)
+porec(int *nblk, Block ***rpo, Block *b)
 {
    if (wasvisited(b)) return;
    assert(*nblk > 0 && "nblk bad");
@@ -14,10 +14,10 @@ porec(int *nblk, struct block ***rpo, struct block *b)
 
 /* also blkid */
 void
-sortrpo(struct function *fn)
+sortrpo(Function *fn)
 {
-   static struct block **rpobuf;
-   struct block **rpoend, **rpo, *blk, *next;
+   static Block **rpobuf;
+   Block **rpoend, **rpo, *blk, *next;
    int i, ndead;
 
    xbgrow(&rpobuf, fn->nblk);
@@ -57,9 +57,9 @@ sortrpo(struct function *fn)
 
 /* also blkid */
 void
-filldom(struct function *fn)
+filldom(Function *fn)
 {
-   struct block *blk = fn->entry;
+   Block *blk = fn->entry;
    int i = 0;
 
    FREQUIRE(FNRPO);
@@ -71,14 +71,14 @@ filldom(struct function *fn)
       changed = 0;
       do {
          int j;
-         struct block *new = NULL;
+         Block *new = NULL;
          if (blk->npred == 0) continue;
          for (j = 0; j < blk->npred; ++j)
             if ((new = blkpred(blk, j))->id < blk->id) break;
          assert(new);
          for (int i = 0; i < blk->npred; ++i) {
             if (i == j) continue;
-            struct block *p = blkpred(blk, i);
+            Block *p = blkpred(blk, i);
             if (p->idom) { /* new = intersect(p, new) */
                while (p != new) {
                   while (p->id > new->id) p = p->idom;
@@ -96,7 +96,7 @@ filldom(struct function *fn)
 }
 
 static void
-loopmark(struct block *head, struct block *blk)
+loopmark(Block *head, Block *blk)
 {
    if (blk->id < head->id || blk->visit == head->id) return;
    blk->visit = head->id;
@@ -106,9 +106,9 @@ loopmark(struct block *head, struct block *blk)
 }
 
 void
-fillloop(struct function *fn)
+fillloop(Function *fn)
 {
-   struct block *b = fn->entry;
+   Block *b = fn->entry;
    int id = 0;
    FREQUIRE(FNRPO);
    do {
@@ -118,7 +118,7 @@ fillloop(struct function *fn)
    } while ((b = b->lnext) != fn->entry);
    do {
       for (int i = 0; i < b->npred; ++i) {
-         struct block *p = blkpred(b, i);
+         Block *p = blkpred(b, i);
          if (p->id > b->id) { /* b is loop header */
             loopmark(b, p);
          }

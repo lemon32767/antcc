@@ -1,9 +1,9 @@
 #include "t_x86-64.h"
 
-static int classify(uchar cls[2], const struct typedata *td, uint off);
+static int classify(uchar cls[2], const TypeData *td, uint off);
 
 static void
-clsscalar(uchar cls[2], uint off, union type ty)
+clsscalar(uchar cls[2], uint off, Type ty)
 {
    enum irclass k = type2cls[scalartypet(ty)];
    uchar *fcls = &cls[off/8];
@@ -20,9 +20,9 @@ clsscalar(uchar cls[2], uint off, union type ty)
 }
 
 static int
-classifyarr(uchar cls[2], union type ty, uint off)
+classifyarr(uchar cls[2], Type ty, uint off)
 {
-   union type chld = typechild(ty);
+   Type chld = typechild(ty);
    uint n = typearrlen(ty), siz = typesize(chld);
    assert(n > 0);
    for (uint i = 0; i < n; ++i) {
@@ -41,13 +41,13 @@ classifyarr(uchar cls[2], union type ty, uint off)
 }
 
 static int
-classify(uchar cls[2], const struct typedata *td, uint off)
+classify(uchar cls[2], const TypeData *td, uint off)
 {
    uint siz = alignup(td->siz, 4);
    if (siz > 16) /* MEMORY */
       return 0;
    for (int i = 0; i < td->nmemb; ++i) {
-      struct fielddata *fld = &td->fld[i].f;
+      FieldData *fld = &td->fld[i].f;
       uint align = typealign(fld->t);
       if (alignup(fld->off, align) != fld->off) /* unaligned field -> MEMORY */
          return cls[0] = cls[1] = 0;
@@ -66,7 +66,7 @@ classify(uchar cls[2], const struct typedata *td, uint off)
 }
 
 static int
-abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, union irtype typ)
+abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType typ)
 {
    static const uchar intregs[] = { RDI, RSI, RDX, RCX, R8, R9 };
    enum { NINT = countof(intregs), NFLT = 8 };
@@ -111,7 +111,7 @@ abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, union 
 }
 
 static int
-abiret(short r[2], uchar cls[2], uchar *r2off, int *ni, union irtype typ)
+abiret(short r[2], uchar cls[2], uchar *r2off, int *ni, IRType typ)
 {
    if (!typ.isagg) {
       r[0] = kisflt(cls[0] = typ.cls) ? XMM0 : RAX;
@@ -165,12 +165,12 @@ abiret(short r[2], uchar cls[2], uchar *r2off, int *ni, union irtype typ)
  */
 
 static void
-vastart(struct function *fn, struct block *blk, int *curi)
+vastart(Function *fn, Block *blk, int *curi)
 {
-   union ref rsave; /* register save area */
+   Ref rsave; /* register save area */
    int gpr0 = 0, fpr0 = 0, stk0 = 0;
-   struct instr *ins = &instrtab[blk->ins.p[*curi]];
-   union ref ap = ins->l, src, dst;
+   Instr *ins = &instrtab[blk->ins.p[*curi]];
+   Ref ap = ins->l, src, dst;
    assert(ins->op == Ovastart);
    /* add xvaprologue if not there yet, which must be the first
     * real instruction in the function (following alloca) */
@@ -183,7 +183,7 @@ vastart(struct function *fn, struct block *blk, int *curi)
    }
    /* find first unnamed gpr and fpr */
    for (int i = 0; i < fn->nabiarg; ++i) {
-      struct abiarg abi = fn->abiarg[i];
+      ABIArg abi = fn->abiarg[i];
       if (!abi.isstk){
          if (abi.reg < XMM0) ++gpr0;
          else ++fpr0;
@@ -209,26 +209,26 @@ vastart(struct function *fn, struct block *blk, int *curi)
 }
 
 static void
-vaarg(struct function *fn, struct block *blk, int *curi)
+vaarg(Function *fn, Block *blk, int *curi)
 {
    short r[2];
    uchar cls[2];
-   union ref tmp;
+   Ref tmp;
    int ni = 0, nf = 0, ns = 0;
    uchar r2off;
    int var = blk->ins.p[*curi];
-   union ref ap = instrtab[var].l;
-   union irtype ty = ref2type(instrtab[var].r);
+   Ref ap = instrtab[var].l;
+   IRType ty = ref2type(instrtab[var].r);
 
    assert(instrtab[var].op == Ovaarg);
-   blk->ins.p[*curi] = newinstr(blk, (struct instr){Onop});
+   blk->ins.p[*curi] = newinstr(blk, (Instr){Onop});
 
    int ret = abiarg(r, cls, &r2off, &ni, &nf, &ns, ty);
 
    if (ret == 2) assert(!"nyi");
    else if (ret == 1) {
-      struct block *merge;
-      union ref phi, phiargs[2];
+      Block *merge;
+      Ref phi, phiargs[2];
       /* int: l->gp_offset < 48 - num_gp * 8 */
       /* sse: l->fp_offset < 304 - num_gp * 16 (why 304? ... 176) */
       tmp = ni ? ap : insertinstr(blk, (*curi)++, mkinstr(Oadd, KPTR, ap, mkref(RICON, 4)));
@@ -241,8 +241,8 @@ vaarg(struct function *fn, struct block *blk, int *curi)
       useblk(fn, blk->s1);
       {
          /* phi0: &l->reg_save_area[l->gp/fp_offset] */
-         union ref sav = addinstr(fn, mkinstr(Oloadi64, KPTR, irbinop(fn, Oadd, KPTR, ap, mkref(RICON, 16))));
-         union ref roff = addinstr(fn, mkinstr(Oloadu32, KI32, irbinop(fn, Oadd, KPTR, ap, mkref(RICON, ni ? 0 : 4))));
+         Ref sav = addinstr(fn, mkinstr(Oloadi64, KPTR, irbinop(fn, Oadd, KPTR, ap, mkref(RICON, 16))));
+         Ref roff = addinstr(fn, mkinstr(Oloadu32, KI32, irbinop(fn, Oadd, KPTR, ap, mkref(RICON, ni ? 0 : 4))));
          phiargs[0] = irbinop(fn, Oadd, KPTR, sav, roff);
          /* l->gp/fp_offset += num_gp/fp * 8(16) */
          roff = irbinop(fn, Oadd, KI32, roff, mkref(RICON, ni ? ni * 8 : nf * 16));
@@ -255,8 +255,8 @@ vaarg(struct function *fn, struct block *blk, int *curi)
       useblk(fn, blk->s2);
       {
          /* phi1: l->overflow_arg_area */
-         union ref adr = irbinop(fn, Oadd, KPTR, ap, mkref(RICON, 8));
-         union ref ovf = addinstr(fn, mkinstr(Oloadi64, KPTR, adr));
+         Ref adr = irbinop(fn, Oadd, KPTR, ap, mkref(RICON, 8));
+         Ref ovf = addinstr(fn, mkinstr(Oloadi64, KPTR, adr));
          /* align no-op */
          
          phiargs[1] = ovf;
@@ -290,7 +290,7 @@ static const char x86_64_rnames[][6] = {
 #undef R
 };
 
-const struct mctarg t_x86_64_sysv = {
+const MCTarg t_x86_64_sysv = {
    .gpr0 = RAX, .ngpr = R15 - RAX + 1,
    .bpr = RBP,
    .gprscratch = R11, .fprscratch = XMM15,

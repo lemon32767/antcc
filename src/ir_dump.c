@@ -4,10 +4,10 @@
 
 static int nextdat;
 
-static struct wbuf *out = &bstdout;
+static WriteBuf *out = &bstdout;
 
 static bool
-prilitdat(const struct irdat *dat, const char *prefix)
+prilitdat(const IRDat *dat, const char *prefix)
 {
    uchar *p;
    switch (dat->section) {
@@ -29,7 +29,7 @@ prilitdat(const struct irdat *dat, const char *prefix)
 }
 
 static void
-pridat(const struct irdat *dat)
+pridat(const IRDat *dat)
 {
    static const char *snames[] = { [Sdata] = ".data", [Srodata] = ".rodata", [Stext] = ".text" };
    uchar *p;
@@ -74,12 +74,12 @@ static const char *clsname[] = {
 };
 
 static void
-prityp(union irtype typ)
+prityp(IRType typ)
 {
    if (!typ.isagg)
       bfmt(out, clsname[typ.cls]);
    else {
-      const struct typedata *td = &typedata[typ.dat];
+      const TypeData *td = &typedata[typ.dat];
       const char *tag = td->t == TYSTRUCT ? "struct" : "union";
       if (ttypenames[td->id])
          bfmt(out, "%s.%s.%d", tag, ttypenames[td->id], td->id);
@@ -96,9 +96,9 @@ static const char *intrinname[] = {
 };
 
 static void
-dumpref(enum op o, union ref ref)
+dumpref(enum op o, Ref ref)
 {
-   struct xcon *con;
+   IRCon *con;
    switch (ref.t) {
    case RXXX:
       if (ref.bits == UNDREF.bits)
@@ -124,10 +124,10 @@ dumpref(enum op o, union ref ref)
       if (con->issym || con->isdat) {
          bfmt(out, "$%y", xcon2sym(ref.i));
          if (con->isdat) {
-            struct irdat *dat = &dattab.p[con->dat];
+            IRDat *dat = &dattab.p[con->dat];
             if (prilitdat(dat, " (= ")) {
                if (isscalar(dat->ctype)) {
-                  struct wbuf tmp = MEMBUF((char [1]){0}, 1);
+                  WriteBuf tmp = MEMBUF((char [1]){0}, 1);
                   bfmt(&tmp, "%ty", dat->ctype);
                   ioputc(out, *tmp.buf);
                }
@@ -149,7 +149,7 @@ dumpref(enum op o, union ref ref)
       break;
    case RADDR:
       {
-         const struct addr *addr = &addrtab.p[ref.i];
+         const IRAddr *addr = &addrtab.p[ref.i];
          bool k = 0;
          bfmt(out, "addr [");
          if ((k = addr->base.bits)) dumpref(0, addr->base);
@@ -175,7 +175,7 @@ dumpref(enum op o, union ref ref)
 }
 
 static void
-dumpcall(struct call *call)
+dumpcall(IRCall *call)
 {
    if (call->ret.isagg) {
       bfmt(out, "sret ");
@@ -191,7 +191,7 @@ dumpcall(struct call *call)
 }
 
 static void
-dumpinst(const struct instr *ins)
+dumpinst(const Instr *ins)
 {
    int i;
    if (ins->op == Omove) {
@@ -225,7 +225,7 @@ dumpinst(const struct instr *ins)
 }
 
 void
-dumpblk(struct function *fn, struct block *blk)
+dumpblk(Function *fn, Block *blk)
 {
    static const char *jnames[] = { 0, "b", "ret", "trap" };
    int i;
@@ -243,8 +243,8 @@ dumpblk(struct function *fn, struct block *blk)
       bfmt(out, "\t; loop depth: %d", blk->loop);
    ioputc(out, '\n');
    for (i = 0; i < blk->phi.n; ++i) {
-      struct instr *phi = &instrtab[blk->phi.p[i]];
-      union ref *refs = phitab.p[phi->l.i];
+      Instr *phi = &instrtab[blk->phi.p[i]];
+      Ref *refs = phitab.p[phi->l.i];
       if (i == 0) bfmt(out, "%-4d", blk->inumstart);
       else bfmt(out, " |> ");
       bfmt(out, "  %s ", clsname[phi->cls]);
@@ -279,9 +279,9 @@ dumpblk(struct function *fn, struct block *blk)
 }
 
 void
-irdump(struct function *fn)
+irdump(Function *fn)
 {
-   struct block *blk;
+   Block *blk;
 
    /* print datas that have never been printed before */
    while (nextdat < dattab.n) pridat(&dattab.p[nextdat++]);

@@ -46,7 +46,7 @@ enum {
       };                     \
    }
 
-struct elf64hdr {
+typedef struct Elf64Hdr {
    ELF_HDRIDENT;
    u16int type,
           machine;
@@ -61,10 +61,10 @@ struct elf64hdr {
           shentsize,
           shnum,
           shstrndx;
-};
-_Static_assert(sizeof(struct elf64hdr) == 64, "");
+} Elf64Hdr;
+_Static_assert(sizeof(Elf64Hdr) == 64, "");
 
-struct elf32hdr {
+typedef struct Elf32Hdr {
    ELF_HDRIDENT;
    u16int type,
           machine;
@@ -79,8 +79,8 @@ struct elf32hdr {
           shentsize,
           shnum,
           shstrndx;
-};
-_Static_assert(sizeof(struct elf32hdr) == 52, "");
+} Elf32Hdr;
+_Static_assert(sizeof(Elf32Hdr) == 52, "");
 
 enum {
    SHT_NULL          = 0x0,
@@ -115,7 +115,7 @@ enum {
    SHF_TLS              = 0x400,
 };
 
-struct elf64shdr {
+typedef struct Elf64Shdr {
    u32int name,
           type;
    u64int flags,
@@ -126,10 +126,10 @@ struct elf64shdr {
           info;
    u64int addralign,
           entsize;
-};
-_Static_assert(sizeof(struct elf64shdr) == 64, "");
+} Elf64Shdr;
+_Static_assert(sizeof(Elf64Shdr) == 64, "");
 
-struct elf32shdr {
+typedef struct Elf32Shdr {
    u32int name,
           type,
           flags,
@@ -140,8 +140,8 @@ struct elf32shdr {
           info,
           addralign,
           entsize;
-};
-_Static_assert(sizeof(struct elf32shdr) == 40, "");
+} Elf32Shdr;
+_Static_assert(sizeof(Elf32Shdr) == 40, "");
 
 enum {
    STB_LOCAL,
@@ -164,48 +164,48 @@ enum {
 
 #define ELF_S_INFO(b,t) ((b) << 4 | (t))
 
-struct elf64sym {
+typedef struct Elf64Sym {
    u32int name;
    u8int  info,
           other;
    u16int shndx;
    u64int value,
           size;
-};
-_Static_assert(sizeof(struct elf64sym) == 24, "");
+} Elf64Sym;
+_Static_assert(sizeof(Elf64Sym) == 24, "");
 
-struct elf32sym {
+typedef struct Elf32Sym {
    u32int name,
           value,
           size;
    u8int  info,
           other;
    u16int shndx;
-};
-_Static_assert(sizeof(struct elf32sym) == 16, "");
+} Elf32Sym;
+_Static_assert(sizeof(Elf32Sym) == 16, "");
 
 #define ELF64_R_INFO(s,t) ((u64int) (s) << 32 | (u32int)(t))
-struct elf64rel {
+typedef struct {
    u64int offset, info;
-};
-_Static_assert(sizeof(struct elf64rel) == 16, "");
+} Elf64Rel;
+_Static_assert(sizeof(Elf64Rel) == 16, "");
 
 #define ELF32_R_INFO(s,t) ((s) << 8 | (u8int)(t))
-struct elf32rel {
+typedef struct {
    u32int offset, info;
-};
-_Static_assert(sizeof(struct elf32rel) == 8, "");
+} Elf32Rel;
+_Static_assert(sizeof(Elf32Rel) == 8, "");
 
-struct elf64rela {
+typedef struct {
    u64int offset, info;
    s64int addend;
-};
-_Static_assert(sizeof(struct elf64rela) == 24, "");
+} Elf64Rela;
+_Static_assert(sizeof(Elf64Rela) == 24, "");
 
-struct elf32rela {
+typedef struct {
    u32int offset, info;
    s32int addend;
-};
-_Static_assert(sizeof(struct elf32rela) == 12, "");
+} Elf32Rela;
+_Static_assert(sizeof(Elf32Rela) == 12, "");
 
 /* vim:set ts=3 sw=3 expandtab: */

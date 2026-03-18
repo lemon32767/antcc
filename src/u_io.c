@@ -10,7 +10,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-struct wbuf bstdout, bstderr;
+WriteBuf bstdout, bstderr;
 
 void
 ioinit(void)
@@ -22,7 +22,7 @@ ioinit(void)
 }
 
 void
-iowrite(struct wbuf *buf, const void *Src, int n)
+iowrite(WriteBuf *buf, const void *Src, int n)
 {
    const uchar *src = Src;
 
@@ -50,7 +50,7 @@ iowrite(struct wbuf *buf, const void *Src, int n)
 }
 
 void
-ioflush(struct wbuf *buf)
+ioflush(WriteBuf *buf)
 {
    int i, ret;
 
@@ -80,7 +80,7 @@ ioflush(struct wbuf *buf)
 }
 
 void
-ioputc(struct wbuf *buf, uchar c)
+ioputc(WriteBuf *buf, uchar c)
 {
    if (buf->isfp) {
       buf->err = fputc(c, buf->fp) != EOF;
@@ -97,7 +97,7 @@ ioputc(struct wbuf *buf, uchar c)
 }
 
 static int
-putquoted(struct wbuf *buf, uchar c, uchar qchar, int next)
+putquoted(WriteBuf *buf, uchar c, uchar qchar, int next)
 {
    if (c == qchar || c == '\\' || !aisprint(c)) {
       int n = (ioputc(buf, '\\'), 1);
@@ -133,7 +133,7 @@ putquoted(struct wbuf *buf, uchar c, uchar qchar, int next)
 }
 
 static int
-putuint(struct wbuf *buf, uvlong x, int base, bool lower)
+putuint(WriteBuf *buf, uvlong x, int base, bool lower)
 {
    uchar tmp[64];
    uchar *end = tmp + sizeof(tmp);
@@ -177,7 +177,7 @@ fmterr(const char *fmt, ...)
 #define bputc(B, C) (ioputc(B, C), 1)
 
 static int
-priquals(struct wbuf *buf, int q)
+priquals(WriteBuf *buf, int q)
 {
    const char s[] = " const volatile", *p = s;
    int m = sizeof s - 1;
@@ -189,10 +189,10 @@ priquals(struct wbuf *buf, int q)
    return m;
 }
 static int
-pritypebefore(struct wbuf *buf, union type ty, int qual)
+pritypebefore(WriteBuf *buf, Type ty, int qual)
 {
    const char *s, *s2;
-   union type chld;
+   Type chld;
    int n;
    switch (ty.t) {
    case TYVOID:   s = "void"; Prim: n = bfmt(buf, "%s", s); return n + priquals(buf, qual);
@@ -245,9 +245,9 @@ pritypebefore(struct wbuf *buf, union type ty, int qual)
 }
 
 static int
-pritypeafter(struct wbuf *buf, union type ty, int qual)
+pritypeafter(WriteBuf *buf, Type ty, int qual)
 {
-   const struct typedata *td;
+   const TypeData *td;
    int n = 0;
    switch (ty.t) {
    case TYPTR:
@@ -280,7 +280,7 @@ pritypeafter(struct wbuf *buf, union type ty, int qual)
 }
 
 static int
-fmttype(struct wbuf *buf, union type ty, int qual)
+fmttype(WriteBuf *buf, Type ty, int qual)
 {
    int n = pritypebefore(buf, ty, qual);
    n += pritypeafter(buf, ty, qual);
@@ -288,7 +288,7 @@ fmttype(struct wbuf *buf, union type ty, int qual)
 }
 
 static int
-putdouble(struct wbuf *buf, double x)
+putdouble(WriteBuf *buf, double x)
 {
    char tmp[200];
    int n = snprintf(tmp, sizeof tmp, "%f", x);
@@ -299,7 +299,7 @@ putdouble(struct wbuf *buf, double x)
 }
 
 int
-vbfmt(struct wbuf *out, const char *fmt, va_list ap)
+vbfmt(WriteBuf *out, const char *fmt, va_list ap)
 {
    bool quote, umod, lmod, zmod, lower, possign;
    int base;
@@ -307,13 +307,13 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
    int pad, prec, q;
    const char *s;
    void *p;
-   struct token *tok;
-   union type ty;
+   Token *tok;
+   Type ty;
    double f;
    char tmpbuf1[70], tmpbuf2[70];
-   struct wbuf tmp1 = MEMBUF(tmpbuf1, sizeof tmpbuf1);
-   struct wbuf tmp2 = MEMBUF(tmpbuf2, sizeof tmpbuf2);
-   struct wbuf *buf = out;
+   WriteBuf tmp1 = MEMBUF(tmpbuf1, sizeof tmpbuf1);
+   WriteBuf tmp2 = MEMBUF(tmpbuf2, sizeof tmpbuf2);
+   WriteBuf *buf = out;
    int n = 0, prevn;
 
    while (*fmt) {
@@ -475,7 +475,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
       case 't': /* token/tokentag/type */
          switch (*fmt++) {
          case 'k': /* tk token */
-            tok = va_arg(ap, struct token *);
+            tok = va_arg(ap, Token *);
          Tok:
             switch (tok->t) {
             case TKXXX:
@@ -583,7 +583,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             }
             break;
          case 't': /* tt token tag */
-            tok = &(struct token) { va_arg(ap, int) };
+            tok = &(Token) { va_arg(ap, int) };
             switch (tok->t) {
             case TKNUMLIT:
                n += bwriteS(buf, "numeric literal");
@@ -611,11 +611,11 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
             }
             break;
          case 'y': /* ty type */
-            ty = va_arg(ap, union type);
+            ty = va_arg(ap, Type);
             n += fmttype(buf, ty, 0);
             break;
          case 'q': /* tq qualified type */
-            ty = va_arg(ap, union type);
+            ty = va_arg(ap, Type);
             q = va_arg(ap, int);
             n += fmttype(buf, ty, q);
             break;
@@ -666,7 +666,7 @@ vbfmt(struct wbuf *out, const char *fmt, va_list ap)
 }
 
 int
-bfmt(struct wbuf *buf, const char *fmt, ...)
+bfmt(WriteBuf *buf, const char *fmt, ...)
 {
    va_list ap;
    int ret;
@@ -678,7 +678,7 @@ bfmt(struct wbuf *buf, const char *fmt, ...)
 }
 
 void
-gpritype(union type ty)
+gpritype(Type ty)
 {
    efmt("%ty\n", ty);
    ioflush(&bstderr);
@@ -686,15 +686,20 @@ gpritype(union type ty)
 
 static uint pagesiz;
 
-extern struct embedfile embedfilesdir[];
+typedef struct EmbedFile {
+   const char *name;
+   const char *s;
+   size_t len;
+} EmbedFile;
+extern EmbedFile embedfilesdir[];
 
-struct memfile
+MemFile
 mapopen(const char **err, const char *path)
 {
    struct stat stat;
    int fd = -1;
    void *p = NULL;
-   struct memfile f = {0};
+   MemFile f = {0};
    uint mapsiz;
 
    assert("nullp" && err && path);
@@ -703,9 +708,9 @@ mapopen(const char **err, const char *path)
    *err = NULL;
 
    if (*path == '@' && path[1] == ':') {
-      for (struct embedfile *e = embedfilesdir; e->name; ++e) {
+      for (EmbedFile *e = embedfilesdir; e->name; ++e) {
          if (!strcmp(e->name, path+2)) {
-            return (struct memfile) { (const uchar *)e->s, e->len, .statik = 1 };
+            return (MemFile) { (const uchar *)e->s, e->len, .statik = 1 };
          }
       }
    }
@@ -776,7 +781,7 @@ Err:
 }
 
 void
-mapclose(struct memfile *f)
+mapclose(MemFile *f)
 {
    assert(f->p);
    if (!f->statik)
@@ -799,38 +804,37 @@ _assertfmt(const char *file, int line, const char *func, const char *expr)
    ioflush(&bstderr);
 }
 
-struct fileuid {
-   long dev;
-   union {
-      long ino;
-      const char *str;
-   };
-};
-
-/* one entry per #line */
-struct linemap {
-   int phys;
-   int toline;
+typedef struct {
+   int phys; /* pre-preprocessing line number */
+   int toline; /* line number in directive */
    const char *tofile;
-};
+} LineMap;
 
-static struct file {
-   struct fileuid uid;
+typedef struct FileUID FileUID;
+typedef struct File {
+   struct FileUID {
+      long dev;
+      union {
+         long ino;
+         const char *str;
+      };
+   } uid;
    const char *path;
-   struct memfile f;
+   MemFile f;
    vec_of(uint) lineoffs;
-   vec_of(struct linemap) linemap;
-   bool once;
+   vec_of(LineMap) linemap; /* one entry per #line directive */
    bool seen;
+   bool once; /* uses guard macro or #pragma once */
    internstr guardmac;
-} *fileht[1<<SPANFILEBITS];
+} File;
+static File *fileht[1<<SPANFILEBITS];
 static int nfiles;
 
 int
-getpredeffile(struct memfile **pf, const char *name)
+getpredeffile(MemFile **pf, const char *name)
 {
-   struct file *f;
-   struct fileuid uid;
+   File *f;
+   FileUID uid;
    uint h, id, n = countof(fileht);
 
    uid.dev = -11;
@@ -844,7 +848,7 @@ getpredeffile(struct memfile **pf, const char *name)
          f = allocz(&globarena, sizeof *f, 0);
          f->uid = uid;
          f->path = name;
-         f->f = (struct memfile) { .statik = 1 };
+         f->f = (MemFile) { .statik = 1 };
          fileht[id] = f;
          vinit(&f->lineoffs, NULL, 10);
          vpush(&f->lineoffs, 0);
@@ -858,11 +862,11 @@ getpredeffile(struct memfile **pf, const char *name)
 }
 
 int
-openfile(const char **err, struct memfile **pf, const char *path)
+openfile(const char **err, MemFile **pf, const char *path)
 {
    struct stat st;
-   struct file *f;
-   struct fileuid uid;
+   File *f;
+   FileUID uid;
    size_t h, id, n = countof(fileht);
 
    if (*path == '@' && path[1] == ':') {
@@ -887,7 +891,7 @@ openfile(const char **err, struct memfile **pf, const char *path)
       if (f && f->uid.dev == uid.dev && (uid.dev >= 0 ? f->uid.ino == uid.ino : !strcmp(f->uid.str, uid.str))) {
          break;
       } else if (!f) {
-         struct memfile m;
+         MemFile m;
          m = mapopen(err, path);
          if (*err) return -1;
          f = allocz(&globarena, sizeof *f, 0);
@@ -915,7 +919,7 @@ getfilename(int id, uint atoff)
    return getfilepos(NULL, NULL, id, atoff);
 }
 
-struct memfile *
+MemFile *
 getfile(int id)
 {
    assert((uint)id < countof(fileht) && fileht[id]);
@@ -935,7 +939,7 @@ void
 setfileline(int id, uint off, int line, const char *file)
 {
    assert((uint)id < countof(fileht) && fileht[id]);
-   vec_of(struct linemap) *linemap = (void *)&fileht[id]->linemap;
+   vec_of(LineMap) *linemap = (void *)&fileht[id]->linemap;
    vec_of(uint) *lineoffs = (void *)&fileht[id]->lineoffs;
    int phys = 2;
    for (int i = lineoffs->n-1; i >= 0; --i) {
@@ -948,7 +952,7 @@ setfileline(int id, uint off, int line, const char *file)
       assert(linemap->p[linemap->n-1].phys < phys);
       if (!file) file = linemap->p[linemap->n-1].tofile;
    }
-   vpush(linemap, ((struct linemap){ phys, line, file }));
+   vpush(linemap, ((LineMap){ phys, line, file }));
 }
 
 const char *
@@ -968,7 +972,7 @@ getfilepos(int *pline, int *pcol, int id, uint off)
    i -= offs[i] > off;
    int line = i + 1, col = off - offs[i] + 1;
    const char *file = fileht[id]->path;
-   vec_of(struct linemap) *linemap = (void *)&fileht[id]->linemap;
+   vec_of(LineMap) *linemap = (void *)&fileht[id]->linemap;
    if (linemap->n) {
       /* binary search over linemap array */
       l = 0, h = linemap->n - 1, i = 0;
@@ -1027,20 +1031,20 @@ closefile(int id)
 }
 
 void
-vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
+vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
 {
    /* to avoid concurrent invocations of the compiler mixing up the diagnostics
     * in the unbuffered stderr output, use a separate buffer here and write()
     * it all out bypassing stdio */
    static char ebuf[4096];
-   static struct wbuf out = FDBUF(ebuf, sizeof ebuf, STDERR_FILENO);
+   static WriteBuf out = FDBUF(ebuf, sizeof ebuf, STDERR_FILENO);
    static int depth = 0; /* needed for nested note() calls */
 
    static const char *label[] = { "error", "warning", "note" };
    static const char *color[] = { "%g1;31.", "%g1;35.", "%g1;36." };
    int line, col;
-   struct memfile *f;
-   const struct span0 *loc;
+   MemFile *f;
+   const Span0 *loc;
 
    ++depth;
    if (span) {
@@ -1107,13 +1111,13 @@ vdiag(const struct span *span, enum diagkind kind, const char *fmt, va_list ap)
 
    if (span && loc == &span->ex && span->sl.len)
       if (span->ex.file != span->sl.file || !((uint) span->sl.off - span->ex.off < span->ex.len))
-         note(&(struct span){ span->sl }, "expanded from here");
+         note(&(Span){ span->sl }, "expanded from here");
 
    if (--depth == 0) ioflush(&out);
 }
 
 void _Noreturn
-fatal(const struct span *span, const char *fmt, ...)
+fatal(const Span *span, const char *fmt, ...)
 {
    if (fmt) {
       va_list ap;
@@ -1129,7 +1133,7 @@ int nerror, nwarn;
 enum { MAXERROR = 20 };
 
 void
-error(const struct span *span, const char *fmt, ...)
+error(const Span *span, const char *fmt, ...)
 {
    va_list ap;
 
@@ -1144,7 +1148,7 @@ error(const struct span *span, const char *fmt, ...)
 }
 
 void
-warn(const struct span *span, const char *fmt, ...)
+warn(const Span *span, const char *fmt, ...)
 {
    va_list ap;
 
@@ -1161,7 +1165,7 @@ warn(const struct span *span, const char *fmt, ...)
 }
 
 void
-note(const struct span *span, const char *fmt, ...)
+note(const Span *span, const char *fmt, ...)
 {
    va_list ap;
 
@@ -1173,13 +1177,13 @@ note(const struct span *span, const char *fmt, ...)
 /*** UTF util ***/
 
 ushort *
-utf8to16(uint *ulen, struct arena **arena, const uchar *s, size_t len)
+utf8to16(uint *ulen, Arena **arena, const uchar *s, size_t len)
 {
    assert(0 && "nyi");
 }
 
 uint *
-utf8to32(uint *ulen, struct arena **arena, const uchar *s, size_t len)
+utf8to32(uint *ulen, Arena **arena, const uchar *s, size_t len)
 {
    uint *ret, *w;
    const uchar *p, *end;

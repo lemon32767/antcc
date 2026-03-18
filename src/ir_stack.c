@@ -1,16 +1,16 @@
 #include "ir.h"
 
 void
-lowerstack(struct function *fn)
+lowerstack(Function *fn)
 {
    fn->stksiz = 0;
    FREQUIRE(FNUSE);
 
-   struct block *blk = fn->entry;
+   Block *blk = fn->entry;
    do {
       for (int i = 0; i < blk->ins.n; ++i) {
          int t = blk->ins.p[i];
-         struct instr *ins = &instrtab[t];
+         Instr *ins = &instrtab[t];
          if (oisalloca(ins->op)) {
             uint alignlog2 = ins->op - Oalloca1;
             assert(ins->l.i > 0);

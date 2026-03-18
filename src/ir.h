@@ -10,26 +10,20 @@ enum irclass {
 #define kisint(k) in_range((k), KI32, KPTR)
 #define kisflt(k) in_range((k), KF32, KF64)
 
-union irtype {
-   struct { ushort _     : 1, cls : 15; };
-   struct { ushort isagg : 1, dat : 15; };
-   ushort bits;
-};
-
-struct irdat {
+typedef struct IRDat {
    uchar align : 6, globl : 1;
    uchar section;
-   union type ctype;
+   Type ctype;
    uint siz;
    uint off;
    internstr name;
-};
+} IRDat;
 
 enum symflags {
    SLOCAL = 1,
    SFUNC  = 2,
 };
-struct xcon {
+typedef struct IRCon {
    bool issym, isdat, deref;
    uchar cls;
    uchar flag;
@@ -39,25 +33,31 @@ struct xcon {
       vlong i;
       double f;
    };
-};
+} IRCon;
 
-struct abiarg {
-   union irtype ty;
+typedef union IRType {
+   struct { ushort _     : 1, cls : 15; };
+   struct { ushort isagg : 1, dat : 15; };
+   ushort bits;
+} IRType;
+
+typedef struct ABIArg {
+   IRType ty;
    union {
       struct { ushort _     : 1, reg : 15; };
       struct { ushort isstk : 1, stk : 15; };
    };
-};
+} ABIArg;
 
-struct call {
-   union irtype ret;
+typedef struct IRCall {
+   IRType ret;
    ushort narg;
    short vararg; /* first variadic arg or -1 */
    ushort argstksiz;
-   struct abiarg *abiarg;
-   struct abiarg abiret[2];
+   ABIArg *abiarg;
+   ABIArg abiret[2];
    uchar r2off;
-};
+} IRCall;
 
 enum refkind {
    RXXX,  /* used for empty ref (zeros), undef, and the special args of call,phi,etc */
@@ -70,25 +70,25 @@ enum refkind {
    RSTACK, /* stack base offset */
 };
 
-union ref {
+typedef union Ref {
    struct { unsigned t : 3; signed i : 29; };
    uint bits;
-};
-static_assert(sizeof(union ref) == 4);
+} Ref;
+static_assert(sizeof(Ref) == 4);
 
-struct addr {
-   union ref base, index;
+typedef struct IRAddr {
+   Ref base, index;
    int shift, disp;
-};
+} IRAddr;
 
 #define insrescls(ins) (oiscmp((ins).op) ? KI32 : (ins).cls)
-#define NOREF ((union ref) {0})
-#define UNDREF ((union ref) {{ 0, -1 }})
-#define ZEROREF ((union ref) {{ RICON, 0 }})
-#define mkref(t, x) ((union ref) {{ (t), (x) }})
-#define mktyperef(t) ((union ref) {{ RTYPE, (t).bits }})
-#define ref2type(r) ((union irtype) {.bits = (r).i})
-#define rswap(a,b) do { union ref _t = (a); (a) = (b); (b) = _t; } while (0)
+#define NOREF ((Ref) {0})
+#define UNDREF ((Ref) {{ 0, -1 }})
+#define ZEROREF ((Ref) {{ RICON, 0 }})
+#define mkref(t, x) ((Ref) {{ (t), (x) }})
+#define mktyperef(t) ((Ref) {{ RTYPE, (t).bits }})
+#define ref2type(r) ((IRType) {.bits = (r).i})
+#define rswap(a,b) do { Ref _t = (a); (a) = (b); (b) = _t; } while (0)
 
 enum op {
    Oxxx,
@@ -113,41 +113,46 @@ enum intrin {
 #undef _
 };
 
-struct instr {
+typedef struct Instr {
    uchar op,
          cls; /* operation data class; also result class except for cmp ops (always i32) */
    uchar skip : 1, /* ignore during codegen: forms part of one machine instruction */
          keep : 1; /* for codegen, keep instr even if result seems unused */
    uchar inplace : 1; /* set (by isel) for instructions which modify its first arg in place */
    uchar reg; /* 0 -> no reg; else reg + 1 */
-   union ref l, r; /* args */
-};
-static_assert(sizeof(struct instr) == 4*3);
+   Ref l, r; /* args */
+} Instr;
+static_assert(sizeof(Instr) == 4*3);
 
 enum jumpkind { JXXX, Jb, Jret, Jtrap, };
 
-struct block {
+typedef struct Block Block;
+struct Block {
    int id;
    int npred;
    int visit;
    ushort loop;
    int inumstart;
    union {
-      struct block *_pred0;
-      struct block **_pred;
+      Block *_pred0;
+      Block **_pred;
    };
-   struct block *lprev, *lnext;
-   struct block *s1, *s2;
-   struct block *idom;
+   Block *lprev, *lnext;
+   Block *s1, *s2;
+   Block *idom;
    vec_of(ushort) phi;
    vec_of(ushort) ins;
-   struct { uchar t; union ref arg[2]; } jmp;
+   struct { uchar t; Ref arg[2]; } jmp;
 };
 
 #define blkpred(blk, i) 0[(blk)->npred < 2 ? &(blk)->_pred0 : &(blk)->_pred[i]]
 
 enum { USERJUMP = 0xFFFF };
-struct use { struct use *next; struct block *blk; ushort u; };
+typedef struct IRUse {
+   struct IRUse *next;
+   Block *blk;
+   ushort u;
+} IRUse;
 
 enum { MAXREGS = 64 };
 /** register set **/
@@ -172,14 +177,14 @@ enum {
    FNRPO   = 1<<2,
    FNDOM   = 1<<3,
 };
-struct function {
-   struct arena **arena, **passarena;
+typedef struct Function {
+   Arena **arena, **passarena;
    internstr name;
-   struct block *entry, *curblk;
-   struct use *use;
+   Block *entry, *curblk;
+   IRUse *use;
    short *nuse;
-   union type fnty, retty;
-   struct abiarg *abiarg, abiret[2];
+   Type fnty, retty;
+   ABIArg *abiarg, abiret[2];
    uint prop;
    uint nblk;
    int stksiz;
@@ -188,13 +193,11 @@ struct function {
    bool isleaf;
    bool inlin;
    regset regusage;
-};
+} Function;
 
 #define FREQUIRE(_prop) assert((fn->prop & (_prop)) == (_prop) && "preconditions not met")
 
-enum objkind { OBJELF };
-
-struct mctarg {
+typedef struct MCTarg {
    short gpr0, /* first gpr */
          ngpr, /* gpr count */
          bpr,  /* frame/base pointer reg */
@@ -214,7 +217,7 @@ struct mctarg {
     *                r[1] contains register for hidden pointer argument,
     *                     *ni is set to 1 if said register is the first ABI integer argument
     */
-   int (*abiret)(short r[2], uchar cls[2], uchar *r2off, int *ni, union irtype);
+   int (*abiret)(short r[2], uchar cls[2], uchar *r2off, int *ni, IRType);
    /* abiarg: lower argument type:
     *  scalar/small struct -> returns number of regs (1..2),
     *                         r & cls filled with reg and irclass of each scalar arg
@@ -225,12 +228,12 @@ struct mctarg {
     *                if passed by pointer cls[0] == KPTR, r[0] contains integer register
     *                                                     or negative SP offset if stack
     */
-   int (*abiarg)(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, union irtype);
-   void (*vastart)(struct function *, struct block *, int *curi);
-   void (*vaarg)(struct function *, struct block *, int *curi);
-   void (*isel)(struct function *);
-   void (*emit)(struct function *);
-};
+   int (*abiarg)(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType);
+   void (*vastart)(Function *, Block *, int *curi);
+   void (*vaarg)(Function *, Block *, int *curi);
+   void (*isel)(Function *);
+   void (*emit)(Function *);
+} MCTarg;
 
 enum { MAXINSTR = 1<<15 };
 
@@ -240,23 +243,23 @@ extern uchar cls2siz[];
 extern uchar cls2load[];
 extern uchar cls2store[];
 extern const uchar siz2intcls[];
-extern struct instr instrtab[];
-extern struct use *instruse[];
-extern struct calltab {vec_of(struct call);} calltab;
-extern struct phitab {vec_of(union ref *);} phitab;
-extern struct dattab {vec_of(struct irdat);} dattab;
-extern struct contab {vec_of(struct xcon);} contab;
-extern struct addrtab {vec_of(struct addr);} addrtab;
+extern Instr instrtab[];
+extern IRUse *instruse[];
+extern struct calltab {vec_of(IRCall);} calltab;
+extern struct phitab {vec_of(Ref *);} phitab;
+extern struct dattab {vec_of(IRDat);} dattab;
+extern struct contab {vec_of(IRCon);} contab;
+extern struct addrtab {vec_of(IRAddr);} addrtab;
 extern int visitmark;
-#define mkinstr(O, C, ...) ((struct instr) { .op = (O), .cls = (C), .reg=0, __VA_ARGS__ })
+#define mkinstr(O, C, ...) ((Instr) { .op = (O), .cls = (C), .reg=0, __VA_ARGS__ })
 #define mkarginstr(ty, x) mkinstr(Oarg, 0, mktyperef(ty), (x))
-void irinit(struct function *);
-void irfini(struct function *);
-#define cls2type(k) ((union irtype){.cls=(k)})
-union irtype mkirtype(union type);
-union ref newxcon(const struct xcon *);
-union ref mkintcon(enum irclass, vlong);
-union ref mkfltcon(enum irclass, double);
+void irinit(Function *);
+void irfini(Function *);
+#define cls2type(k) ((IRType){.cls=(k)})
+IRType mkirtype(Type);
+Ref newxcon(const IRCon *);
+Ref mkintcon(enum irclass, vlong);
+Ref mkfltcon(enum irclass, double);
 #define iscon(r) in_range((r).t, RICON, RXCON)
 #define concls(r) ((r).t == RICON ? KI32 : contab.p[(r).i].cls)
 #define isintcon(r) (iscon(r) && kisint(concls(r)))
@@ -265,89 +268,89 @@ union ref mkfltcon(enum irclass, double);
 #define isaddrcon(r,derefok) ((r).t == RXCON && !contab.p[(r).i].cls && (derefok || !contab.p[(r).i].deref))
 #define intconval(r) ((r).t == RICON ? (r).i : contab.p[(r).i].i)
 #define fltconval(r) ((r).t == RICON ? (r).i : contab.p[(r).i].f)
-union ref mksymref(internstr, enum symflags);
-union ref mkdatref(internstr sym, union type ctype, uint siz, uint align,
+Ref mksymref(internstr, enum symflags);
+Ref mkdatref(internstr sym, Type ctype, uint siz, uint align,
                    const void *, uint n, bool deref, bool funclocal);
 internstr xcon2sym(int ref);
-struct instr mkalloca(uint siz, uint align);
-union ref mkcallarg(union irtype ret, uint narg, int vararg);
-#define mkintrin(B, C, N) mkinstr(Ointrin, C, {{.t=RICON,B}}, mkcallarg((union irtype){{0}},N,-1))
-union ref mkaddr(struct addr);
-void addpred(struct block *blk, struct block *p);
+Instr mkalloca(uint siz, uint align);
+Ref mkcallarg(IRType ret, uint narg, int vararg);
+#define mkintrin(B, C, N) mkinstr(Ointrin, C, {{.t=RICON,B}}, mkcallarg((IRType){{0}},N,-1))
+Ref mkaddr(IRAddr);
+void addpred(Block *blk, Block *p);
 
-struct block *newblk(struct function *);
-void freeblk(struct function *, struct block *);
-struct block *insertblk(struct function *, struct block *pred, struct block *subst);
-struct block *blksplitafter(struct function *, struct block *, int idx);
-void adduse(struct block *ublk, int ui, union ref r);
-int newinstr(struct block *at, struct instr ins);
-union ref insertinstr(struct block *, int idx, struct instr);
-union ref insertphi(struct block *, enum irclass cls);
-void replcuses(union ref from, union ref to);
-bool deluse(struct block *ublk, int ui, union ref r);
+Block *newblk(Function *);
+void freeblk(Function *, Block *);
+Block *insertblk(Function *, Block *pred, Block *subst);
+Block *blksplitafter(Function *, Block *, int idx);
+void adduse(Block *ublk, int ui, Ref r);
+int newinstr(Block *at, Instr ins);
+Ref insertinstr(Block *, int idx, Instr);
+Ref insertphi(Block *, enum irclass cls);
+void replcuses(Ref from, Ref to);
+bool deluse(Block *ublk, int ui, Ref r);
 void deluses(int ins);
-void filluses(struct function *);
-void delinstr(struct block *, int idx);
-void delphi(struct block *, int idx);
-void delnops(struct block *blk);
-void delpred(struct block *blk, struct block *p);
-void fillblkids(struct function *);
+void filluses(Function *);
+void delinstr(Block *, int idx);
+void delphi(Block *, int idx);
+void delnops(Block *blk);
+void delpred(Block *blk, Block *p);
+void fillblkids(Function *);
 #define startbbvisit() (void)(++visitmark)
 #define wasvisited(blk) ((blk)->visit == visitmark)
 #define markvisited(blk) ((blk)->visit = visitmark)
-uint numberinstrs(struct function *);
-bool blkreachable(struct function *fn, struct block *blk);
+uint numberinstrs(Function *);
+bool blkreachable(Function *fn, Block *blk);
 
 /** builder.c **/
-union ref irbinop(struct function *, enum op, enum irclass, union ref lhs, union ref rhs);
-union ref irunop(struct function *, enum op, enum irclass, union ref);
-union ref addinstr(struct function *, struct instr);
-union ref addphi(struct function *, enum irclass, union ref []);
-void useblk(struct function *, struct block *);
-void putbranch(struct function *, struct block *);
-void putcondbranch(struct function *, union ref arg, struct block *t, struct block *f);
-void putreturn(struct function *, union ref r0, union ref r1);
-void puttrap(struct function *);
+Ref irbinop(Function *, enum op, enum irclass, Ref lhs, Ref rhs);
+Ref irunop(Function *, enum op, enum irclass, Ref);
+Ref addinstr(Function *, Instr);
+Ref addphi(Function *, enum irclass, Ref []);
+void useblk(Function *, Block *);
+void putbranch(Function *, Block *);
+void putcondbranch(Function *, Ref arg, Block *t, Block *f);
+void putreturn(Function *, Ref r0, Ref r1);
+void puttrap(Function *);
 
 /** fold.c **/
-bool foldbinop(union ref *to, enum op, enum irclass, union ref l, union ref r);
-bool foldunop(union ref *to, enum op, enum irclass, union ref);
+bool foldbinop(Ref *to, enum op, enum irclass, Ref l, Ref r);
+bool foldunop(Ref *to, enum op, enum irclass, Ref);
 
 /** irdump.c **/
-void irdump(struct function *);
+void irdump(Function *);
 
 /** mem2reg.c **/
-void mem2reg(struct function *);
+void mem2reg(Function *);
 
 /** ssa.c **/
-void copyopt(struct function *);
+void copyopt(Function *);
 
 /** cfg.c **/
-void sortrpo(struct function *);
-void filldom(struct function *);
-void fillloop(struct function *);
+void sortrpo(Function *);
+void filldom(Function *);
+void fillloop(Function *);
 
 /** abi0.c **/
-void abi0(struct function *);
-void abi0_call(struct function *, struct instr *, struct block *blk, int *curi);
+void abi0(Function *);
+void abi0_call(Function *, Instr *, Block *blk, int *curi);
 
 /** simpl.c **/
-void simpl(struct function *);
+void simpl(Function *);
 
 /** cselim.c **/
-void cselim(struct function *);
+void cselim(Function *);
 
 /** inliner.c **/
-bool maybeinlinee(struct function *);
-void doinline(struct function *);
+bool maybeinlinee(Function *);
+void doinline(Function *);
 
 /** intrin.c **/
-void lowerintrin(struct function *);
+void lowerintrin(Function *);
 
 /** stack.c **/
-void lowerstack(struct function *);
+void lowerstack(Function *);
 
 /** regalloc.c **/
-void regalloc(struct function *);
+void regalloc(Function *);
 
 /* vim:set ts=3 sw=3 expandtab: */

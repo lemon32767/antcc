@@ -1,12 +1,12 @@
 #include "ir.h"
 
 /* binary arithmetic builder with peephole optimizations */
-union ref
-irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref r)
+Ref
+irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r)
 {
-   static const union ref ONE = {.t=RICON, .i=1};
+   static const Ref ONE = {.t=RICON, .i=1};
    vlong iv;
-   union ref c;
+   Ref c;
 
    if (foldbinop(&c, op, k, l, r))
       return c;
@@ -104,13 +104,13 @@ irbinop(struct function *fn, enum op op, enum irclass k, union ref l, union ref 
 }
 
 /* implements f32/f64 -> u64 conversion */
-static union ref
-cvtfu64(struct function *fn, enum irclass from, union ref x)
+static Ref
+cvtfu64(Function *fn, enum irclass from, Ref x)
 {
-   struct block *t, *f, *merge;
-   union ref tmp, phiarg[2];
+   Block *t, *f, *merge;
+   Ref tmp, phiarg[2];
    /* if (x < 2p63) cvtfXs(x) else (cvtfXs(x - 2p63) | (1<<63)) */
-   union ref max = mkfltcon(from, 0x1.0p63);
+   Ref max = mkfltcon(from, 0x1.0p63);
    enum op cvt = from == KF32 ? Ocvtf32s : Ocvtf64s;
    putcondbranch(fn, irbinop(fn, Olth, from, x, max), t = newblk(fn), f = newblk(fn));
 
@@ -129,11 +129,11 @@ cvtfu64(struct function *fn, enum irclass from, union ref x)
 }
 
 /* implements u64 -> f32/f64 conversion */
-static union ref
-cvtu64f(struct function *fn, enum irclass to, union ref x)
+static Ref
+cvtu64f(Function *fn, enum irclass to, Ref x)
 {
-   struct block *t, *f, *merge;
-   union ref t1, t2, phiarg[2];
+   Block *t, *f, *merge;
+   Ref t1, t2, phiarg[2];
 
    /* if ((s64)x >= 0) cvts64f(x) else cvts64f((x>>1)|(x&1))*2  */
 
@@ -155,11 +155,11 @@ cvtu64f(struct function *fn, enum irclass to, union ref x)
    return addphi(fn, to, phiarg);
 }
 
-union ref
-irunop(struct function *fn, enum op op, enum irclass k, union ref a)
+Ref
+irunop(Function *fn, enum op op, enum irclass k, Ref a)
 {
-   union ref c;
-   struct instr *ins = NULL;
+   Ref c;
+   Instr *ins = NULL;
    if (foldunop(&c, op, k, a))
       return c;
    if (a.t == RTMP) ins = &instrtab[a.i];
@@ -200,8 +200,8 @@ irunop(struct function *fn, enum op op, enum irclass k, union ref a)
 
 int allocinstr(void);
 
-union ref
-addinstr(struct function *fn, struct instr ins)
+Ref
+addinstr(Function *fn, Instr ins)
 {
    int new = allocinstr();
    assert(fn->curblk != NULL);
@@ -213,7 +213,7 @@ addinstr(struct function *fn, struct instr ins)
 }
 
 void
-useblk(struct function *fn, struct block *blk)
+useblk(Function *fn, Block *blk)
 {
    extern int nerror;
    if (fn->curblk && nerror == 0) assert(fn->curblk->jmp.t && "never finished block");
@@ -228,15 +228,15 @@ useblk(struct function *fn, struct block *blk)
    fn->curblk = blk;
 }
 
-union ref
-addphi(struct function *fn, enum irclass cls, union ref *r)
+Ref
+addphi(Function *fn, enum irclass cls, Ref *r)
 {
    assert(fn->curblk);
    if (fn->curblk->npred == 0) return UNDREF;
    if (fn->curblk->npred == 1) /* 1-argument phi is identity */
       return *r;
 
-   union ref *refs = NULL;
+   Ref *refs = NULL;
    xbgrow(&refs, fn->curblk->npred);
    memcpy(refs, r, fn->curblk->npred * sizeof *r);
    vpush(&phitab, refs);
@@ -259,7 +259,7 @@ addphi(struct function *fn, enum irclass cls, union ref *r)
    fn->curblk = NULL;
 
 void
-putbranch(struct function *fn, struct block *blk)
+putbranch(Function *fn, Block *blk)
 {
    assert(fn->curblk && blk);
    addpred(blk, fn->curblk);
@@ -267,7 +267,7 @@ putbranch(struct function *fn, struct block *blk)
 }
 
 void
-putcondbranch(struct function *fn, union ref arg, struct block *t, struct block *f)
+putcondbranch(Function *fn, Ref arg, Block *t, Block *f)
 {
    assert(fn->curblk && t && f);
    if (iscon(arg)) {
@@ -287,7 +287,7 @@ putcondbranch(struct function *fn, union ref arg, struct block *t, struct block 
 }
 
 void
-putreturn(struct function *fn, union ref r0, union ref r1)
+putreturn(Function *fn, Ref r0, Ref r1)
 {
    assert(fn->curblk);
    adduse(fn->curblk, USERJUMP, r0);
@@ -296,7 +296,7 @@ putreturn(struct function *fn, union ref r0, union ref r1)
 }
 
 void
-puttrap(struct function *fn)
+puttrap(Function *fn)
 {
    assert(fn->curblk);
    putjump(fn, Jtrap, NOREF, NOREF, NULL, NULL);

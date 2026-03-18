@@ -69,9 +69,9 @@ aarch64_logimm(uint *enc, enum irclass k, uvlong x)
 }
 
 
-static void fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi);
+static void fixarg(Ref *r, Instr *ins, Block *blk, int *curi);
 static void
-regarg(union ref *r, enum irclass k, struct block *blk, int *curi)
+regarg(Ref *r, enum irclass k, Block *blk, int *curi)
 {
    if (r->t != RTMP) {
       *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, k, *r));
@@ -84,7 +84,7 @@ regarg(union ref *r, enum irclass k, struct block *blk, int *curi)
 }
 
 static void
-fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
+fixarg(Ref *r, Instr *ins, Block *blk, int *curi)
 {
    enum op op = ins ? ins->op : 0;
    if (isintcon(*r)) {
@@ -123,7 +123,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
             pun.f64 = contab.p[r->i].f;
             i = pun.i64;
          }
-         union ref gpr = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ki, mkintcon(ki, i)));
+         Ref gpr = insertinstr(blk, (*curi)++, mkinstr(Ocopy, ki, mkintcon(ki, i)));
          *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, k, gpr));
       } else if (oiscmp(op)) {
          return;
@@ -131,7 +131,7 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
          *r = insertinstr(blk, (*curi)++, mkinstr(Ocopy, k, *r));
       }
    } else if (r->t == RSTACK) {
-      struct instr adr = mkinstr(Osub, KPTR, mkref(RREG, FP), mkintcon(KI32, r->i));
+      Instr adr = mkinstr(Osub, KPTR, mkref(RREG, FP), mkintcon(KI32, r->i));
       if (op == Ocopy)
          *ins = adr;
       else
@@ -142,10 +142,10 @@ fixarg(union ref *r, struct instr *ins, struct block *blk, int *curi)
 }
 
 static bool
-arithfold(struct instr *ins)
+arithfold(Instr *ins)
 {
    if (isnumcon(ins->l) && (!ins->r.t || isnumcon(ins->r))) {
-      union ref r;
+      Ref r;
       bool ok = ins->r.t ? foldbinop(&r, ins->op, ins->cls, ins->l, ins->r) : foldunop(&r, ins->op, ins->cls, ins->l);
       assert(ok && "fold?");
       *ins = mkinstr(Ocopy, insrescls(*ins), r);
@@ -155,16 +155,16 @@ arithfold(struct instr *ins)
 }
 
 static void
-selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
+selcall(Function *fn, Instr *ins, Block *blk, int *curi)
 {
-   const struct call *call = &calltab.p[ins->r.i];
+   const IRCall *call = &calltab.p[ins->r.i];
    int iarg = *curi - 1;
    enum irclass cls;
    uint argstksiz = alignup(call->argstksiz, 16);
 
    for (int i = call->narg - 1; i >= 0; --i) {
-      struct abiarg abi = call->abiarg[i];
-      struct instr *arg;
+      ABIArg abi = call->abiarg[i];
+      Instr *arg;
       for (;; --iarg) {
          assert(iarg >= 0 && i >= 0 && "arg?");
          if ((arg = &instrtab[blk->ins.p[iarg]])->op == Oarg)
@@ -175,7 +175,7 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
          assert(!abi.ty.isagg);
          *arg = mkinstr(Omove, call->abiarg[i].ty.cls, mkref(RREG, abi.reg), arg->r);
       } else {
-         union ref adr = mkaddr((struct addr){mkref(RREG, SP), .disp = abi.stk});
+         Ref adr = mkaddr((IRAddr){mkref(RREG, SP), .disp = abi.stk});
          int iargsave = iarg;
          if (!abi.ty.isagg) { /* scalar arg in stack */
             *arg = mkinstr(cls2store[abi.ty.cls], 0, adr, arg->r);
@@ -190,13 +190,13 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
       }
    }
    if (call->argstksiz) {
-      union ref disp = mkref(RICON, argstksiz);
-      insertinstr(blk, iarg--, (struct instr){Osub, KPTR, .keep=1, .reg = SP+1, .l=mkref(RREG,SP), disp});
+      Ref disp = mkref(RICON, argstksiz);
+      insertinstr(blk, iarg--, (Instr){Osub, KPTR, .keep=1, .reg = SP+1, .l=mkref(RREG,SP), disp});
       ++*curi;
-      insertinstr(blk, *curi+1, (struct instr){Oadd, KPTR, .keep=1, .reg = SP+1, .l=mkref(RREG,SP), disp});
+      insertinstr(blk, *curi+1, (Instr){Oadd, KPTR, .keep=1, .reg = SP+1, .l=mkref(RREG,SP), disp});
    }
    if (isimm32(ins->l))
-      ins->l = mkaddr((struct addr){.base = ins->l});
+      ins->l = mkaddr((IRAddr){.base = ins->l});
    else if (isintcon(ins->l))
       ins->l = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, ins->l));
 
@@ -218,7 +218,7 @@ selcall(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 }
 
 static bool
-aimm(struct addr *addr, int disp)
+aimm(IRAddr *addr, int disp)
 {
    if (addr->index.bits) return 0;
    vlong a = addr->disp;
@@ -231,7 +231,7 @@ aimm(struct addr *addr, int disp)
 }
 
 static bool
-ascale(struct addr *addr, union ref a, union ref b, uint siz/*1,2,4,8*/)
+ascale(IRAddr *addr, Ref a, Ref b, uint siz/*1,2,4,8*/)
 {
    if (b.t != RICON) return 0;
    if (addr->index.bits || (addr->disp && !isaddrcon(addr->base,1))) return 0;
@@ -245,13 +245,13 @@ ascale(struct addr *addr, union ref a, union ref b, uint siz/*1,2,4,8*/)
 }
 
 static bool
-aadd(struct addr *addr, struct block *blk, int *curi, union ref r, uint siz/*1,2,4,8*/)
+aadd(IRAddr *addr, Block *blk, int *curi, Ref r, uint siz/*1,2,4,8*/)
 {
    if (r.t == RSTACK) {
       if (addr->base.bits || addr->index.bits || !aimm(addr, -r.i)) goto Ref;
       addr->base = mkref(RREG, FP);
    } else if (r.t == RTMP) {
-      struct instr *ins = &instrtab[r.i];
+      Instr *ins = &instrtab[r.i];
       if (ins->op == Oadd) {
          if (!aadd(addr, blk, curi, ins->l, siz)) goto Ref;
          if (!aadd(addr, blk, curi, ins->r, siz)) goto Ref;
@@ -290,9 +290,9 @@ aadd(struct addr *addr, struct block *blk, int *curi, union ref r, uint siz/*1,2
 }
 
 static bool
-fuseaddr(union ref *r, struct block *blk, int *curi, uint siz/*1,2,4,8*/)
+fuseaddr(Ref *r, Block *blk, int *curi, uint siz/*1,2,4,8*/)
 {
-   struct addr addr = {0};
+   IRAddr addr = {0};
 
    if (isaddrcon(*r,1)) return 1;
 
@@ -307,7 +307,7 @@ fuseaddr(union ref *r, struct block *blk, int *curi, uint siz/*1,2,4,8*/)
          addr.base = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR, .l = addr.base));
       } else {
          addr.base = insertinstr(blk, (*curi)++, mkinstr(Ocopy, KPTR,
-                  mkaddr((struct addr){addr.base, .disp = addr.disp})));
+                  mkaddr((IRAddr){addr.base, .disp = addr.disp})));
          addr.disp = 0;
       }
    }
@@ -332,11 +332,11 @@ static const uchar storesz[] = {
    [Ostoref64 - Ostorei8] = 8,
 };
 static void
-loadstoreaddr(struct block *blk, union ref *r, int *curi, enum op op)
+loadstoreaddr(Block *blk, Ref *r, int *curi, enum op op)
 {
    uint siz = oisload(op) ? loadsz[op-Oloads8] : storesz[op-Ostorei8];
    if (isimm32(*r)) {
-      *r = mkaddr((struct addr){.base = *r});
+      *r = mkaddr((IRAddr){.base = *r});
    } else if (isaddrcon(*r, 0)) {
       bool pcrelok = in_range(op, Oloads32, Oloadi64); /* LDR-LDRSW have PC-relative literal form */
       if (!pcrelok || !(contab.p[r->i].flag & SLOCAL))
@@ -349,7 +349,7 @@ loadstoreaddr(struct block *blk, union ref *r, int *curi, enum op op)
 }
 
 static void
-sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
+sel(Function *fn, Instr *ins, Block *blk, int *curi)
 {
    enum op op = ins->op;
    enum irclass cls;
@@ -393,7 +393,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Oadd:
       if (isnumcon(ins->l)) {
          /* swap to have const in rhs */
-         union ref tmp = ins->l;
+         Ref tmp = ins->l;
          ins->l = ins->r;
          ins->r = tmp;
       }
@@ -409,7 +409,7 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
    case Oand: case Oior: case Oxor:
       if (isnumcon(ins->l)) {
          /* swap to have const in rhs */
-         union ref tmp = ins->l;
+         Ref tmp = ins->l;
          ins->l = ins->r;
          ins->r = tmp;
       }
@@ -446,12 +446,12 @@ sel(struct function *fn, struct instr *ins, struct block *blk, int *curi)
 }
 
 static void
-seljmp(struct function *fn, struct block *blk)
+seljmp(Function *fn, Block *blk)
 {
    if (blk->jmp.t == Jb && blk->jmp.arg[0].bits) {
       int curi = blk->ins.n;
       fixarg(&blk->jmp.arg[0], NULL, blk, &curi);
-      union ref c = blk->jmp.arg[0];
+      Ref c = blk->jmp.arg[0];
       if (c.t != RTMP) {
          enum irclass cls = c.t == RICON ? KI32 : c.t == RXCON && contab.p[c.i].cls ? contab.p[c.i].cls : KPTR;
          int curi = blk->ins.n;
@@ -462,15 +462,15 @@ seljmp(struct function *fn, struct block *blk)
       if (!oiscmp(instrtab[c.i].op)) {
          enum irclass k = insrescls(instrtab[c.i]);
          blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr(Oneq, k, c, kisint(k) ? ZEROREF : mkfltcon(k, 0)));
-         struct instr *ins = &instrtab[blk->jmp.arg[0].i];
+         Instr *ins = &instrtab[blk->jmp.arg[0].i];
          ins->keep = 1;
       } else {
          instrtab[c.i].keep = 1;
       }
    } else if (blk->jmp.t == Jret) {
       if (blk->jmp.arg[0].bits) {
-         union ref r = mkref(RREG, fn->abiret[0].reg);
-         struct instr *ins = &instrtab[insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[0].ty.cls, r, blk->jmp.arg[0])).i];
+         Ref r = mkref(RREG, fn->abiret[0].reg);
+         Instr *ins = &instrtab[insertinstr(blk, blk->ins.n, mkinstr(Omove, fn->abiret[0].ty.cls, r, blk->jmp.arg[0])).i];
          int curi = blk->ins.n-1;
          fixarg(&ins->r, ins, blk, &curi);
          blk->jmp.arg[0] = r;
@@ -483,22 +483,22 @@ seljmp(struct function *fn, struct block *blk)
 }
 
 void
-aarch64_isel(struct function *fn)
+aarch64_isel(Function *fn)
 {
-   struct block *blk = fn->entry;
+   Block *blk = fn->entry;
 
    do {
       int i;
       for (i = 0; i < blk->phi.n; ++i) {
-         struct instr *ins = &instrtab[blk->phi.p[i]];
-         union ref *phi = phitab.p[ins->l.i];
+         Instr *ins = &instrtab[blk->phi.p[i]];
+         Ref *phi = phitab.p[ins->l.i];
          for (int i = 0; i < blk->npred; ++i) {
             int curi = blkpred(blk, i)->ins.n;
             fixarg(&phi[i], ins, blkpred(blk, i), &curi);
          }
       }
       for (i = 0; i < blk->ins.n; ++i) {
-         struct instr *ins = &instrtab[blk->ins.p[i]];
+         Instr *ins = &instrtab[blk->ins.p[i]];
          sel(fn, ins, blk, &i);
       }
       seljmp(fn, blk);

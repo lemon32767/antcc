@@ -1,27 +1,27 @@
 #include "antcc.h"
 #include "c_type.h"
 
-extern const struct mctarg t_x86_64_sysv, t_aarch64_aapcs;
-static const struct targ {
+extern const struct MCTarg t_x86_64_sysv, t_aarch64_aapcs;
+static const struct Targ {
    struct { enum mcarch arch; uint oss, abis; };
    struct { uchar longsize, vlongsize, ptrsize, valistsize; };
    struct { uchar longalign, vlongalign, doublealign, ptralign; };
    bool charsigned;
    uchar sizetype, ptrdifftype, wchartype;
-   const struct mctarg *mctarg;
+   const struct MCTarg *mctarg;
 } targs[] = {
    { {ISx86_64,  -1, -1}, {8,8,8,24}, {8,8,8,8}, 1, TYULONG, TYLONG, TYINT, &t_x86_64_sysv },
    { {ISaarch64, -1, -1}, {8,8,8,32}, {8,8,8,8}, 0, TYULONG, TYLONG, TYUINT, &t_aarch64_aapcs },
 };
 
-struct targtriple target;
+TargTriple target;
 uchar targ_primsizes[TYPTR+1];
 uchar targ_primalign[TYPTR+1];
 uint targ_valistsize;
 enum typetag targ_sizetype, targ_ptrdifftype, targ_wchartype;
 bool targ_charsigned, targ_bigendian, targ_64bit;
 enum mcarch targ_arch;
-const struct mctarg *mctarg;
+const struct MCTarg *mctarg;
 
 static bool
 matchstr(const char **s, const char *pat)
@@ -36,7 +36,7 @@ matchstr(const char **s, const char *pat)
 }
 
 static bool
-parsetriple(struct targtriple *trg, const char *str)
+parsetriple(TargTriple *trg, const char *str)
 {
    if (matchstr(&str, "x86_64-") || matchstr(&str, "amd64-"))
       trg->arch = ISx86_64;
@@ -67,7 +67,7 @@ parsetriple(struct targtriple *trg, const char *str)
 void
 targ_init(const char *starg)
 {
-   const struct targ *t = NULL;
+   const struct Targ *t = NULL;
    uchar *sizes = targ_primsizes, *align = targ_primalign;
 
    if (!starg) {

@@ -9,8 +9,8 @@ enum reg {
 };
 
 bool aarch64_logimm(uint *enc, enum irclass, uvlong x);
-void aarch64_isel(struct function *);
-void aarch64_emit(struct function *);
+void aarch64_isel(Function *);
+void aarch64_emit(Function *);
 
 /* vim:set ts=3 sw=3 expandtab: */
 

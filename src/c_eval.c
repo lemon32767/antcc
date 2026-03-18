@@ -27,12 +27,12 @@ targ2hosttype(enum typetag t)
 }
 
 static bool
-numcast(union type ty, struct expr *dst, const struct expr *src)
+numcast(Type ty, Expr *dst, const Expr *src)
 {
    enum typetag td = targ2hosttype(scalartypet(ty)),
                 ts = targ2hosttype(scalartypet(src->ty));
    vlong isrc;
-   struct expr tmp;
+   Expr tmp;
    if (src == dst) tmp = *src, src = &tmp;
 
    assert(src->t == ENUMLIT);
@@ -78,8 +78,8 @@ numcast(union type ty, struct expr *dst, const struct expr *src)
    return 1;
 }
 
-static struct expr *
-lit2ssym(struct expr *ex)
+static Expr *
+lit2ssym(Expr *ex)
 {
    ex->ssym.sym = xcon2sym(expraddr(NULL, ex).i);
    ex->ssym.local = 1;
@@ -88,12 +88,12 @@ lit2ssym(struct expr *ex)
    return ex;
 }
 
-static struct expr
-staticaddrof(struct expr *ex, enum evalmode mode)
+static Expr
+staticaddrof(Expr *ex, enum evalmode mode)
 {
-   struct expr ret = { .ty = mkptrtype(ex->ty, ex->qual), .span = ex->span };
+   Expr ret = { .ty = mkptrtype(ex->ty, ex->qual), .span = ex->span };
    if (ex->t == ESYM && ex->ty.t < NTYPETAG) {
-      const struct decl *decl = &declsbuf.p[ex->decl];
+      const Decl *decl = &declsbuf.p[ex->decl];
       if (decl->sym && (decl->scls & (SCAUTO|SCREGISTER)) == 0) {
          ret.t = ESSYMREF;
          ret.ssym.sym = decl->sym;
@@ -119,13 +119,13 @@ staticaddrof(struct expr *ex, enum evalmode mode)
 }
 
 static bool
-isstaticlval(const struct expr *ex, enum evalmode mode)
+isstaticlval(const Expr *ex, enum evalmode mode)
 {
    return ex->t == ESTRLIT || ex->t == ESSYMREF || (mode == EVSTATICINI && ex->t == EINIT);
 }
 
 static bool
-truthy(const struct expr *ex)
+truthy(const Expr *ex)
 {
    switch (ex->t) {
    default: assert(0 && "!scalar?");
@@ -137,9 +137,9 @@ truthy(const struct expr *ex)
 }
 
 static bool
-unop(struct expr *ex, enum evalmode mode)
+unop(Expr *ex, enum evalmode mode)
 {
-   struct expr *sub = ex->sub;
+   Expr *sub = ex->sub;
 
    if (mode >= EVSTATICINI && ex->t == EDEREF) {
       uvlong off;
@@ -178,7 +178,7 @@ unop(struct expr *ex, enum evalmode mode)
       } else return 0;
    } else if (ex->t == EADDROF) {
       assert(ex->ty.t == TYPTR);
-      struct expr ex2 = staticaddrof(ex->sub, mode);
+      Expr ex2 = staticaddrof(ex->sub, mode);
       if (!ex2.t) return 0;
       ex2.span = ex->span;
       ex2.ty = ex->ty;
@@ -187,7 +187,7 @@ unop(struct expr *ex, enum evalmode mode)
    } else if (ex->t == EGETF && !ex->fld.bitsiz) {
       /* <lvalue>.memb -> is an address lvalue if 'memb' is of array type */
       if (ex->ty.t == TYARRAY) {
-         struct expr ex2;
+         Expr ex2;
          if ((ex2 = staticaddrof(ex->sub, mode)).t) {
             if (ex2.t == ENUMLIT) {
                ex->t = ENUMLIT;
@@ -247,11 +247,11 @@ unop(struct expr *ex, enum evalmode mode)
 }
 
 static bool
-binop(struct expr *ex, enum evalmode mode)
+binop(Expr *ex, enum evalmode mode)
 {
-   struct expr *a = &ex->sub[0], *b = &ex->sub[1];
+   Expr *a = &ex->sub[0], *b = &ex->sub[1];
    if (!eval(a, mode)) return 0;
-   union type opty;
+   Type opty;
    if (in_range(ex->t, EADD, ESHR))
       opty = ex->ty;
    else /* compare, logical, set (result type != operation type) */
@@ -393,7 +393,7 @@ binop(struct expr *ex, enum evalmode mode)
 }
 
 bool
-eval(struct expr *ex, enum evalmode mode)
+eval(Expr *ex, enum evalmode mode)
 {
    switch (ex->t) {
    case EGETF: goto Unop;
@@ -406,7 +406,7 @@ eval(struct expr *ex, enum evalmode mode)
       *ex = ex->sub[2-truthy(&ex->sub[0])];
       return eval(ex, mode);
    case EINIT:
-      for (struct initval *v = ex->init->vals; v; v = v->next) {
+      for (InitElem *v = ex->init->vals; v; v = v->next) {
          if (!eval(&v->ex, mode)) return 0;
       }
       return 1;
@@ -416,9 +416,9 @@ eval(struct expr *ex, enum evalmode mode)
    case ESYM:
       if (in_range(ex->ty.t, TYARRAY, TYFUNC)
        && mode >= EVSTATICINI) {
-         struct expr ex2 = staticaddrof(ex, mode);
+         Expr ex2 = staticaddrof(ex, mode);
          if (ex2.t) {
-            union type ty = ex->ty;
+            Type ty = ex->ty;
             *ex = ex2;
             ex->ty = ty;
             return 1;

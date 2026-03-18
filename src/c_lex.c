@@ -7,7 +7,7 @@
 /* fill internal circular character buffer with input after translation phase 1 & 2
  * (trigraph substitution and backslash-newline deletion */
 static void
-fillchrbuf(struct lexer *lx)
+fillchrbuf(Lexer *lx)
 {
    const uchar *p = lx->dat + lx->idx;
    int i = lx->chrbuf0, idx = lx->idx;
@@ -72,7 +72,7 @@ fillchrbuf(struct lexer *lx)
 }
 
 static uchar
-next(struct lexer *lx)
+next(Lexer *lx)
 {
    if (lx->chrbuf0 >= countof(lx->chrbuf))
       fillchrbuf(lx);
@@ -84,7 +84,7 @@ next(struct lexer *lx)
 }
 
 static uchar
-peek(struct lexer *lx, int off)
+peek(Lexer *lx, int off)
 {
    assert(off < countof(lx->chrbuf));
    if (lx->chrbuf0 + off >= countof(lx->chrbuf))
@@ -93,7 +93,7 @@ peek(struct lexer *lx, int off)
 }
 
 static bool
-match(struct lexer *lx, uchar c)
+match(Lexer *lx, uchar c)
 {
    if (!lx->eof && peek(lx, 0) == c) {
       next(lx);
@@ -120,7 +120,7 @@ aissep(int c) {
 }
 
 enum typetag
-parsenumlit(uvlong *outi, double *outf, const struct token *tk, bool ispp)
+parsenumlit(uvlong *outi, double *outf, const Token *tk, bool ispp)
 {
    if (tk->t == TKCHRLIT) {
       uvlong n = 0;
@@ -240,12 +240,12 @@ parsenumlit(uvlong *outi, double *outf, const struct token *tk, bool ispp)
 }
 
 static void
-readstrchrlit(struct lexer *lx, struct token *tk, char delim, int wide)
+readstrchrlit(Lexer *lx, Token *tk, char delim, int wide)
 {
    int c, i;
    uchar tmp[200];
    vec_of(uchar) b = VINIT(tmp, sizeof tmp);
-   struct span span = {0};
+   Span span = {0};
    uint n, beginoff, idx;
    beginoff = idx = lx->chridx;
 
@@ -253,11 +253,11 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim, int wide)
       static uint wmax[] = {0xFF, 0xFFFF, 0xFFFFFFFFu};
       if (c == '\n' || c == TKEOF) {
       Noterm:
-         span.sl = (struct span0) { idx, lx->chridx - idx, lx->fileid };
+         span.sl = (Span0) { idx, lx->chridx - idx, lx->fileid };
          error(&span, "missing terminating %c character", delim);
          break;
       } else if (c == '\\') {
-         span.sl = (struct span0) { idx, lx->chridx - idx, lx->fileid };
+         span.sl = (Span0) { idx, lx->chridx - idx, lx->fileid };
          switch (c = next(lx)) {
          case '\n': case TKEOF:
             goto Noterm;
@@ -336,10 +336,10 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim, int wide)
       }
    } else {
       if (b.n == 0) {
-         span.sl = (struct span0) { idx, lx->chridx - idx, lx->fileid };
+         span.sl = (Span0) { idx, lx->chridx - idx, lx->fileid };
          error(&span, "empty character literal");
       } else if (b.n > targ_primsizes[TYINT]) {
-         span.sl = (struct span0) { idx, lx->chridx - idx, lx->fileid };
+         span.sl = (Span0) { idx, lx->chridx - idx, lx->fileid };
          error(&span, "multicharacter literal too long");
       }
       tk->t = TKCHRLIT;
@@ -363,18 +363,18 @@ readstrchrlit(struct lexer *lx, struct token *tk, char delim, int wide)
 
 /* for #include directive, read "header" or <header> */
 static void
-readheadername(struct lexer *lx, struct token *tk, char delim)
+readheadername(Lexer *lx, Token *tk, char delim)
 {
    int c;
    uchar tmp[200];
    vec_of(uchar) b = VINIT(tmp, sizeof tmp);
-   struct span span = {0};
+   Span span = {0};
    uint beginoff, idx;
    beginoff = idx = lx->chridx;
 
    while ((c = next(lx)) != delim) {
       if (c == '\n' || lx->eof) {
-         span.sl = (struct span0) { idx, lx->chridx - idx, lx->fileid };
+         span.sl = (Span0) { idx, lx->chridx - idx, lx->fileid };
          error(&span, "missing terminating %c character", delim);
          break;
       }
@@ -407,7 +407,7 @@ isppnum(char prev, char c)
 
 enum { MAXLITLEN = 256 }; /* maximum length of num literals and identifiers */
 static int
-lex0(struct lexer *lx, struct token *tk, bool includeheader)
+lex0(Lexer *lx, Token *tk, bool includeheader)
 {
    int idx,q;
    bool space = 0;
@@ -491,7 +491,7 @@ Begin:
             fillchrbuf(lx);
             lx->chridx = lx->chridxbuf[lx->chrbuf0];
             if ((lx->eof = (lx->chridx >= lx->ndat))) {
-               struct span span = {{ idx, lx->chridx - idx, lx->fileid }};
+               Span span = {{ idx, lx->chridx - idx, lx->fileid }};
                fatal(&span, "unterminated comment");
             }
          }
@@ -559,7 +559,7 @@ Begin:
             if (n >= MAXLITLEN) {
                lx->chridx = lx->chridxbuf[lx->chrbuf0+n-1];
             TooLong:
-               fatal(&(struct span) {{ idx, lx->chridx - idx, lx->fileid }},
+               fatal(&(Span) {{ idx, lx->chridx - idx, lx->fileid }},
                      "token is too long");
             }
          }
@@ -595,7 +595,7 @@ Begin:
    case 0: if (lx->idx >= lx->ndat) RET(TKEOF);
 #undef TK2
    }
-   fatal(&(struct span) {{ idx, lx->chridx - idx, lx->fileid }},
+   fatal(&(Span) {{ idx, lx->chridx - idx, lx->fileid }},
          "unexpected character %'c at %d (%d)", c, idx, lx->idx);
 End:
    tk->space = space;
@@ -612,7 +612,7 @@ End:
 /****************/
 
 static bool
-tokequ(const struct token *a, const struct token *b)
+tokequ(const Token *a, const Token *b)
 {
    if (a->t != b->t) return 0;
    if (a->t == TKNUMLIT || a->t == TKSTRLIT || a->t == TKCHRLIT) {
@@ -626,12 +626,13 @@ tokequ(const struct token *a, const struct token *b)
    return 1;
 }
 
-static vec_of(struct token) mtoksbuf, /* buffers for macro replacement list tokens */
-                            mdyntoksbuf; /* for function-like macros after parameter substitution */
+static vec_of(Token) mtoksbuf, /* buffers for macro replacement list tokens */
+                     mdyntoksbuf; /* for function-like macros after parameter substitution */
 
-struct macro {
+typedef struct TokList TokList;
+typedef struct Macro {
    internstr *param;
-   struct span0 span;
+   Span0 span;
    uchar nparam;
    bool predef : 1,
         special : 1,
@@ -639,18 +640,18 @@ struct macro {
         variadic : 1;
    short id;
    union {
-      void (*handler)(struct lexer *, struct token *);
-      struct rlist {
+      void (*handler)(Lexer *, Token *);
+      struct TokList {
          uint off; /* mtoksbuf[] */
          int n;
       } rl;
-      const struct token *single; /* predef */
-      void (*handlerfn)(struct lexer *, struct token *ret, const struct token *arg, int narg);
+      const Token *single; /* predef */
+      void (*handlerfn)(Lexer *, Token *ret, const Token *arg, int narg);
    };
-};
+} Macro;
 
 static bool
-macroequ(const struct macro *a, const struct macro *b)
+macroequ(const Macro *a, const Macro *b)
 {
    if (a->special != b->special) return 0;
    if (a->fnlike != b->fnlike || a->variadic != b->variadic) return 0;
@@ -662,7 +663,7 @@ macroequ(const struct macro *a, const struct macro *b)
    }
    if (a->special) return a->handler == b->handler;
    if (a->rl.n != b->rl.n) return 0;
-   const struct token *tka = &mtoksbuf.p[a->rl.off], *tkb = &mtoksbuf.p[b->rl.off];
+   const Token *tka = &mtoksbuf.p[a->rl.off], *tkb = &mtoksbuf.p[b->rl.off];
    for (int i = 0; i < a->rl.n; ++i) {
       if (!tokequ(&tka[i], &tkb[i]))
          return 0;
@@ -673,28 +674,28 @@ macroequ(const struct macro *a, const struct macro *b)
 }
 
 static void
-freemac(struct macro *mac)
+freemac(Macro *mac)
 {
    if (mac->special) return;
    free(mac->param);
 }
 
-static pmap_of(struct macro) macroht;
+static pmap_of(Macro) macroht;
 
 static void
-putmac(internstr name, struct macro *mac)
+putmac(internstr name, Macro *mac)
 {
    static short id;
    if (!macroht.v) pmap_init(&macroht, 1<<10);
-   struct macro *slot = pmap_get(&macroht, name);
+   Macro *slot = pmap_get(&macroht, name);
    mac->id = id++;
    if (slot) {
       if (!macroequ(slot, mac)) {
          if (slot->predef)
-            warn(&(struct span){mac->span}, "redefining builtin macro");
+            warn(&(Span){mac->span}, "redefining builtin macro");
          else {
-            warn(&(struct span){mac->span}, "redefining macro");
-            note(&(struct span){slot->span}, "previous definition:");
+            warn(&(Span){mac->span}, "redefining macro");
+            note(&(Span){slot->span}, "previous definition:");
          }
          freemac(slot);
          *slot = *mac;
@@ -709,42 +710,43 @@ putmac(internstr name, struct macro *mac)
 static void
 delmac(internstr name)
 {
-   struct macro *slot = pmap_get(&macroht, name);
+   Macro *slot = pmap_get(&macroht, name);
    if (!slot) return;
    freemac(slot);
    pmap_del(&macroht, name);
 }
 
 static inline internstr
-macname(struct macro *mac)
+macname(Macro *mac)
 {
    return macroht.mb.k[mac - macroht.v];
 }
 
-static inline struct macro *
+static inline Macro *
 findmac(internstr name)
 {
    return pmap_get(&macroht, name);
 }
 
-static void popmac(struct lexer *, bool all);
+static void popmac(Lexer *, bool all);
 
-static struct macrostack {
+typedef struct MacroStack MacroStack;
+static struct MacroStack {
    struct {
       union {
          uint off; /* mtoksbuf[]/mdyntoksbuf[] */
-         const struct token *p;
+         const Token *p;
       };
       int n;
    } rl;
-   struct span0 exspan;
+   Span0 exspan;
    int idx;
    short macid; /* -1 for argument undergoing expansion */
    bool space : 1, stop : 1, dyn;
 } mstk[1200];
 
 static void NORETURN
-lxfatal(struct lexer *lx, const struct span *span, const char *fmt, ...)
+lxfatal(Lexer *lx, const Span *span, const char *fmt, ...)
 {
    if (fmt) {
       va_list ap;
@@ -753,14 +755,14 @@ lxfatal(struct lexer *lx, const struct span *span, const char *fmt, ...)
       va_end(ap);
    }
    int n = lx->macstk ? lx->macstk - mstk : 0, i = 0;
-   for (struct macrostack *l = lx->macstk; l && l > mstk; --l, ++i) {
+   for (MacroStack *l = lx->macstk; l && l > mstk; --l, ++i) {
       if (i < 4 || i > n - 5) {
-         note(&(struct span){l->exspan}, "expanded from here");
+         note(&(Span){l->exspan}, "expanded from here");
       } else if (i == 5) {
          efmt(" (...) \n");
       }
    }
-   for (struct lexer *sv = lx->save; sv; sv = sv->save) {
+   for (Lexer *sv = lx->save; sv; sv = sv->save) {
       int line;
       const char *f = getfilepos(&line, NULL, sv->fileid, sv->chridx-2);
       note(NULL, "in file included from %s:%d", f, line);
@@ -770,7 +772,7 @@ lxfatal(struct lexer *lx, const struct span *span, const char *fmt, ...)
 }
 
 static void
-ppskipline(struct lexer *lx)
+ppskipline(Lexer *lx)
 {
    while (lx->macstk) popmac(lx, 1);
    for (int c; (c = peek(lx, 0)) != '\n' && !lx->eof; next(lx)) {
@@ -779,7 +781,7 @@ ppskipline(struct lexer *lx)
          bool done = 0;
          while (!((c = peek(lx, 0)) == '*' && peek(lx, 1) == '/')) {
             if (lx->eof) {
-               struct span span = {{ lx->idx, lx->chridx - lx->idx, lx->fileid }};
+               Span span = {{ lx->idx, lx->chridx - lx->idx, lx->fileid }};
                lxfatal(lx, &span, "unterminated comment");
             }
             done = c == '\n';
@@ -794,7 +796,7 @@ ppskipline(struct lexer *lx)
 #define isppident(tk) in_range((tk).t, TKIDENT, TKWEND_)
 
 static bool
-tokpaste(struct lexer *lx, struct token *dst, const struct token *l, const struct token *r)
+tokpaste(Lexer *lx, Token *dst, const Token *l, const Token *r)
 {
    int t;
    if (isppident(*l) && (isppident(*r) || r->t == TKNUMLIT)) {
@@ -857,12 +859,12 @@ tokpaste(struct lexer *lx, struct token *dst, const struct token *l, const struc
 enum { MAXMACROARGS = 128 };
 
 static void
-ppdefine(struct lexer *lx)
+ppdefine(Lexer *lx)
 {
-   struct token tk0, tk;
+   Token tk0, tk;
    internstr mname;
-   struct macro mac = {0};
-   struct bitset usedparams[BSSIZE(MAXMACROARGS)] = {0};
+   Macro mac = {0};
+   BitSet usedparams[BSSIZE(MAXMACROARGS)] = {0};
 
    lex0(lx, &tk0, 0);
    if (tk0.t != TKIDENT) {
@@ -916,7 +918,7 @@ ppdefine(struct lexer *lx)
    for (int n = 0; lex0(lx, &tk, 0) != '\n' && tk.t != TKEOF;) {
       if (n == 0 && !tk.space)
          warn(&tk.span, "no whitespace after macro name");
-      struct token *prev = n ? &mtoksbuf.p[mtoksbuf.n-1] : NULL;
+      Token *prev = n ? &mtoksbuf.p[mtoksbuf.n-1] : NULL;
       if (mac.fnlike && tk.t == TKIDENT) {
          for (int i = 0; i < mac.nparam; ++i) {
             if (tk.name == mac.param[i]) {
@@ -934,7 +936,7 @@ ppdefine(struct lexer *lx)
          }
       }
       if (n > 1 && prev->t == TKPPCAT) {
-         struct token new;
+         Token new;
          if (prev[-1].t != TKPPMACARG && tk.t != TKPPMACARG
           && tokpaste(lx, &new, &prev[-1], &tk))
          {
@@ -961,9 +963,9 @@ ppdefine(struct lexer *lx)
 }
 
 static void
-expecteol(struct lexer *lx, const char *ppname)
+expecteol(Lexer *lx, const char *ppname)
 {
-   struct token tk;
+   Token tk;
    assert(!lx->macstk);
    if (lex0(lx, &tk, 0) != '\n' && tk.t != TKEOF) {
       (ccopt.pedant ? error : warn)(&tk.span, "extra tokens after #%s", ppname);
@@ -971,9 +973,9 @@ expecteol(struct lexer *lx, const char *ppname)
    }
 }
 static void
-ppundef(struct lexer *lx)
+ppundef(Lexer *lx)
 {
-   struct token tk;
+   Token tk;
 
    lex0(lx, &tk, 0);
    if (tk.t != TKIDENT) {
@@ -986,9 +988,9 @@ ppundef(struct lexer *lx)
 }
 
 static void
-pushmacstk(struct lexer *lx, const struct span *span, const struct macrostack *m)
+pushmacstk(Lexer *lx, const Span *span, const MacroStack *m)
 {
-   struct macrostack *l = lx->macstk;
+   MacroStack *l = lx->macstk;
    if (!l) l = mstk;
    else if ((++l == mstk+countof(mstk))) lxfatal(lx, span, "macro expansion depth limit reached");
    *l = *m;
@@ -998,9 +1000,9 @@ pushmacstk(struct lexer *lx, const struct span *span, const struct macrostack *m
 }
 
 static void
-popmac(struct lexer *lx, bool all)
+popmac(Lexer *lx, bool all)
 {
-   struct macrostack *stk;
+   MacroStack *stk;
 
    assert(stk = lx->macstk);
    do {
@@ -1013,46 +1015,46 @@ popmac(struct lexer *lx, bool all)
 }
 
 
-static inline const struct token *
-stkgetrl(struct macrostack *s)
+static inline const Token *
+stkgetrl(MacroStack *s)
 {
    if (s->macid < 0) return s->rl.p;
    return (s->dyn ? mdyntoksbuf.p : mtoksbuf.p) + s->rl.off;
 }
 
-static void expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro *mac);
+static void expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac);
 
 static enum expandres { EXPNONE, EXPINL, EXPSTACK }
-tryexpand(struct lexer *lx, struct token *tk)
+tryexpand(Lexer *lx, Token *tk)
 {
-   struct span span = tk->span;
-   struct macro *mac = NULL;
+   Span span = tk->span;
+   Macro *mac = NULL;
    internstr mname = tk->name;
 
    if (tk->t != TKIDENT || tk->blue || !(mac = findmac(mname)))
       return EXPNONE;
 
    /* prevent infinite recursion */
-   for (struct macrostack *l = lx->macstk; l && l+1 > mstk; --l) {
+   for (MacroStack *l = lx->macstk; l && l+1 > mstk; --l) {
       if (l->macid == mac->id) {
          tk->blue = 1;
          return EXPNONE;
       }
    }
 
-   struct macrostack *stkprev = lx->macstk;
+   MacroStack *stkprev = lx->macstk;
    if (mac->special && !mac->fnlike) {
       mac->handler(lx, tk);
       return EXPINL;
    } else if (mac->fnlike) {
       /* look if there is a '(' token ahead, expand if so */
-      struct macrostack *s = lx->macstk;
+      MacroStack *s = lx->macstk;
       if (s && s->idx >= s->rl.n && !s->stop) {
          popmac(lx, 1);
          s = lx->macstk;
       }
       if (!s) { /* top-level context: looking ahead in file data */
-         struct token tk;
+         Token tk;
          int t;
          for (;;) { /* skip whitespace and comments */
             if (aisspace(t = peek(lx, 0))) next(lx);
@@ -1066,7 +1068,7 @@ tryexpand(struct lexer *lx, struct token *tk)
                   next(lx), next(lx);
                   while (peek(lx, 0) != '*' || peek(lx, 1) != '/') {
                      if (lx->eof) {
-                        struct span span = {{ idx, lx->chridx - idx, lx->fileid }};
+                        Span span = {{ idx, lx->chridx - idx, lx->fileid }};
                         lxfatal(lx, &span, "unterminated comment");
                      }
                      next(lx);
@@ -1085,12 +1087,12 @@ tryexpand(struct lexer *lx, struct token *tk)
       }
       expandfnmacro(lx, &span, mname, mac);
    } else if (mac->predef && mac->single) {
-      struct span span = tk->span;
+      Span span = tk->span;
       *tk = *mac->single;
       tk->span = span;
       return EXPINL;
    } else if (mac->rl.n) {
-      pushmacstk(lx, &span, &(struct macrostack){
+      pushmacstk(lx, &span, &(MacroStack){
          .rl = { .off = mac->rl.off, .n = mac->rl.n },
          .macid = mac->id,
          .space = tk->space,
@@ -1103,9 +1105,9 @@ tryexpand(struct lexer *lx, struct token *tk)
 }
 
 static bool
-advancemacstk(struct lexer *lx, struct token *tk)
+advancemacstk(Lexer *lx, Token *tk)
 {
-   struct macrostack *s = lx->macstk;
+   MacroStack *s = lx->macstk;
    assert(s != NULL);
    if (s->idx >= s->rl.n) {
       if (s->stop) {
@@ -1128,15 +1130,15 @@ advancemacstk(struct lexer *lx, struct token *tk)
 }
 
 static void
-expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro *mac)
+expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac)
 {
-   struct token _argsbuf[30];
-   vec_of(struct token) argsbuf = VINIT(_argsbuf, countof(_argsbuf)); /* buffer for argument tokens */
-   struct span excessspan;
+   Token _argsbuf[30];
+   vec_of(Token) argsbuf = VINIT(_argsbuf, countof(_argsbuf)); /* buffer for argument tokens */
+   Span excessspan;
    int cur, len, i, bal, narg;
-   struct token tk;
+   Token tk;
    bool toomany = 0;
-   struct argtks {
+   struct ArgToks {
       int idx, n; /* slices of argsbuf */
       int idx2, n2;
       ushort nfirstx, /* for concatenation to work properly with expanded arguments, */
@@ -1145,7 +1147,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
      *args = mac->nparam < countof(_args0) ? _args0 : alloc(lx->tmparena, sizeof *args * mac->nparam, 0);
 
    cur = i = bal = len = narg = 0;
-   for (struct macrostack *s = lx->macstk;;) {
+   for (MacroStack *s = lx->macstk;;) {
       if (!s) {
          bool nl = 0;
          for (;; nl = 1) {
@@ -1155,7 +1157,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
          tk.space |= nl;
       }
       else {
-         tk = s->idx < s->rl.n ? stkgetrl(s)[s->idx++] : (struct token){TKEOF};
+         tk = s->idx < s->rl.n ? stkgetrl(s)[s->idx++] : (Token){TKEOF};
       }
       if (((tk.t == ')' && bal == 0) || tk.t == TKEOF)) break;
       if (tk.t == ',' && bal == 0) {
@@ -1196,22 +1198,22 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
    joinspan(&span->ex, tk.span.ex);
    int expargs0 = argsbuf.n;
    for (int i = 0; i < mac->nparam; ++i) {
-      struct argtks *arg = &args[i];
+      struct ArgToks *arg = &args[i];
       if (i >= narg) {
          memset(arg, 0, sizeof *arg);
       } else if (!mac->param || (mac->param[i] && arg->n > 0)) {
          /* expand args used in the macro body */
-         pushmacstk(lx, &tk.span, &(struct macrostack) {
+         pushmacstk(lx, &tk.span, &(MacroStack) {
             .rl = { .p = argsbuf.p + arg->idx, .n = arg->n },
             .macid = -1,
             .stop = 1,
          });
-         struct macrostack *l = lx->macstk;
+         MacroStack *l = lx->macstk;
          arg->idx2 = argsbuf.n;
          arg->nfirstx = arg->nlastx = 1;
          int ilastx = -1;
          for (bool pad = 0;;) {
-            struct macrostack *sprev = lx->macstk;
+            MacroStack *sprev = lx->macstk;
             if (!advancemacstk(lx, &tk)) {
                pad |= tk.space && lx->macstk == sprev; /* preserve whitespace empty macro */
                if (lx->macstk == l && l->idx == 1)
@@ -1244,7 +1246,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
    if (mac->special) {
       mac->handlerfn(lx, &tk, argsbuf.p+expargs0, argsbuf.n-expargs0);
       vpush(&mdyntoksbuf, tk);
-      pushmacstk(lx, span, &(struct macrostack){
+      pushmacstk(lx, span, &(MacroStack){
          .rl = { .off = mdyntoksbuf.n-1, .n = 1 },
          .dyn = 1,
          .macid = mac->id,
@@ -1254,8 +1256,8 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
       int vaoptbal = 0;
       uint off = mdyntoksbuf.n;
       for (int i = 0; i < mac->rl.n; ++i) {
-         struct argtks *arg;
-         const struct token *tki = &mtoksbuf.p[mac->rl.off+i];
+         struct ArgToks *arg;
+         const Token *tki = &mtoksbuf.p[mac->rl.off+i];
          if (vaoptskip) {
             assert(vaoptbal > 0);
             if (tki->t == '(') ++vaoptbal;
@@ -1265,7 +1267,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
             continue;
          }
          if (tki->t == TKPPCAT && i > 0 && i < mac->rl.n-1) { /* concatenation */
-            const struct token *lhs = tki-1,
+            const Token *lhs = tki-1,
                                *rhs = tki+1;
             bool space = lhs->space | spacepad;
             if (lhs->t == ',' && mac->variadic
@@ -1304,7 +1306,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
             if (!lhs) vpush(&mdyntoksbuf, *rhs);
             else if (!rhs) vpush(&mdyntoksbuf, *lhs);
             else {
-               struct token new;
+               Token new;
                if (tokpaste(lx, &new, lhs, rhs)) {
                   new.span.sl = tki->span.sl;
                }
@@ -1339,7 +1341,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
                spacepad = 1;
                continue;
             }
-            struct token *rl = argsbuf.p + arg->idx2;
+            Token *rl = argsbuf.p + arg->idx2;
             int n = arg->n2;
             bool skipfirst = 0;
             if (i > 0 && tki[-1].t == TKPPCAT) {
@@ -1361,7 +1363,7 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
             spacepad = 0;
          } else { /* PPMACSTR */
             char tmp[200];
-            struct wbuf buf = MEMBUF(tmp, sizeof tmp);
+            WriteBuf buf = MEMBUF(tmp, sizeof tmp);
             int n = 0;
 
             arg = &args[tki->argidx];
@@ -1370,19 +1372,19 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
             // string with an actual newline, not {'\\','n'}
          Redo:
             for (int i = 0; i < arg->n; ++i) {
-               struct token *tk = &argsbuf.p[arg->idx + i];
+               Token *tk = &argsbuf.p[arg->idx + i];
                if (i > 0 && tk->space)
                   n += bfmt(&buf, " ");
                n += bfmt(&buf, "%tk", tk);
             }
             ioputc(&buf, 0);
             if (buf.err) {
-               struct wbuf new = MEMBUF(alloc(lx->tmparena, n+1, 1), n+1);
+               WriteBuf new = MEMBUF(alloc(lx->tmparena, n+1, 1), n+1);
                assert(buf.buf == tmp);
                memcpy(&buf, &new, sizeof buf);
                goto Redo;
             }
-            vpush(&mdyntoksbuf, ((struct token) {
+            vpush(&mdyntoksbuf, ((Token) {
                .t = TKSTRLIT,
                .wide = 0,
                .space = tki->space | spacepad,
@@ -1395,14 +1397,14 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
       uint n = mdyntoksbuf.n - off;
 
       if (n) {
-         pushmacstk(lx, span, &(struct macrostack){
+         pushmacstk(lx, span, &(MacroStack){
             .rl = { .off = off, .n = n },
             .macid = mac->id,
             .dyn = 1,
          });
       }
    } else if (mac->rl.n) {
-      pushmacstk(lx, span, &(struct macrostack){
+      pushmacstk(lx, span, &(MacroStack){
          .rl = { .off = mac->rl.off, .n = mac->rl.n },
          .macid = mac->id,
       });
@@ -1410,9 +1412,9 @@ expandfnmacro(struct lexer *lx, struct span *span, internstr mname, struct macro
    vfree(&argsbuf);
 }
 
-static struct token epeektk;
+static Token epeektk;
 static int
-elex(struct lexer *lx, struct token *tk)
+elex(Lexer *lx, Token *tk)
 {
    assert(tk);
    if (epeektk.t) {
@@ -1432,7 +1434,7 @@ elex(struct lexer *lx, struct token *tk)
 }
 
 static int
-epeek(struct lexer *lx, struct token *tk)
+epeek(Lexer *lx, Token *tk)
 {
    if (!epeektk.t) elex(lx, &epeektk);
    if (tk) *tk = epeektk;
@@ -1461,9 +1463,9 @@ tkprec(int tt)
 }
 
 static vlong
-expr(struct lexer *lx, bool *pu, int prec, bool ignore)
+expr(Lexer *lx, bool *pu, int prec, bool ignore)
 {
-   struct token tk;
+   Token tk;
    enum typetag ty;
    char unops[16];
    int nunop = 0;
@@ -1547,7 +1549,7 @@ Switch:
          x = !!x | !!expr(lx, &yu, opprec+1, ignore || x);
          xu = 0;
       } else if (tk.t == '?') {
-         struct span span = tk.span;
+         Span span = tk.span;
          vlong m = expr(lx, &xu, 1, ignore || !x);
          if (elex(lx, &tk) != ':') {
             error(&tk.span, "expected ':'");
@@ -1616,8 +1618,9 @@ enum {
    PPCNDTRUE, /* the condition was non-zero, emit until #else/#elif */
    PPCNDTAKEN /* some branch was already taken, skip until #else */
 };
-static struct ppcnd {
-   struct span0 ifspan;
+typedef struct PPCond PPCond;
+static struct PPCond {
+   Span0 ifspan;
    int filedepth;
    uchar cnd;
    bool elsep;
@@ -1627,7 +1630,7 @@ static int nppcnd;
 static int includedepth;
 
 static void
-ppif(struct lexer *lx, const struct span *span)
+ppif(Lexer *lx, const Span *span)
 {
    vlong v = expr(lx, NULL, 0, 0);
    assert(nppcnd < countof(ppcndstk) && "too many nested #if");
@@ -1638,9 +1641,9 @@ ppif(struct lexer *lx, const struct span *span)
 }
 
 static void
-ppifxdef(struct lexer *lx, bool defp, const struct span *span)
+ppifxdef(Lexer *lx, bool defp, const Span *span)
 {
-   struct token tk;
+   Token tk;
 
    lex0(lx, &tk, 0);
    if (tk.t != TKIDENT) {
@@ -1658,10 +1661,10 @@ ppifxdef(struct lexer *lx, bool defp, const struct span *span)
 }
 
 static void
-ppelif(struct lexer *lx, const struct span *span)
+ppelif(Lexer *lx, const Span *span)
 {
    vlong v;
-   struct ppcnd *cnd;
+   PPCond *cnd;
 
    if (!nppcnd) {
       error(span, "#elif without matching #if");
@@ -1680,10 +1683,10 @@ ppelif(struct lexer *lx, const struct span *span)
    }
 }
 static void
-ppelifxdef(struct lexer *lx, bool defp, const struct span *span)
+ppelifxdef(Lexer *lx, bool defp, const Span *span)
 {
-   struct token tk;
-   struct ppcnd *cnd;
+   Token tk;
+   PPCond *cnd;
 
    if (!nppcnd) {
       error(span, "#elif%sdef without matching #if", &"n"[defp]);
@@ -1710,7 +1713,7 @@ ppelifxdef(struct lexer *lx, bool defp, const struct span *span)
 }
 
 static void
-ppendif(struct lexer *lx, const struct span *span)
+ppendif(Lexer *lx, const Span *span)
 {
    expecteol(lx, "endif");
    if (!nppcnd) {
@@ -1721,9 +1724,9 @@ ppendif(struct lexer *lx, const struct span *span)
 }
 
 static void
-ppelse(struct lexer *lx, const struct span *span)
+ppelse(Lexer *lx, const Span *span)
 {
-   struct ppcnd *cnd;
+   PPCond *cnd;
    expecteol(lx, "else");
    if (!nppcnd) {
       error(span, "#else without matching #if");
@@ -1741,9 +1744,9 @@ ppelse(struct lexer *lx, const struct span *span)
 
 enum { MAXINCLUDE = 200 };
 static bool
-tryincludepath(struct lexer *lx, const struct span *span, char *path)
+tryincludepath(Lexer *lx, const Span *span, char *path)
 {
-   struct lexer new;
+   Lexer new;
    const char *err;
    switch (initlexer(&new, &err, path)) {
    default: assert(0);
@@ -1769,7 +1772,7 @@ tryincludepath(struct lexer *lx, const struct span *span, char *path)
 }
 
 static bool
-doinclude(struct lexer *lx, const struct span *span, bool quote, const char *str, size_t slen)
+doinclude(Lexer *lx, const Span *span, bool quote, const char *str, size_t slen)
 {
    char *path = NULL;
    const char *base, *end;
@@ -1803,7 +1806,7 @@ doinclude(struct lexer *lx, const struct span *span, bool quote, const char *str
     * 6. -idirafter
     */
    for (int i = quote ? CINCL_iquote : CINCL_I; i < countof(cinclpaths); ++i) {
-      for (struct inclpath *p = cinclpaths[i].list; p; p = p->next) {
+      for (CInclPath *p = cinclpaths[i]; p; p = p->next) {
          if (i == CINCLsys) {
             /* try embedded files pseudo-path */
             xbgrow(&path, slen + 3);
@@ -1828,10 +1831,10 @@ NotFound:
 }
 
 static bool
-ppinclude(struct lexer *lx, const struct span *span0)
+ppinclude(Lexer *lx, const Span *span0)
 {
-   struct token tk;
-   struct span span = *span0;
+   Token tk;
+   Span span = *span0;
 
    if (in_range(lex0(lx, &tk, 1), TKPPHDRH, TKPPHDRQ)) {
       expecteol(lx, "include");
@@ -1842,8 +1845,8 @@ ppinclude(struct lexer *lx, const struct span *span0)
    } else {
       /* '#include pp-tokens'
        * gather and expand pp-tokens */
-      struct token tksbuf[8];
-      vec_of(struct token) tks = VINIT(tksbuf, countof(tksbuf));
+      Token tksbuf[8];
+      vec_of(Token) tks = VINIT(tksbuf, countof(tksbuf));
       for (;;) {
          if (!lx->macstk) {
             if (tryexpand(lx, &tk) == EXPSTACK) continue;
@@ -1862,9 +1865,9 @@ ppinclude(struct lexer *lx, const struct span *span0)
       } else if (tks.n > 2 && tks.p[0].t == '<' && tks.p[tks.n-1].t == '>') { /* <header.h> */
          /* this is multiple tokens, concatenate them together */
          char buf[4096];
-         struct wbuf wbuf = MEMBUF(buf, sizeof buf);
+         WriteBuf wbuf = MEMBUF(buf, sizeof buf);
          for (int i = 1; i < tks.n-1; ++i) {
-            struct token *tk = &tks.p[i];
+            Token *tk = &tks.p[i];
             bfmt(&wbuf, &" %tk"[!tk->space], tk);
          }
          joinspan(&span.ex, tks.p[tks.n-1].span.ex);
@@ -1883,11 +1886,11 @@ ppinclude(struct lexer *lx, const struct span *span0)
 }
 
 static void
-ppline(struct lexer *lx, struct token *tk0)
+ppline(Lexer *lx, Token *tk0)
 {
-   struct token tk, tks[2];
+   Token tk, tks[2];
    int ntk = 0;
-   struct span span = tk0->span;
+   Span span = tk0->span;
    bool ext = 0;
    if (tk0->t == TKNUMLIT) { /* handles GNU-style post preprocessing directive '# n ...' */
       tks[ntk++] = *tk0;
@@ -1945,10 +1948,10 @@ ppline(struct lexer *lx, struct token *tk0)
 }
 
 static void
-pppragma(struct lexer *lx, const struct span *span0)
+pppragma(Lexer *lx, const Span *span0)
 {
-   struct token tk;
-   struct span span = *span0;
+   Token tk;
+   Span span = *span0;
    if (lex0(lx, &tk, 0) == TKIDENT && !strcmp(tk.s, "once")) {
       markfileonce(lx->fileid, NULL);
    } else {
@@ -1961,7 +1964,7 @@ pppragma(struct lexer *lx, const struct span *span0)
 }
 
 static void
-ppdiag(struct lexer *lx, const struct span *span0, bool err)
+ppdiag(Lexer *lx, const Span *span0, bool err)
 {
    const uchar *p = getfile(lx->fileid)->p;
    uint off = lx->chridx, end;
@@ -1992,7 +1995,7 @@ enum directive {
 };
 
 static enum directive
-findppcmd(const struct token *tk)
+findppcmd(const Token *tk)
 {
    static const char *tab[] = {
       /* !sorted */
@@ -2029,7 +2032,7 @@ findppcmd(const struct token *tk)
 }
 
 static void
-identkeyword(struct token *tk)
+identkeyword(Token *tk)
 {
 #ifdef __GNUC__
 #pragma GCC diagnostic push
@@ -2037,7 +2040,7 @@ identkeyword(struct token *tk)
 #endif
    static const struct {
       const char *s;
-      struct kw { uchar t, cstd : 4, ext : 1; } kw;
+      struct Kw { uchar t, cstd : 4, ext : 1; } kw;
       const char *alias[2];
    } kwtab[] = {
 #define _(kw, cstd, ...) { #kw, {TKW##kw, cstd}, __VA_ARGS__ },
@@ -2047,11 +2050,11 @@ identkeyword(struct token *tk)
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
-   static pmap_of(struct kw) kwmap;
+   static pmap_of(struct Kw) kwmap;
    if (!kwmap.v) {
       pmap_init(&kwmap, 128);
       for (int i = 0; i < countof(kwtab); ++i) {
-         struct kw kw = kwtab[i].kw;
+         struct Kw kw = kwtab[i].kw;
          /* allow future keywords but only if they begin with _ */
          if (kw.cstd <= ccopt.cstd || kwtab[i].s[0] == '_') {
             kw.ext = kw.cstd > ccopt.cstd;
@@ -2064,7 +2067,7 @@ identkeyword(struct token *tk)
          }
       }
    }
-   struct kw *kw = pmap_get(&kwmap, tk->name);
+   struct Kw *kw = pmap_get(&kwmap, tk->name);
    if (kw) {
       tk->t = kw->t;
       tk->extwarn = kw->ext;
@@ -2072,9 +2075,9 @@ identkeyword(struct token *tk)
 }
 
 int
-lex(struct lexer *lx, struct token *tk_)
+lex(Lexer *lx, Token *tk_)
 {
-   struct token tkx[1], *tk;
+   Token tkx[1], *tk;
    int t;
 
 Begin:
@@ -2160,7 +2163,7 @@ Begin:
          if (tryexpand(lx, tk) == EXPSTACK)
             goto Begin;
          if (t == TKEOF && nppcnd && ppcndstk[nppcnd-1].filedepth == includedepth) {
-            struct span span = { ppcndstk[nppcnd-1].ifspan };
+            Span span = { ppcndstk[nppcnd-1].ifspan };
             error(&span, "#if is not matched by #endif");
          }
          if (t == TKEOF && lx->save) {
@@ -2168,7 +2171,7 @@ Begin:
             if (lastcmd == PPENDIF && lx->inclguard) {
                markfileonce(lx->fileid, lx->inclguard);
             }
-            struct lexer *sv = lx->save;
+            Lexer *sv = lx->save;
             if (sv->inclnerror != nerror || sv->inclnwarn != nwarn) {
                int line;
                const char *f = getfilepos(&line, NULL, sv->fileid, sv->chridx-2);
@@ -2195,9 +2198,9 @@ Begin:
 }
 
 int
-lexpeek(struct lexer *lx, struct token *tk_)
+lexpeek(Lexer *lx, Token *tk_)
 {
-   struct token tkx[1], *tk;
+   Token tkx[1], *tk;
    uint t;
 
    tk = tk_ ? tk_ : tkx;
@@ -2220,7 +2223,7 @@ cpppredef(bool undef, const char *cmd)
    const char *sep = strchr(cmd, '='), *body = sep ? sep+1 : "1";
    uint namelen = sep ? sep - cmd : strlen(cmd);
    char line[1024];
-   struct wbuf wbuf = MEMBUF(line, sizeof line);
+   WriteBuf wbuf = MEMBUF(line, sizeof line);
    if (!ppcmdline.p) vinit(&ppcmdline, NULL, 1<<10);
    int n;
    if (undef)
@@ -2232,7 +2235,7 @@ cpppredef(bool undef, const char *cmd)
 }
 
 static void
-mac__file__(struct lexer *lx, struct token *tk)
+mac__file__(Lexer *lx, Token *tk)
 {
    tk->t = TKSTRLIT;
    tk->s = getfilename(lx->fileid, lx->chridx);
@@ -2241,11 +2244,11 @@ mac__file__(struct lexer *lx, struct token *tk)
 }
 
 static void
-mac__line__(struct lexer *lx, struct token *tk)
+mac__line__(Lexer *lx, Token *tk)
 {
    char buf[20];
    int line;
-   struct wbuf wbuf = MEMBUF(buf, sizeof buf);
+   WriteBuf wbuf = MEMBUF(buf, sizeof buf);
    getfilepos(&line, NULL, lx->fileid, lx->chridx);
    bfmt(&wbuf, "%d", line), buf[wbuf.len++] = 0;
    tk->t = TKNUMLIT;
@@ -2256,10 +2259,10 @@ mac__line__(struct lexer *lx, struct token *tk)
 #include <time.h>
 
 static void
-mac__date__(struct lexer *lx, struct token *tk)
+mac__date__(Lexer *lx, Token *tk)
 {
    char buf[20];
-   struct wbuf wbuf = MEMBUF(buf, sizeof buf);
+   WriteBuf wbuf = MEMBUF(buf, sizeof buf);
    time_t tm = time(NULL);
    struct tm *ts = localtime(&tm);
    tk->t = TKSTRLIT;
@@ -2277,10 +2280,10 @@ mac__date__(struct lexer *lx, struct token *tk)
 }
 
 static void
-mac__time__(struct lexer *lx, struct token *tk)
+mac__time__(Lexer *lx, Token *tk)
 {
    char buf[20];
-   struct wbuf wbuf = MEMBUF(buf, sizeof buf);
+   WriteBuf wbuf = MEMBUF(buf, sizeof buf);
    time_t tm = time(NULL);
    struct tm *ts = localtime(&tm);
    tk->t = TKSTRLIT;
@@ -2296,10 +2299,10 @@ mac__time__(struct lexer *lx, struct token *tk)
 }
 
 static void
-mac__counter__(struct lexer *lx, struct token *tk)
+mac__counter__(Lexer *lx, Token *tk)
 {
    char buf[20];
-   struct wbuf wbuf = MEMBUF(buf, sizeof buf);
+   WriteBuf wbuf = MEMBUF(buf, sizeof buf);
    static int counter;
    bfmt(&wbuf, "%d", counter++), buf[wbuf.len++] = 0;
    tk->t = TKNUMLIT;
@@ -2308,7 +2311,7 @@ mac__counter__(struct lexer *lx, struct token *tk)
 }
 
 static void
-mac__has_builtin(struct lexer *lx, struct token *tk, const struct token *args, int narg)
+mac__has_builtin(Lexer *lx, Token *tk, const Token *args, int narg)
 {
    extern bool hasbuiltin(const char *, uint n);
    bool has = 0;
@@ -2331,8 +2334,8 @@ mac__has_builtin(struct lexer *lx, struct token *tk, const struct token *args, i
 static void
 putdef1(const char *name)
 {
-   static const struct token tok_1 = { TKNUMLIT, .s = "1", .len = 1, .litlit = 1 };
-   putmac(intern(name), &(struct macro) {
+   static const Token tok_1 = { TKNUMLIT, .s = "1", .len = 1, .litlit = 1 };
+   putmac(intern(name), &(Macro) {
       .predef = 1,
       .single = &tok_1
    });
@@ -2345,16 +2348,16 @@ putdefs1(const char *s)
 }
 
 static void
-addpredefmacros(struct arena **tmparena)
+addpredefmacros(Arena **tmparena)
 {
-   static struct token tok_stdc = {TKNUMLIT},
+   static Token tok_stdc = {TKNUMLIT},
                        tok_major = {TKNUMLIT, .s = XSTR(ANTCC_VERSION_MAJOR),
                                               .len = sizeof XSTR(ANTCC_VERSION_MAJOR) - 1},
                        tok_minor = {TKNUMLIT, .s = XSTR(ANTCC_VERSION_MINOR),
                                               .len = sizeof XSTR(ANTCC_VERSION_MINOR) - 1},
                        tok_patch = {TKNUMLIT, .s = XSTR(ANTCC_VERSION_PATCH),
                                               .len = sizeof XSTR(ANTCC_VERSION_PATCH) - 1};
-   static struct { const char *name; struct macro m; } macs[] = {
+   static struct { const char *name; Macro m; } macs[] = {
       { "__FILE__", { .predef = 1, .special = 1, .handler = mac__file__ }},
       { "__LINE__", { .predef = 1, .special = 1, .handler = mac__line__ }},
       { "__DATE__", { .predef = 1, .special = 1, .handler = mac__date__ }},
@@ -2393,8 +2396,8 @@ addpredefmacros(struct arena **tmparena)
    putdefs1(archpredefs[target.arch]);
 
    if (ppcmdline.n) {
-      struct memfile *f;
-      struct lexer lx[1] = {0};
+      MemFile *f;
+      Lexer lx[1] = {0};
       lx->fileid = getpredeffile(&f, "<command line>");
       assert(!f->p);
       lx->ndat = f->n = ppcmdline.n;
@@ -2408,18 +2411,18 @@ addpredefmacros(struct arena **tmparena)
 }
 
 enum initlexer
-initlexer(struct lexer *lx, const char **err, const char *file)
+initlexer(Lexer *lx, const char **err, const char *file)
 {
    enum { NARENA = 1<<12 };
-   static union { char m[sizeof(struct arena) + NARENA]; struct arena *_align; } amem;
-   static struct arena *tmparena = (void *)amem.m;
+   static union { char m[sizeof(Arena) + NARENA]; Arena *_align; } amem;
+   static Arena *tmparena = (void *)amem.m;
 
    if (!tmparena->cap) tmparena->cap = NARENA;
    if (!mtoksbuf.p) vinit(&mtoksbuf, NULL, 1024);
    if (!mdyntoksbuf.p) vinit(&mdyntoksbuf, NULL, 256);
    if (!macroht.v) addpredefmacros(&tmparena);
 
-   struct memfile *f;
+   MemFile *f;
    int fileid = openfile(err, &f, file);
    if (fileid < 0)
       return LXERR;
@@ -2443,7 +2446,7 @@ initlexer(struct lexer *lx, const char **err, const char *file)
 
 /* callback to let lexer release temp memory for arena allocated token data */
 void
-lexerfreetemps(struct lexer *lx)
+lexerfreetemps(Lexer *lx)
 {
    if (!lx->macstk) {
       /* some of the tokens could be somewhere in the macro stack */
@@ -2452,9 +2455,9 @@ lexerfreetemps(struct lexer *lx)
 }
 
 void
-lexerdump(struct lexer *lx, struct wbuf *out)
+lexerdump(Lexer *lx, WriteBuf *out)
 {
-   struct token prev = {0}, tok;
+   Token prev = {0}, tok;
    int file = lx->fileid, line = 1, col = 1;
    const char *lastfile = getfilename(file, 0);
    bfmt(out, "# %d %'s\n", 1, lastfile);

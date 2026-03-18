@@ -1,14 +1,12 @@
 #include <stddef.h>
 
-struct embedfile {
+#define S(s) s"\0\0\0\0\0", (sizeof s) - 1
+
+struct EmbedFile {
    const char *name;
    const char *s;
    size_t len;
-};
-
-#define S(s) s"\0\0\0\0\0", (sizeof s) - 1
-
-struct embedfile embedfilesdir[] = {
+} embedfilesdir[] = {
 {"stddef.h", S("\
 #pragma once\n\
 typedef __typeof__((char*)0 - (char*)0) ptrdiff_t;\n\

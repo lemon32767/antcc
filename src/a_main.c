@@ -10,22 +10,23 @@
 #include <unistd.h>
 #include <time.h>
 
-struct option ccopt;
-struct cinclpaths cinclpaths[5];
+CCOption ccopt;
+CInclPath *cinclpaths[5];
+static CInclPath **cinclpath_tails[5];
 
 static void
 addinclpath(int ord, const char *path)
 {
-   struct inclpath *p = alloc(&globarena, sizeof *p, 0);
+   CInclPath *p = alloc(&globarena, sizeof *p, 0);
    assert((uint)ord < countof(cinclpaths));
    p->path = path;
    p->next = NULL;
-   if (cinclpaths[ord].list) {
-      *cinclpaths[ord].tail = p;
+   if (cinclpaths[ord]) {
+      *cinclpath_tails[ord] = p;
    } else {
-      cinclpaths[ord].list = p;
+      cinclpaths[ord] = p;
    }
-   cinclpaths[ord].tail = &p->next;
+   cinclpath_tails[ord] = &p->next;
 }
 
 /* parse an argument of the form 'opt=abcd'
@@ -68,10 +69,10 @@ ftdetect(const char *s)
 }
 
 static union {
-   struct arena a;
-   char mem[sizeof(struct arena) + (1<<10)];
+   Arena a;
+   char mem[sizeof(Arena) + (1<<10)];
 } _arenamem;
-struct arena *globarena = &_arenamem.a;
+Arena *globarena = &_arenamem.a;
 
 /* withext("x/y.c", "o") -> "y.o"; withext("f9", "s") -> "f9.s" */
 static const char *
@@ -101,20 +102,21 @@ withext(const char *path, const char *ext)
    return res;
 }
 
-struct infile {
+typedef struct {
    enum inft ft;
    const char *path, *temp;
-};
-static struct infile infilebuf[16];
-static struct task {
+} InFile;
+typedef struct Task {
    enum outft { OFTexe, OFTdll, OFTobj, OFTasm, OFTc } outft;
    const char *out;
    const char *targ;
-   vec_of(struct infile) inf;
+   vec_of(InFile) inf;
    char **runargs;
    vec_of(const char *) linkargs;
    bool verbose, run, syntaxonly;
-} task = { .inf = VINIT(infilebuf, countof(infilebuf)) };
+} Task;
+static InFile infilebuf[16];
+static Task task = { .inf = VINIT(infilebuf, countof(infilebuf)) };
 
 static void prihelp(void);
 
@@ -126,7 +128,7 @@ optparse(char **args)
 
    while ((arg = *++args)) {
       if (*arg++ != '-' || !*arg) {
-         vpush(&task.inf, ((struct infile) {
+         vpush(&task.inf, ((InFile) {
             ft ? ft : ftdetect(arg-1),
             arg[-1] != '-' ? arg-1 : "/dev/stdin"
          }));
@@ -165,7 +167,7 @@ optparse(char **args)
       } else if (!strcmp(arg, "trigraphs")) {
          ccopt.trigraph = 1;
       } else if (*arg == 'd' && arg[1]) {
-         /* see common.h§struct option */
+         /* see common.h§CCOption */
          while (*++arg) switch (*arg | 32) {
          case 'p': ccopt.dbg.p = 1; break;
          case 'a': ccopt.dbg.a = 1; break;
@@ -250,7 +252,7 @@ optparse(char **args)
          cinclord = CINCL_idirafter;
          goto CIncl;
       } else if (!strcmp(arg, "nostdinc") || !strcmp(arg, "-no-standard-includes")) {
-         cinclpaths[CINCLsys].list = NULL;
+         cinclpaths[CINCLsys] = NULL;
       } else if (*arg == 'M') {
          ++arg;
          if (*arg == 'F' || *arg == 'T' || *arg == 'Q') {
@@ -292,7 +294,7 @@ tempfile(const char *path, const char *ext)
    static char sbuf[1024];
    const char *tmpdir;
    const char *file = path;
-   struct wbuf fbuf = MEMBUF(sbuf, sizeof sbuf);
+   WriteBuf fbuf = MEMBUF(sbuf, sizeof sbuf);
 
    tmpdir = getenv("TMPDIR");
    tmpdir = tmpdir ? tmpdir : "/tmp";
@@ -420,17 +422,17 @@ iscrosscc(void)
    return target.os != HOST_OS || target.arch != HOST_ARCH || target.abi != HOST_ABI;
 }
 
-struct cmdargs { vec_of(const char *); };
+typedef vec_of(const char *) CmdArgs;
 
 static void
-findlinkcmd(struct cmdargs *cmd)
+findlinkcmd(CmdArgs *cmd)
 {
    if (task.targ && iscrosscc()) {
       /* try to find a cross compiling toolchain, e.g. aarch64-linux-gnu-gcc */
       static const char *ccs[] = {"cc", "gcc", "clang"};
       char cross[1024];
       for (int i = 0; i < countof(ccs); ++i) {
-         struct wbuf wbuf = MEMBUF(cross, sizeof cross);
+         WriteBuf wbuf = MEMBUF(cross, sizeof cross);
          int n = bfmt(&wbuf, "%s-%s", task.targ, ccs[i]);
          assert(n < sizeof cross-1);
          cross[n] = 0;
@@ -459,7 +461,7 @@ dolink(void)
    const char *cmdbuf[100];
    pid_t p;
    int wstat;
-   struct cmdargs cmd = VINIT(cmdbuf, countof(cmdbuf));
+   CmdArgs cmd = VINIT(cmdbuf, countof(cmdbuf));
 
    findlinkcmd(&cmd);
    if (!strcmp(cmd.p[0], "zig")) {
@@ -560,7 +562,7 @@ dorun(void)
 static int
 driver(void)
 {
-   void cpp(struct wbuf *, const char *);
+   void cpp(WriteBuf *, const char *);
    if (task.verbose)
       efmt("# Target: %s\n", task.targ ? task.targ : HOST_TRIPLE);
    if (task.syntaxonly)
@@ -571,7 +573,7 @@ driver(void)
          fatal(NULL, "not a C source file: %s", task.inf.p[0].path);
       return cc1(task.out, task.inf.p[0].path);
    } else if (task.outft == OFTc) {
-      struct wbuf _buf = {0}, *buf = &bstdout;
+      WriteBuf _buf = {0}, *buf = &bstdout;
       if (task.out) {
          buf = &_buf;
          buf->buf = alloc(&globarena, buf->cap = 1<<12, 1);
@@ -682,7 +684,7 @@ prihelp(void)
 int
 main(int argc, char **argv)
 {
-   globarena->cap = sizeof(_arenamem.mem) - sizeof(struct arena);
+   globarena->cap = sizeof(_arenamem.mem) - sizeof(Arena);
 
    ioinit();
    /* setup defaults */

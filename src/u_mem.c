@@ -43,16 +43,16 @@ internstr
 intern_(const char *s, uint len)
 {
    static uint N, n;
-   static struct ht {
+   static struct Ht {
       internstr s;
       size_t h;
    } *ht;
-   static struct { char m[sizeof(struct arena) + (2<<10)]; struct arena *_a; } amem;
-   static struct arena *arena;
+   static struct { char m[sizeof(Arena) + (2<<10)]; Arena *_a; } amem;
+   static Arena *arena;
 
    if (!N) {
       ht = xcalloc((sizeof *ht) * (N = 1<<10));
-      arena = (void *)amem.m, arena->cap = sizeof amem.m - sizeof(struct arena);
+      arena = (void *)amem.m, arena->cap = sizeof amem.m - sizeof(Arena);
    }
 
    for (size_t h = len ? hashb(0, s, len) : hashs(0, s), i = h;;) {
@@ -67,7 +67,7 @@ intern_(const char *s, uint len)
          }
          /* resize */
          size_t nnew = N * 2;
-         struct ht *new = xcalloc(sizeof *new * nnew);
+         struct Ht *new = xcalloc(sizeof *new * nnew);
          for (uint i = 0; i < N; ++i) { /* rehash */
             if (!ht[i].s) continue;
             uint j = ht[i].h;
@@ -149,10 +149,10 @@ vresize_(struct vecbase *v, uint siz, uint N)
 }
 
 /** arena **/
-struct arena *
+Arena *
 newarena(uint chunksiz)
 {
-   struct arena *ar = xmalloc(offsetof(struct arena, mem) + chunksiz);
+   Arena *ar = xmalloc(offsetof(Arena, mem) + chunksiz);
    assert(chunksiz < 1u<<31 && "toobig");
    ar->prev = NULL;
    ar->cap = chunksiz;
@@ -162,10 +162,10 @@ newarena(uint chunksiz)
 }
 
 void *
-alloc(struct arena **par, uint siz, uint align)
+alloc(Arena **par, uint siz, uint align)
 {
    uint idx;
-   struct arena *new;
+   Arena *new;
    
    if (siz > (*par)->cap) {
       new = newarena(siz);
@@ -188,15 +188,15 @@ alloc(struct arena **par, uint siz, uint align)
 }
 
 void *
-allocz(struct arena **par, uint siz, uint align)
+allocz(Arena **par, uint siz, uint align)
 {
    return memset(alloc(par, siz, align), 0, siz);
 }
 
 void
-freearena(struct arena **par)
+freearena(Arena **par)
 {
-   struct arena *prev;
+   Arena *prev;
    for (; *par; *par = prev) {
       prev = (*par)->prev;
       if ((*par)->dyn)
@@ -216,12 +216,12 @@ imap_init_(struct imapbase *m, void **v, uint vsiz, uint N)
 {
    uint sizk = N*sizeof*m->k,
         sizv = N*vsiz,
-        sizbs = BSSIZE(N)*sizeof(struct bitset);
+        sizbs = BSSIZE(N)*sizeof(BitSet);
 
    assert(ispo2(N));
    m->k = xcalloc(sizk + sizv + sizbs);
    *v = (char *)m->k + sizk;
-   m->bs = (struct bitset *)((char *)*v + sizv);
+   m->bs = (BitSet *)((char *)*v + sizv);
    m->N = N;
 }
 
@@ -242,17 +242,17 @@ imap_rehash(struct imapbase *m, void **v, uint vsiz)
    short *newk, k;
    int i, j;
    void *newv;
-   struct bitset *newbs;
+   BitSet *newbs;
    uint N2 = m->N ? m->N << 1 : 16,
         sizk = N2*sizeof*m->k,
         sizv = N2*vsiz,
-        sizbs = BSSIZE(N2)*sizeof(struct bitset);
+        sizbs = BSSIZE(N2)*sizeof(BitSet);
 
    assert(N2);
    newk = xcalloc(sizk + sizv + sizbs);
    memset(newk, 0, sizk + sizv + sizbs);
    newv = (char *)newk + sizk;
-   newbs = (struct bitset *)((char *)newv + sizv);
+   newbs = (BitSet *)((char *)newv + sizv);
    for (i = 0; i < m->N; ++i) {
       if (!bstest(m->bs, i))
          continue;

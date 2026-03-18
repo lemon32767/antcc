@@ -2,13 +2,13 @@
 #include "u_hash.h"
 
 static inline bool
-pure(const struct instr *ins)
+pure(const Instr *ins)
 {
    return oisarith(ins->op) || (oisload(ins->op) && !ins->keep);
 }
 
 static inline bool
-insequ(const struct instr *a, const struct instr *b)
+insequ(const Instr *a, const Instr *b)
 {
    if (a->op != b->op) return 0;
    enum op op = a->op;
@@ -20,21 +20,21 @@ insequ(const struct instr *a, const struct instr *b)
    return 1;
 }
 
-static struct ht {
+static struct Ht {
    uint t;
    ushort memno, cutoff;
-   struct block *b;
+   Block *b;
 } *insht;
 static uint ninsht;
 
 static inline size_t
-hashins(const struct instr *ins)
+hashins(const Instr *ins)
 {
    return hashb(0, ins, sizeof *ins);
 }
 
 static bool
-doms(struct block *blk, struct block *b)
+doms(Block *blk, Block *b)
 {
    for (;; b = b->idom) {
       if (blk == b) return 1;
@@ -44,13 +44,13 @@ doms(struct block *blk, struct block *b)
 }
 
 static int
-uniq(int t, struct block *blk, int cutoff, int memno)
+uniq(int t, Block *blk, int cutoff, int memno)
 {
    assert((uint)t < MAXINSTR);
-   struct instr *ins = &instrtab[t];
+   Instr *ins = &instrtab[t];
    if (!pure(ins)) return t;
    for (size_t h = hashins(&instrtab[t]), i = h;; ++i) {
-      struct ht *p = &insht[i &= (ninsht-1)];
+      struct Ht *p = &insht[i &= (ninsht-1)];
       if (!p->b) Put: {
          p->b = blk;
          p->memno = memno;
@@ -65,14 +65,14 @@ uniq(int t, struct block *blk, int cutoff, int memno)
 }
 
 void
-cselim(struct function *fn)
+cselim(Function *fn)
 {
    FREQUIRE(FNUSE | FNRPO | FNDOM | FNBLKID);
    extern int ninstr;
    for (ninsht = 32; ninsht <= ninstr; ninsht *= 2) ;
    insht = allocz(fn->passarena, ninsht * sizeof *insht, 0);
    int memno = 0, cutoff = 0;
-   struct block *blk = fn->entry;
+   Block *blk = fn->entry;
    do {
       ++memno;
       for (int i = 0; i < blk->ins.n; ++i) {

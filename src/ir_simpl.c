@@ -1,7 +1,7 @@
 #include "ir.h"
 
 static int
-mulk(struct instr *ins, struct block *blk, int *curi)
+mulk(Instr *ins, Block *blk, int *curi)
 {
    vlong iv = intconval(ins->r);
    enum irclass cls = ins->cls;
@@ -37,7 +37,7 @@ mulk(struct instr *ins, struct block *blk, int *curi)
 }
 
 static int
-divmodk(struct instr *ins, struct block *blk, int *curi)
+divmodk(Instr *ins, Block *blk, int *curi)
 {
    enum op op = ins->op;
    enum irclass cls = ins->cls;
@@ -45,7 +45,7 @@ divmodk(struct instr *ins, struct block *blk, int *curi)
    uint nbit = 8 * cls2siz[cls];
    bool neg = (op == Odiv || op == Orem) && iv < 0;
    if (ispo2(iv) || (neg && ispo2(-iv))) { /* simple po2 cases */
-      union ref temp;
+      Ref temp;
       uint s = ilog2(neg ? -iv : iv);
       switch (op) {
       default: assert(0);
@@ -63,7 +63,7 @@ divmodk(struct instr *ins, struct block *blk, int *curi)
          temp = insertinstr(blk, (*curi)++, mkinstr(Oadd, cls, ins->l, temp));
          if (op == Odiv) {
             /* (-) (x' >> s) */
-            struct instr sar = mkinstr(Osar, cls, temp, mkref(RICON, s));
+            Instr sar = mkinstr(Osar, cls, temp, mkref(RICON, s));
             if (!neg) *ins = sar;
             else {
                temp = insertinstr(blk, (*curi)++, sar);
@@ -82,11 +82,11 @@ divmodk(struct instr *ins, struct block *blk, int *curi)
 }
 
 static int
-doins(struct instr *ins, struct block *blk, int *curi)
+doins(Instr *ins, Block *blk, int *curi)
 {
    int narg = opnarg[ins->op];
    if (oisarith(ins->op)) {
-      union ref r = narg == 1 ? irunop(NULL, ins->op, ins->cls, ins->l)
+      Ref r = narg == 1 ? irunop(NULL, ins->op, ins->cls, ins->l)
                               : irbinop(NULL, ins->op, ins->cls, ins->l, ins->r);
       if (r.bits) {
          *ins = mkinstr(Onop,0,);
@@ -100,7 +100,7 @@ doins(struct instr *ins, struct block *blk, int *curi)
       if ((ins->l.t == RTMP && k == instrtab[ins->l.i].cls)
        || (isnumcon(ins->l) && k == concls(ins->l))
        || (kisint(k) && ins->l.t == RICON)) {
-         union ref it = ins->l;
+         Ref it = ins->l;
          *ins = mkinstr(Onop,0,);
          replcuses(mkref(RTMP, ins - instrtab), it);
          return 1;
@@ -119,7 +119,7 @@ doins(struct instr *ins, struct block *blk, int *curi)
       if (ins->l.t == RTMP && isintcon(ins->r)) {
          /* optimize `x <op> C <cmp> Q` */
          /* could apply with add/sub to lth/lte/gth/gte iff no signed wraparound, which isn't assumed */
-         struct instr *lhs = &instrtab[ins->l.i];
+         Instr *lhs = &instrtab[ins->l.i];
          enum op o = lhs->op;
          if (ins->cls == lhs->cls && (o == Oadd || o == Osub || o == Oxor) && isintcon(lhs->r)) {
             uvlong c = intconval(ins->r), q = intconval(lhs->r);
@@ -139,9 +139,9 @@ doins(struct instr *ins, struct block *blk, int *curi)
 }
 
 static void
-jmpfind(struct block **final, struct block **pblk)
+jmpfind(Block **final, Block **pblk)
 {
-   struct block **p2 = &final[(*pblk)->id];
+   Block **p2 = &final[(*pblk)->id];
    if (*p2 && !(*p2)->phi.n) {
       jmpfind(final, p2);
       *pblk = *p2;
@@ -149,7 +149,7 @@ jmpfind(struct block **final, struct block **pblk)
 }
 
 static void
-fillpredsrec(struct block *blk)
+fillpredsrec(Block *blk)
 {
    while (blk && !wasvisited(blk)) {
       markvisited(blk);
@@ -166,9 +166,9 @@ fillpredsrec(struct block *blk)
 }
 
 static void
-fillpreds(struct function *fn)
+fillpreds(Function *fn)
 {
-   struct block *blk = fn->entry, *next;
+   Block *blk = fn->entry, *next;
    do {
       if (blk->phi.n) continue;
       if (blk->npred > 1)
@@ -186,13 +186,13 @@ fillpreds(struct function *fn)
 }
 
 static void
-mergeblks(struct function *fn, struct block *p, struct block *s)
+mergeblks(Function *fn, Block *p, Block *s)
 {
    assert(s->npred == 1 && !s->phi.n);
    vpushn(&p->ins, s->ins.p, s->ins.n);
    p->jmp = p->s1->jmp;
    for (int i = 0; i < 2; ++i) {
-      struct block *ss = (&s->s1)[i];
+      Block *ss = (&s->s1)[i];
       if (ss) for (int j = 0; j < ss->npred; ++j) {
          if (blkpred(ss, j) == s) {
             blkpred(ss, j) = p;
@@ -209,13 +209,13 @@ mergeblks(struct function *fn, struct block *p, struct block *s)
 }
 
 void
-simpl(struct function *fn)
+simpl(Function *fn)
 {
    FREQUIRE(FNUSE);
    int inschange = 0,
        blkchange = 0;
-   struct block **jmpfinal = allocz(fn->passarena, fn->nblk * sizeof *jmpfinal, 0);
-   struct block *blk = fn->entry;
+   Block **jmpfinal = allocz(fn->passarena, fn->nblk * sizeof *jmpfinal, 0);
+   Block *blk = fn->entry;
 
    do {
       /* merge blocks:
@@ -242,7 +242,7 @@ simpl(struct function *fn)
       for (int i = 0; i < blk->phi.n; ++i) {
          int phi = blk->phi.p[i];
          /* delete trivial phis */
-         union ref *args = phitab.p[instrtab[phi].l.i],
+         Ref *args = phitab.p[instrtab[phi].l.i],
                same = *args;
          if (same.t == RTMP && instrtab[same.i].op == Ophi) goto Next;
          if (blk->npred > 1) for (int j = 1; j < blk->npred; ++j) {
@@ -257,7 +257,7 @@ simpl(struct function *fn)
       int curi = 0;
    DoIns:
       for (; curi < blk->ins.n; ++curi) {
-         struct instr *ins = &instrtab[blk->ins.p[curi]];
+         Instr *ins = &instrtab[blk->ins.p[curi]];
          if (ins->op != Onop) {
             if (!(fn->prop & FNUSE)) filluses(fn);
             inschange += doins(ins, blk, &curi);
@@ -266,7 +266,7 @@ simpl(struct function *fn)
 
       if (blk->s2 && isintcon(blk->jmp.arg[0])) {
          /* simplify known conditional branch */
-         struct block *s = intconval(blk->jmp.arg[0]) ? blk->s1 : blk->s2;
+         Block *s = intconval(blk->jmp.arg[0]) ? blk->s1 : blk->s2;
          delpred(s == blk->s1 ? blk->s2 : blk->s1, blk);
          blk->s1 = s, blk->s2 = NULL;
          blk->jmp.arg[0] = NOREF;

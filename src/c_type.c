@@ -1,11 +1,11 @@
 #include "c_type.h"
 #include "u_hash.h"
 
-struct typedata typedata[1<<13];
+TypeData typedata[1<<13];
 internstr ttypenames[1<<10];
 
 static ushort
-hashtd(const struct typedata *td)
+hashtd(const TypeData *td)
 {
    uint h = td->t*33;
    bool t;
@@ -37,7 +37,7 @@ hashtd(const struct typedata *td)
 }
 
 static bool
-tdequ(const struct typedata *a, const struct typedata *b)
+tdequ(const TypeData *a, const TypeData *b)
 {
    if (a->t != b->t) return 0;
    switch (a->t) {
@@ -65,17 +65,17 @@ tdequ(const struct typedata *a, const struct typedata *b)
 }
 
 static ushort
-interntd(const struct typedata *td)
+interntd(const TypeData *td)
 {
    uint h, i, n = countof(typedata);
    for (i = h = hashtd(td); n--; ++i) {
-      struct typedata *slot = &typedata[i &= countof(typedata) - 1];
+      TypeData *slot = &typedata[i &= countof(typedata) - 1];
       if (!slot->t) {
          uint nmemb;
-         static struct arena *datarena;
+         static Arena *datarena;
          if (!datarena) {
             enum { N = 1<<12 };
-            static union { char m[sizeof(struct arena) + N]; struct arena *_align; } amem;
+            static union { char m[sizeof(Arena) + N]; Arena *_align; } amem;
             datarena = (void *)amem.m, datarena->cap = N;
          }
 
@@ -107,7 +107,7 @@ interntd(const struct typedata *td)
 }
 
 bool
-isincomplete(union type t)
+isincomplete(Type t)
 {
    switch (t.t) {
    case TYVOID: return 1;
@@ -122,7 +122,7 @@ isincomplete(union type t)
 }
 
 uint
-typesize(union type t)
+typesize(Type t)
 {
    if (isprim(t) || t.t == TYPTR) return targ_primsizes[t.t];
    switch (t.t) {
@@ -140,7 +140,7 @@ typesize(union type t)
 }
 
 uint
-typealign(union type t)
+typealign(Type t)
 {
    if (isprim(t) || t.t == TYPTR) return targ_primalign[t.t];
    switch (t.t) {
@@ -155,36 +155,36 @@ typealign(union type t)
    return 0;
 }
 
-union type
-mkptrtype(union type t, int qual)
+Type
+mkptrtype(Type t, int qual)
 {
    if (isprim(t))
       return mktype(TYPTR, .flag = TFCHLDPRIM | (qual & TFCHLDQUAL), .child = t.t);
    else if (t.t == TYENUM || t.t == TYFUNC || isagg(t))
       return mktype(TYPTR, .flag = TFCHLDISDAT | (qual & TFCHLDQUAL), .dat = t.dat);
    return mktype(TYPTR, .flag = qual & TFCHLDQUAL,
-                 .dat = interntd(&(struct typedata) { TYPTR, .child = t }));
+                 .dat = interntd(&(TypeData) { TYPTR, .child = t }));
 }
 
-union type
-mkarrtype(union type t, int qual, uint n)
+Type
+mkarrtype(Type t, int qual, uint n)
 {
    if (isprim(t) && n < 256)
       return mktype(TYARRAY, .flag = TFCHLDPRIM | (qual & TFCHLDQUAL), .child = t.t, .arrlen = n);
    return mktype(TYARRAY, .flag = qual & TFCHLDQUAL,
-                 .dat = interntd(&(struct typedata) { TYARRAY, .child = t, .arrlen = n, .siz = n * typesize(t) }));
+                 .dat = interntd(&(TypeData) { TYARRAY, .child = t, .arrlen = n, .siz = n * typesize(t) }));
 }
 
-union type
-mkfntype(union type ret, uint n, const union type *par, bool kandr, bool variadic)
+Type
+mkfntype(Type ret, uint n, const Type *par, bool kandr, bool variadic)
 {
-   struct typedata td = { TYFUNC, .ret = ret, .nmemb = n, .param = par };
+   TypeData td = { TYFUNC, .ret = ret, .nmemb = n, .param = par };
    td.kandr = kandr, td.variadic = variadic;
    return mktype(TYFUNC, .dat = interntd(&td));
 }
 
-union type
-completetype(internstr name, int id, struct typedata *td)
+Type
+completetype(internstr name, int id, TypeData *td)
 {
    assert(td->t == TYENUM || td->t == TYSTRUCT || td->t == TYUNION);
    td->id = id;
@@ -196,25 +196,25 @@ completetype(internstr name, int id, struct typedata *td)
    return mktype(td->t, .dat = interntd(td), .backing = td->t == TYENUM ? td->backing : 0);
 }
 
-union type
-mktagtype(internstr name, struct typedata *td)
+Type
+mktagtype(internstr name, TypeData *td)
 {
    static int id;
    return completetype(name, id++, td);
 }
 
 static bool
-getfieldrec(struct fielddata *res, uint off, const struct typedata *td, internstr name)
+getfieldrec(FieldData *res, uint off, const TypeData *td, internstr name)
 {
 Begin:
    for (int i = 0; i < td->nmemb; ++i) {
-      struct namedfield *fld = &td->fld[i];
+      NamedField *fld = &td->fld[i];
       if (fld->name == name) { /* match */
          *res = fld->f;
          res->off += off;
          return 1;
       } else if (!fld->name) { /* anonymous struct/union */
-         const struct typedata *ftd = &typedata[fld->f.t.dat];
+         const TypeData *ftd = &typedata[fld->f.t.dat];
          assert(isagg(fld->f.t));
          if (i == td->nmemb - 1) { /* last field, tail recurse */
             off += fld->f.off;
@@ -228,14 +228,14 @@ Begin:
 }
 
 bool
-getfield(struct fielddata *res, union type ty, internstr name)
+getfield(FieldData *res, Type ty, internstr name)
 {
    assert(isagg(ty));
    return getfieldrec(res, 0, &typedata[ty.dat], name);
 }
 
-union type
-typedecay(union type t)
+Type
+typedecay(Type t)
 {
    if (t.t == TYARRAY)
       return mkptrtype(typechild(t), t.flag & TFCHLDQUAL);
@@ -245,12 +245,12 @@ typedecay(union type t)
 }
 
 bool /* 6.5.16.1 Simple assignment Constraints */
-assigncompat(union type dst, union type src)
+assigncompat(Type dst, Type src)
 {
    if (dst.bits == src.bits) return 1;
    if (isarith(dst) && isarith(src)) return 1;
    if (dst.t == TYPTR && src.t == TYPTR) {
-      union type ds = typechild(dst), ss = typechild(src);
+      Type ds = typechild(dst), ss = typechild(src);
       if (ds.bits == ss.bits) return 1; /* T* with different qualifiers */
       if (ss.t == TYVOID || ds.t == TYVOID) return 1; /* T* <-> void* */
       enum typetag dt = scalartypet(ds), /* handle enums */
@@ -273,10 +273,10 @@ intpromote(enum typetag t)
    return t < TYINT ? TYINT : t;
 }
 
-union type /* 6.3.1.8 Usual arithmetic conversions */
-cvtarith(union type a, union type b)
+Type /* 6.3.1.8 Usual arithmetic conversions */
+cvtarith(Type a, Type b)
 {
-   const union type none = {0};
+   const Type none = {0};
 
    if (!isarith(a) || !isarith(b)) return none;
    if (a.t == TYENUM) a = typechild(a);

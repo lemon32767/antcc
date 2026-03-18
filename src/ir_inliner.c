@@ -1,27 +1,27 @@
 #include "ir.h"
 
-struct savedfunc {
+typedef struct SavedFunc {
    uint ninstr;
-   struct instr *instrtab;
-   struct xcon *contab;
-   struct call *calltab;
-   union ref **phitab;
-   struct block *entry;
-   union type fnty, retty;
-   struct abiarg *abiarg, abiret[2];
+   Instr *instrtab;
+   IRCon *contab;
+   IRCall *calltab;
+   Ref **phitab;
+   Block *entry;
+   Type fnty, retty;
+   ABIArg *abiarg, abiret[2];
    ushort nabiarg, nabiret;
    ushort nretpoints;
-};
+} SavedFunc;
 
 enum { MAX_INLINED_FN_NINS = 50,
        MAX_INLINED_FN_NBLK = 16, };
 
-static pmap_of(struct savedfunc *) savedfns;
+static pmap_of(SavedFunc *) savedfns;
 
 bool
-maybeinlinee(struct function *fn)
+maybeinlinee(Function *fn)
 {
-   static struct arena *savearena;
+   static Arena *savearena;
    extern int ninstr;
 
    // TODO better heuristics
@@ -37,7 +37,7 @@ maybeinlinee(struct function *fn)
 
    if (!savearena) {
       enum { N = 1<<12 };
-      static union { char m[sizeof(struct arena) + N]; struct arena *_align; } amem;
+      static union { char m[sizeof(Arena) + N]; Arena *_align; } amem;
       savearena = (void *)amem.m;
       savearena->cap = N;
    }
@@ -45,19 +45,19 @@ maybeinlinee(struct function *fn)
    if (ccopt.dbg.y) {
       bfmt(ccopt.dbgout, "> stashing '%s' for inlining\n", fn->name);
    }
-   struct savedfunc *sv = allocz(&savearena, sizeof *sv, 0);
+   SavedFunc *sv = allocz(&savearena, sizeof *sv, 0);
    sv->fnty = fn->fnty, sv->retty = fn->retty;
    if (fn->abiarg)
       sv->abiarg = alloccopy(&savearena, fn->abiarg, sizeof *sv->abiarg * fn->nabiarg, 0);
    sv->nabiarg = fn->nabiarg;
    if ((sv->nabiret = fn->nabiret) > 0)
       memcpy(sv->abiret, fn->abiret, sizeof sv->abiret);
-   struct block *bmap[MAX_INLINED_FN_NBLK];
-   struct block *b = fn->entry;
+   Block *bmap[MAX_INLINED_FN_NBLK];
+   Block *b = fn->entry;
    int id = 0;
    do {
       b->id = id++;
-      struct block *q = alloccopy(&savearena, b, sizeof *b, 0);
+      Block *q = alloccopy(&savearena, b, sizeof *b, 0);
       if (q->phi.n)
          q->phi.p = alloccopy(&savearena, q->phi.p, sizeof *q->phi.p * q->phi.n, 0);
       if (q->ins.n)
@@ -100,8 +100,8 @@ maybeinlinee(struct function *fn)
    return 1;
 }
 
-static union ref
-mapref(short *instrmap, struct savedfunc *sv, union ref r)
+static Ref
+mapref(short *instrmap, SavedFunc *sv, Ref r)
 {
    assert(r.bits);
    if (r.t == RTMP) return r.i = instrmap[r.i], r;
@@ -111,18 +111,18 @@ mapref(short *instrmap, struct savedfunc *sv, union ref r)
    return r;
 }
 
-static struct block *
-inlcall(struct function *fn, struct block *blk, int curi, struct savedfunc *sv)
+static Block *
+inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv)
 {
    int res = blk->ins.p[curi], res2;
-   struct instr *ins = &instrtab[res];
-   struct call *call = &calltab.p[ins->r.i];
-   union ref retvals[64];
-   union ref args[64];
+   Instr *ins = &instrtab[res];
+   IRCall *call = &calltab.p[ins->r.i];
+   Ref retvals[64];
+   Ref args[64];
    assert(sv->nabiret < 2 && sv->nretpoints < countof(retvals));
    for (int n = call->narg, i = curi-1; n > 0; --i) {
       assert(i >= 0);
-      struct instr *ins = &instrtab[blk->ins.p[i]];
+      Instr *ins = &instrtab[blk->ins.p[i]];
       if (ins->op == Oarg) {
          args[--n] = ins->r;
          *ins = mkinstr(Onop,0,);
@@ -133,7 +133,7 @@ inlcall(struct function *fn, struct block *blk, int curi, struct savedfunc *sv)
       res2 = blk->ins.p[curi+1];
       assert(instrtab[res2].op == Ocall2r);
    }
-   struct block *exit = blksplitafter(fn, blk, curi-1);
+   Block *exit = blksplitafter(fn, blk, curi-1);
    if (!ins->cls) {
       *ins = mkinstr(Onop,0,);
    } else {
@@ -147,9 +147,9 @@ inlcall(struct function *fn, struct block *blk, int curi, struct savedfunc *sv)
       }
    }
 
-   struct block *bmap[MAX_INLINED_FN_NBLK];
+   Block *bmap[MAX_INLINED_FN_NBLK];
    short instrmap[MAX_INLINED_FN_NINS];
-   for (struct block *b = sv->entry; b; b = b->lnext) {
+   for (Block *b = sv->entry; b; b = b->lnext) {
       bmap[b->id] = newblk(fn);
    }
    for (int i = 0; i < sv->ninstr; ++i) {
@@ -164,7 +164,7 @@ inlcall(struct function *fn, struct block *blk, int curi, struct savedfunc *sv)
    exit->_pred0 = NULL;
    blk->s1 = bmap[0];
    int iret = 0;
-   for (struct block *b = sv->entry, *prev = blk, *new; b; prev = new, b = b->lnext) {
+   for (Block *b = sv->entry, *prev = blk, *new; b; prev = new, b = b->lnext) {
       new = bmap[b->id];
       new->id = fn->nblk++;
       new->lprev = prev;
@@ -181,7 +181,7 @@ inlcall(struct function *fn, struct block *blk, int curi, struct savedfunc *sv)
       vresize(&new->phi, b->phi.n);
       for (int i = 0; i < b->phi.n; ++i) {
          int t = b->phi.p[i];
-         union ref *refs = NULL,
+         Ref *refs = NULL,
                    *src = sv->phitab[sv->instrtab[t].l.i];
          xbgrow(&refs, b->npred);
          for (int i = 0; i < b->npred; ++i)
@@ -193,7 +193,7 @@ inlcall(struct function *fn, struct block *blk, int curi, struct savedfunc *sv)
       vresize(&new->ins, b->ins.n);
       for (int i = 0; i < b->ins.n; ++i) {
          int t = b->ins.p[i];
-         struct instr *ins = &instrtab[instrmap[t]];
+         Instr *ins = &instrtab[instrmap[t]];
          *ins = sv->instrtab[t];
          if (ins->op == Oparam) {
             ins->op = Ocopy;
@@ -201,7 +201,7 @@ inlcall(struct function *fn, struct block *blk, int curi, struct savedfunc *sv)
             ins->l = args[ins->l.i];
          } else if (ins->op == Ocall || ins->op == Ointrin) {
             ins->l = mapref(instrmap, sv, ins->l);
-            for (struct instr *ins2;
+            for (Instr *ins2;
                  ins->l.t == RTMP && (ins2 = &instrtab[ins->l.i])->op == Ocopy
                   && (isaddrcon(ins2->l,0) || (ins2->l.t == RTMP && instrtab[ins->l.i].cls == KPTR));) {
                /* for an indirect function call, eagerly copy-propagate the callee. this allows
@@ -242,7 +242,7 @@ inlcall(struct function *fn, struct block *blk, int curi, struct savedfunc *sv)
          ins->l = retvals[0];
       } else {
          /* fill phi */
-         union ref *refs = NULL;
+         Ref *refs = NULL;
          xbgrow(&refs, sv->nretpoints);
          memcpy(refs, retvals, sizeof *refs * sv->nretpoints);
          vpush(&phitab, refs);
@@ -256,13 +256,13 @@ inlcall(struct function *fn, struct block *blk, int curi, struct savedfunc *sv)
 
 enum { MAX_REC_INLINE = 16 };
 void
-doinline(struct function *fn)
+doinline(Function *fn)
 {
    if (calltab.n == 0) return;
-   struct block *b = fn->entry;
-   struct stack { /* stack of callees being inline expanded */
-      struct block *b; /* block after the end of expansion */
-      struct savedfunc *sv;
+   Block *b = fn->entry;
+   struct Stack { /* stack of callees being inline expanded */
+      Block *b; /* block after the end of expansion */
+      SavedFunc *sv;
    } stkbuf[MAX_REC_INLINE], *stk = stkbuf + MAX_REC_INLINE, *stkend = stk;
    bool dumpbefore = 0;
    do {
@@ -271,18 +271,18 @@ doinline(struct function *fn)
       else if (stk == stkbuf) /* stack full? */
          continue;
       for (int i = 0; i < b->ins.n; ++i) {
-         struct instr *ins = &instrtab[b->ins.p[i]];
+         Instr *ins = &instrtab[b->ins.p[i]];
          if (ins->op != Ocall) continue;
          if (!isaddrcon(ins->l,0)) continue;
-         struct call *call = &calltab.p[ins->r.i];
+         IRCall *call = &calltab.p[ins->r.i];
          internstr fname = xcon2sym(ins->l.i);
-         struct savedfunc **pcallee, *sv;
+         SavedFunc **pcallee, *sv;
          if ((pcallee = pmap_get(&savedfns, fname))
            && (sv = *pcallee)->nabiarg == call->narg && call->vararg == -1
            && call->narg == sv->nabiarg
            && (!call->narg || !memcmp(sv->abiarg, call->abiarg, sizeof *sv->abiarg * sv->nabiarg))
            && !memcmp(sv->abiret, call->abiret, sizeof sv->abiret)) {
-            for (struct stack *s = stk; s != stkend; ++s) {
+            for (struct Stack *s = stk; s != stkend; ++s) {
                if (s->sv == sv) goto Skip; /* recursion encountered */
             }
             if (ccopt.dbg.y) {

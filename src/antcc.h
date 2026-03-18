@@ -101,7 +101,7 @@ enum cstd {
    STDC11,
    STDC23,
 };
-struct option {
+typedef struct CCOption {
    enum cstd cstd;
    bool pedant;
    bool trigraph;
@@ -128,15 +128,14 @@ struct option {
       };
       uint any;
    } dbg;
-   struct wbuf *dbgout;
-};
-extern struct option ccopt;
-extern struct cinclpaths {
-   struct inclpath {
-      struct inclpath *next;
-      const char *path;
-   } *list, **tail;
-} cinclpaths[5];
+   struct WriteBuf *dbgout;
+} CCOption;
+extern CCOption ccopt;
+
+typedef struct CInclPath {
+   struct CInclPath *next;
+   const char *path;
+} CInclPath;
 enum { /* GCC include directory search order: https://gcc.gnu.org/onlinedocs/gcc/Directory-Options.html#Options-for-Directory-Search */
    CINCL_iquote,
    CINCL_I,
@@ -144,18 +143,20 @@ enum { /* GCC include directory search order: https://gcc.gnu.org/onlinedocs/gcc
    CINCLsys,
    CINCL_idirafter,
 };
+extern CInclPath *cinclpaths[5];
 
 /**********/
 /* Target */
 /**********/
 
-struct targtriple {
+typedef struct TargTriple {
    enum mcarch { ISxxx, ISx86_64, ISaarch64 } arch;
    enum mcos { OSunknown, OSlinux } os;
    enum mcabi { ABInone, ABIgnu, ABImusl } abi;
-};
-extern const struct mctarg *mctarg;
-extern struct targtriple target;
+} TargTriple;
+extern TargTriple target;
+enum objkind { OBJELF };
+extern const struct MCTarg *mctarg;
 void targ_init(const char *);
 
 /*********/
@@ -169,7 +170,7 @@ void *xrealloc(void *, size_t);
 void free(void *);
 
 /* string interning */
-typedef const struct internstr {char c;} *internstr;
+typedef const struct {char c;} *internstr;
 internstr intern_(const char *, uint len);
 #define intern(s) intern_(s, 0)
 
@@ -183,7 +184,6 @@ xbgrow_(void **p, size_t n)
    if (!*p) { *p = xbnew_(n); xbcap_(*p) = n; assert(n>0); }
    else if (xbcap_(*p) < n) {
       size_t k = xbcap_(*p);
-      assert(k > 0);
       do k *= 2; while (k < n);
       *p = 1 + (size_t *)xrealloc(&xbcap_(*(p)), sizeof(size_t) + k);
       xbcap_(*p) = k;
@@ -201,26 +201,31 @@ xbgrow_(void **p, size_t n)
 
 
 /** arenas **/
-struct arena {
+typedef struct Arena {
    uint cap : 31,
         dyn : 1;
    uint n;
-   struct arena *prev;
+   struct Arena *prev;
    uchar mem[];
-};
+} Arena;
 
-extern struct arena *globarena;
+extern Arena *globarena;
 
-struct arena *newarena(uint chunksiz);
-void *alloc(struct arena **, uint siz, uint align);
-void *allocz(struct arena **, uint siz, uint align);
+Arena *newarena(uint chunksiz);
+void *alloc(Arena **, uint siz, uint align);
+void *allocz(Arena **, uint siz, uint align);
 static inline void *
-alloccopy(struct arena **arena, const void *src, uint siz, uint align)
+alloccopy(Arena **arena, const void *src, uint siz, uint align)
 {
    if (!siz) return NULL;
    return memcpy(alloc(arena, siz, align), src, siz);
 }
-void freearena(struct arena **);
+void freearena(Arena **);
+
+/** bitset (u_bits.h) **/
+typedef struct { size_t u; } BitSet;
+enum { BSNBIT = 8 * sizeof(BitSet) };
+#define BSSIZE(nbit) ((nbit)/BSNBIT + ((nbit)%BSNBIT != 0))
 
 /** vec **/
 struct vecbase { void *p; uint n; uint cap : 31, dyn : 1; };
@@ -241,7 +246,7 @@ void vresize_(struct vecbase *, uint siz, uint N);
 
 /** map of short -> T **/
 #define imap_of(T) struct { T *v; int tmp; struct imapbase mb; }
-struct imapbase { short *k; struct bitset *bs; uint n, N; };
+struct imapbase { short *k; BitSet *bs; uint n, N; };
 
 void imap_init_(struct imapbase *, void **v, uint vsiz, uint N);
 int imap_get_(struct imapbase *, short k);
@@ -262,7 +267,7 @@ int imap_set_(struct imapbase *, void **v, uint vsiz, short k);
    (dst)->mb.n = (src)->mb.n;                                                         \
    imap_init((dst), N);                                                               \
    memcpy((dst)->mb.k, (src)->mb.k,                                                   \
-         N*(sizeof*(src)->mb.k + sizeof*(src)->v) + BSSIZE(N)*sizeof(struct bitset)); \
+         N*(sizeof*(src)->mb.k + sizeof*(src)->v) + BSSIZE(N)*sizeof(BitSet)); \
 } while (0)
 
 
@@ -285,16 +290,11 @@ extern char pmap_tombstone_[];
    for (size_t _i = 0; _i < (m)->mb.N && ((kx) = (m)->mb.k[_i], (pvx) = &(m)->v[_i], 1); ++_i) \
       if (kx && kx != pmap_tombstone_)
 
-/** bitset (u_bits.h) **/
-struct bitset { size_t u; };
-enum { BSNBIT = 8 * sizeof(struct bitset) };
-#define BSSIZE(nbit) ((nbit)/BSNBIT + ((nbit)%BSNBIT != 0))
-
 /********/
 /** IO **/
 /********/
 
-struct wbuf {
+typedef struct WriteBuf {
    union {
       struct {
          char *buf;
@@ -306,41 +306,35 @@ struct wbuf {
    };
    bool err;
    bool isfp;
-};
+} WriteBuf;
 
 /* read-only file mapping that is at least 1 page larger than the real file
  * so it's legal to read a few bytes beyond it to avoid some bounds checks */
-struct memfile {
+typedef struct MemFile {
    const uchar *p;
    uint n;
    bool statik;
-};
-
-struct embedfile {
-   const char *name;
-   const char *s;
-   size_t len;
-};
+} MemFile;
 
 #define MEMBUF(buf_, cap_) { .buf = (buf_), .cap = (cap_), .fd = -1 }
 #define FDBUF(buf_, cap_, fd_)  { .buf = (buf_), .cap = (cap_), .fd = (fd_) }
-extern struct wbuf bstdout, bstderr;
+extern WriteBuf bstdout, bstderr;
 void ioinit(void);
-void iowrite(struct wbuf *, const void *src, int n);
-void ioputc(struct wbuf *, uchar);
-void ioflush(struct wbuf *);
-int vbfmt(struct wbuf *, const char *, va_list ap);
-int bfmt(struct wbuf *, const char *, ...);
+void iowrite(WriteBuf *, const void *src, int n);
+void ioputc(WriteBuf *, uchar);
+void ioflush(WriteBuf *);
+int vbfmt(WriteBuf *, const char *, va_list ap);
+int bfmt(WriteBuf *, const char *, ...);
 #define pfmt(...) bfmt(&bstdout, __VA_ARGS__)
 #define efmt(...) bfmt(&bstderr, __VA_ARGS__)
-struct memfile mapopen(const char **err, const char *path);
-void mapclose(struct memfile *);
+MemFile mapopen(const char **err, const char *path);
+void mapclose(MemFile *);
 void *mapzeros(uint);
 int munmap(void *, size_t);
-int getpredeffile(struct memfile **, const char *name);
-int openfile(const char **err, struct memfile **, const char *path);
+int getpredeffile(MemFile **, const char *name);
+int openfile(const char **err, MemFile **, const char *path);
 const char *getfilename(int id, uint atoff);
-struct memfile *getfile(int id);
+MemFile *getfile(int id);
 void addfileline(int id, uint off);
 void setfileline(int id, uint off, int line, const char *file);
 const char *getfilepos(int *line, int *col, int id, uint off);
@@ -350,24 +344,26 @@ void markfileseen(int id);
 bool isfileseen(int id);
 void closefile(int id);
 
-enum { SPANFILEBITS = 10 };
-struct span {
-   struct span0 {
-      uint off;
-      uint len  : 32-SPANFILEBITS,
-           file : SPANFILEBITS;
-   } sl, /* original source location */
-     ex; /* the location after #include/macro expansion */
-};
+#define SPANFILEBITS 10
+typedef struct {
+   uint off,
+        len  : 32-SPANFILEBITS,
+        file : SPANFILEBITS;
+} Span0;
+
+typedef struct {
+   Span0 sl, /* original source location */
+         ex; /* the location after #include/macro expansion */
+} Span;
 
 enum diagkind { DGERROR, DGWARN, DGNOTE, };
-void vdiag(const struct span *, enum diagkind, const char *, va_list);
-NORETURN void fatal(const struct span *, const char *, ...);
-void error(const struct span *, const char *, ...);
-void warn(const struct span *, const char *, ...);
-void note(const struct span *, const char *, ...);
-ushort *utf8to16(uint *ulen, struct arena **, const uchar *s, size_t len);
-uint *utf8to32(uint *ulen, struct arena **, const uchar *s, size_t len);
+void vdiag(const Span *, enum diagkind, const char *, va_list);
+NORETURN void fatal(const Span *, const char *, ...);
+void error(const Span *, const char *, ...);
+void warn(const Span *, const char *, ...);
+void note(const Span *, const char *, ...);
+ushort *utf8to16(uint *ulen, Arena **, const uchar *s, size_t len);
+uint *utf8to32(uint *ulen, Arena **, const uchar *s, size_t len);
 int utf8enc(char out[4], uint cp);
 
 #endif /* COMMON_H_ */

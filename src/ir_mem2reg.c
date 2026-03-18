@@ -31,23 +31,23 @@ static const uchar storesz[] = {
 
 /* Implements algorithm in 'Simple and Efficient Construction of Static Single Assignment' (Braun et al) */
 
-struct ssabuilder {
-   struct arena **arena;
-   imap_of(union ref *) curdefs; /* map of var to (map of block to def of var) */
-   struct bitset *sealed, /* set of sealed blocks */
-                 *marked; /* blocks marked, for 'Marker Algorithm' in the paper */
+typedef struct SSABuilder {
+   Arena **arena;
+   imap_of(Ref *) curdefs; /* map of var to (map of block to def of var) */
+   BitSet *sealed, /* set of sealed blocks */
+          *marked; /* blocks marked, for 'Marker Algorithm' in the paper */
    int lastvisit;
    int nblk;
-};
+} SSABuilder;
 
-static union ref readvar(struct ssabuilder *, int var, enum irclass, struct block *);
+static Ref readvar(SSABuilder *, int var, enum irclass, Block *);
 
-static union ref
-deltrivialphis(struct ssabuilder *sb, int var, struct block *blk, union ref phiref)
+static Ref
+deltrivialphis(SSABuilder *sb, int var, Block *blk, Ref phiref)
 {
    assert(instrtab[phiref.i].op == Ophi);
-   union ref *args = phitab.p[instrtab[phiref.i].l.i];
-   union ref same = {0};
+   Ref *args = phitab.p[instrtab[phiref.i].l.i];
+   Ref same = {0};
    for (int i = 0; i < blk->npred; ++i) {
       if (args[i].bits == same.bits || args[i].bits == phiref.bits) {
          continue; /* unique value or self-reference */
@@ -62,7 +62,7 @@ deltrivialphis(struct ssabuilder *sb, int var, struct block *blk, union ref phir
 
    /* replace uses */
    replcuses(phiref, same);
-   union ref **pcurdefs = imap_get(&sb->curdefs, var);
+   Ref **pcurdefs = imap_get(&sb->curdefs, var);
    assert (pcurdefs);
    for (int i = blk->id; i < sb->nblk; ++i) {
       if ((*pcurdefs)[i].bits == phiref.bits)
@@ -74,10 +74,10 @@ deltrivialphis(struct ssabuilder *sb, int var, struct block *blk, union ref phir
 
    /* recursively try to remove all phi users as they might have become trivial */
 Redo:
-   for (struct use *use = instruse[phiref.i]; use; use = use->next) {
+   for (IRUse *use = instruse[phiref.i]; use; use = use->next) {
       if (use->u != USERJUMP && instrtab[use->u].op == Ophi && use->u != phiref.i) {
-         union ref it = mkref(RTMP, use->u);
-         union ref vphi2 = deltrivialphis(sb, var, use->blk, it);
+         Ref it = mkref(RTMP, use->u);
+         Ref vphi2 = deltrivialphis(sb, var, use->blk, it);
          if (vphi2.bits != it.bits) {
             same = vphi2;
             /* deletion happened so phiref use may have changed */
@@ -90,12 +90,12 @@ Redo:
    return same;
 }
 
-static union ref
-addphiargs(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk, union ref phiref)
+static Ref
+addphiargs(SSABuilder *sb, int var, enum irclass cls, Block *blk, Ref phiref)
 {
-   union ref *args = phitab.p[instrtab[phiref.i].l.i];
+   Ref *args = phitab.p[instrtab[phiref.i].l.i];
    for (int i = 0; i < blk->npred; ++i) {
-      struct block *pred = blkpred(blk, i);
+      Block *pred = blkpred(blk, i);
       args[i] = readvar(sb, var, cls, pred);
       adduse(blk, phiref.i, args[i]);
    }
@@ -104,21 +104,21 @@ addphiargs(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk, 
 }
 
 static void
-writevar(struct ssabuilder *sb, int var, struct block *blk, union ref val)
+writevar(SSABuilder *sb, int var, Block *blk, Ref val)
 {
-   union ref **pcurdefs;
+   Ref **pcurdefs;
    if (!(pcurdefs = imap_get(&sb->curdefs, var))) {
-      pcurdefs = imap_set(&sb->curdefs, var, allocz(sb->arena, sb->nblk * sizeof(union ref), 0));
+      pcurdefs = imap_set(&sb->curdefs, var, allocz(sb->arena, sb->nblk * sizeof(Ref), 0));
    }
    if (val.t == RTMP) assert(instrtab[val.i].op != Onop);
    (*pcurdefs)[blk->id] = val;
 }
 
 enum { RPENDINGPHI = 7 };
-static union ref
-readvarrec(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
+static Ref
+readvarrec(SSABuilder *sb, int var, enum irclass cls, Block *blk)
 {
-   union ref val;
+   Ref val;
    assert(blk->npred > 0);
    if (!bstest(sb->sealed, blk->id)) { /* unsealed block */
       /* add pending phi */
@@ -134,11 +134,11 @@ readvarrec(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
        */
       bsset(sb->marked, blk->id);
       for (int i = 0; i < blk->npred; ++i) {
-         struct block *pred = blkpred(blk, i);
-         union ref it = readvar(sb, var, cls, pred);
+         Block *pred = blkpred(blk, i);
+         Ref it = readvar(sb, var, cls, pred);
          if (!bstest(sb->marked, blk->id)) {
             /* recursion reached this blk again, use its phi */
-            union ref **pcurdefs = imap_get(&sb->curdefs, var);
+            Ref **pcurdefs = imap_get(&sb->curdefs, var);
             /* must have called writevar */
             assert(*pcurdefs && (*pcurdefs)[blk->id].bits);
             return (*pcurdefs)[blk->id];
@@ -160,10 +160,10 @@ readvarrec(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
    return val;
 }
 
-static union ref
-readvar(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
+static Ref
+readvar(SSABuilder *sb, int var, enum irclass cls, Block *blk)
 {
-   union ref **pcurdefs;
+   Ref **pcurdefs;
    if ((pcurdefs = imap_get(&sb->curdefs, var)) && (*pcurdefs)[blk->id].bits)
       return (*pcurdefs)[blk->id];
    if (blk->npred == 0) /* entry block, var is read before being written to */
@@ -172,21 +172,21 @@ readvar(struct ssabuilder *sb, int var, enum irclass cls, struct block *blk)
 }
 
 static bool
-trysealrec(struct ssabuilder *sb, struct block *blk)
+trysealrec(SSABuilder *sb, Block *blk)
 {
 Recur:
    if (bstest(sb->sealed, blk->id)) return 1;
    if (blk->id > sb->lastvisit) return 0;
    markvisited(blk);
    for (int i = 0; i < blk->npred; ++i) {
-      struct block *p = blkpred(blk, i);
+      Block *p = blkpred(blk, i);
       if (wasvisited(p)) continue;
       if (p->id > sb->lastvisit) return 0;
    }
 
    bsset(sb->sealed, blk->id);
    for (int i = 0; i < blk->phi.n; ++i) {
-      struct instr *ins = &instrtab[blk->phi.p[i]];
+      Instr *ins = &instrtab[blk->phi.p[i]];
       if (ins->r.t == RPENDINGPHI)
          addphiargs(sb, ins->r.i, ins->cls, blk, mkref(RTMP, blk->phi.p[i]));
    }
@@ -202,14 +202,14 @@ Recur:
 }
 
 static void
-tryseal(struct ssabuilder *sb, struct block *blk)
+tryseal(SSABuilder *sb, Block *blk)
 {
    startbbvisit();
    trysealrec(sb, blk);
 }
 
 static int
-blkfindins(struct block *blk, int ins)
+blkfindins(Block *blk, int ins)
 {
    for (int i = 0; i < blk->phi.n; ++i)
       if (blk->phi.p[i] == ins) return -1;
@@ -222,17 +222,17 @@ static int
 rcmpuse(const void *a, const void *b)
 {
    /* postorder sort */
-   const struct use *ua = *(struct use **)a, *ub = *(struct use **)b;
-   struct block *blk = ua->blk;
+   const IRUse *ua = *(IRUse **)a, *ub = *(IRUse **)b;
+   Block *blk = ua->blk;
    if (ua->blk != ub->blk) return ub->blk->id - ua->blk->id;
    assert(ua->u != USERJUMP && ub->u != USERJUMP);
    return blkfindins(blk, ub->u) - blkfindins(blk, ua->u);
 }
 
 void
-mem2reg(struct function *fn)
+mem2reg(Function *fn)
 {
-   struct ssabuilder sb = { fn->passarena, .nblk = fn->nblk };
+   SSABuilder sb = { fn->passarena, .nblk = fn->nblk };
 
    FREQUIRE(FNUSE);
 
@@ -240,23 +240,23 @@ mem2reg(struct function *fn)
    sb.marked = allocz(sb.arena, BSSIZE(fn->nblk) * sizeof *sb.sealed, 0);
    sortrpo(fn);
 
-   struct block *blk = fn->entry;
+   Block *blk = fn->entry;
    do {
       for (int i = 0; i < blk->ins.n; ++i) {
          enum irclass k = 0;
          int sz = 0;
          enum op ext = Ocopy;
          int var = blk->ins.p[i];
-         struct instr *ins = &instrtab[var];
-         struct use *use;
+         Instr *ins = &instrtab[var];
+         IRUse *use;
          
          /* find allocas only used in loads/stores of uniform size */
          if (!oisalloca(ins->op) || !(use = instruse[var])) continue;
-         struct use *usesbuf[64];
-         vec_of(struct use *) uses = VINIT(usesbuf, countof(usesbuf));
+         IRUse *usesbuf[64];
+         vec_of(IRUse *) uses = VINIT(usesbuf, countof(usesbuf));
          do {
             if (use->u == USERJUMP) goto Skip;
-            struct instr *m = &instrtab[use->u];
+            Instr *m = &instrtab[use->u];
             if (oisload(m->op) && (!sz || sz == loadsz(m->op))) {
                sz = loadsz(m->op);
                k = loadcls(m->op);
@@ -278,7 +278,7 @@ mem2reg(struct function *fn)
                writevar(&sb, var, use->blk, ins->r);
                *ins = mkinstr(Onop,0,);
             } else if (oisload(ins->op)) {
-               union ref val = readvar(&sb, var, k = ins->cls, use->blk);
+               Ref val = readvar(&sb, var, k = ins->cls, use->blk);
                adduse(use->blk, use->u, val);
                if (ext != Ocopy && isintcon(val)) { /* fold constant int extension */
                   val = irunop(NULL, ext, k, val);

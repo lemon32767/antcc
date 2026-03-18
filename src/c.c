@@ -8,9 +8,9 @@
 /** Parsing helper functions **/
 #define peek(Cm,Tk) lexpeek((Cm)->lx,Tk)
 static int
-lexc(struct comp *cm, struct token *tk)
+lexc(CComp *cm, Token *tk)
 {
-   struct token tk2, tk_[1];
+   Token tk2, tk_[1];
    int t = lex(cm->lx, tk ? tk : tk_);
    if (t == TKSTRLIT && peek(cm, &tk2) == TKSTRLIT && tk2.wide == tk->wide) {
       /* 5.1.1.2 Translation phase 6: concatenate adjacent string literal tokens */
@@ -46,7 +46,7 @@ lexc(struct comp *cm, struct token *tk)
       vfree(&rest);
    }
    if (ccopt.pedant && in_range(t, TKWBEGIN_, TKWEND_) && (tk = tk ? tk : tk_)->extwarn) {
-      static struct bitset already[BSSIZE(TKWEND_-TKWBEGIN_+1)];
+      static BitSet already[BSSIZE(TKWEND_-TKWBEGIN_+1)];
       if (!bstest(already, t-TKWBEGIN_)) {
          bsset(already, t-TKWBEGIN_);
          warn(&tk->span, "%'tk in %M is an extension", tk);
@@ -56,7 +56,7 @@ lexc(struct comp *cm, struct token *tk)
 }
 #define lex(Cm,Tk) lexc(Cm,Tk)
 static bool
-match(struct comp *cm, struct token *tk, enum toktag t)
+match(CComp *cm, Token *tk, enum toktag t)
 {
    if (peek(cm, NULL) == t) {
       lex(cm, tk);
@@ -65,9 +65,9 @@ match(struct comp *cm, struct token *tk, enum toktag t)
    return 0;
 }
 static bool
-expect(struct comp *cm, enum toktag t, const char *s)
+expect(CComp *cm, enum toktag t, const char *s)
 {
-   struct token tk;
+   Token tk;
    if (!match(cm, &tk, t)) {
       peek(cm, &tk);
       if (aisprint(t)) tk.span.ex.len = tk.span.sl.len = 1;
@@ -96,9 +96,9 @@ enum declkind {
  * st.more indicates whether there are more decls left to parse (the coroutine
  * has yielded), or this declaration list is done (the coroutine has finalized)
  */
-struct declstate {
+typedef struct DeclState {
    enum declkind kind;
-   union type base;
+   Type base;
    uchar scls;
    uchar qual;
    bool fnnoreturn : 1,
@@ -115,21 +115,21 @@ struct declstate {
         tagdecl, /* declarator is a tagged type */
         empty; /* nothing decl (';') */
    internstr *pnames; /* param names for function definition */
-   struct span *pspans; /* param spans ditto */
+   Span *pspans; /* param spans ditto */
    uchar *pqual; /* param quals ditto */
    int attr;
-};
-static struct decl pdecl(struct declstate *st, struct comp *cm);
+} DeclState;
+static Decl pdecl(DeclState *st, CComp *cm);
 
-static struct decl *finddecl(struct comp *cm, internstr name);
+static Decl *finddecl(CComp *cm, internstr name);
 
 /* next token starts a decl? */
 static bool
-isdecltok(struct comp *cm)
+isdecltok(CComp *cm)
 {
-   struct token tk;
+   Token tk;
    if (peek(cm, &tk) == TKIDENT) {
-      struct decl *decl = finddecl(cm, tk.name);
+      Decl *decl = finddecl(cm, tk.name);
       return decl && decl->scls == SCTYPEDEF;
    } else {
       static const bool kws[] = {
@@ -152,11 +152,11 @@ isdecltok(struct comp *cm)
 
 /* next token starts an expr? */
 static bool
-isexprtok(struct comp *cm)
+isexprtok(CComp *cm)
 {
-   struct token tk;
+   Token tk;
    if (peek(cm, &tk) == TKIDENT) {
-      struct decl *decl = finddecl(cm, tk.name);
+      Decl *decl = finddecl(cm, tk.name);
       return !decl || decl->scls != SCTYPEDEF;
    } else {
       static const bool tks[] = {
@@ -174,15 +174,15 @@ isexprtok(struct comp *cm)
 /* Environment (scope) management */
 /**********************************/
 
-struct envdecls declsbuf;
-struct tagged { /* a tagged type declaration */
-   union type ty;
-   struct span span;
-};
-static struct tagged envtaggedbuf[1<<7];
-static vec_of(struct tagged) envtagged = VINIT(envtaggedbuf, countof(envtaggedbuf));
-struct env {
-   struct env *up;
+struct declsbuf declsbuf;
+typedef struct { /* a tagged type declaration */
+   Type ty;
+   Span span;
+} Tagged;
+static Tagged envtaggedbuf[1<<7];
+static vec_of(Tagged) envtagged = VINIT(envtaggedbuf, countof(envtaggedbuf));
+struct Env {
+   Env *up;
    /* list of decls is implicitly envdecls[decl..ndecl] */
    ushort decl, ndecl;
    /* ditto for envtagged[] */
@@ -192,7 +192,7 @@ struct env {
 static pmap_of(ushort) tldeclmap;
 
 static void
-envdown(struct comp *cm, struct env *e)
+envdown(CComp *cm, Env *e)
 {
    assert(cm->env->decl + cm->env->ndecl == declsbuf.n);
    assert(cm->env->tagged + cm->env->ntagged == envtagged.n);
@@ -204,9 +204,9 @@ envdown(struct comp *cm, struct env *e)
 }
 
 static void
-envup(struct comp *cm)
+envup(CComp *cm)
 {
-   struct env *env = cm->env;
+   Env *env = cm->env;
    assert(env->decl + env->ndecl == declsbuf.n);
    declsbuf.n -= env->ndecl;
    envtagged.n -= env->ntagged;
@@ -215,7 +215,7 @@ envup(struct comp *cm)
 }
 
 int
-envadddecl(struct env *env, const struct decl *d)
+envadddecl(Env *env, const Decl *d)
 {
    assert(env->decl + env->ndecl == declsbuf.n);
    vpush(&declsbuf, *d);
@@ -228,7 +228,7 @@ envadddecl(struct env *env, const struct decl *d)
 /* iters in reversed order of insertion (most to least recent) */
 /* use like so: for (d = NULL; enviterdecl(&d, env);) ... */
 static inline bool
-enviterdecl(struct decl **d, struct env *env)
+enviterdecl(Decl **d, Env *env)
 {
    if (!env->ndecl) return 0;
    if (!*d) *d = &declsbuf.p[env->decl + env->ndecl - 1];
@@ -237,10 +237,10 @@ enviterdecl(struct decl **d, struct env *env)
    return 1;
 }
 
-static struct tagged *
-envaddtagged(struct env *env, union type ty, const struct span *span)
+static Tagged *
+envaddtagged(Env *env, Type ty, const Span *span)
 {
-   struct tagged tagged = { ty, *span };
+   Tagged tagged = { ty, *span };
    assert(env->tagged + env->ntagged == envtagged.n);
    vpush(&envtagged, tagged);
    assert(envtagged.n < 1<<16);
@@ -250,7 +250,7 @@ envaddtagged(struct env *env, union type ty, const struct span *span)
 
 /* like enviterdecl */
 static inline bool
-envitertagged(struct tagged **l, struct env *env)
+envitertagged(Tagged **l, Env *env)
 {
    if (!env->ntagged) return 0;
    if (!*l) *l = &envtagged.p[env->tagged + env->ntagged - 1];
@@ -260,7 +260,7 @@ envitertagged(struct tagged **l, struct env *env)
 }
 
 static bool
-redeclarationok(const struct decl *old, const struct decl *new)
+redeclarationok(const Decl *old, const Decl *new)
 {
    bool takeoldscls = 0;
    if (old->scls != new->scls) {
@@ -284,7 +284,7 @@ redeclarationok(const struct decl *old, const struct decl *new)
        && typedata[old->ty.dat].ret.bits == typedata[new->ty.dat].ret.bits
        && (typedata[old->ty.dat].kandr || typedata[new->ty.dat].kandr))
       { OkFuncs:
-         if (takeoldscls) ((struct decl *)new)->scls = old->scls;
+         if (takeoldscls) ((Decl *)new)->scls = old->scls;
          return 1;
       }
       return 0;
@@ -295,10 +295,10 @@ redeclarationok(const struct decl *old, const struct decl *new)
 }
 
 static int
-putdecl(struct comp *cm, const struct decl *decl)
+putdecl(CComp *cm, const Decl *decl)
 {
-   for (struct env *env = cm->env; env; env = env->up) {
-      struct decl *l;
+   for (Env *env = cm->env; env; env = env->up) {
+      Decl *l;
       if (!env->up) {
          ushort *pi = pmap_get(&tldeclmap, decl->name);
          if (pi) {
@@ -326,15 +326,15 @@ putdecl(struct comp *cm, const struct decl *decl)
    return envadddecl(cm->env, decl);
 }
 
-static struct decl *
-finddecl(struct comp *cm, internstr name)
+static Decl *
+finddecl(CComp *cm, internstr name)
 {
    assert(name);
-   for (struct env *e = cm->env; e; e = e->up) {
+   for (Env *e = cm->env; e; e = e->up) {
       if (!e->up) {
          ushort *pi = pmap_get(&tldeclmap, name);
          if (pi) return &declsbuf.p[*pi];
-      } else for (struct decl *l = NULL; enviterdecl(&l, e);) {
+      } else for (Decl *l = NULL; enviterdecl(&l, e);) {
          if (name == l->name)
             return l;
       }
@@ -342,13 +342,13 @@ finddecl(struct comp *cm, internstr name)
    return NULL;
 }
 
-static union type
-gettagged(struct comp *cm, struct span *span, enum typetag tt, internstr name, bool dodef)
+static Type
+gettagged(CComp *cm, Span *span, enum typetag tt, internstr name, bool dodef)
 {
-   struct typedata td = {0};
+   TypeData td = {0};
    assert(name);
-   for (struct env *e = cm->env; e; e = e->up) {
-      for (struct tagged *l = NULL; envitertagged(&l, e);) {
+   for (Env *e = cm->env; e; e = e->up) {
+      for (Tagged *l = NULL; envitertagged(&l, e);) {
          if (name == ttypenames[typedata[l->ty.dat].id]) {
             if (dodef && e != cm->env)
                goto Break2;
@@ -365,12 +365,12 @@ Break2:
    return envaddtagged(cm->env, mktagtype(name, &td), span)->ty;
 }
 
-static union type
-deftagged(struct comp *cm, struct span *span, enum typetag tt, internstr name, union type ty)
+static Type
+deftagged(CComp *cm, Span *span, enum typetag tt, internstr name, Type ty)
 {
-   struct typedata td = {0};
+   TypeData td = {0};
    assert(name);
-   for (struct tagged *l = NULL; envitertagged(&l, cm->env);) {
+   for (Tagged *l = NULL; envitertagged(&l, cm->env);) {
       if (name == ttypenames[typedata[l->ty.dat].id]) {
          *span = l->span;
          return l->ty;
@@ -387,14 +387,14 @@ deftagged(struct comp *cm, struct span *span, enum typetag tt, internstr name, u
 #define iszero(ex) ((ex).t == ENUMLIT && isint((ex).ty) && (ex).u == 0)
 
 static bool
-islvalue(const struct expr *ex)
+islvalue(const Expr *ex)
 {
    if (ex->t == EGETF) return islvalue(ex->sub);
    return ex->t == ESYM || ex->t == EDEREF || ex->t == EINIT || ex->t == ESTRLIT;
 }
 
-static union type /* 6.5.2.6 default argument promotions */
-argpromote(union type t)
+static Type /* 6.5.2.6 default argument promotions */
+argpromote(Type t)
 {
    if (isint(t)) t.t = intpromote(t.t);
    else if (t.t == TYFLOAT) t.t = TYDOUBLE;
@@ -404,9 +404,9 @@ argpromote(union type t)
 }
 
 bool
-assigncheck(union type t, const struct expr *src)
+assigncheck(Type t, const Expr *src)
 {
-   union type srcty = typedecay(src->ty);;
+   Type srcty = typedecay(src->ty);;
    if (assigncompat(t, srcty)) {
       if (t.t == TYPTR && srcty.t == TYPTR
        && (t.flag & TFCHLDQUAL & srcty.flag & TFCHLDQUAL) != (srcty.flag & TFCHLDQUAL)) {
@@ -421,7 +421,7 @@ assigncheck(union type t, const struct expr *src)
 }
 
 static bool
-initcheck(union type t, const struct expr *src)
+initcheck(Type t, const Expr *src)
 {
    if (assigncheck(t, src)) return 1;
    if (t.bits == src->ty.bits && (src->t == EINIT || src->t == ESTRLIT)) return 1;
@@ -429,7 +429,7 @@ initcheck(union type t, const struct expr *src)
 }
 
 static void
-incdeccheck(enum toktag tt, const struct expr *ex, const struct span *span)
+incdeccheck(enum toktag tt, const Expr *ex, const Span *span)
 {
    if (!isscalar(ex->ty))
       error(&ex->span, "invalid operand to %tt '%ty'", tt, ex->ty);
@@ -442,9 +442,9 @@ incdeccheck(enum toktag tt, const struct expr *ex, const struct span *span)
 }
 
 static bool /* 6.5.4 Cast operators */
-castcheck(union type to, const struct expr *ex)
+castcheck(Type to, const Expr *ex)
 {
-   union type src = ex->ty;
+   Type src = ex->ty;
    if (to.t == TYVOID) return 1;
    if (isagg(to)) return 0;
    if (to.bits == src.bits) return 1;
@@ -455,10 +455,10 @@ castcheck(union type to, const struct expr *ex)
    return 0;
 }
 
-static union type /* 6.5.2.1 Array subscripting */
-subscriptcheck(const struct expr *ex, const struct expr *rhs, const struct span *span)
+static Type /* 6.5.2.1 Array subscripting */
+subscriptcheck(const Expr *ex, const Expr *rhs, const Span *span)
 {
-   union type ty;
+   Type ty;
    if (ex->ty.t == TYPTR || ex->ty.t == TYARRAY) {
       if (isincomplete(typedecay(ty = typechild(ex->ty)))) {
          error(span, "cannot dereference pointer to incomplete type '%ty'", ty);
@@ -477,7 +477,7 @@ subscriptcheck(const struct expr *ex, const struct expr *rhs, const struct span 
 }
 
 static uint /* 6.5.3.4 The sizeof and _Alignof operators */
-sizeofalignofcheck(const struct span *span, enum toktag tt, union type ty, const struct expr *ex)
+sizeofalignofcheck(const Span *span, enum toktag tt, Type ty, const Expr *ex)
 {
    uint r = (tt == TKWsizeof ? typesize : typealign)(ty);
    if (ty.t == TYVOID) {
@@ -496,9 +496,9 @@ sizeofalignofcheck(const struct span *span, enum toktag tt, union type ty, const
 }
 
 static bool /* 6.5.8 Relational operators */
-relationalcheck(const struct expr *a, const struct expr *b)
+relationalcheck(const Expr *a, const Expr *b)
 {
-   union type t1 = a->ty, t2 = b->ty;
+   Type t1 = a->ty, t2 = b->ty;
    if (isarith(t1) && isarith(t2)) return 1;
    if (isptrcvt(t1) && isptrcvt(t2)) {
       t1 = typedecay(t1);
@@ -509,20 +509,20 @@ relationalcheck(const struct expr *a, const struct expr *b)
 }
 
 static bool
-isnullpo(const struct expr *ex) /* match '0' or '(void *) 0' */
+isnullpo(const Expr *ex) /* match '0' or '(void *) 0' */
 {
-   static const union type voidptr = {{ TYPTR, .flag = TFCHLDPRIM, .child = TYVOID }};
+   static const Type voidptr = {{ TYPTR, .flag = TFCHLDPRIM, .child = TYVOID }};
    while (ex->t == ECAST && ex->ty.bits == voidptr.bits)
       ex = ex->sub;
    if (iszero(*ex)) return 1;
-   return eval((struct expr *)ex, EVINTCONST) /* GNU extension. should we warn? */
+   return eval((Expr *)ex, EVINTCONST) /* GNU extension. should we warn? */
        && iszero(*ex);
 }
 
 static bool /* 6.5.9 Equality operators */
-equalitycheck(const struct expr *a, const struct expr *b)
+equalitycheck(const Expr *a, const Expr *b)
 {
-   union type t1 = a->ty, t2 = b->ty;
+   Type t1 = a->ty, t2 = b->ty;
    if (isarith(t1) && isarith(t2)) return 1;
    if (isptrcvt(t1) && isptrcvt(t2)) {
       t1 = typedecay(t1), t2 = typedecay(t2);
@@ -533,10 +533,10 @@ equalitycheck(const struct expr *a, const struct expr *b)
    return (isptrcvt(t1) && isnullpo(b)) || (isptrcvt(t2) && isnullpo(a));
 }
 
-static union type /* 6.5.15 Conditional operator */
-condtype(const struct expr *a, const struct expr *b)
+static Type /* 6.5.15 Conditional operator */
+condtype(const Expr *a, const Expr *b)
 {
-   union type t1 = typedecay(a->ty), t2 = typedecay(b->ty), s1, s2;
+   Type t1 = typedecay(a->ty), t2 = typedecay(b->ty), s1, s2;
    if (isarith(t1) && isarith(t2)) return cvtarith(t1, t2);
    if (t1.bits == t2.bits) return t1;
    if (t1.t == TYPTR && isnullpo(b)) return t1;
@@ -551,7 +551,7 @@ condtype(const struct expr *a, const struct expr *b)
 }
 
 static void
-bintypeerr(const struct span *span, enum toktag tt, union type lhs, union type rhs)
+bintypeerr(const Span *span, enum toktag tt, Type lhs, Type rhs)
 {
    error(span, "bad operands to %tt ('%ty', '%ty')", tt, lhs, rhs);
 }
@@ -592,11 +592,11 @@ static const struct { uchar prec, t, k; } bintab[] = {
    [','] = {1, ESEQ, BCSEQ}
 };
 
-static union type
-bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct expr *rhs)
+static Type
+bintypecheck(const Span *span, enum toktag tt, Expr *lhs, Expr *rhs)
 {
    enum binopclass k = bintab[tt].k;
-   union type ty = lhs->ty;
+   Type ty = lhs->ty;
 
    assert(k);
    if (k & BCSET) {
@@ -624,7 +624,7 @@ bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct e
    case BCADDITIVE:
       if (tt == '+' && isptrcvt(rhs->ty)) {
          /* int + ptr -> ptr + int (for convenience) */
-         const struct expr swaptmp = *lhs;
+         const Expr swaptmp = *lhs;
          *lhs = *rhs;
          *rhs = swaptmp;
          ty = lhs->ty;
@@ -635,7 +635,7 @@ bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct e
          assert(ty.t);
       } else if ((ty.t == TYPTR || ty.t == TYARRAY) && isint(rhs->ty)) {
          /* ptr +/- int */
-         union type pointee = typechild(ty);
+         Type pointee = typechild(ty);
          if (isincomplete(pointee))
             error(span, "arithmetic on pointer to incomplete type '%ty'", ty);
          else if (pointee.t == TYFUNC)
@@ -643,7 +643,7 @@ bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct e
          ty = typedecay(ty);
       } else if (tt == '-' && isptrcvt(ty) && isptrcvt(rhs->ty)) {
          /* ptr - ptr */
-         union type pointee1 = typechild(typedecay(ty)),
+         Type pointee1 = typechild(typedecay(ty)),
                     pointee2 = typechild(typedecay(rhs->ty));
          if (isincomplete(pointee1))
             error(span, "arithmetic on pointer to incomplete type '%ty'", ty);
@@ -709,39 +709,39 @@ bintypecheck(const struct span *span, enum toktag tt, struct expr *lhs, struct e
 /* Expr Parsing */
 /****************/
 
-#define mkexpr(t_,span_,ty_,...) ((struct expr){.t=(t_), .ty=(ty_), .span=(span_), __VA_ARGS__})
+#define mkexpr(t_,span_,ty_,...) ((Expr){.t=(t_), .ty=(ty_), .span=(span_), __VA_ARGS__})
 
-static struct expr *
-exprdup(struct comp *cm, const struct expr *e)
+static Expr *
+exprdup(CComp *cm, const Expr *e)
 {
    return alloccopy(&cm->exarena, e, sizeof *e, 0);
 }
-static struct expr *
-exprdup2(struct comp *cm, const struct expr *e1, const struct expr *e2)
+static Expr *
+exprdup2(CComp *cm, const Expr *e1, const Expr *e2)
 {
-   struct expr *r = alloc(&cm->exarena, 2*sizeof *r, 0);
+   Expr *r = alloc(&cm->exarena, 2*sizeof *r, 0);
    r[0] = *e1, r[1] = *e2;
    return r;
 }
 
-static struct expr expr(struct comp *cm);
-static struct expr commaexpr(struct comp *cm);
+static Expr expr(CComp *cm);
+static Expr commaexpr(CComp *cm);
 
 enum { IMPLICITSYMTY = 0xFF, };
 
-static struct expr /* 6.5.2.2 Function calls */
-callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
+static Expr /* 6.5.2.2 Function calls */
+callexpr(CComp *cm, const Span *span_, const Expr *callee)
 {
-   struct token tk;
-   struct expr ex, arg;
-   struct span span = callee->span;
-   union type ty = callee->ty;
-   const struct typedata *td = NULL;
-   struct expr argbuf[10];
-   vec_of(struct expr) args = VINIT(argbuf, countof(argbuf));
+   Token tk;
+   Expr ex, arg;
+   Span span = callee->span;
+   Type ty = callee->ty;
+   const TypeData *td = NULL;
+   Expr argbuf[10];
+   vec_of(Expr) args = VINIT(argbuf, countof(argbuf));
    bool spanok = joinspan(&span.ex, span_->ex);
    bool printsig = 0;
-   const struct builtin *builtin = NULL;
+   const Builtin *builtin = NULL;
 
    if (callee->t == ESYM && !callee->ty.t && declsbuf.p[callee->decl].isbuiltin) {
       builtin = declsbuf.p[callee->decl].builtin;
@@ -750,13 +750,13 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
 
    if (callee->t == ESYM && ty.t == IMPLICITSYMTY) { /* implicit function decl.. */
       internstr name = callee->implicitsym;
-      struct decl decl = {
+      Decl decl = {
          (ty = mkfntype(mktype(TYINT), 0, NULL, /* kandr */ 1, 0)),
          .scls = SCEXTERN, .span = span, .name = name, .sym = name
       };
       warn(&span, "call to undeclared function '%s'", name);
-      ((struct expr *)callee)->ty = decl.ty;
-      ((struct expr *)callee)->decl = putdecl(cm, &decl);
+      ((Expr *)callee)->ty = decl.ty;
+      ((Expr *)callee)->decl = putdecl(cm, &decl);
    }
 
    if (!builtin) {
@@ -804,9 +804,9 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
    if (printsig) note(&callee->span, "function signature is '%ty'", ty);
 
    ex = mkexpr(ECALL, span, ty.t == TYFUNC ? td->ret : ty, .narg = args.n,
-               .sub = alloc(&cm->exarena, (args.n+1)*sizeof(struct expr), 0));
+               .sub = alloc(&cm->exarena, (args.n+1)*sizeof(Expr), 0));
    ex.sub[0] = *callee;
-   memcpy(ex.sub+1, args.p, args.n*sizeof(struct expr));
+   memcpy(ex.sub+1, args.p, args.n*sizeof(Expr));
    vfree(&args);
    if (builtin) {
       builtin->sema(cm, &ex);
@@ -815,12 +815,12 @@ callexpr(struct comp *cm, const struct span *span_, const struct expr *callee)
 }
 
 static void
-ppostfixopers(struct comp *cm, struct expr *ex)
+ppostfixopers(CComp *cm, Expr *ex)
 {
-   struct expr tmp, rhs;
-   struct token tk, tk2;
-   struct span span;
-   union type ty;
+   Expr tmp, rhs;
+   Token tk, tk2;
+   Span span;
+   Type ty;
 
    for (;;) switch (peek(cm, &tk)) {
    default: return;
@@ -886,7 +886,7 @@ ppostfixopers(struct comp *cm, struct expr *ex)
          error(&span, "member access operand is not an aggregate: '%ty'%s", ex->ty,
                ex->ty.t == TYPTR && isagg(typechild(ex->ty)) ? "; did you mean to use '->'?" : "");
       } else {
-         struct fielddata fld = {.t = mktype(TYINT)};
+         FieldData fld = {.t = mktype(TYINT)};
          if (*tk2.s && !getfield(&fld, ex->ty, tk2.name))
             error(&span, "'%ty' has no such field: '%s'", ex->ty, tk2.name);
          if (ex->t == EGETF && ex->qual == fld.qual) { /* accumulate */
@@ -904,17 +904,17 @@ ppostfixopers(struct comp *cm, struct expr *ex)
    }
 }
 
-static struct expr
-vaargexpr(struct comp *cm, struct span *span)
+static Expr
+vaargexpr(CComp *cm, Span *span)
 {
-   struct token tk;
-   struct expr ex = mkexpr(EXXX, *span, mktype(TYVOID), );
+   Token tk;
+   Expr ex = mkexpr(EXXX, *span, mktype(TYVOID), );
    if (expect(cm, '(', "after __builtin_va_arg")) {
-      struct expr arg = expr(cm);
-      struct decl decl;
-      union type ty;
+      Expr arg = expr(cm);
+      Decl decl;
+      Type ty;
       expect(cm, ',', NULL);
-      decl = pdecl(&(struct declstate){DCASTEXPR}, cm);
+      decl = pdecl(&(DeclState){DCASTEXPR}, cm);
       ty = decl.ty;
       peek(cm, &tk);
       if (expect(cm, ')', NULL))
@@ -936,12 +936,12 @@ vaargexpr(struct comp *cm, struct span *span)
    return ex;
 }
 
-static struct expr
-genericexpr(struct comp *cm, struct span *span)
+static Expr
+genericexpr(CComp *cm, Span *span)
 {
-   struct token tk;
+   Token tk;
    if (expect(cm, '(', "after _Generic")) {
-      struct expr control = expr(cm), dfault = {0}, ex = {0};
+      Expr control = expr(cm), dfault = {0}, ex = {0};
       expect(cm, ',', NULL);
       for (;;) {
          if (match(cm, &tk, TKWdefault)) {
@@ -953,8 +953,8 @@ genericexpr(struct comp *cm, struct span *span)
                dfault = expr(cm);
             }
          } else {
-            struct decl decl = pdecl(&(struct declstate){DCASTEXPR}, cm);
-            union type ty = decl.ty;
+            Decl decl = pdecl(&(DeclState){DCASTEXPR}, cm);
+            Type ty = decl.ty;
             expect(cm, ':', NULL);
             if (!ex.t &&
                 (typedecay(ty).bits == typedecay(control.ty).bits
@@ -991,7 +991,7 @@ tkprec(int tt)
    return ((uint)tt < countof(bintab)) ?  bintab[tt].prec : 0;
 }
 
-static struct expr initializer(struct comp *cm, union type *ty, enum evalmode ev,
+static Expr initializer(CComp *cm, Type *ty, enum evalmode ev,
                                bool globl, enum qualifier qual, internstr name);
 
 static internstr istr__func__, istr_main, istr_memset;
@@ -1002,17 +1002,17 @@ static internstr mkhiddensym(const char *fnname, const char *name, int id);
 /* param ident is a kludge to support block labels without backtracking or extra lookahead
  * see stmt() */
 enum exprctx { EFROMSTMT = 1, EARRAYCOUNT, EATTRARG };
-static struct expr
-exprparse(struct comp *cm, int prec, const struct token *ident, enum exprctx ctx)
+static Expr
+exprparse(CComp *cm, int prec, const Token *ident, enum exprctx ctx)
 {
-   struct token tk;
-   struct span span;
-   struct expr ex;
-   union type ty;
+   Token tk;
+   Span span;
+   Expr ex;
+   Type ty;
    struct {
-      struct span span;
+      Span span;
       union {
-         union type ty; /* cast type */
+         Type ty; /* cast type */
          struct {
             uchar t0; /* t == 0 */
             short tt; /* token */
@@ -1034,7 +1034,7 @@ Unary:
    case '*':
       if (ctx == EARRAYCOUNT && peek(cm, NULL) == ']') {
          /* kludge for C99 `int x[*]` (unk VLA size) */
-         return (struct expr) { 0, .span = tk.span };
+         return (Expr) { 0, .span = tk.span };
       }
       /* fallthru */
    case '+': case '-': case '~': case '!':
@@ -1052,16 +1052,16 @@ Unary:
    /* might be unary op (cast) or primary expr */
    case '(':
       if (!isdecltok(cm)) { /* (expr) */
-         struct span span = tk.span;
+         Span span = tk.span;
          ex = commaexpr(cm);
          joinspan(&span.ex, ex.span.ex);
          peek(cm, &tk);
          if (expect(cm, ')', NULL)) joinspan(&span.ex, tk.span.ex);
          ex.span = span;
       } else { /* (type) expr */
-         struct declstate st = { DCASTEXPR };
-         struct decl decl = pdecl(&st, cm);
-         struct span span = tk.span;
+         DeclState st = { DCASTEXPR };
+         Decl decl = pdecl(&st, cm);
+         Span span = tk.span;
          assert(decl.ty.t);
          peek(cm, &tk);
          if (expect(cm, ')', NULL))
@@ -1098,7 +1098,7 @@ Unary:
       ex = mkexpr(ESTRLIT, tk.span, mkarrtype(ty, 0, tk.len+1), { .s.p = (void *)tk.s, .s.n = tk.len });
       break;
    case TKIDENT: Ident: {
-      struct decl *decl = finddecl(cm, tk.name);
+      Decl *decl = finddecl(cm, tk.name);
       if (!decl) {
          if (cm->env->up && tk.name->c == '_'
           && (!strcmp(&tk.name->c, "__FUNCTION__") || !strcmp(&tk.name->c, "__PRETTY_FUNCTION__"))) {
@@ -1139,14 +1139,14 @@ Unary:
       if (!match(cm, NULL, '(')) /* sizeof/alignof expr */
          goto Unops;
       else if (isdecltok(cm)) { /* sizeof/alignof (type) */
-         struct declstate st = { DCASTEXPR };
+         DeclState st = { DCASTEXPR };
          ty = pdecl(&st, cm).ty;
          peek(cm, &tk);
          if (expect(cm, ')', NULL))
             joinspan(&span.ex, tk.span.ex);
          res = sizeofalignofcheck(&span, tt, ty, NULL);
       } else { /* sizeof/alignof expr */
-         struct expr tmp = commaexpr(cm);
+         Expr tmp = commaexpr(cm);
          peek(cm, &tk);
          if (expect(cm, ')', NULL))
             joinspan(&span.ex, tk.span.ex);
@@ -1243,7 +1243,7 @@ Unary:
    /* binary operators */
    for (int opprec; (opprec = tkprec(peek(cm, &tk))) >= prec;) {
       enum exprkind ek = bintab[tk.t].t;
-      struct expr rhs, tmp;
+      Expr rhs, tmp;
       lex(cm, NULL);
       if (ek != ECOND) {
          /* only the assignment operators are right-associative */
@@ -1259,7 +1259,7 @@ Unary:
          ex = mkexpr(ek, span, ty, .sub = exprdup2(cm, &ex, &rhs));
       } else {
          /* logical-OR-expression ? expression : conditional-expression */
-         struct expr *sub;
+         Expr *sub;
          span.sl = tk.span.sl;
          span.ex = ex.span.ex;
          if (!isscalar(ex.ty) && !isptrcvt(ex.ty))
@@ -1285,26 +1285,26 @@ Unary:
    return ex;
 }
 
-static struct expr
-expr(struct comp *cm)
+static Expr
+expr(CComp *cm)
 {
    return exprparse(cm, bintab['='].prec, NULL, 0); /* non-comma expr */
 }
 
-static struct expr
-arraycountexpr(struct comp *cm)
+static Expr
+arraycountexpr(CComp *cm)
 {
    return exprparse(cm, bintab['='].prec, NULL, EARRAYCOUNT); /* non-comma expr, or lone '*' */
 }
 
-static struct expr
-constantexpr(struct comp *cm)
+static Expr
+constantexpr(CComp *cm)
 {
    return exprparse(cm, bintab['?'].prec, NULL, 0); /* conditional-expr */
 }
 
-static struct expr
-commaexpr(struct comp *cm)
+static Expr
+commaexpr(CComp *cm)
 {
    return exprparse(cm, 1, NULL, 0);
 }
@@ -1314,7 +1314,7 @@ commaexpr(struct comp *cm)
 /****************/
 
 static uint
-nmemb(union type ty)
+nmemb(Type ty)
 {
    switch (ty.t) {
    case TYARRAY: return typearrlen(ty) ? typearrlen(ty) : -1u;
@@ -1324,20 +1324,20 @@ nmemb(union type ty)
 }
 
 static bool
-objectp(union type ty)
+objectp(Type ty)
 {
    return isagg(ty) || ty.t == TYARRAY;
 }
 
 static bool
-chrarrayof(union type ty, union type chld)
+chrarrayof(Type ty, Type chld)
 {
    assert(isint(chld));
    return ty.t == TYARRAY && isint(typechild(ty)) && typesize(typechild(ty)) == typesize(chld);
 }
 
-static union type
-membertype(uint *off, uint *bitsiz, uint *bitoff, union type ty, uint idx)
+static Type
+membertype(uint *off, uint *bitsiz, uint *bitoff, Type ty, uint idx)
 {
    *bitsiz = *bitoff = 0;
    if (!objectp(ty)) {
@@ -1347,7 +1347,7 @@ membertype(uint *off, uint *bitsiz, uint *bitoff, union type ty, uint idx)
       *off = typesize(typechild(ty)) * idx;
       return typechild(ty);
    } else if (idx < typedata[ty.dat].nmemb) {
-      struct fielddata fld = typedata[ty.dat].fld[idx].f;
+      FieldData fld = typedata[ty.dat].fld[idx].f;
       *off = fld.off;
       *bitsiz = fld.bitsiz, *bitoff = fld.bitoff;
       return fld.t;
@@ -1356,14 +1356,16 @@ membertype(uint *off, uint *bitsiz, uint *bitoff, union type ty, uint idx)
    return mktype(0);
 }
 
-struct initparser {
-   struct initcur {
-      union type ty;
+typedef struct InitCur InitCur;
+typedef struct InitReloc InitReloc;
+typedef struct InitParser {
+   struct InitCur {
+      Type ty;
       uint idx;
       uint off;
       short prev;
    } buf[32], *cur, *sub;
-   struct arena **arena;
+   Arena **arena;
    uint arrlen;
    enum evalmode ev;
    bool dyn; /* when set, data is written to a temporary buffer first, because either:
@@ -1371,27 +1373,27 @@ struct initparser {
                   - data section is not known until parsing done (to avoid relocs in .rodata)
                 otherwise write to the corresponding object data section buffer directly */
    union {
-      struct init *init; /* for initializer with automatic storage */
+      Init *init; /* for initializer with automatic storage */
       struct {  /* for static storage (dyn = 0) */
          enum section sec;
          uint off;
       };
       struct { /* for static storage (dyn = 1) */
          vec_of(uchar) ddat;
-         struct dreloc {
-            struct dreloc *link;
+         struct InitReloc {
+            struct InitReloc *link;
             internstr sym;
             vlong addend;
             uint off;
          } *drel;
       };
    };
-};
+} InitParser;
 
 static void
-excesscheck(struct initparser *ip, const struct span *span)
+excesscheck(InitParser *ip, const Span *span)
 {
-   union type sub = ip->sub->ty;
+   Type sub = ip->sub->ty;
    uint n = nmemb(sub);
    if (ip->sub->idx == n) {
       if (sub.t == TYARRAY)
@@ -1410,10 +1412,10 @@ excesscheck(struct initparser *ip, const struct span *span)
 #else
 /* debugging */
 static void
-dumpini(struct initparser *ip)
+dumpini(InitParser *ip)
 {
    efmt(">>>\n");
-   for (struct initcur *s = ip->buf; s < ip->sub+1; ++s) {
+   for (InitCur *s = ip->buf; s < ip->sub+1; ++s) {
       efmt("  ");
       efmt("%d. [%ty, %u]", s- ip->buf, s->ty, s->idx);
       if (s == ip->cur) efmt(" <-- cursor");
@@ -1424,7 +1426,7 @@ dumpini(struct initparser *ip)
 #endif
 
 static vlong /* -> returns addend */
-expr2reloc(internstr *psym, const struct expr *ex)
+expr2reloc(internstr *psym, const Expr *ex)
 {
    if (ex->t == ESSYMREF) {
       *psym = ex->ssym.sym;
@@ -1444,13 +1446,13 @@ rodatarelocok(void)
 }
 
 static void
-iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bitoff, union type ty, struct expr *ex)
+iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty, Expr *ex)
 {
    if (ex->ty.t == TYSTRUCT && ip->ev == EVSTATICINI) {
       assert(ty.bits == ex->ty.bits);
       for (uint i = 0, n = nmemb(ex->ty); i < n; ++i) {
          uint suboff;
-         union type sub = membertype(&suboff, &bitsiz, &bitoff, ex->ty, i);
+         Type sub = membertype(&suboff, &bitsiz, &bitoff, ex->ty, i);
          iniwrite(cm, ip, off + suboff, bitsiz, bitoff, sub, exprdup(cm, &mkexpr(EGETF, ex->span, sub, .sub = ex)));
       }
    } else if (ip->ev == EVSTATICINI) {
@@ -1470,7 +1472,7 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
       }
 
       if (ex->t == ENUMLIT) {
-         struct expr *e = ex, tmp;
+         Expr *e = ex, tmp;
          if (ex->ty.bits != ty.bits && ty.t != TYPTR) {
             tmp = mkexpr(ECAST, ex->span, ty, .sub = ex);
             e = &tmp;
@@ -1507,7 +1509,7 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
             objreloc(sym, targ_64bit ? REL_ABS64 : REL_ABS32,
                      ip->sec, ip->off + off, addend);
          } else {
-            struct dreloc *rel = alloc(ip->arena, sizeof *rel, 0);
+            InitReloc *rel = alloc(ip->arena, sizeof *rel, 0);
             rel->link = ip->drel;
             rel->sym = sym;
             rel->off = off;
@@ -1517,8 +1519,8 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
       }
    } else {
       assert(cm != NULL);
-      struct init *init = ip->init;
-      struct initval val = {
+      Init *init = ip->init;
+      InitElem val = {
          .off = off,
          .bitsiz = bitsiz,
          .bitoff = bitoff,
@@ -1534,10 +1536,10 @@ iniwrite(struct comp *cm, struct initparser *ip, uint off, uint bitsiz, uint bit
 }
 
 static bool
-iniwriterec(struct comp *cm, struct initparser *ip, uint off, struct expr *ex)
+iniwriterec(CComp *cm, InitParser *ip, uint off, Expr *ex)
 {
    assert(ex->t == EINIT);
-   for (struct initval *v = ex->init->vals; v; v = v->next) {
+   for (InitElem *v = ex->init->vals; v; v = v->next) {
       if (v->ex.t == EINIT) iniwriterec(cm, ip, off + v->off, &v->ex);
       else if (ip->ev && !eval(&v->ex, ip->ev) && ip->ev != EVFOLD) return 0;
       else iniwrite(cm, ip, off + v->off, v->bitsiz, v->bitoff, v->ex.ty, &v->ex);
@@ -1545,8 +1547,8 @@ iniwriterec(struct comp *cm, struct initparser *ip, uint off, struct expr *ex)
    return 1;
 }
 
-static struct initcur *
-iniadvance(struct initparser *ip, struct initcur *c, const struct span *span)
+static InitCur *
+iniadvance(InitParser *ip, InitCur *c, const Span *span)
 {
    if (c - ip->buf >= countof(ip->buf) - 1)
       fatal(span, "too many nested initializers");
@@ -1555,15 +1557,15 @@ iniadvance(struct initparser *ip, struct initcur *c, const struct span *span)
 
 /* set the initializer cursor object */
 static void
-inifocus(struct initparser *ip, struct comp *cm, const struct span *span, uint idx)
+inifocus(InitParser *ip, CComp *cm, const Span *span, uint idx)
 {
    while (idx >= nmemb(ip->sub->ty) && ip->sub != ip->cur) {
       --ip->sub;
       idx = ip->sub->idx;
    }
    uint off, bitsiz, bitoff;
-   union type targ = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, idx);
-   struct initcur *next = iniadvance(ip, ip->cur, span);
+   Type targ = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, idx);
+   InitCur *next = iniadvance(ip, ip->cur, span);
    assert(!bitsiz);
 
    if (isagg(ip->sub->ty) && targ.t == TYARRAY && !typearrlen(targ))
@@ -1580,7 +1582,7 @@ inifocus(struct initparser *ip, struct comp *cm, const struct span *span, uint i
 
 /* initialize a character array with a string literal */
 static void
-inistrlit(struct comp *cm, struct expr *ex, union type *ty)
+inistrlit(CComp *cm, Expr *ex, Type *ty)
 {
    if (isincomplete(*ty)) {
       *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, ex->s.n + 1);
@@ -1593,11 +1595,11 @@ inistrlit(struct comp *cm, struct expr *ex, union type *ty)
 
 /* read scalar initializer into initializer list and avance */
 static void
-ininext(struct initparser *ip, struct comp *cm)
+ininext(InitParser *ip, CComp *cm)
 {
    uint off, bitsiz, bitoff;
-   union type targ;
-   struct expr ex = expr(cm);
+   Type targ;
+   Expr ex = expr(cm);
 
 Retry:
    targ = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, ip->sub->idx);
@@ -1627,11 +1629,11 @@ Retry:
       --ip->sub;
       goto Retry;
    } else if (objectp(targ) && targ.bits != ex.ty.bits) {
-      struct initcur *next = iniadvance(ip, ip->sub, &ex.span);
+      InitCur *next = iniadvance(ip, ip->sub, &ex.span);
       if (ip->sub - ip->buf == countof(ip->buf) - 1)
          fatal(&ex.span, "too many nested initializers");
       ++ip->sub->idx;
-      *next = (struct initcur) { targ, .off = ip->sub->off + off };
+      *next = (InitCur) { targ, .off = ip->sub->off + off };
       ip->sub = next;
       goto Retry;
    }
@@ -1648,7 +1650,7 @@ Retry:
          CannotEval:
             error(&ex.span, "cannot evaluate expression statically");
          } else {
-            struct expr *pex = &ex;
+            Expr *pex = &ex;
             if (ip->ev != EVSTATICINI) {
                if (ex.ty.bits != targ.bits)
                   ex = mkexpr(ECAST, ex.span, targ, .sub = exprdup(cm, &ex));
@@ -1668,19 +1670,19 @@ Retry:
 }
 
 static int
-aggdesignator(struct initparser *ip, union type ty, internstr name, const struct span *span)
+aggdesignator(InitParser *ip, Type ty, internstr name, const Span *span)
 {
-   const struct typedata *td = &typedata[ty.dat];
+   const TypeData *td = &typedata[ty.dat];
    for (int i = 0; i < td->nmemb; ++i) {
-      struct namedfield *fld = &td->fld[i];
+      NamedField *fld = &td->fld[i];
       if (fld->name == name) {
          return i;
       } else if (!fld->name) {
          int save, sub;
-         struct initcur *next = iniadvance(ip, ip->sub, span);
+         InitCur *next = iniadvance(ip, ip->sub, span);
          save = ip->sub->idx;
          ip->sub->idx = i+1;
-         *next = (struct initcur) { fld->f.t, .off = ip->sub->off + fld->f.off };
+         *next = (InitCur) { fld->f.t, .off = ip->sub->off + fld->f.off };
          ip->sub = next;
          sub = aggdesignator(ip, fld->f.t, name, span);
          if (sub == -1) {
@@ -1693,25 +1695,25 @@ aggdesignator(struct initparser *ip, union type ty, internstr name, const struct
 }
 
 static bool
-designators(struct initparser *ip, struct comp *cm)
+designators(InitParser *ip, CComp *cm)
 {
-   struct token tk;
-   struct span span;
+   Token tk;
+   Span span;
    bool some = 0;
 
    for (;;) {
             uint off, bitsiz, bitoff;
       uvlong idx = ~0ull;
       if (match(cm, &tk, '[')) {
-         struct expr ex = commaexpr(cm);
+         Expr ex = commaexpr(cm);
          span = tk.span;
          joinspan(&span.ex, ex.span.ex);
          peek(cm, &tk);
          if (some) {
-            union type ty = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, ip->sub->idx++);
-            struct initcur *next = iniadvance(ip, ip->sub, &tk.span);
+            Type ty = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, ip->sub->idx++);
+            InitCur *next = iniadvance(ip, ip->sub, &tk.span);
             assert(!bitsiz);
-            *next = (struct initcur) { ty, .off = ip->sub->off + off };
+            *next = (InitCur) { ty, .off = ip->sub->off + off };
             ip->sub = next;
             dumpini(ip);
          }
@@ -1736,9 +1738,9 @@ designators(struct initparser *ip, struct comp *cm)
          span = tk.span;
          peek(cm, &tk);
          if (some) {
-            union type ty = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, ip->sub->idx++);
-            struct initcur *next = iniadvance(ip, ip->sub, &tk.span);
-            *next = (struct initcur) { ty, .off = ip->sub->off + off };
+            Type ty = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, ip->sub->idx++);
+            InitCur *next = iniadvance(ip, ip->sub, &tk.span);
+            *next = (InitCur) { ty, .off = ip->sub->off + off };
             ip->sub = next;
             dumpini(ip);
          }
@@ -1767,14 +1769,14 @@ designators(struct initparser *ip, struct comp *cm)
    }
 }
 
-static struct expr
-initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
+static Expr
+initializer(CComp *cm, Type *ty, enum evalmode ev, bool globl,
             enum qualifier qual, internstr sym)
 {
-   struct token tk;
-   struct span span;
-   struct init res = {0};
-   struct initparser ip[1] = {0};
+   Token tk;
+   Span span;
+   Init res = {0};
+   InitParser ip[1] = {0};
 
    ip->arena = &cm->exarena;
    ip->ev = ev;
@@ -1796,7 +1798,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
    }
 
    if (!match(cm, &tk, '{')) {
-      struct expr ex = expr(cm);
+      Expr ex = expr(cm);
       if (ex.t == ESTRLIT && chrarrayof(*ty, typechild(ex.ty))) {
          inistrlit(cm, &ex, ty);
          iniwrite(cm, ip, 0, 0, 0, *ty, &ex);
@@ -1832,7 +1834,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
          ip->sub = ip->cur = ip->buf + ip->cur->prev;
          dumpini(ip);
       } else if (match(cm, &tk, '{')) {
-         struct span span = tk.span;
+         Span span = tk.span;
          inifocus(ip, cm, &tk.span, ip->sub->idx);
          if (peek(cm, &tk) == '}') {
             if (!joinspan(&span.ex, tk.span.ex)) span = tk.span;
@@ -1879,7 +1881,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
          p = sec == Srodata ? objout.rodata.p : objout.data.p;
          memcpy(p + off, ip->ddat.p, ip->ddat.n);
          memset(p + off + ip->ddat.n, 0, typesize(*ty) - ip->ddat.n);
-         for (struct dreloc *rel = ip->drel; rel; rel = rel->link) {
+         for (InitReloc *rel = ip->drel; rel; rel = rel->link) {
             objreloc(rel->sym, targ_64bit ? REL_ABS64 : REL_ABS32, sec, off + rel->off, rel->addend);
          }
       }
@@ -1888,7 +1890,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
    dumpini(ip);
 
    if (ev == EVSTATICINI) {
-      return (struct expr){.span = span};
+      return (Expr){.span = span};
    } else {
       uint siz;
       if (isincomplete(*ty)) {
@@ -1909,7 +1911,7 @@ initializer(struct comp *cm, union type *ty, enum evalmode ev, bool globl,
 
 /* debugging */
 void
-dumpexpr(const struct expr *ex, bool prity)
+dumpexpr(const Expr *ex, bool prity)
 {
    static const char *name[] = {
       [EXXX] = "xxx",         [ENUMLIT] = "numlit", [ESTRLIT] = "strlit",
@@ -1969,24 +1971,24 @@ dumpexpr(const struct expr *ex, bool prity)
 /* Decls Parsing */
 /*****************/
 
-static union type
-buildagg(struct comp *cm, enum typetag tt, internstr name, int id)
+static Type
+buildagg(CComp *cm, enum typetag tt, internstr name, int id)
 {
-   struct token tk;
-   union type t;
-   struct span flexspan;
-   struct namedfield fbuf[32];
-   vec_of(struct namedfield) fld = VINIT(fbuf, countof(fbuf));
-   struct typedata td = {tt};
+   Token tk;
+   Type t;
+   Span flexspan;
+   NamedField fbuf[32];
+   vec_of(NamedField) fld = VINIT(fbuf, countof(fbuf));
+   TypeData td = {tt};
    bool isunion = tt == TYUNION;
    const char *tag = isunion ? "union" : "struct";
    uint bitsiz = 0, bitfbyteoff = 0,
         bitoff = 0, bitftypesiz = 0;
 
    while (!match(cm, &tk, '}')) {
-      struct declstate st = { DFIELD };
+      DeclState st = { DFIELD };
       do {
-         struct decl decl = pdecl(&st, cm);
+         Decl decl = pdecl(&st, cm);
          uint tysize;
          if (st.empty) {
             if (ccopt.pedant)
@@ -2008,7 +2010,7 @@ buildagg(struct comp *cm, enum typetag tt, internstr name, int id)
          }
          bitsiz = 0;
          if (st.bitf) {
-            struct expr ex = constantexpr(cm);
+            Expr ex = constantexpr(cm);
             const char *name = decl.name ? &decl.name->c : "<anonymous>";
             if (!isint(decl.ty)) {
                error(&decl.span, "bit-field '%s' has non-integer type '%ty'", name, decl.ty);
@@ -2053,7 +2055,7 @@ buildagg(struct comp *cm, enum typetag tt, internstr name, int id)
             uint align = typealign(decl.ty);
             uint siz = tysize;
             uint off = bitftypesiz ? bitfbyteoff : isunion ? 0 : alignup(td.siz, align);
-            struct namedfield f = { decl.name, { decl.ty, off, bitsiz, bitoff, .qual = decl.qual }};
+            NamedField f = { decl.name, { decl.ty, off, bitsiz, bitoff, .qual = decl.qual }};
             if (bitftypesiz && siz != bitftypesiz) while (f.f.bitoff + f.f.bitsiz > 8*siz) {
                /* adjust bitfields narrower than container type */
                f.f.off += siz;
@@ -2090,7 +2092,7 @@ buildagg(struct comp *cm, enum typetag tt, internstr name, int id)
    if (td.flexi && ccopt.cstd < STDC99 && ccopt.pedant)
       warn(&flexspan, "flexible array member in %M is an extension");
    if (fld.n == 0) {
-      struct namedfield dummy = { intern(""), { mktype(TYCHAR), 0 }};
+      NamedField dummy = { intern(""), { mktype(TYCHAR), 0 }};
       error(&tk.span, "%s cannot have zero members", tag);
       vpush(&fld, dummy);
       td.siz = td.align = 1;
@@ -2123,25 +2125,25 @@ inttyminmax(vlong *min, uvlong *max, enum typetag tt)
  * and this is similar to existing compiler's de-facto behaviour (though gcc
  * prefers to use unsigned types when possible). should add support for -fshort-enums
  */
-static union type
-buildenum(struct comp *cm, internstr name, const struct span *span, int id)
+static Type
+buildenum(CComp *cm, internstr name, const Span *span, int id)
 {
-   struct token tk;
+   Token tk;
    vlong tymin, minv = 0;
    uvlong tymax, maxv = 0;
-   struct typedata td = {TYENUM, .backing = TYINT};
-   union type ty = mktype(td.backing);
-   struct span maxvspan;
+   TypeData td = {TYENUM, .backing = TYINT};
+   Type ty = mktype(td.backing);
+   Span maxvspan;
    vlong iota = 0;
    bool somelonglong = 0;
 
    inttyminmax(&tymin, &tymax, td.backing);
    while (!match(cm, &tk, '}')) {
-      struct decl decl = {0};
+      Decl decl = {0};
       peek(cm, &tk);
       expect(cm, TKIDENT, NULL);
       if (match(cm, NULL, '=') || (peek(cm, NULL) == TKNUMLIT && !expect(cm, '=', NULL))) {
-         struct expr ex = expr(cm);
+         Expr ex = expr(cm);
          if (eval(&ex, EVINTCONST)) {
             iota = ex.i;
             if (ex.ty.t != ty.t)
@@ -2199,12 +2201,12 @@ buildenum(struct comp *cm, internstr name, const struct span *span, int id)
    return ty;
 }
 
-static union type
-tagtype(struct comp *cm, enum toktag kind)
+static Type
+tagtype(CComp *cm, enum toktag kind)
 {
-   struct token tk;
-   union type t;
-   struct span span;
+   Token tk;
+   Type t;
+   Span span;
    enum typetag tt = kind == TKWenum ? TYENUM : kind == TKWstruct ? TYSTRUCT : TYUNION;
    internstr tag = NULL;
 
@@ -2246,7 +2248,7 @@ tagtype(struct comp *cm, enum toktag kind)
 }
 
 static bool
-attrspec(struct comp *cm, int *attr)
+attrspec(CComp *cm, int *attr)
 { /* __attribute__ (( attribute-list )) */
    if (!match(cm, NULL, TKW__attribute__)) return 0;
    if (!expect(cm, '(', "after __attribute__") || !expect(cm, '(', "after __attribute__")) {
@@ -2254,7 +2256,7 @@ attrspec(struct comp *cm, int *attr)
       fatal(NULL, NULL);
    }
    while (!match(cm, NULL, ')')) {
-      struct token tk;
+      Token tk;
       lex(cm, &tk);
       if (tk.t != TKIDENT && !in_range(tk.t, TKWBEGIN_, TKWEND_)) {
          fatal(&tk.span, "expected attribute name");
@@ -2285,13 +2287,13 @@ attrspec(struct comp *cm, int *attr)
    return 1;
 }
 
-static union type
-ptypeof(struct comp *cm)
+static Type
+ptypeof(CComp *cm)
 {
-   union type ty;
+   Type ty;
    expect(cm, '(', NULL);
    if (isdecltok(cm)) { /* typeof (type) */
-      struct declstate st = { DCASTEXPR };
+      DeclState st = { DCASTEXPR };
       ty = pdecl(&st, cm).ty;
    } else { /* typeof (expr) */
       ty = commaexpr(cm).ty;
@@ -2301,10 +2303,10 @@ ptypeof(struct comp *cm)
 }
 
 static void
-declspec(struct declstate *st, struct comp *cm, struct span *pspan)
+declspec(DeclState *st, CComp *cm, Span *pspan)
 {
-   struct token tk;
-   struct decl *decl;
+   Token tk;
+   Decl *decl;
    enum arith {
       KSIGNED   = 1<<0,
       KUNSIGNED = 1<<1,
@@ -2318,8 +2320,8 @@ declspec(struct declstate *st, struct comp *cm, struct span *pspan)
       KDOUBLE   = 1<<9,
       KCOMPLEX  = 1<<10,
    } arith = 0;
-   struct span span = {0};
-   union type ty = st->base;
+   Span span = {0};
+   Type ty = st->base;
    bool properdecl = st->kind == DFUNCVAR || st->kind == DTOPLEVEL;
 
    for (bool first = 1;; first = 0) {
@@ -2519,33 +2521,34 @@ End:
 
 /* circular doubly linked list used to parse declarators */
 enum { EARRAYUNSIZED = 0xFF /* for count.t */ };
-static struct decllist {
-   struct decllist *prev, *next;
+typedef struct DeclList DeclList;
+static struct DeclList {
+   DeclList *prev, *next;
    uchar t; /* TYPTR, TYARRAY or TYFUNC */
    union {
       uchar qual; /* TYPTR */
-      struct expr count; /* TYARRAY */
+      Expr count; /* TYARRAY */
       struct { /* TYFUNC */
-         union type *param;
+         Type *param;
          internstr *pnames;
-         struct span *pspans;
+         Span *pspans;
          uchar *pqual;
          short npar;
          bool kandr : 1, variadic : 1;
       };
    };
-   struct span span;
+   Span span;
 } decltmp[64], *declfreelist;
 static bool usingdeclparamtmp;
-static union type declparamtmp[16];
+static Type declparamtmp[16];
 static internstr declpnamestmp[16];
-static struct span declpspanstmp[16];
+static Span declpspanstmp[16];
 static uchar declpqualtmp[16];
 
 static void
-declinsert(struct decllist *list, const struct decllist *node)
+declinsert(DeclList *list, const DeclList *node)
 {
-   struct decllist *pnode = declfreelist;
+   DeclList *pnode = declfreelist;
    if (!pnode) fatal(NULL, "too many nested declarators");
    declfreelist = declfreelist->next;
    *pnode = *node;
@@ -2556,9 +2559,9 @@ declinsert(struct decllist *list, const struct decllist *node)
 }
 
 static int
-cvqual(struct comp *cm)
+cvqual(CComp *cm)
 {
-   struct token tk;
+   Token tk;
    int q = 0;
    while (match(cm, &tk, TKWconst) || match(cm, &tk, TKWvolatile) || match(cm, &tk, TKWrestrict))
       q |= tk.t == TKWconst ? QCONST : tk.t == TKWvolatile ? QVOLATILE : 0;
@@ -2566,10 +2569,10 @@ cvqual(struct comp *cm)
 }
 
 static void
-decltypes(struct comp *cm, struct decllist *list, internstr *name, struct span *span, struct span *namespan)
+decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan)
 {
-   struct token tk;
-   struct decllist *ptr, node;
+   Token tk;
+   DeclList *ptr, node;
 
    while (match(cm, &tk, '*')) {
       node.t = TYPTR;
@@ -2642,10 +2645,10 @@ decltypes(struct comp *cm, struct decllist *list, internstr *name, struct span *
          declinsert(ptr->prev, &node);
          joinspan(&span->ex, node.span.ex);
       } else if (match(cm, &tk, '(')) Func: {
-         vec_of(union type) params = {0};
+         vec_of(Type) params = {0};
          vec_of(uchar) qual = {0};
          vec_of(internstr) names = {0};
-         vec_of(struct span) spans = {0};
+         vec_of(Span) spans = {0};
 
          if (!usingdeclparamtmp) {
             usingdeclparamtmp = 1;
@@ -2677,8 +2680,8 @@ decltypes(struct comp *cm, struct decllist *list, internstr *name, struct span *
             } else if (!isdecltok(cm) && peek(cm, &tk) != TKIDENT) {
                error(&tk.span, "expected parameter declarator");
             } else {
-               struct declstate st = { DFUNCPARAM };
-               struct decl decl;
+               DeclState st = { DFUNCPARAM };
+               Decl decl;
                decl = pdecl(&st, cm);
                decl.ty = typedecay(decl.ty);
                vpush(&params, decl.ty);
@@ -2721,12 +2724,12 @@ decltypes(struct comp *cm, struct decllist *list, internstr *name, struct span *
    }
 }
 
-static struct decl
-declarator(struct declstate *st, struct comp *cm, struct span span0) {
-   struct decl decl = { st->base, st->scls, .qual = st->qual, .align = st->align, .span = span0 };
-   struct decllist list = { &list, &list }, *l;
-   static bool inidecltmp = 0;
-   struct span namespan ={0};
+static Decl
+declarator(DeclState *st, CComp *cm, Span span0) {
+   Decl decl = { st->base, st->scls, .qual = st->qual, .align = st->align, .span = span0 };
+   DeclList list = { &list, &list }, *l;
+   Span namespan ={0};
+   static bool inidecltmp;
    if (!inidecltmp) {
       inidecltmp = 1;
       for (int i = 0; i < countof(decltmp); ++i) {
@@ -2755,7 +2758,7 @@ declarator(struct declstate *st, struct comp *cm, struct span span0) {
             decl.ty = mkarrtype(decl.ty, decl.qual, 0);
          else {
             uint n = 0;
-            struct expr *ex = &l->count;
+            Expr *ex = &l->count;
             if (!ex->t) { /* ['*'] */
                if (l->prev != &list) error(&l->span, "[*] array declarator is not allowed here");
             } else if (!eval(ex, EVINTCONST)) {
@@ -2786,7 +2789,7 @@ declarator(struct declstate *st, struct comp *cm, struct span span0) {
          if (l->param != declparamtmp) free(l->param);
          if (l->prev == &list && l->npar) { /* last */
             st->pnames = alloccopy(&cm->fnarena, l->pnames, l->npar * sizeof(char *), 0);
-            st->pspans = alloccopy(&cm->fnarena, l->pspans, l->npar * sizeof(struct span), 0);
+            st->pspans = alloccopy(&cm->fnarena, l->pspans, l->npar * sizeof(Span), 0);
             st->pqual = l->pqual ? alloccopy(&cm->fnarena, l->pqual, l->npar, 1) : NULL;
             decl.inlin = st->fninline;
             decl.noret = st->fnnoreturn;
@@ -2808,10 +2811,10 @@ declarator(struct declstate *st, struct comp *cm, struct span span0) {
 }
 
 static void
-pstaticassert(struct comp *cm, struct span *span)
+pstaticassert(CComp *cm, Span *span)
 {
-   struct expr ex;
-   struct token tk, msg = {0};
+   Expr ex;
+   Token tk, msg = {0};
 
    /* _Static_assert '(' <expr> [ ',' <strlit> ] ')' ';' */
    expect(cm, '(', NULL);
@@ -2838,10 +2841,10 @@ pstaticassert(struct comp *cm, struct span *span)
    }
 }
 
-static struct decl
-pdecl(struct declstate *st, struct comp *cm) {
-   struct token tk;
-   struct decl decl;
+static Decl
+pdecl(DeclState *st, CComp *cm) {
+   Token tk;
+   Decl decl;
    bool properdecl = st->kind == DTOPLEVEL || st->kind == DFUNCVAR;
    bool first = 0;
 
@@ -2857,12 +2860,12 @@ pdecl(struct declstate *st, struct comp *cm) {
    if (!st->base.t) {
       if (properdecl && (match(cm, &tk, TKW_Static_assert) || match(cm, &tk, TKWstatic_assert))) {
          pstaticassert(cm, &tk.span);
-         return (struct decl){0};
+         return (Decl){0};
       }
       first = 1;
       if (match(cm, &tk, ';')) {
          st->empty = 1;
-         return (struct decl){.span = tk.span};
+         return (Decl){.span = tk.span};
       }
 
    DeclSpec:
@@ -2876,10 +2879,10 @@ pdecl(struct declstate *st, struct comp *cm) {
    if (st->scls == SCTYPEDEF) properdecl = 0;
 
    if (first && st->tagdecl && match(cm, &tk, ';')) {
-      decl = (struct decl) { st->base, st->scls, st->qual, .align = st->align, .span = decl.span };
+      decl = (Decl) { st->base, st->scls, st->qual, .align = st->align, .span = decl.span };
       return decl;
    } else if (st->kind == DFIELD && match(cm, &tk, ':')) {
-      decl = (struct decl) { st->base, st->scls, st->qual, .align = st->align, .span = decl.span };
+      decl = (Decl) { st->base, st->scls, st->qual, .align = st->align, .span = decl.span };
       st->bitf = 1;
       return decl;
    }
@@ -2928,39 +2931,39 @@ AfterIniBitf:
 /* IR Generation */
 /*****************/
 
-static inline union ref
-exprvalue(struct function *fn, const struct expr *ex)
+static inline Ref
+exprvalue(Function *fn, const Expr *ex)
 {
    return compileexpr(fn, ex, /*discard*/ 0);
 }
 static inline void
-expreffects(struct function *fn, const struct expr *ex)
+expreffects(Function *fn, const Expr *ex)
 {
    compileexpr(fn, ex, /*discard*/ 1);
 }
 
 static void
-structcopy(struct function *fn, union type ty, union ref dst, union ref src)
+structcopy(Function *fn, Type ty, Ref dst, Ref src)
 {
-   union irtype typ = mkirtype(ty);
+   IRType typ = mkirtype(ty);
    addinstr(fn, mkarginstr(typ, dst));
    addinstr(fn, mkarginstr(typ, src));
    addinstr(fn, mkintrin(INstructcopy, 0, 2));
 }
 
-static union ref
-structreturn(struct function *fn, const struct expr *src)
+static Ref
+structreturn(Function *fn, const Expr *src)
 {
    return expraddr(fn, src);
 }
 
-static union ref compilecall(struct function *fn, const struct expr *ex);
+static Ref compilecall(Function *fn, const Expr *ex);
 
 static internstr
 mkhiddensym(const char *fnname, const char *name, int id)
 {
    char buf[200];
-   struct wbuf wbuf = MEMBUF(buf, sizeof buf);
+   WriteBuf wbuf = MEMBUF(buf, sizeof buf);
    assert(id > 0);
    if (fnname)
       bfmt(&wbuf, "%s.%s.%d", fnname, name, id-1);
@@ -2971,14 +2974,14 @@ mkhiddensym(const char *fnname, const char *name, int id)
    return intern(buf);
 }
 
-static void geninit(struct function *fn, union type t, union ref dst, const struct expr *src);
-static union ref condexprvalue(struct function *fn, const struct expr *ex, bool discard);
+static void geninit(Function *fn, Type t, Ref dst, const Expr *src);
+static Ref condexprvalue(Function *fn, const Expr *ex, bool discard);
 
-union ref
-expraddr(struct function *fn, const struct expr *ex)
+Ref
+expraddr(Function *fn, const Expr *ex)
 {
-   struct decl *decl;
-   union ref r;
+   Decl *decl;
+   Ref r;
 
    switch (ex->t) {
    case ESYM:
@@ -3027,14 +3030,14 @@ expraddr(struct function *fn, const struct expr *ex)
       } else {
          /* emit static dat */
          static int id;
-         struct initparser ip[1] = {0};
-         union type ty = ex->ty;
+         InitParser ip[1] = {0};
+         Type ty = ex->ty;
          internstr sym = mkhiddensym(NULL, ".LC", ++id);
          ip->sec = Sdata; /* TODO put in rodata if possible */
          ip->ev = EVSTATICINI;
          assert(!isincomplete(ty));
          ip->off = objnewdat(sym, ip->sec, 0, typesize(ty), typealign(ty));
-         if (!iniwriterec(NULL, ip, 0, (struct expr *)ex))
+         if (!iniwriterec(NULL, ip, 0, (Expr *)ex))
             error(&ex->span, "cannot not evaluate expression statically");
          return mksymref(sym, 0);
       }
@@ -3050,10 +3053,10 @@ expraddr(struct function *fn, const struct expr *ex)
 
 }
 
-static union ref
-genload(struct function *fn, union type t, union ref ref, bool volatyl)
+static Ref
+genload(Function *fn, Type t, Ref ref, bool volatyl)
 {
-   struct instr ins = {0};
+   Instr ins = {0};
 
    assert(isscalar(t));
    ins.cls = type2cls[scalartypet(t)];
@@ -3070,10 +3073,10 @@ genload(struct function *fn, union type t, union ref ref, bool volatyl)
    return addinstr(fn, ins);
 }
 
-static union ref
-genstore(struct function *fn, union type t, union ref ptr, union ref val)
+static Ref
+genstore(Function *fn, Type t, Ref ptr, Ref val)
 {
-   struct instr ins = {0};
+   Instr ins = {0};
 
    assert(isscalar(t));
    switch (typesize(t)) {
@@ -3088,18 +3091,18 @@ genstore(struct function *fn, union type t, union ref ptr, union ref val)
    return addinstr(fn, ins);
 }
 
-static void genbitfstore(struct function *fn, const union type ty, union ref addr,
-                         const struct exgetfld *fld, union ref tmp, union ref val);
+static void genbitfstore(Function *fn, const Type ty, Ref addr,
+                         const ExprGetFld *fld, Ref tmp, Ref val);
 
 static void
-geninit(struct function *fn, union type t, union ref dst, const struct expr *src)
+geninit(Function *fn, Type t, Ref dst, const Expr *src)
 {
-   union ref adr;
+   Ref adr;
    if (src->t == EINIT) {
-      struct init *ini = src->init;
+      Init *ini = src->init;
       uint siz = typesize(t);
       uint align = typealign(t);
-      struct bitset azero[1] = {0};
+      BitSet azero[1] = {0};
 
       if (BSSIZE(siz) <= countof(ini->zero)) {
          for (int i = 0; i < siz; i += align) {
@@ -3122,7 +3125,7 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
       } else Memset0: {
          /* memset(dst,0,siz) */
          /* TODO make it into an intrinsic */
-         struct instr call = { Ocall, KPTR };
+         Instr call = { Ocall, KPTR };
          addinstr(fn, mkarginstr(cls2type(KPTR), dst));
          addinstr(fn, mkarginstr(cls2type(KI32), ZEROREF));
          addinstr(fn, mkarginstr(cls2type(type2cls[targ_sizetype]), mkintcon(type2cls[targ_sizetype], siz)));
@@ -3130,9 +3133,9 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
          call.r = mkcallarg(cls2type(KPTR), 3, -1);
          addinstr(fn, call);
       }
-      for (struct initval *val = ini->vals; val; val = val->next) {
+      for (InitElem *val = ini->vals; val; val = val->next) {
          uint off = val->off;
-         struct expr *ex = &val->ex;
+         Expr *ex = &val->ex;
          adr = irbinop(fn, Oadd, KPTR, dst, mkref(RICON, off));
          if (ex->t == EINIT || ex->t == ESTRLIT) {
             geninit(fn, ex->ty, adr, ex);
@@ -3141,12 +3144,12 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
          } else if (!val->bitsiz) {
             genstore(fn, ex->ty, adr, exprvalue(fn, ex));
          } else {
-            union ref q = exprvalue(fn, ex);
-            genbitfstore(fn, ex->ty, adr, &(struct exgetfld){0, val->bitsiz, val->bitoff}, NOREF, q);
+            Ref q = exprvalue(fn, ex);
+            genbitfstore(fn, ex->ty, adr, &(ExprGetFld){0, val->bitsiz, val->bitoff}, NOREF, q);
          }
       }
    } else if (src->t == ESTRLIT) {
-      union type ctyp = typechild(src->ty);
+      Type ctyp = typechild(src->ty);
       uint csiz = typesize(ctyp);
       adr = dst;
       for (uint i = 0; i < src->s.n; ++i) {
@@ -3163,17 +3166,17 @@ geninit(struct function *fn, union type t, union ref dst, const struct expr *src
 }
 
 static bool
-isboollike(struct function *fn, union ref r)
+isboollike(Function *fn, Ref r)
 {
-   struct instr *ins;
+   Instr *ins;
    if (r.t == RICON && (r.i == 0 || r.i == 1)) return 1;
    if (r.t != RTMP) return 0;
    ins = &instrtab[r.i];
    if (oiscmp(ins->op)) /* these instrs already have output range of [0,1] */
       return 1;
    if (ins->op == Ophi) { /* check if all the phi args are boollike */
-      struct block *blk;
-      union ref *phi = NULL;
+      Block *blk;
+      Ref *phi = NULL;
       for (blk = fn->curblk; phi == NULL; blk = blk->lprev) {
          /* find blk that defines phi */
          assert(blk != fn->entry);
@@ -3200,8 +3203,8 @@ isboollike(struct function *fn, union ref r)
    return 0;
 }
 
-union ref
-scalarcvt(struct function *fn, union type to, union type from, union ref ref)
+Ref
+scalarcvt(Function *fn, Type to, Type from, Ref ref)
 {
    enum irclass kto = type2cls[scalartypet(to)], kfrom = type2cls[scalartypet(from)];
    enum op op;
@@ -3238,8 +3241,8 @@ scalarcvt(struct function *fn, union type to, union type from, union ref ref)
    return irunop(fn, op, kto, ref);
 }
 
-static union ref
-narrow(struct function *fn, enum irclass to, union type t, union ref ref, uint bitsiz)
+static Ref
+narrow(Function *fn, enum irclass to, Type t, Ref ref, uint bitsiz)
 {
    enum typetag tt = scalartypet(t);
    assert(isscalar(t));
@@ -3269,12 +3272,12 @@ narrow(struct function *fn, enum irclass to, union type t, union ref ref, uint b
    return ref;
 }
 
-union ref
-genptroff(struct function *fn, enum op op, uint siz, union ref ptr,
-          union type t, union ref idx)
+Ref
+genptroff(Function *fn, enum op op, uint siz, Ref ptr,
+          Type t, Ref idx)
 {
    uint cls = type2cls[targ_sizetype];
-   union ref off;
+   Ref off;
    assert(siz);
 
    idx = scalarcvt(fn, mktype(targ_sizetype), t, idx);
@@ -3289,8 +3292,8 @@ genptroff(struct function *fn, enum op op, uint siz, union ref ptr,
    return irbinop(fn, op, KPTR, ptr, off);
 }
 
-union ref
-genptrdiff(struct function *fn, uint siz, union ref a, union ref b)
+Ref
+genptrdiff(Function *fn, uint siz, Ref a, Ref b)
 {
    uint cls = type2cls[targ_ptrdifftype];
    assert(siz > 0);
@@ -3304,9 +3307,9 @@ genptrdiff(struct function *fn, uint siz, union ref a, union ref b)
 
 /* used to emit the jumps in an in if (), while (), etc condition */
 static void
-condjump(struct function *fn, const struct expr *ex, struct block *tr, struct block *fl)
+condjump(Function *fn, const Expr *ex, Block *tr, Block *fl)
 {
-   struct block *next, *next2;
+   Block *next, *next2;
 Recur:
    for (; ex->t == ESEQ; ex = &ex->sub[1])
       expreffects(fn, &ex->sub[0]);
@@ -3348,55 +3351,55 @@ Recur:
    }
 }
 
-struct condphis {
-   union type typ;
-   vec_of(union ref) ref;
-};
+typedef struct {
+   Type typ;
+   vec_of(Ref) refs;
+} CondPhi;
 
 static void
-condexprrec(struct function *fn, const struct expr *ex, struct condphis *phis, struct block *end)
+condexprrec(Function *fn, const Expr *ex, CondPhi *phi, Block *end)
 {
 Recur:
    for (; ex->t == ESEQ; ex = &ex->sub[1])
       expreffects(fn, &ex->sub[0]);
    int prevpred = end->npred;
    if (ex->t == ELOGAND) {
-      struct block *tr = newblk(fn);
+      Block *tr = newblk(fn);
       condjump(fn, &ex->sub[0], tr, end);
       assert(prevpred <= end->npred);
-      if (phis) for (int n = end->npred - prevpred; n > 0; --n) {
-         vpush(&phis->ref, mkref(RICON, 0));
+      if (phi) for (int n = end->npred - prevpred; n > 0; --n) {
+         vpush(&phi->refs, mkref(RICON, 0));
       }
       useblk(fn, tr);
       ex = &ex->sub[1];
       goto Recur;
    } else if (ex->t == ELOGIOR) {
-      struct block *fl = newblk(fn);
+      Block *fl = newblk(fn);
       condjump(fn, &ex->sub[0], end, fl);
       assert(prevpred <= end->npred);
-      if (phis) for (int n = end->npred - prevpred; n > 0; --n) {
-         vpush(&phis->ref, mkref(RICON, 1));
+      if (phi) for (int n = end->npred - prevpred; n > 0; --n) {
+         vpush(&phi->refs, mkref(RICON, 1));
       }
       useblk(fn, fl);
       ex = &ex->sub[1];
       goto Recur;
    } else if (ex->t == ECOND) {
-      struct block *tr = newblk(fn), *fl = newblk(fn);
+      Block *tr = newblk(fn), *fl = newblk(fn);
       condjump(fn, &ex->sub[0], tr, fl);
       useblk(fn, tr);
-      condexprrec(fn, &ex->sub[1], phis, end);
+      condexprrec(fn, &ex->sub[1], phi, end);
       useblk(fn, fl);
       ex = &ex->sub[2];
       goto Recur;
    } else {
-      if (!phis) {
+      if (!phi) {
          expreffects(fn, ex);
       } else {
-         union ref val = exprvalue(fn, ex);
-         if (isscalar(phis->typ))
-            val = scalarcvt(fn, phis->typ, ex->ty, val);
-         else assert(ex->ty.bits == phis->typ.bits);
-         vpush(&phis->ref, val);
+         Ref val = exprvalue(fn, ex);
+         if (isscalar(phi->typ))
+            val = scalarcvt(fn, phi->typ, ex->ty, val);
+         else assert(ex->ty.bits == phi->typ.bits);
+         vpush(&phi->refs, val);
       }
       putbranch(fn, end);
    }
@@ -3404,13 +3407,13 @@ Recur:
 
 /* the naive way to generate something like a ? b : c ? d : e, uses multiple phis,
  * this code reduces such nested conditional expressions into one phi */
-static union ref
-condexprvalue(struct function *fn, const struct expr *ex, bool discard)
+static Ref
+condexprvalue(Function *fn, const Expr *ex, bool discard)
 {
-   union ref refbuf[8];
-   struct condphis phis = { ex->t == ECOND ? ex->ty : mktype(TYBOOL), VINIT(refbuf, countof(refbuf)) };
-   struct block *dst = newblk(fn);
-   condexprrec(fn, ex, discard ? NULL : &phis, dst);
+   Ref refbuf[8];
+   CondPhi phi = { ex->t == ECOND ? ex->ty : mktype(TYBOOL), VINIT(refbuf, countof(refbuf)) };
+   Block *dst = newblk(fn);
+   condexprrec(fn, ex, discard ? NULL : &phi, dst);
    useblk(fn, dst);
    if (discard) return NOREF;
    enum irclass k;
@@ -3421,22 +3424,22 @@ condexprvalue(struct function *fn, const struct expr *ex, bool discard)
       assert(isagg(ex->ty) || isptrcvt(ex->ty));
       k = KPTR;
    }
-   union ref r = addphi(fn, k, phis.ref.p);
-   vfree(&phis.ref);
+   Ref r = addphi(fn, k, phi.refs.p);
+   vfree(&phi.refs);
    return r;
 }
 
-static union ref
-compilecall(struct function *fn, const struct expr *ex)
+static Ref
+compilecall(Function *fn, const Expr *ex)
 {
-   struct instr ins = {0};
-   struct expr *sub = ex->sub;
-   const struct typedata *td = &typedata[sub[0].ty.dat];
-   struct instr insnsbuf[10];
-   vec_of(struct instr) insns = VINIT(insnsbuf, countof(insnsbuf));
+   Instr ins = {0};
+   Expr *sub = ex->sub;
+   const TypeData *td = &typedata[sub[0].ty.dat];
+   Instr insnsbuf[10];
+   vec_of(Instr) insns = VINIT(insnsbuf, countof(insnsbuf));
 
    if (sub[0].t == ESYM && declsbuf.p[sub[0].decl].isbuiltin) {
-      return declsbuf.p[sub[0].decl].builtin->comp(fn, (struct expr *)ex, 0);
+      return declsbuf.p[sub[0].decl].builtin->comp(fn, (Expr *)ex, 0);
    }
    ins.op = Ocall;
    if (isagg(ex->ty)) {
@@ -3448,28 +3451,28 @@ compilecall(struct function *fn, const struct expr *ex)
    }
    ins.l = exprvalue(fn, &sub[0]);
    for (int i = 0; i < ex->narg; ++i) {
-      struct expr *arg = &sub[i+1];
-      union type ty = i < td->nmemb ? td->param[i] : argpromote(arg->ty);
-      union ref r = scalarcvt(fn, ty, typedecay(arg->ty), exprvalue(fn, arg));
+      Expr *arg = &sub[i+1];
+      Type ty = i < td->nmemb ? td->param[i] : argpromote(arg->ty);
+      Ref r = scalarcvt(fn, ty, typedecay(arg->ty), exprvalue(fn, arg));
       vpush(&insns, mkarginstr(mkirtype(ty), r));
    }
    for (int i = 0; i < insns.n; ++i)
       addinstr(fn, insns.p[i]);
    vfree(&insns);
    ins.r = mkcallarg(mkirtype(ex->ty), ex->narg, td->variadic ? td->nmemb : td->kandr ? 0 : -1);
-   union ref r = addinstr(fn, ins);
+   Ref r = addinstr(fn, ins);
    if (sub[0].t == ESYM && declsbuf.p[sub[0].decl].noret) /* trap if noreturn func returns */
       puttrap(fn);
    return r;
 }
 
-static union ref
-genbitfload(struct function *fn, union ref *tmpval, const union type ty, union ref *addr,
-            const struct exgetfld *fld, bool volatyl)
+static Ref
+genbitfload(Function *fn, Ref *tmpval, const Type ty, Ref *addr,
+            const ExprGetFld *fld, bool volatyl)
 {
    enum irclass k = type2cls[scalartypet(ty)];
    uint off = fld->off, bitsiz = fld->bitsiz, bitoff = fld->bitoff;
-   union ref tmp;
+   Ref tmp;
    uvlong mask;
 
    assert(k);
@@ -3494,8 +3497,8 @@ genbitfload(struct function *fn, union ref *tmpval, const union type ty, union r
 }
 
 static void
-genbitfstore(struct function *fn, const union type ty, union ref addr,
-             const struct exgetfld *fld, union ref tmp, union ref val)
+genbitfstore(Function *fn, const Type ty, Ref addr,
+             const ExprGetFld *fld, Ref tmp, Ref val)
 {
    enum irclass k = type2cls[scalartypet(ty)];
    uint off = fld->off, bitsiz = fld->bitsiz, bitoff = fld->bitoff;
@@ -3527,7 +3530,7 @@ genbitfstore(struct function *fn, const union type ty, union ref addr,
 }
 
 static bool
-knowntruthy(bool *t, struct expr *ex)
+knowntruthy(bool *t, Expr *ex)
 {
    if (!eval(ex, EVFOLD)) return 0;
 
@@ -3544,18 +3547,18 @@ knowntruthy(bool *t, struct expr *ex)
    return 1;
 }
 
-union ref
-compileexpr(struct function *fn, const struct expr *ex, bool discard)
+Ref
+compileexpr(Function *fn, const Expr *ex, bool discard)
 {
-   union type ty;
-   union ref l, r, q, adr;
+   Type ty;
+   Ref l, r, q, adr;
    uint bitsiz;
    enum op op;
    enum irclass cls = type2cls[scalartypet(ex->ty)];
    int swp = 0;
-   struct expr *sub;
+   Expr *sub;
 
-   //eval((struct expr *)ex, EVFOLD);
+   //eval((Expr *)ex, EVFOLD);
    sub = ex->sub;
 
    if (ex->ty.t != TYVOID && !isscalar(ex->ty)) {
@@ -3680,7 +3683,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
          r = isflt(ex->ty) ? mkfltcon(type2cls[ex->ty.t], 1.0) : mkref(RICON, 1);
       bitsiz = 0;
       if (sub[0].t == EGETF && (bitsiz = sub->fld.bitsiz)) {
-         union ref tmp;
+         Ref tmp;
          adr = expraddr(fn, &sub[0].sub[0]);
          l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
          q = irbinop(fn, op, cls, l, r);
@@ -3787,7 +3790,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       r = exprvalue(fn, &sub[1]);
       if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
          /* bit-field */
-         union ref tmp;
+         Ref tmp;
       CompoundBitf:
          adr = expraddr(fn, &sub[0].sub[0]);
          l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
@@ -3822,7 +3825,7 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
       }
 
       if (ex->ty.t == TYVOID || discard) {
-         struct block *tr, *fl, *end;
+         Block *tr, *fl, *end;
          condjump(fn, &sub[0], tr = newblk(fn), fl = newblk(fn));
          useblk(fn, tr);
          expreffects(fn, &sub[1]);
@@ -3858,61 +3861,62 @@ compileexpr(struct function *fn, const struct expr *ex, bool discard)
 /************************************/
 
 static void
-stmtterm(struct comp *cm)
+stmtterm(CComp *cm)
 {
    expect(cm, ';', "to terminate previous statement");
 }
 
-static void block(struct comp *cm, struct function *fn);
-static bool stmt(struct comp *cm, struct function *fn);
-static void localdecl(struct comp *cm, struct function *fn, bool forinit);
+static void block(CComp *cm, Function *fn);
+static bool stmt(CComp *cm, Function *fn);
+static void localdecl(CComp *cm, Function *fn, bool forinit);
 
-struct label {
-   struct label *link;
+typedef struct Label Label;
+struct Label {
+   Label *link;
    internstr name;
-   struct block *blk;
-   struct span usespan;
+   Block *blk;
+   Span usespan;
    /* if usespan.ex.len == 0, this label is resolved and blk is the block that
     * the label starts, otherwise the label is unresolved and blk is the head
     * of a linked list of relocations, the next list entry is in blk->s1, etc,
     * terminated by NULL */
 };
 
-static struct label *
-findlabel(struct comp *cm, internstr name)
+static Label *
+findlabel(CComp *cm, internstr name)
 {
-   for (struct label *l = cm->labels; l; l = l->link)
+   for (Label *l = cm->labels; l; l = l->link)
       if (l->name == name) return l;
    return NULL;
 }
 
 static void
-deflabel(struct comp *cm, struct function *fn, const struct span *span, internstr name)
+deflabel(CComp *cm, Function *fn, const Span *span, internstr name)
 {
-   struct label *label = findlabel(cm, name);
+   Label *label = findlabel(cm, name);
    if (label && label->usespan.ex.len == 0) {
       error(span, "redefinition of label '%s'", name);
    } else if (label) {
-      struct block *new = NULL;
+      Block *new = NULL;
       if (!nerror) {
          new = newblk(fn);
          if (fn->curblk) putbranch(fn, new);
       }
       /* fix up relocations */
-      for (struct block *list = label->blk, *next; list; list = next) {
+      for (Block *list = label->blk, *next; list; list = next) {
          next = list->s1;
          if (!nerror) {
             useblk(fn, list);
             putbranch(fn, new);
          }
       }
-      label->usespan = (struct span){0};
+      label->usespan = (Span){0};
       label->blk = new;
       if (!nerror) useblk(fn, new);
    } else {
-      struct label l = { cm->labels, name };
+      Label l = { cm->labels, name };
       if (!nerror) {
-         struct block *new = newblk(fn);
+         Block *new = newblk(fn);
          if (fn->curblk) putbranch(fn, new);
          useblk(fn, new);
       }
@@ -3922,9 +3926,9 @@ deflabel(struct comp *cm, struct function *fn, const struct span *span, internst
 }
 
 static bool
-loopbody(struct comp *cm, struct function *fn, struct block *brk, struct block *cont)
+loopbody(CComp *cm, Function *fn, Block *brk, Block *cont)
 {
-   struct block *save[2];
+   Block *save[2];
    bool terminates = 0;
 
    save[0] = cm->breakto, save[1] = cm->loopcont;
@@ -3941,42 +3945,42 @@ loopbody(struct comp *cm, struct function *fn, struct block *brk, struct block *
 
 #define EMITS if (doemit && !nerror)
 
-struct swcase {
+typedef struct {
    vlong val;
-   struct block *blk;
-   struct span span;
-};
-struct switchstmt {
-   struct block *bdefault;
-   union type condtype;
-   vec_of(struct swcase) cases;
-};
+   Block *blk;
+   Span span;
+} SwitchCase;
+typedef struct SwitchStmt {
+   Block *bdefault;
+   Type condtype;
+   vec_of(SwitchCase) cases;
+} SwitchStmt;
 
 static int
 cmpswcase(const void *aa, const void *bb)
 {
-   const struct swcase *a = aa, *b = bb;
+   const SwitchCase *a = aa, *b = bb;
    vlong v1 = a->val, v2 = b->val;
    if (v1 != v2) return v1 < v2 ? -1 : 1;
    return (a > b) - (a < b); /* preserve original order */
 }
 
 static void
-swsortcases(struct swcase *cs, uint n)
+swsortcases(SwitchCase *cs, uint n)
 {
    void qsort(void *, size_t n, size_t size, int (*)(const void *, const void *));
    qsort(cs, n, sizeof *cs, cmpswcase);
 }
 
 static bool
-genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
+genswitch(CComp *cm, Function *fn, const Expr *ex)
 {
-   union ref sel;
+   Ref sel;
    bool doemit = fn->curblk;
-   struct block *begin = NULL, *end = NULL, *breaksave = cm->breakto;
-   struct switchstmt *stsave = cm->switchstmt, st = {.condtype = ex->ty};
+   Block *begin = NULL, *end = NULL, *breaksave = cm->breakto;
+   SwitchStmt *stsave = cm->switchstmt, st = {.condtype = ex->ty};
    enum irclass k = type2cls[scalartypet(ex->ty)];
-   struct swcase casebuf[8];
+   SwitchCase casebuf[8];
    vinit(&st.cases, casebuf, countof(casebuf));
 
    assert(k);
@@ -4009,7 +4013,7 @@ genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
     */
    vlong prev;
    for (int i = 0; i < st.cases.n; ++i) {
-      const struct swcase *c = &st.cases.p[i];
+      const SwitchCase *c = &st.cases.p[i];
       if (i > 0) {
          assert(c->val >= prev);
          if (c->val == prev) {
@@ -4018,7 +4022,7 @@ genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
          }
       }
       EMITS {
-         struct block *next = i < st.cases.n - 1 ? newblk(fn) : st.bdefault;
+         Block *next = i < st.cases.n - 1 ? newblk(fn) : st.bdefault;
          putcondbranch(fn, irbinop(fn, Oequ, k, sel, mkintcon(k, c->val)), c->blk, next);
          if (next != st.bdefault) useblk(fn, next);
       }
@@ -4039,18 +4043,18 @@ genswitch(struct comp *cm, struct function *fn, const struct expr *ex)
 }
 
 static bool /* return 1 if stmt is terminating (ends with a jump) */
-stmt(struct comp *cm, struct function *fn)
+stmt(CComp *cm, Function *fn)
 {
-   struct block *tr, *fl, *end, *begin;
+   Block *tr, *fl, *end, *begin;
    union {
-      struct arena a;
-      char mem[sizeof(struct arena) + sizeof(struct expr)*4];
-   } atmp = { .a.cap = sizeof(struct expr)*4 };
-   struct arena *atmpp;
-   struct expr ex;
-   struct env e;
-   union ref r;
-   struct token tk;
+      Arena a;
+      char mem[sizeof(Arena) + sizeof(Expr)*4];
+   } atmp = { .a.cap = sizeof(Expr)*4 };
+   Arena *atmpp;
+   Expr ex;
+   Env e;
+   Ref r;
+   Token tk;
    bool terminates = 0;
    bool doemit = fn->curblk;
 
@@ -4062,7 +4066,7 @@ stmt(struct comp *cm, struct function *fn)
          if (!eval(&ex, EVINTCONST))
             error(&ex.span, "not an integer constant expression");
          else if (cm->switchstmt && ex.ty.bits != cm->switchstmt->condtype.bits) {
-            struct expr tmp = ex;
+            Expr tmp = ex;
             ex = mkexpr(ECAST, ex.span, cm->switchstmt->condtype, .sub = &tmp);
             bool ok = eval(&ex, EVINTCONST);
             assert(ok && "cast const int?");
@@ -4076,7 +4080,7 @@ stmt(struct comp *cm, struct function *fn)
             useblk(fn, begin);
          }
          if (cm->switchstmt)
-            vpush(&cm->switchstmt->cases, ((struct swcase) {ex.i, fn->curblk, ex.span}));
+            vpush(&cm->switchstmt->cases, ((SwitchCase) {ex.i, fn->curblk, ex.span}));
       } else if (tk.t == TKWdefault) {
          /* default ':' */
          if (!cm->switchstmt) error(&tk.span, "'default' outside of switch statement");
@@ -4274,7 +4278,7 @@ stmt(struct comp *cm, struct function *fn)
          /* since exarena is free'd at the end of each stmt, create a new temporary
           * arena to parse this expression because loop body statements would free it
           * otherwise */
-         struct arena *tmp = cm->exarena;
+         Arena *tmp = cm->exarena;
          cm->exarena = &atmp.a;
          ex = commaexpr(cm);
          atmpp = cm->exarena;
@@ -4330,16 +4334,16 @@ stmt(struct comp *cm, struct function *fn)
       lex(cm, &tk);
       peek(cm, &tk);
       if (expect(cm, TKIDENT, NULL)) {
-         struct label *label = findlabel(cm, tk.name);
+         Label *label = findlabel(cm, tk.name);
          if (!label) {
             /* create reloc list */
-            struct label l = { cm->labels, tk.name, fn->curblk, tk.span };
+            Label l = { cm->labels, tk.name, fn->curblk, tk.span };
             assert(l.usespan.ex.len);
             cm->labels = alloccopy(fn->arena, &l, sizeof l, 0);
             fn->curblk = NULL;
          } else if (label && label->usespan.ex.len != 0) {
             /* append to relocs list */
-            struct block *next = label->blk;
+            Block *next = label->blk;
             label->blk = fn->curblk;
             EMITS {
                fn->curblk->s1 = next;
@@ -4395,12 +4399,12 @@ stmt(struct comp *cm, struct function *fn)
 
 /* parse and compile a function-local declaration */
 static void
-localdecl(struct comp *cm, struct function *fn, bool forini)
+localdecl(CComp *cm, Function *fn, bool forini)
 {
-   struct expr ini;
-   struct token tk;
+   Expr ini;
+   Token tk;
    const bool doemit = fn->curblk;
-   struct declstate st = { DFUNCVAR };
+   DeclState st = { DFUNCVAR };
 
    if (!forini && match(cm, &tk, TKIDENT)) {
       if (match(cm, NULL, ':')) {
@@ -4414,7 +4418,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
       st.base0 = 1;
    }
    do {
-      struct decl decl = pdecl(&st, cm);
+      Decl decl = pdecl(&st, cm);
       if (decl.name) {
          static int staticid;
          bool put = 0;
@@ -4446,14 +4450,14 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
             }
             decl.id = -1;
             if (!nerror) {
-               struct instr alloc = mkalloca(typesize(decl.ty), typealign(decl.ty));
+               Instr alloc = mkalloca(typesize(decl.ty), typealign(decl.ty));
                if (fn->curblk) decl.id = addinstr(fn, alloc).i;
                else decl.id = insertinstr(fn->entry, fn->entry->ins.n, alloc).i;
             }
          Initz:
             if (st.varini) {
                int d = putdecl(cm, &decl);
-               union type ty = decl.ty;
+               Type ty = decl.ty;
                bool statik = decl.scls & (SCSTATIC | SCEXTERN);
                ini = initializer(cm, &ty, statik ? EVSTATICINI : EVFOLD,
                                  /* globl? */ decl.scls == SCEXTERN, decl.qual, statik ? decl.sym : NULL);
@@ -4466,7 +4470,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                   EMITS instrtab[decl.id] = mkalloca(typesize(ty), typealign(ty));
 
                   if (!initcheck(ty, &ini)) {
-                     struct span span = decl.span;
+                     Span span = decl.span;
                      joinspan(&span.ex, ini.span.ex);
                      error(&span, "cannot initialize '%ty' variable with '%ty'",
                            ty, ini.ty);
@@ -4482,7 +4486,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
                      }
                   }
                } else if (decl.scls == SCEXTERN) {
-                  struct span span = decl.span;
+                  Span span = decl.span;
                   joinspan(&span.ex, ini.span.ex);
                   error(&span, "block local 'extern' variable cannot have an initializer");
                }
@@ -4509,7 +4513,7 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
          default: assert(0);
          }
          if (st.funcdef) {
-            struct span span = decl.span;
+            Span span = decl.span;
             joinspan(&span.ex, (peek(cm, &tk), tk.span.ex));
             error(&span, "function definition not allowed here");
             int bal = 1;
@@ -4528,9 +4532,9 @@ localdecl(struct comp *cm, struct function *fn, bool forini)
 }
 
 static void
-block(struct comp *cm, struct function *fn)
+block(CComp *cm, Function *fn)
 {
-   struct token tk;
+   Token tk;
 
    while (!match(cm, &tk, '}')) {
       if (isdecltok(cm))
@@ -4542,19 +4546,19 @@ block(struct comp *cm, struct function *fn)
 }
 
 static void
-function(struct comp *cm, struct function *fn, internstr *pnames, const struct span *pspans, uchar *pquals)
+function(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uchar *pquals)
 {
-   const struct typedata *td = &typedata[fn->fnty.dat];
+   const TypeData *td = &typedata[fn->fnty.dat];
    const bool doemit = fn->curblk;
-   struct env e;
-   struct token tk;
+   Env e;
+   Token tk;
    envdown(cm, &e);
 
    /* emit Oparam instructions */
    EMITS {
       for (int i = 0; i < td->nmemb; ++i) {
-         union irtype pty = mkirtype(td->param[i]);
-         union ref r = addinstr(fn, mkinstr(Oparam, pty.isagg ? KPTR : pty.cls,
+         IRType pty = mkirtype(td->param[i]);
+         Ref r = addinstr(fn, mkinstr(Oparam, pty.isagg ? KPTR : pty.cls,
                                             mkref(RICON, i), mktyperef(pty)));
          assert(r.t == RTMP && r.i == i);
       }
@@ -4562,7 +4566,7 @@ function(struct comp *cm, struct function *fn, internstr *pnames, const struct s
    /* add parameters to symbol table and create prologue (arguments) block */
    for (int i = 0; i < td->nmemb; ++i) {
       if (pnames[i]) {
-         struct decl arg = { .ty = td->param[i], .qual = pquals ? pquals[i] : 0,
+         Decl arg = { .ty = td->param[i], .qual = pquals ? pquals[i] : 0,
                              .name = pnames[i], .scls = SCAUTO, .span = pspans[i] };
          EMITS {
             if (isscalar(arg.ty)) {
@@ -4579,7 +4583,7 @@ function(struct comp *cm, struct function *fn, internstr *pnames, const struct s
    }
 
    /* put __func__, though its data is generated lazily the first time it is encountered */
-   putdecl(cm, &(struct decl) {
+   putdecl(cm, &(Decl) {
       .ty = mkarrtype(mktype(TYCHAR), QCONST, strlen(&fn->name->c) + 1), .qual = QCONST,
       .name = istr__func__, .scls = SCSTATIC, .span = (peek(cm, &tk), tk.span),
       .isbuiltin = 1, .sym = fn->name,
@@ -4587,14 +4591,14 @@ function(struct comp *cm, struct function *fn, internstr *pnames, const struct s
 
    /* end prologue */
    EMITS {
-      struct block *blk;
+      Block *blk;
       putbranch(fn, blk = newblk(fn));
       useblk(fn, blk);
    }
    cm->labels = NULL;
    block(cm, fn);
    envup(cm);
-   for (struct label *l = cm->labels; l; l = l->link) {
+   for (Label *l = cm->labels; l; l = l->link) {
       if (l->usespan.ex.len) {
          error(&l->usespan, "label '%s' used but never defined", l->name);
       }
@@ -4618,13 +4622,13 @@ function(struct comp *cm, struct function *fn, internstr *pnames, const struct s
 
 /* top-level declaration */
 static void
-tldecl(struct comp *cm)
+tldecl(CComp *cm)
 {
-   struct declstate st = { DTOPLEVEL };
+   DeclState st = { DTOPLEVEL };
    do {
       bool noscls = 0;
       int nerr = nerror;
-      struct decl decl = pdecl(&st, cm);
+      Decl decl = pdecl(&st, cm);
 
       if (nerror != nerr && st.varini) {
          (void)expr(cm);
@@ -4639,7 +4643,7 @@ tldecl(struct comp *cm)
       if (!decl.sym) decl.sym = decl.name;
       decl.isdef = st.varini;
       if (st.funcdef) {
-         const struct typedata *td = &typedata[decl.ty.dat];
+         const TypeData *td = &typedata[decl.ty.dat];
          if (td->ret.t != TYVOID && isincomplete(td->ret))
             error(&decl.span, "function definition with incomplete return type '%ty'", td->ret);
          for (int i = 0; i < td->nmemb; ++i) {
@@ -4648,9 +4652,9 @@ tldecl(struct comp *cm)
          }
          decl.isdef = 1;
          int idecl = putdecl(cm, &decl);
-         struct decl *d = &declsbuf.p[idecl];
+         Decl *d = &declsbuf.p[idecl];
          if (d->inlin && decl.scls != SCSTATIC) fatal(&d->span, "non-static inline is unimplemented");
-         struct function fn = { &cm->fnarena, .name = d->sym, .globl = d->scls != SCSTATIC, .fnty = decl.ty, .retty = td->ret, .inlin = d->inlin };
+         Function fn = { &cm->fnarena, .name = d->sym, .globl = d->scls != SCSTATIC, .fnty = decl.ty, .retty = td->ret, .inlin = d->inlin };
          irinit(&fn);
          function(cm, &fn, st.pnames, st.pspans, st.pqual);
          if (!nerror && ccopt.dbg.p)
@@ -4658,15 +4662,15 @@ tldecl(struct comp *cm)
          irfini(&fn);
       } else if (decl.name) {
          int idecl = putdecl(cm, &decl);
-         struct decl *d = &declsbuf.p[idecl];
+         Decl *d = &declsbuf.p[idecl];
          if (st.varini) {
             if (isagg(decl.ty) && isincomplete(decl.ty))
                error(&decl.span, "initialization of variable with incomplete type '%ty'", decl.ty);
-            struct expr ini = initializer(cm, &decl.ty, EVSTATICINI, d->scls != SCSTATIC, d->qual, d->sym);
+            Expr ini = initializer(cm, &decl.ty, EVSTATICINI, d->scls != SCSTATIC, d->qual, d->sym);
             d = &declsbuf.p[idecl];
             d->ty = decl.ty;
             if (d->scls == SCEXTERN && !noscls) {
-               struct span span = decl.span;
+               Span span = decl.span;
                joinspan(&span.ex, ini.span.ex);
                warn(&span, "'extern' variable has initializer");
             }
@@ -4698,12 +4702,12 @@ tldecl(struct comp *cm)
    } while (st.more);
 }
 
-union type cvalistty;
+Type cvalistty;
 void
-docomp(struct comp *cm)
+docomp(CComp *cm)
 {
-   static struct env toplevel;
-   struct token tk[1];
+   static Env toplevel;
+   Token tk[1];
 
    istr__func__ = intern("__func__");
    istr_main = intern("main");
@@ -4714,14 +4718,14 @@ docomp(struct comp *cm)
       cm->env = &toplevel;
    }
    if (!cvalistty.t) {
-      struct typedata td = {
+      TypeData td = {
          .t = TYSTRUCT, .siz = targ_valistsize, .align = targ_primalign[TYPTR], .nmemb = 1,
-         .fld = &(struct namedfield){intern("-"), {mkarrtype(mktype(TYPTR), 0, 3)}}
+         .fld = &(NamedField){intern("-"), {mkarrtype(mktype(TYPTR), 0, 3)}}
       };
       cvalistty = mkarrtype(mktagtype(intern("__builtin_va_list"), &td), 0, 1);
    }
    peek(cm, tk);
-   envadddecl(cm->env, &(struct decl) { cvalistty, SCTYPEDEF, .span = tk->span, .name = intern("__builtin_va_list") });
+   envadddecl(cm->env, &(Decl) { cvalistty, SCTYPEDEF, .span = tk->span, .name = intern("__builtin_va_list") });
    putbuiltins(cm->env);
 
    while (peek(cm, tk) != TKEOF) {
@@ -4737,10 +4741,10 @@ docomp(struct comp *cm)
 }
 
 static void
-initcm(struct comp *cm, const char *file)
+initcm(CComp *cm, const char *file)
 {
    enum { N = 1<<12 };
-   static union { char m[sizeof(struct arena) + N]; struct arena *_align; } amem[2];
+   static union { char m[sizeof(Arena) + N]; Arena *_align; } amem[2];
    const char *err;
    switch (initlexer(cm->lx, &err, file)) {
    default: assert(0);
@@ -4757,15 +4761,15 @@ initcm(struct comp *cm, const char *file)
 void
 ccomp(const char *file)
 {
-   struct comp cm = {&(struct lexer){0}};
+   CComp cm = {&(Lexer){0}};
    initcm(&cm, file);
    docomp(&cm);
 }
 
 void
-cpp(struct wbuf *out, const char *file)
+cpp(WriteBuf *out, const char *file)
 {
-   struct comp cm = {&(struct lexer){0}};
+   CComp cm = {&(Lexer){0}};
    initcm(&cm, file);
    lexerdump(cm.lx, out);
 }

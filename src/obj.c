@@ -9,9 +9,9 @@ void elfinit(void);
 enum section elfhassym(internstr , uint *value);
 void elfaddsym(internstr , int info, enum section, uvlong value, uvlong size);
 void elfreloc(internstr sym, enum relockind, enum section, uint off, vlong addend);
-void elffini(struct wbuf *);
+void elffini(WriteBuf *);
 
-struct objfile objout;
+ObjFile objout;
 
 enum { NTEXT = 4<<20 /* 4MiB */ };
 
@@ -48,7 +48,7 @@ objhassym(internstr name, uint *off)
 uint
 objnewdat(internstr name, enum section sec, bool globl, uint siz, uint align)
 {
-   struct objfile *o = &objout;
+   ObjFile *o = &objout;
    uint off;
    assert(siz && align && ispo2(align));
    switch (sec) {
@@ -103,7 +103,7 @@ void
 objfini(void)
 {
    static char buf[1<<12];
-   struct wbuf out = FDBUF(buf, sizeof buf, open(objout.outfile, O_WRONLY | O_CREAT | O_TRUNC, 0666));
+   WriteBuf out = FDBUF(buf, sizeof buf, open(objout.outfile, O_WRONLY | O_CREAT | O_TRUNC, 0666));
    if (out.fd < 0) fatal(NULL, "could not open %'s for writing: %s", objout.outfile, strerror(errno));
 
    switch (mctarg->objkind) {

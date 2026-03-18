@@ -22,12 +22,12 @@ enum typetag { /* ordering is important here! */
 };
 
 enum typeflagmask {
-   TFCHLDQUAL = 3,
-   TFCHLDPRIM = 1<<2,
+   TFCHLDQUAL  = 3,
+   TFCHLDPRIM  = 1<<2,
    TFCHLDISDAT = 1<<3,
 };
 
-union type {
+typedef union Type {
    struct {
       uchar t; /* type tag */
       union {
@@ -43,8 +43,8 @@ union type {
       };
    };
    uint bits;
-};
-static_assert(sizeof(union type) == 4);
+} Type;
+static_assert(sizeof(Type) == 4);
 
 #define isprimt(t)     in_range((t), TYBOOL, TYVOID)
 #define isintt(t)      in_range((t), TYENUM, TYUVLONG)
@@ -66,37 +66,38 @@ static_assert(sizeof(union type) == 4);
 #define isagg(ty)      isaggt((ty).t)
 #define iscomplext(t)  in_range((t), TYCOMPLEXF, TYCOMPLEXL)
 #define iscomplex(ty)  iscomplext((ty).t)
-#define mktype(...)   ((union type) {{ __VA_ARGS__ }})
+#define mktype(...)   ((Type) {{ __VA_ARGS__ }})
 
-struct enumvar {
+typedef struct {
    internstr name;
    union { vlong i; uvlong u; };
-};
+} EnumVar;
 
-struct fielddata {
-   union type t;
+typedef struct {
+   Type t;
    ushort off;
    uchar bitsiz,
          bitoff : 6,
          qual : 2;
-};
-struct namedfield {
-   internstr name;
-   struct fielddata f;
-};
+} FieldData;
 
-struct typedata {
+typedef struct {
+   internstr name;
+   FieldData f;
+} NamedField;
+
+typedef struct TypeData {
    uchar t;
    ushort id;
    union {
-      union type child;
-      const union type *param; /* functions */
+      Type child;
+      const Type *param; /* functions */
       struct { /* aggregates */
-         struct namedfield *fld;
+         NamedField *fld;
       };
       struct { /* enum */
          uchar backing;
-         struct enumvar *var;
+         EnumVar *var;
       };
    };
    union {
@@ -116,40 +117,40 @@ struct typedata {
    };
    union {
       uint siz; /* aggregate & array */
-      union type ret; /* function */
+      Type ret; /* function */
    };
-};
+} TypeData;
 
-extern struct typedata typedata[];
+extern TypeData typedata[];
 extern internstr ttypenames[/*id*/];
 
-bool isincomplete(union type);
-uint typesize(union type);
-uint typealign(union type);
-union type mkptrtype(union type, int qual);
-union type mkarrtype(union type t, int qual, uint n);
-union type mkfntype(union type ret, uint n, const union type *, bool kandr, bool variadic);
-union type mktagtype(internstr name, struct typedata *td);
-bool getfield(struct fielddata *res, union type, internstr);
-union type completetype(internstr name, int id, struct typedata *td);
-union type typedecay(union type);
-bool assigncompat(union type dst, union type src);
+bool isincomplete(Type);
+uint typesize(Type);
+uint typealign(Type);
+Type mkptrtype(Type, int qual);
+Type mkarrtype(Type t, int qual, uint n);
+Type mkfntype(Type ret, uint n, const Type *, bool kandr, bool variadic);
+Type mktagtype(internstr name, TypeData *td);
+bool getfield(FieldData *res, Type, internstr);
+Type completetype(internstr name, int id, TypeData *td);
+Type typedecay(Type);
+bool assigncompat(Type dst, Type src);
 enum typetag intpromote(enum typetag);
-union type cvtarith(union type a, union type b);
-static inline union type
-typechild(union type t)
+Type cvtarith(Type a, Type b);
+static inline Type
+typechild(Type t)
 {
    if (t.t == TYENUM) return mktype(t.backing ? t.backing : typedata[t.dat].backing);
    if (t.flag & TFCHLDPRIM) return mktype(t.child);
    if (t.flag & TFCHLDISDAT) {
-      union type chld = mktype(typedata[t.dat].t, .dat = t.dat);
+      Type chld = mktype(typedata[t.dat].t, .dat = t.dat);
       if (chld.t == TYENUM) chld.backing = typedata[t.dat].backing;
       return chld;
    }
    return typedata[t.dat].child;
 }
 static inline enum typetag
-scalartypet(union type t)
+scalartypet(Type t)
 {
    if (t.t == TYENUM) return t.backing ? t.backing : typedata[t.dat].backing;
    if (isptrcvt(t)) return TYPTR;
@@ -157,7 +158,7 @@ scalartypet(union type t)
    return t.t;
 }
 static inline uint
-typearrlen(union type t)
+typearrlen(Type t)
 {
    return (t.flag & TFCHLDPRIM) ? t.arrlen : typedata[t.dat].arrlen;
 }

@@ -2,7 +2,7 @@
 #include "c_type.h"
 
 static inline bool
-joinspan(struct span0 *dst, struct span0 snd)
+joinspan(Span0 *dst, Span0 snd)
 {
    if (dst->file != snd.file) return 0;
    if (dst->off > snd.off) return 0;
@@ -51,7 +51,7 @@ enum toktag { /* single-character tokens' tag value is the character itself */
 };
 static_assert(NTOKTAG < 256);
 
-struct token {
+typedef struct Token {
    uchar t; /* toktag */
    bool litlit : 1,
         blue : 1, /* preprocessor token painted blue */
@@ -63,7 +63,7 @@ struct token {
       uint len;
       ushort argidx;
    };
-   struct span span;
+   Span span;
    union {
       internstr name;
       const char *s;
@@ -87,27 +87,27 @@ struct token {
     *  argidx is index in macro param list,
     *  macidx is macro id of which it is a parameter
     */
-};
+} Token;
 
 extern int nerror, nwarn;
-struct lexer {
-   struct lexer *save;
+typedef struct Lexer {
+   struct Lexer *save;
    short fileid;
    const uchar *dat;
    uint ndat;
    uint idx, chridx;
    ushort chrbuf0;
-   struct macrostack *macstk;
-   struct token peektok;
+   struct MacroStack *macstk;
+   Token peektok;
    bool eof, err;
-   struct arena **tmparena;
+   Arena **tmparena;
    bool firstdirective;
    short nppcnd0;
    short inclnerror, inclnwarn;
    internstr inclguard;
    uchar chrbuf[1<<10];
    uint chridxbuf[1<<10];
-};
+} Lexer;
 
 enum initlexer {
    LXOK,
@@ -116,11 +116,11 @@ enum initlexer {
    LXERR,
 };
 
-int lex(struct lexer *, struct token *);
-int lexpeek(struct lexer *, struct token *);
-enum typetag parsenumlit(uvlong *, double *, const struct token *, bool ispp);
-enum initlexer initlexer(struct lexer *, const char **err, const char *file);
-void lexerdump(struct lexer *, struct wbuf *out);
-void lexerfreetemps(struct lexer *);
+int lex(Lexer *, Token *);
+int lexpeek(Lexer *, Token *);
+enum typetag parsenumlit(uvlong *, double *, const Token *, bool ispp);
+enum initlexer initlexer(Lexer *, const char **err, const char *file);
+void lexerdump(Lexer *, WriteBuf *out);
+void lexerfreetemps(Lexer *);
 
 /* vim:set ts=3 sw=3 expandtab: */
