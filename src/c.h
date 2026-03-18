@@ -106,7 +106,7 @@ typedef struct Decl {
       internstr sym; /* static/extern scls */
       struct { ushort align; int id; }; /* local var */
       vlong value; /* enum constant */
-      Builtin *builtin; /* .isbuiltin */
+      const Builtin *builtin; /* .isbuiltin */
    };
 } Decl;
 
