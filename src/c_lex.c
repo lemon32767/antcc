@@ -916,7 +916,7 @@ ppdefine(Lexer *lx)
    /* gather replacement list */
    mac.rl.off = mtoksbuf.n;
    for (int n = 0; lex0(lx, &tk, 0) != '\n' && tk.t != TKEOF;) {
-      if (n == 0 && !tk.space)
+      if (n == 0 && !tk.space && !mac.fnlike)
          warn(&tk.span, "no whitespace after macro name");
       Token *prev = n ? &mtoksbuf.p[mtoksbuf.n-1] : NULL;
       if (mac.fnlike && tk.t == TKIDENT) {
