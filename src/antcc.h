@@ -1,5 +1,4 @@
-#ifndef COMMON_H_
-#define COMMON_H_
+#pragma once
 
 #include <stdarg.h>
 #include <stddef.h>
@@ -365,7 +364,5 @@ void note(const Span *, const char *, ...);
 ushort *utf8to16(uint *ulen, Arena **, const uchar *s, size_t len);
 uint *utf8to32(uint *ulen, Arena **, const uchar *s, size_t len);
 int utf8enc(char out[4], uint cp);
-
-#endif /* COMMON_H_ */
 
 /* vim:set ts=3 sw=3 expandtab: */

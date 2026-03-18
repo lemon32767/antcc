@@ -1,3 +1,5 @@
+#pragma once
+
 #include "antcc.h"
 #include "c_type.h"
 

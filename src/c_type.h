@@ -1,5 +1,5 @@
-#ifndef TYPE_H_
-#define TYPE_H_
+#pragma once
+
 #include "antcc.h"
 
 enum qualifier {
@@ -172,7 +172,5 @@ extern uchar targ_primsizes[];
 extern uchar targ_primalign[];
 extern enum typetag targ_sizetype, targ_ptrdifftype, targ_wchartype;
 extern bool targ_charsigned, targ_bigendian, targ_64bit;
-
-#endif
 
 /* vim:set ts=3 sw=3 expandtab: */

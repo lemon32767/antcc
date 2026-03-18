@@ -1,5 +1,4 @@
-#ifndef ENDIAN_H_
-#define ENDIAN_H_
+#pragma once
 
 #include "antcc.h"
 extern bool targ_bigendian;
@@ -183,7 +182,5 @@ wrf64targ(uchar *p, double x)
    union { double f; uvlong i; } u = { x };
    wr64targ(p, u.i);
 }
-
-#endif /* ENDIAN_H_ */
 
 /* vim:set ts=3 sw=3 expandtab: */

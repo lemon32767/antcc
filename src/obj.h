@@ -1,3 +1,5 @@
+#pragma once
+
 #include "antcc.h"
 
 typedef struct ObjFile {
