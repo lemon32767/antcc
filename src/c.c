@@ -1461,6 +1461,7 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
       if (nerror) return;
       if (ip->dyn) {
          if (ip->ddat.n < off + siz) {
+            /* extending ddata, can only happen for unknown-size arrays */
             uint old = ip->ddat.n;
             vresize(&ip->ddat, off + siz);
             memset(ip->ddat.p + old, 0, ip->ddat.n - old);
@@ -1702,7 +1703,7 @@ designators(InitParser *ip, CComp *cm)
    bool some = 0;
 
    for (;;) {
-            uint off, bitsiz, bitoff;
+      uint off, bitsiz, bitoff;
       uvlong idx = ~0ull;
       if (match(cm, &tk, '[')) {
          Expr ex = commaexpr(cm);
@@ -1879,8 +1880,9 @@ initializer(CComp *cm, Type *ty, enum evalmode ev, bool globl,
       if (!nerror) {
          off = objnewdat(sym, sec, globl, siz = typesize(*ty), align = typealign(*ty));
          p = sec == Srodata ? objout.rodata.p : objout.data.p;
+         assert(ip->ddat.n <= siz);
          memcpy(p + off, ip->ddat.p, ip->ddat.n);
-         memset(p + off + ip->ddat.n, 0, typesize(*ty) - ip->ddat.n);
+         memset(p + off + ip->ddat.n, 0, siz - ip->ddat.n);
          for (InitReloc *rel = ip->drel; rel; rel = rel->link) {
             objreloc(rel->sym, targ_64bit ? REL_ABS64 : REL_ABS32, sec, off + rel->off, rel->addend);
          }
@@ -2028,11 +2030,8 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id)
             } else {
                bitsiz = ex.i;
                if (bitsiz == 0) {
-                  if (bitftypesiz) {
-                     bitfbyteoff += bitftypesiz;
-                     bitfbyteoff = alignup(bitfbyteoff, typealign(decl.ty));
-                  }
-                  bitoff = 0;
+                  bitsiz = bitftypesiz - bitoff;
+                  continue;
                } else if (bitftypesiz && bitftypesiz < tysize) {
                   /* end of previous bitfield */
                   bitoff = 0;

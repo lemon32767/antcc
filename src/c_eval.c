@@ -139,7 +139,7 @@ truthy(const Expr *ex)
 static bool
 unop(Expr *ex, enum evalmode mode)
 {
-   Expr *sub = ex->sub;
+   Expr *sub = ex->sub, ex2;
 
    if (mode >= EVSTATICINI && ex->t == EDEREF) {
       uvlong off;
@@ -175,10 +175,14 @@ unop(Expr *ex, enum evalmode mode)
          p = sub->sub[1].s.p, len = sub->sub[1].s.n;
          csiz = typesize(typechild(sub->sub[1].ty));
          goto StrRead;
+      } else if (ex->ty.t == TYARRAY && eval(sub, mode)) {
+         sub->ty = ex->ty;
+         *ex = *sub;
+         return 1;
       } else return 0;
    } else if (ex->t == EADDROF) {
       assert(ex->ty.t == TYPTR);
-      Expr ex2 = staticaddrof(ex->sub, mode);
+      ex2 = staticaddrof(ex->sub, mode);
       if (!ex2.t) return 0;
       ex2.span = ex->span;
       ex2.ty = ex->ty;
