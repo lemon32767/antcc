@@ -148,8 +148,9 @@ enum { MAXSPILL = 512 };
 typedef struct { ushort from, to; } Range;
 
 /* a temporary's lifetime interval */
-typedef struct Interval {
-   struct Interval *next; /* for linked list of active,inactive,handled sets in linear scan */
+typedef struct Interval Interval;
+struct Interval {
+   Interval *next; /* for linked list of unhandled, active & inactive sets in linear scan */
    Alloc alloc;
    schar rhint : 7; /* register hint */
    bool fpr : 1; /* needs float register? */
@@ -161,7 +162,7 @@ typedef struct Interval {
       Range _rinl[2];
       Range *_rdyn;
    };
-} Interval;
+};
 
 /* fixed intervals represent register constraints */
 typedef struct FixInterval {
@@ -179,7 +180,8 @@ typedef struct RegAlloc {
 
    int intercount; /* number of actual intervals */
    int ninter; /* size of inter */
-   Interval *inter; /* map of tmp -> interval */
+   Interval *intertab; /* map of tmp -> interval */
+   Interval *inters; /* unhandled intervals linked list */
    FixInterval *fixed; /* linked list of fixed intervals, always sorted */
 
    BitSet freestk[BSSIZE(MAXSPILL)]; /* free stack slots */
@@ -364,7 +366,7 @@ lowerphis(RegAlloc *ra, Block *blk, Block *suc)
          from = areg(instrtab[arg->i].reg - 1);
          DBG("  it had R%d\n", from.a);
       } else {
-         from = ra->inter[arg->i].alloc;
+         from = ra->intertab[arg->i].alloc;
          assert(from.t != ADEAD);
          DBG("  found %c%d\n", " RS"[from.t], from.a);
          if (from.t == AREG)
@@ -374,7 +376,7 @@ lowerphis(RegAlloc *ra, Block *blk, Block *suc)
          to = areg(phi->reg - 1);
          DBG("  phi had R%d\n", to.a);
       } else {
-         to = ra->inter[phi - instrtab].alloc;
+         to = ra->intertab[phi - instrtab].alloc;
          if (to.t == ADEAD) {
             DBG("  skip dead phi\n");
             continue;
@@ -474,7 +476,7 @@ incrcost(Interval *it, Block *blk)
 static bool
 intervaldef(RegAlloc *ra, int t, Block *blk, int pos, int reghint)
 {
-   Interval *it = &ra->inter[t];
+   Interval *it = &ra->intertab[t];
    if (it->nrange) {
       ushort *beg = &itrange(it, 0).from;
       assert(*beg <= pos);
@@ -488,11 +490,13 @@ intervaldef(RegAlloc *ra, int t, Block *blk, int pos, int reghint)
 static void
 addrange(RegAlloc *ra, int t, Range new, int reghint)
 {
-   Interval *it = &ra->inter[t];
+   Interval *it = &ra->intertab[t];
    Range *fst;
    int n;
 
    if (!it->nrange) {
+      it->next = ra->inters;
+      ra->inters = it;
       ++ra->intercount;
       it->rhint = reghint;
       it->fpr = kisflt(insrescls(instrtab[t]));
@@ -604,7 +608,7 @@ buildintervals(RegAlloc *ra)
    } *loops = NULL;
    for (int i = 0; i < ra->fn->nblk; ++i)
       livein[i] = allocz(ra->arena, bssize * sizeof *livein[i], 0);
-   ra->inter = allocz(ra->arena, ninstr * sizeof *ra->inter, 0);
+   ra->intertab = allocz(ra->arena, ninstr * sizeof *ra->intertab, 0);
    ra->ninter = ninstr;
 
    uint n = numberinstrs(ra->fn);
@@ -628,7 +632,7 @@ buildintervals(RegAlloc *ra)
             Ref *arg = &phitab.p[phi->l.i][predno];
             assert(arg->t == RTMP);
             bsset(live, arg->i);
-            incrcost(&ra->inter[arg->i], blk);
+            incrcost(&ra->intertab[arg->i], blk);
          }
          if (suc == blk->s2) break;
       }
@@ -731,7 +735,7 @@ buildintervals(RegAlloc *ra)
 
             if (r.t == RTMP) {
                assert(instrtab[r.i].op != Onop);
-               incrcost(&ra->inter[r.i], blk);
+               incrcost(&ra->intertab[r.i], blk);
                addrange(ra, r.i, (Range){blk->inumstart, pos}, reghint);
                bsset(live, r.i);
             } else if (r.t == RREG) {
@@ -751,7 +755,7 @@ buildintervals(RegAlloc *ra)
          int phi = blk->phi.p[i];
          bsclr(live, phi);
          for (int i = 0; i < blk->npred; ++i)
-            incrcost(&ra->inter[phi], blkpred(blk, i));
+            incrcost(&ra->intertab[phi], blkpred(blk, i));
       }
 
       /* if b is loop header then
@@ -787,7 +791,7 @@ buildintervals(RegAlloc *ra)
 
    if (ccopt.dbg.r) {
       for (int var = 0; var < ninstr; ++var) {
-         Interval *it = &ra->inter[var];
+         Interval *it = &ra->intertab[var];
          if (!it->nrange) continue;
          DBG("lifetime of %%%d: ", var);
          for (int i = 0; i < it->nrange; ++i) {
@@ -816,34 +820,35 @@ itcontainspos(Interval *it, int pos)
    return 0;
 }
 
-/* quicksort */
-static void
-sortintervals(Interval **xs, int lo, int hi)
+/* merge sort */
+static Interval *
+sortintervals(Interval *head, size_t n)
 {
-   assert(lo >= 0 && hi >= 0);
-   while (lo < hi) {
-      /* partition */
-      int i = lo - 1, p = hi + 1,
-          pivot = intervalbeg(xs[lo]);
-      for (;;) {
-         Interval *tmp;
-         do ++i; while (intervalbeg(xs[i]) < pivot);
-         do --p; while (intervalbeg(xs[p]) > pivot);
-         if (i >= p) break;
-         /* swap */
-         tmp = xs[i];
-         xs[i] = xs[p];
-         xs[p] = tmp;
-      }
-      /* recur */
-      if (p + 1 >= hi) {
-         hi = p;
+   if (n == 1) {
+      head->next = NULL;
+      return head;
+   }
+   size_t nhead = n / 2;
+   Interval *rest = head;
+   for (size_t i = nhead; i > 0; --i)
+      rest = rest->next;
+   head = sortintervals(head, nhead);
+   rest = sortintervals(rest, n - nhead);
+
+   Interval *p, **pp = &p;
+   while (head && rest) {
+      if (intervalbeg(rest) < intervalbeg(head)) {
+         *pp = rest;
+         pp = &rest->next;
+         rest = *pp;
       } else {
-         if (lo < p)
-            sortintervals(xs, lo, p);
-         lo = p + 1;
+         *pp = head;
+         pp = &head->next;
+         head = *pp;
       }
    }
+   *pp = head ? head : rest;
+   return p;
 }
 
 static Alloc
@@ -870,7 +875,7 @@ freestk(RegAlloc *ra, int slot)
       --ra->stktop;
 }
 
-#define interval2temp(it) (int)(it - ra->inter)
+#define interval2temp(it) (int)(it - ra->intertab)
 
 static void
 linearscan(RegAlloc *ra)
@@ -878,31 +883,25 @@ linearscan(RegAlloc *ra)
    if (!ra->intercount) return;
 
    /* sort intervals */
-   Interval **unhandled = alloc(ra->arena, sizeof *unhandled * ra->intercount, 0);
-   int nunhandled = 0;
-   for (int i = 0; i < ra->ninter; ++i) {
-      if (!ra->inter[i].nrange) continue;
-      unhandled[nunhandled++] = &ra->inter[i];
-   }
-   assert(nunhandled == ra->intercount);
-   sortintervals(unhandled, 0, nunhandled-1);
+   Interval *unhandled = sortintervals(ra->inters, ra->intercount);
 
    regset freeregs = (gpregset | fpregset) &~ (mctarg->rglob | (1ull<<mctarg->gprscratch) | (1ull<<mctarg->fprscratch));
    memset(ra->freestk, 0xFF, sizeof ra->freestk);
 
    /* LINEAR SCAN */
    Interval *actives[2] = {0}, /* gpr set and fpr set */
-                   *inactives[2] = {0},
-                   *spilled = NULL, **spilled_tail = &spilled;
-   for (Interval **pcurrent = unhandled; nunhandled > 0; ++pcurrent, --nunhandled) {
-      Interval *current = *pcurrent;
+            *inactives[2] = {0},
+            *spilled = NULL, **spilled_tail = &spilled;
+   for (Interval *current = unhandled, *unext; current; current = unext) {
+      unext = current->next;
       int pos = intervalbeg(current);
-
-      Interval **active = &actives[current->fpr], **inactive = &inactives[current->fpr],
-                      **lnk, *it, *next;
+      Interval **active = &actives[current->fpr],
+               **inactive = &inactives[current->fpr],
+               **lnk, *it, *next;
       /* Expire old intervals */
       /* check for intervals in active that are handled or inactive */
-      for (lnk = active, it = *lnk; (next = it?it->next:0), it; it = next) {
+      for (lnk = active, it = *lnk; it; it = next) {
+         next = it->next;
          assert(it->alloc.t == AREG);
          /* ends before position? */
          if (intervalend(it) <= pos) {
@@ -920,7 +919,8 @@ linearscan(RegAlloc *ra)
          } else lnk = &it->next;
       }
       /* check for intervals in inactive that are handled or active */
-      for (lnk = inactive, it = *lnk; (next = it?it->next:0), it; it = next) {
+      for (lnk = inactive, it = *lnk; it; it = next) {
+         next = it->next;
          assert(it->alloc.t == AREG);
          /* ends before position? */
          if (intervalend(it) <= pos) {
@@ -986,7 +986,7 @@ linearscan(RegAlloc *ra)
          Interval **ptospill = NULL, *tospill = current;
          /* heuristic: look for longest-lived active interval with lower spill cost */
          int curend = intervalend(current);
-         for (lnk = active, it = *lnk; (next = it ? it->next : 0), it; it = next) {
+         for (lnk = active; (it = *lnk);) {
             int end = intervalend(it);
             if (it->cost < tospill->cost && end > curend && !rstest(fixexcl, it->alloc.a)) {
                ptospill = lnk;
@@ -1159,7 +1159,7 @@ devirt(RegAlloc *ra, Block *blk)
       for (int i = 0; i < nargref; ++i) {
          Ref *r = argref[i];
          int tr;
-         if (r->t == RTMP && (it = &ra->inter[r->i])->nrange > 0) {
+         if (r->t == RTMP && (it = &ra->intertab[r->i])->nrange > 0) {
             alloc = &it->alloc;
             if (alloc->t == ASTACK && ins->op == Omove && kisint(ins->cls) == kisint(instrtab[r->i].cls)) {
                /* move [reg], [stk] -> [reg] = load [stk] */
@@ -1185,7 +1185,7 @@ devirt(RegAlloc *ra, Block *blk)
                      Interval *it;
                      if (argref[j]->t == RREG) rsclr(&avail, argref[j]->i);
                      else if (argref[j]->t == RTMP) {
-                        it = &ra->inter[argref[j]->i];
+                        it = &ra->intertab[argref[j]->i];
                         if (it->alloc.t == AREG) rsclr(&avail, it->alloc.a);
                      }
                   }
@@ -1222,7 +1222,7 @@ devirt(RegAlloc *ra, Block *blk)
 
       /* devirtualize destination */
       curi0 = curi;
-      alloc = temp < ra->ninter && (it = &ra->inter[temp]) && it->nrange ? &it->alloc : NULL;
+      alloc = temp < ra->ninter && (it = &ra->intertab[temp]) && it->nrange ? &it->alloc : NULL;
       if (alloc && alloc->t == ASTACK) {
          enum irclass cls = insrescls(*ins);
          int store = cls2store[cls];
@@ -1412,7 +1412,7 @@ regalloc(Function *fn)
    fn->stksiz += ra.maxstk*8;
    if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
 
-   for (Interval *it = ra.inter; ra.intercount > 0; ++it) {
+   for (Interval *it = ra.intertab; ra.intercount > 0; ++it) {
       if (it->nrange > 2) xbfree(it->_rdyn);
       if (it->nrange > 0) --ra.intercount;
    }
