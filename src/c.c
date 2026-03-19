@@ -2725,7 +2725,7 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
 
 static Decl
 declarator(DeclState *st, CComp *cm, Span span0) {
-   Decl decl = { st->base, st->scls, .qual = st->qual, .align = st->align, .span = span0 };
+   Decl decl = { st->base, st->scls, .qual = st->qual, .span = span0 };
    DeclList list = { &list, &list }, *l;
    Span namespan ={0};
    static bool inidecltmp;
@@ -2878,10 +2878,10 @@ pdecl(DeclState *st, CComp *cm) {
    if (st->scls == SCTYPEDEF) properdecl = 0;
 
    if (first && st->tagdecl && match(cm, &tk, ';')) {
-      decl = (Decl) { st->base, st->scls, st->qual, .align = st->align, .span = decl.span };
+      decl = (Decl) { st->base, st->scls, st->qual, .span = decl.span };
       return decl;
    } else if (st->kind == DFIELD && match(cm, &tk, ':')) {
-      decl = (Decl) { st->base, st->scls, st->qual, .align = st->align, .span = decl.span };
+      decl = (Decl) { st->base, st->scls, st->qual, .span = decl.span };
       st->bitf = 1;
       return decl;
    }
