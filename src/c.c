@@ -1125,9 +1125,9 @@ Unary:
             internstr fnname = decl->sym;
             decl->isbuiltin = 0;
             decl->sym = mkhiddensym(&fnname->c, "__func__", 1);
-            uint off = objnewdat(decl->sym, objout.code ? Stext : Srodata, 0, typesize(decl->ty), typealign(decl->ty));
-            uchar *p = objout.code ? objout.textbegin + off : objout.rodata.p + off;
-            memcpy(p, fnname, typearrlen(decl->ty)-1);
+            assert(decl->ty.t == TYARRAY && typechild(decl->ty).t == TYCHAR);
+            uint siz = typesize(decl->ty);
+            (void) mkdatref(decl->sym, decl->ty, siz, 1, fnname, siz, 0, 1);
          }
          ex = mkexpr(ESYM, tk.span, decl->ty, .qual = decl->qual, .decl = decl - declsbuf.p);
       }

@@ -159,12 +159,21 @@ mksymref(internstr s, enum symflags symflags)
    return newxcon(&con);
 }
 
+static bool
+textdataok(void)
+{
+   /* openbsd enforces R^X for .text */
+   return target.os != OSopenbsd;
+}
+
 Ref
 mkdatref(internstr name, Type ctype, uint siz, uint align,
          const void *bytes, uint n, bool deref, bool funclocal)
 {
    IRDat dat = { .ctype = ctype, .align = align, .siz = siz, .name = name, .section = Srodata };
-   if (funclocal && objout.code && align >= 4 && align <= targ_primsizes[TYPTR] && siz <= 16)
+
+   if (funclocal && textdataok() && objout.code
+    && align >= 4 && align <= targ_primsizes[TYPTR] && siz <= 16)
       dat.section = Stext;
 
    assert(n <= siz && siz && align);
