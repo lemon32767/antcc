@@ -52,6 +52,12 @@ struct S3 {
    char q;
 };
 
+int array_const_decay(const char x[3], int i) {
+   static const char y[3] = "11";
+   if (!x) x = y;
+   return x[i];
+}
+
 extern int printf(const char *, ...);
 #include <assert.h>
 #include <string.h>

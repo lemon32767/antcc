@@ -2525,8 +2525,10 @@ static struct DeclList {
    DeclList *prev, *next;
    uchar t; /* TYPTR, TYARRAY or TYFUNC */
    union {
-      uchar qual; /* TYPTR */
-      Expr count; /* TYARRAY */
+      struct {
+         uchar qual; /* TYPTR, TYARRAY */
+         Expr count; /* TYARRAY */
+      };
       struct { /* TYFUNC */
          Type *param;
          internstr *pnames;
@@ -2623,14 +2625,14 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
    for (;;) {
       if (match(cm, &tk, '[')) {
          node.span = tk.span;
-         int q = 0;
+         node.qual = 0;
          bool statik = 0;
          if (in_range(peek(cm, &tk), TKWBEGIN_, TKWEND_)) {
-            q = cvqual(cm);
+            node.qual = cvqual(cm);
             statik = match(cm, NULL, TKWstatic);
-            q |= cvqual(cm);
+            node.qual |= cvqual(cm);
          }
-         (void)q, (void)statik; /* stub */
+         (void)statik; /* stub */
 
          if (match(cm, &tk, ']')) {
             node.count.t = EARRAYUNSIZED;
@@ -2727,7 +2729,7 @@ static Decl
 declarator(DeclState *st, CComp *cm, Span span0) {
    Decl decl = { st->base, st->scls, .qual = st->qual, .span = span0 };
    DeclList list = { &list, &list }, *l;
-   Span namespan ={0};
+   Span namespan = {0};
    static bool inidecltmp;
    if (!inidecltmp) {
       inidecltmp = 1;
@@ -2776,6 +2778,7 @@ declarator(DeclState *st, CComp *cm, Span span0) {
             }
             decl.ty = mkarrtype(decl.ty, decl.qual, n);
          }
+         decl.qual = l->qual;
          break;
       case TYFUNC:
          if (decl.ty.t == TYFUNC)
