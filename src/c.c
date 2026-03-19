@@ -3179,16 +3179,17 @@ isboollike(Function *fn, Ref r)
    if (ins->op == Ophi) { /* check if all the phi args are boollike */
       Block *blk;
       Ref *phi = NULL;
-      for (blk = fn->curblk; phi == NULL; blk = blk->lprev) {
+      for (blk = fn->curblk;; blk = blk->lprev) {
          /* find blk that defines phi */
          assert(blk != fn->entry);
          for (int i = 0; i < blk->phi.n; ++i){
             if (blk->phi.p[i] == r.i) {
                phi = phitab.p[ins->l.i];
-               break;
+               goto Found;
             }
          }
       }
+   Found:
       for (int i = 0; i < blk->npred; ++i) {
          if (!isboollike(fn, phi[i])) {
             return 0;
