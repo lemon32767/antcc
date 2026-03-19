@@ -360,7 +360,7 @@ void vdiag(const Span *, enum diagkind, const char *, va_list);
 NORETURN void fatal(const Span *, const char *, ...);
 void error(const Span *, const char *, ...);
 void warn(const Span *, const char *, ...);
-void note(const Span *, const char *, ...);
+void note(enum diagkind src, const Span *, const char *, ...);
 ushort *utf8to16(uint *ulen, Arena **, const uchar *s, size_t len);
 uint *utf8to32(uint *ulen, Arena **, const uchar *s, size_t len);
 int utf8enc(char out[4], uint cp);

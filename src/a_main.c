@@ -466,7 +466,7 @@ dolink(void)
 
    findlinkcmd(&cmd);
    if (!strcmp(cmd.p[0], "zig")) {
-      note(NULL, "using 'zig cc' as a cross-compiler");
+      note(DGNOTE, NULL, "using 'zig cc' as a cross-compiler");
    }
    if (task.outft == OFTdll) {
       vpush(&cmd, "-shared");

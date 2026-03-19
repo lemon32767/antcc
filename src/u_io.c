@@ -1111,7 +1111,7 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
 
    if (span && loc == &span->ex && span->sl.len)
       if (span->ex.file != span->sl.file || !((uint) span->sl.off - span->ex.off < span->ex.len))
-         note(&(Span){ span->sl }, "expanded from here");
+         note(kind, &(Span){ span->sl }, "expanded from here");
 
    if (--depth == 0) ioflush(&out);
 }
@@ -1165,10 +1165,11 @@ warn(const Span *span, const char *fmt, ...)
 }
 
 void
-note(const Span *span, const char *fmt, ...)
+note(enum diagkind src, const Span *span, const char *fmt, ...)
 {
    va_list ap;
 
+   if (ccopt.wnone && src == DGWARN) return;
    va_start(ap, fmt);
    vdiag(span, DGNOTE, fmt, ap);
    va_end(ap);
