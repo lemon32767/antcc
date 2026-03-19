@@ -160,6 +160,22 @@ mkmemoper(Ref r)
    }
 }
 
+static bool
+opereql(Oper a, Oper b)
+{
+   if (a.t != b.t) return 0;
+   switch (a.t) {
+   case OREG: return a.reg == b.reg;
+   case OIMM: return a.imm == b.imm;
+   case OMEM:
+      return a.base == b.base && a.index == b.index && a.shift == b.shift && a.disp == b.disp;
+   case OSYM:
+   case OSYMGOT:
+      return a.cindex == b.cindex && a.cshift == b.cshift && a.con == b.con && a.disp == b.disp;
+   default: assert(0);
+   }
+}
+
 /** Instruction description tables **
  *
  * Each instruction is a list of descs, and the first one that matches
@@ -703,7 +719,7 @@ static const EncDesc imul3_imm8tab[] = {
 static void
 Ximul(uchar **pcode, enum irclass k, Oper dst, Oper s1, Oper s2)
 {
-   if (!memcmp(&dst, &s1, sizeof dst) && s2.t != OIMM) {
+   if (opereql(dst, s1) && s2.t != OIMM) {
       Ximul2(pcode, k, dst, s2);
       return;
    }
@@ -908,7 +924,7 @@ gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val
       *pcode += 8;
    } else {
       Oper src = mkimmdatregoper(val);
-      if (memcmp(&dst, &src, sizeof dst) != 0)
+      if (!opereql(dst, src))
          Xmov(pcode, cls == KF64 && src.t == OREG && src.reg < XMM0 ? KI64 : cls, dst, src);
    }
 }

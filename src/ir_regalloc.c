@@ -210,7 +210,7 @@ typedef struct {
 static void
 pmadd(PMState *pms, enum irclass k, Alloc dst, Alloc src)
 {
-   if (!memcmp(&dst, &src, sizeof dst)) return;
+   if (dst.bits == src.bits) return;
    assert(pms->npmove < MAXREGS);
    pms->pmove[pms->npmove++] = (struct PMove) { k, PMTOMOVE, dst, src };
 }
