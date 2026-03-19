@@ -2344,7 +2344,7 @@ putdef1(const char *name)
 static void
 putdefs1(const char *s)
 {
-   for (; *s; s += strlen(s) + 1) putdef1(s);
+   if (s) for (; *s; s += strlen(s) + 1) putdef1(s);
 }
 
 static void
