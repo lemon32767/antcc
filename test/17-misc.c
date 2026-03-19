@@ -54,6 +54,7 @@ struct S3 {
 
 extern int printf(const char *, ...);
 #include <assert.h>
+#include <string.h>
 int main() {
    printf("%d\n", fn1(-77ull));
    assert(offst[0] == offsetof(struct foo, b));
@@ -61,4 +62,5 @@ int main() {
    assert(offst[2] == offsetof(struct foo, b[1]));
    assert(*g_131 == 5 && *g_132 == 14 && *g_133 == 0);
    printf("S3 =%d, f2@%d, q@%d\n", (int)sizeof(struct S3), (int)offsetof(struct S3, f2), (int)offsetof(struct S3, q));
+   assert(!strcmp(__func__, "main"));
 }
