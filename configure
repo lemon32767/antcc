@@ -46,6 +46,7 @@ test -n "$host" || die "cannot determine host"
 host_arch=
 host_os=
 host_abi=
+host_predefs=
 
 echo "host: $host"
 case "$host" in
@@ -57,7 +58,14 @@ arm64-*) host_arch=aarch64 ;;
 esac
 
 case "$host" in
-*-linux-*) host_os=linux ;;
+*-linux-*)
+    host_os=linux ;;
+*-openbsd*)
+    host_os=openbsd
+    host_predefs='
+    "_ANSI_LIBRARY", /* works around __only_inline functions in libc headers */
+    '
+    ;;
 *) host_os=unknown ;;
 esac
 
@@ -106,17 +114,15 @@ echo using abi: "$host_abi"
 echo host include paths: "$host_include_dirs"
 
 echo "/** GENERATED WITH $0 $@ **/
-#ifndef HOSTCONFIG_H_
-#define HOSTCONFIG_H_
-
 #define HOST_TRIPLE \"$host\"
 #define HOST_ARCH   IS$host_arch
 #define HOST_OS     OS$host_os
 #define HOST_ABI    ABI$host_abi
 #define HOST_INCLUDE_DIRS $host_include_dirs
 #define HOST_CC \"$CC\"
-
-#endif // HOSTCONFIG_H_"  > src/hostconfig.h
+static const char *const host_predefs[] = {$host_predefs 0
+};
+"  > src/hostconfig.h
 
 echo "# GENERATED WITH $0 $@
 PREFIX = $prefix

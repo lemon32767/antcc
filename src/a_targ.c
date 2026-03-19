@@ -46,18 +46,23 @@ parsetriple(TargTriple *trg, const char *str)
 
    if (matchstr(&str, "unknown-") || matchstr(&str, "pc-")) {}
 
-   if (matchstr(&str, "linux-")) {
-      trg->os = OSlinux;
-   } else if (matchstr(&str, "linux$")) {
+   if (matchstr(&str, "linux$")) {
       trg->os = OSlinux;
       trg->abi = ABIgnu;
+      return 1;
+   } else if (matchstr(&str, "linux")) {
+      trg->os = OSlinux;
+   } else if (matchstr(&str, "openbsd")) {
+      trg->os = OSopenbsd;
    } else return 0;
 
-   if (matchstr(&str, "gnu")) {
+   if (trg->os == OSlinux && matchstr(&str, "-gnu")) {
       trg->abi = ABIgnu;
-   } else if (matchstr(&str, "musl")) {
+   } else if (trg->os == OSlinux && matchstr(&str, "-musl")) {
       trg->abi = ABImusl;
-   } else return 0;
+   } else if (matchstr(&str, "-")) {
+      return 0;
+   }
 
    return 1;
 }

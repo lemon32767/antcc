@@ -2374,9 +2374,10 @@ addpredefmacros(Arena **tmparena)
       cpredefs[] =
          "__antcc__\0__STDC__\0__STDC_NO_ATOMICS__\0__STDC_NO_COMPLEX__\0__STDC_NO_THREADS__\0__STDC_NO_VLA__\0",
       *ospredefs[] = {
-         [OSlinux] = "__linux\0__linux__\0linux\0unix\0__unix\0__unix__\0"
+         [OSlinux] = "__linux\0__linux__\0linux\0unix\0__unix\0__unix__\0",
+         [OSopenbsd] = "__OpenBSD__\0unix\0__unix\0__unix__\0"
       }, *archpredefs[] = {
-         [ISx86_64] = "__x86_64__\0__x86_64\0",
+         [ISx86_64] = "__x86_64__\0__x86_64\0__amd64__\0__amd64\0",
          [ISaarch64] = "__aarch64__\0__aarch64\0",
       }, cstdver[][8] = {
          [STDC89] = "199409L",
@@ -2394,6 +2395,20 @@ addpredefmacros(Arena **tmparena)
    if (target.os != OSunknown) putdef1("__STDC_HOSTED__");
    putdefs1(ospredefs[target.os]);
    putdefs1(archpredefs[target.arch]);
+   if (ccopt.pie) {
+      putdef1("__pie__"), putdef1("__PIE__");
+   }
+   if (ccopt.pic) {
+      putdef1("__pic__"), putdef1("__PIC__");
+   }
+   if (targ_primsizes[TYPTR] == 4) {
+      putdef1("_ILP32"), putdef1("__ILP32__");
+   } else if (targ_primsizes[TYLONG] == 4) {
+      putdef1("_LLP64"), putdef1("__LLP64__");
+   } else {
+      assert(targ_primsizes[TYINT] == 4);
+      putdef1("_LP64"), putdef1("__LP64__");
+   }
 
    if (ppcmdline.n) {
       MemFile *f;

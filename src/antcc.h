@@ -150,7 +150,7 @@ extern CInclPath *cinclpaths[5];
 
 typedef struct TargTriple {
    enum mcarch { ISxxx, ISx86_64, ISaarch64 } arch;
-   enum mcos { OSunknown, OSlinux } os;
+   enum mcos { OSunknown, OSlinux, OSopenbsd } os;
    enum mcabi { ABInone, ABIgnu, ABImusl } abi;
 } TargTriple;
 extern TargTriple target;

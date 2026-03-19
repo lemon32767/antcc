@@ -120,6 +120,8 @@ static Task task = { .inf = VINIT(infilebuf, countof(infilebuf)) };
 
 static void prihelp(void);
 
+void cpppredef(bool undef, const char *cmd);
+
 static void
 optparse(char **args)
 {
@@ -229,7 +231,6 @@ optparse(char **args)
          else if (o == '0') ccopt.o = OPT0;
          else goto Bad;
       } else if (*arg == 'D' || *arg == 'U') {
-         void cpppredef(bool undef, const char *cmd);
          const char *def = arg[1] ? arg+1 : *++args;
          if (!def) fatal(NULL, "macro name missing after `-%c`", *arg);
          cpppredef(*arg == 'U', def);
@@ -705,6 +706,9 @@ main(int argc, char **argv)
    targ_init(task.targ);
    if (!target.arch)
       fatal(NULL, "unsupported target: %s", task.targ ? task.targ : HOST_TRIPLE);
+
+   for (const char *const *p = host_predefs; *p; ++p)
+      cpppredef(0, *p);
 
    return driver();
 }
