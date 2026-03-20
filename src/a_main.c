@@ -113,6 +113,7 @@ typedef struct Task {
    vec_of(InFile) inf;
    char **runargs;
    vec_of(const char *) linkargs;
+   bool link_with_cc;
    bool verbose, run, syntaxonly;
 } Task;
 static InFile infilebuf[16];
@@ -134,6 +135,7 @@ optparse(char **args)
             ft ? ft : ftdetect(arg-1),
             arg[-1] != '-' ? arg-1 : "/dev/stdin"
          }));
+         vpush(&task.linkargs, NULL);
          ft = IFTauto;
          if (task.run) {
             task.runargs = args+1;
@@ -203,8 +205,24 @@ optparse(char **args)
          const char *s = *++args;
          if (!s) fatal(NULL, "missing target name");
          task.targ = s;
-      } else if (*arg == 'l' || *arg == 'L' || *arg == 'B' || !strcmp(arg, "shared") || !strcmp(arg, "pthread")) {
+      } else if (*arg == 'l' || *arg == 'L' || *arg == 'B' || !strcmp(arg, "shared") || !strcmp(arg, "pthread") || !strcmp(arg, "static")) {
+         /* XXX having some issues with linker commands for -shared */
+         if (!strcmp(arg, "shared"))
+            task.link_with_cc = 1;
          vpush(&task.linkargs, arg-1);
+      } else if (!memcmp(arg, "Wl,", 3)) {
+         if (task.link_with_cc) {
+            vpush(&task.linkargs, arg-1);
+         } else {
+            for (char *larg = (char*)arg+3, *next; larg && *larg; larg = next) {
+               next = strchr(larg, ',');
+               if (next) {
+                  *next = '\0';
+                  ++next;
+               }
+               vpush(&task.linkargs, larg);
+            }
+         }
       } else if (!strcmp(arg, "v") || !strcmp(arg, "-verbose")) {
          task.verbose = 1;
       } else if (!strcmp(arg, "c")) {
@@ -429,6 +447,7 @@ static void
 findlinkcmd(CmdArgs *cmd)
 {
    if (task.targ && iscrosscc()) {
+      task.link_with_cc = 1;
       /* try to find a cross compiling toolchain, e.g. aarch64-linux-gnu-gcc */
       static const char *ccs[] = {"cc", "gcc", "clang"};
       char cross[1024];
@@ -451,8 +470,16 @@ findlinkcmd(CmdArgs *cmd)
       } else {
          fatal(NULL, "cannot link to cross-compilation target: no appropiate toolchain installed");
       }
-   } else {
+   } else if (task.link_with_cc) {
       vpush(cmd, HOST_CC);
+   } else {
+      vpush(cmd, HOST_LD);
+      vpushn(cmd, host_linkcmd, countof(host_linkcmd));
+      if (ccopt.pie) {
+         vpushn(cmd, host_ldstartfiles_pie, countof(host_ldstartfiles_pie));
+      } else {
+         vpushn(cmd, host_ldstartfiles, countof(host_ldstartfiles));
+      }
    }
 }
 
@@ -476,19 +503,27 @@ dolink(void)
    vpush(&cmd, "-o");
    vpush(&cmd, task.out);
    assert(task.inf.n > 0);
-   for (int i = 0; i < task.inf.n; ++i) {
-      const char *o;
-      switch (task.inf.p[i].ft) {
-      case IFTc: o = task.inf.p[i].temp; break;
-      case IFTobj: case IFTar: case IFTdll:
-         o = task.inf.p[i].path; break;
-      default: assert(!"link obj?");
+
+   for (int l = 0, i = 0; l < task.linkargs.n; ++l) {
+      const char *a = task.linkargs.p[l];
+      if (!a) {
+         switch (task.inf.p[i].ft) {
+         case IFTc: a = task.inf.p[i].temp; break;
+         case IFTobj: case IFTar: case IFTdll:
+            a = task.inf.p[i].path; break;
+         default: assert(!"link obj?");
+         }
+         ++i;
       }
-      vpush(&cmd, o);
+      vpush(&cmd, a);
    }
-   vpushn(&cmd, task.linkargs.p, task.linkargs.n);
+   if (!task.link_with_cc) {
+      if (ccopt.pie)
+         vpushn(&cmd, host_ldendfiles_pie, countof(host_ldendfiles_pie));
+      else
+         vpushn(&cmd, host_ldendfiles, countof(host_ldendfiles));
+   }
    if (task.verbose) {
-      efmt("> ");
       for (int i = 0; i < cmd.n; ++i)
          efmt("%s ", cmd.p[i]);
       efmt("\n");
@@ -520,7 +555,7 @@ dorun(void)
       warn(NULL, "'-run' with cross-compiled binary");
    }
    if (task.verbose) {
-      efmt("> exec %s", task.out);
+      efmt("exec %s", task.out);
       for (char **s = task.runargs; *s; ++s)
          efmt(" %s", *s);
       efmt("\n");
@@ -682,6 +717,8 @@ prihelp(void)
    );
 }
 
+static const TargTriple host_targ = { HOST_ARCH, HOST_OS, HOST_ABI };
+
 int
 main(int argc, char **argv)
 {
@@ -694,6 +731,9 @@ main(int argc, char **argv)
    ccopt.cstd = STDC11;
    ccopt.pie = 1;
    ccopt.dbgout = &bstdout;
+   if (getenv("ANTCC_VERBOSE")) {
+      task.verbose = 1;
+   }
 
    /* parse cli ags */
    if (argc == 1) {
@@ -703,9 +743,9 @@ main(int argc, char **argv)
    optparse(argv);
 
    /* global init */
-   targ_init(task.targ);
-   if (!target.arch)
+   if (!targ_init(task.targ, &host_targ) || !target.arch) {
       fatal(NULL, "unsupported target: %s", task.targ ? task.targ : HOST_TRIPLE);
+   }
 
    for (const char *const *p = host_predefs; *p; ++p)
       cpppredef(0, *p);

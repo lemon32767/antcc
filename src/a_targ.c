@@ -67,18 +67,14 @@ parsetriple(TargTriple *trg, const char *str)
    return 1;
 }
 
-#include "hostconfig.h" /* run ./configure */
-
-void
-targ_init(const char *starg)
+bool
+targ_init(const char *starg, const TargTriple *dfault)
 {
    const struct Targ *t = NULL;
    uchar *sizes = targ_primsizes, *align = targ_primalign;
 
    if (!starg) {
-      target.arch = HOST_ARCH;
-      target.os = HOST_OS;
-      target.abi = HOST_ABI;
+      target = *dfault;
    } else if (!parsetriple(&target, starg)) {
       fatal(NULL, "unrecognized target: %s", starg);
    }
@@ -91,7 +87,7 @@ targ_init(const char *starg)
          break;
       }
    }
-   if (!t) fatal(NULL, "unsupported target: %s", starg ? starg : HOST_TRIPLE);
+   if (!t) return 0;
 
    sizes[TYBOOL] = sizes[TYCHAR] = sizes[TYSCHAR] = sizes[TYUCHAR] = 1;
    sizes[TYSHORT] = sizes[TYUSHORT] = 2;
@@ -123,4 +119,6 @@ targ_init(const char *starg)
    targ_64bit = t->ptrsize == 8;
    mctarg = t->mctarg;
    targ_arch = ISx86_64;
+
+   return 1;
 }

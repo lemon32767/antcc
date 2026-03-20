@@ -14,15 +14,17 @@ Options:
   --help                    Print this help mesage
   --host=target-triple      $host
   --cc=cc                   C compiler [cc]
+  --ld=ld                   Linker [ld]
   --prefix=PREFIX           Installation path [/usr/local]
-  --sysroot=/path           System root [/usr]
+  --sysroot=/path           System root []
   --includedir="/a/b",...   System include dirs
 EOF
 }
 
-sysroot=/usr
+sysroot=
 prefix=/usr/local
 host=
+linker=
 
 for arg ; do
 	case "$arg" in
@@ -31,6 +33,7 @@ for arg ; do
     --includedir=*) host_include_dirs=${arg#*=} ;;
 	CC=*) CC=${arg#*=} ;;
 	--cc=*) CC=${arg#*=} ;;
+	--ld=*) linker=${arg#*=} ;;
 	CFLAGS=*) CFLAGS=${arg#*=} ;;
 	--cflags=*) CFLAGS=${arg#*=} ;;
     --prefix=*) prefix=$(sh -c "echo ${arg#*=}") ;;
@@ -40,7 +43,16 @@ for arg ; do
 done
 
 : ${CC:=cc}
-: ${host:=$($CC -dumpmachine)}
+if ! test -n "$host"; then
+    host=$($CC -dumpmachine)
+else
+    # try target-triple-ld (cross compiling)
+    if ! test -n "$linker" && command -v "$host"-ld >/dev/null; then
+        linker="$host"-ld
+        sysroot=$(($host-cc -print-sysroot || $host-gcc -print-sysroot) 2>/dev/null)
+    fi
+fi
+: ${linker:=ld}
 test -n "$host" || die "cannot determine host"
 
 host_arch=
@@ -54,26 +66,74 @@ x86_64-*) host_arch=x86_64 ;;
 amd64-*) host_arch=x86_64 ;;
 aarch64-*) host_arch=aarch64 ;;
 arm64-*) host_arch=aarch64 ;;
-*) host_arch=unk ;;
+*) die "unsupported target '$host'"
 esac
 
+linkflags=
+
+findgcclibdir () {
+    : ${GCCLIBDIR:=$(dirname $(("$host"-gcc -print-file-name=crtbegin.o || $CC -print-file-name=crtbegin.o) 2>/dev/null))}
+    if ! test -n $GCCLIBDIR; then
+        die "cannot determine gcclibdir"
+    fi
+}
+
 case "$host" in
-*-linux-*)
-    host_os=linux ;;
+*-linux-*gnu*)
+    host_os=linux
+    host_abi=gnu
+    case $host_arch in
+    x86_64) DYNAMIC_LINKER=$sysroot/lib64/ld-linux-x86-64.so.2 ;;
+    aarch64) DYNAMIC_LINKER=$sysroot/lib/ld-linux-aarch64.so.1
+    esac
+    ldstartfiles='"-l:crt1.o", "-l:crti.o", "-l:crtbegin.o"'
+    ldendfiles='"-lc", "-l:crtend.o", "-l:crtn.o"'
+    ldstartfiles_pie='"-l:Scrt1.o", "-l:crti.o", "-l:crtbeginS.o"'
+    ldendfiles_pie='"-lc", "-l:crtendS.o", "-l:crtn.o"'
+    findgcclibdir
+    linkflags='"-L", "'$GCCLIBDIR'",'
+    host_predefs='
+    "__SIZE_TYPE__=unsigned long int", /* work around https://sourceware.org/bugzilla/show_bug.cgi?id=33969 */
+    '
+    ;;
+*-linux-*musl*)
+    host_os=linux
+    host_abi=musl
+    case $host_arch in
+    x86_64) DYNAMIC_LINKER=$sysroot/lib/ld-musl-x86_64.so.1 ;;
+    aarch64) DYNAMIC_LINKER=$sysroot/lib/ld-linux-aarch64.so.1 ;;
+    esac
+    if test -d $sysroot/usr/lib/musl/lib; then
+        # musl cross compiler in glibc system (probably)
+        findgcclibdir
+        linkflags='"-nostdlib", "-L", "'$sysroot'/usr/lib/musl/lib", "-L", "'$GCCLIBDIR'",'
+        ldstartfiles='"'$sysroot'/usr/lib/musl/lib/crt1.o","'$sysroot'/usr/lib/musl/lib/crti.o", "-l:crtbeginS.o"'
+        ldendfiles='"-lc", "-l:crtendS.o", "'$sysroot'/usr/lib/musl/lib/crtn.o"'
+        ldstartfiles_pie='"'$sysroot'/usr/lib/musl/lib/Scrt1.o", "'$sysroot'/usr/lib/musl/lib/crti.o", "-l:crtbeginS.o"'
+        ldendfiles_pie="$ldendfiles"
+    else
+        ldstartfiles='"-l:crt1.o", "-l:crti.o"'
+        ldendfiles='"-lc", "-l:crtn.o"'
+        ldstartfiles_pie='"-l:Scrt1.o", "-l:crti.o"'
+        ldendfiles_pie="$ldendfiles"
+    fi
+    ;;
 *-openbsd*)
     host_os=openbsd
+    DYNAMIC_LINKER=$sysroot/usr/libexec/ld.so
+    ldstartfiles='"-l:crt0.o", "-l:crtbegin.o"'
+    ldendfiles='"-lc", "-l:crtend.o"'
+    ldstartfiles_pie='"-l:crt0.o", "-l:crtbeginS.o"'
+    ldendfiles_pie='"-lc", "-l:crtendS.o"'
+    linkflags='"-L'$sysroot'/usr/lib"'
     host_predefs='
     "_ANSI_LIBRARY", /* works around __only_inline functions in libc headers */
     '
     ;;
-*) host_os=unknown ;;
+*)
+    die "unknown/unsupported target '$host'"
 esac
-
-case "$host" in
-*-gnu) host_abi=gnu ;;
-*-musl) host_abi=musl ;;
-*) host_abi=none ;;
-esac
+echo dynamic linker: $DYNAMIC_LINKER
 
 tryincldir() {
     if stat "$1"/ >/dev/null 2>/dev/null; then
@@ -83,11 +143,17 @@ tryincldir() {
 
 if ! test -n "$host_include_dirs"; then
     # try to query host toolchain first
-    if hostccdirs=$($CC -E -v -xc /dev/null 2>&1 | sed -n '/#include <...> search starts here:/,/End of search list./{
+    for sfx in cc gcc; do
+        if command -v "$host"-$sfx > /dev/null; then
+            cc="$host"-$sfx
+        fi
+    done
+    : ${cc:=$CC}
+    if hostccdirs=$($cc -E -v -xc /dev/null 2>&1 | sed -n '/#include <...> search starts here:/,/End of search list./{
     s/^[[:space:]]*//
     /^\/.*/p
 }') && test -n "$hostccdirs"; then
-        echo "Using $CC's system include paths:"
+        echo "Using $cc's system include paths:"
         for d in $hostccdirs; do
             dir=$(realpath "$d")
             case "$dir" in
@@ -99,15 +165,16 @@ if ! test -n "$host_include_dirs"; then
         done
     else
         echo "Falling back to generic system include paths"
-        tryincldir "$sysroot/local/include/$host"
-        tryincldir "$sysroot/local/include"
-        tryincldir "$sysroot/include/$host"
-        tryincldir "$sysroot/include"
+        tryincldir "$sysroot/usr/local/include/$host"
+        tryincldir "$sysroot/usr/local/include"
+        tryincldir "$sysroot/usr/include/$host"
+        tryincldir "$sysroot/usr/include"
     fi
 fi
 
 set -e
 
+echo using linker: "$linker"
 echo using arch: "$host_arch"
 echo using os: "$host_os"
 echo using abi: "$host_abi"
@@ -119,9 +186,15 @@ echo "/** GENERATED WITH $0 $@ **/
 #define HOST_OS     OS$host_os
 #define HOST_ABI    ABI$host_abi
 #define HOST_INCLUDE_DIRS $host_include_dirs
+#define HOST_LD \"$linker\"
 #define HOST_CC \"$CC\"
 static const char *const host_predefs[] = {$host_predefs 0
 };
+static const char *const host_linkcmd[] = {\"--dynamic-linker=$DYNAMIC_LINKER\", $linkflags};
+static const char *const host_ldstartfiles[] = {$ldstartfiles};
+static const char *const host_ldendfiles[] = {$ldendfiles};
+static const char *const host_ldstartfiles_pie[] = {$ldstartfiles_pie};
+static const char *const host_ldendfiles_pie[] = {$ldendfiles_pie};
 "  > src/hostconfig.h
 
 echo "# GENERATED WITH $0 $@

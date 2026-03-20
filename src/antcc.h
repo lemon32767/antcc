@@ -156,7 +156,7 @@ typedef struct TargTriple {
 extern TargTriple target;
 enum objkind { OBJELF };
 extern const struct MCTarg *mctarg;
-void targ_init(const char *);
+bool targ_init(const char *, const TargTriple *dfault);
 
 /*********/
 /** MEM **/

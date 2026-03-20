@@ -15,10 +15,7 @@ and backends like [QBE](https://c9x.me/compile/) and [LLVM](https://llvm.org/).
 ## Requirements
 
 `antcc` is written in standard C11 and can be built with any conforming
-compiler toolchain.  The `Makefile` requires GNU Make. At runtime, an existing
-C compiler is currently required for calling the linker with the appropiate
-libc runtime paths (eventually, the driver should only depend on the linker by
-determining those linker paths and flags at `configure` time).
+compiler toolchain.  The `Makefile` requires GNU Make.
 
 ## Building
 
