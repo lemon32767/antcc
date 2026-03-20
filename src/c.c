@@ -3406,7 +3406,8 @@ Recur:
          else assert(ex->ty.bits == phi->typ.bits);
          vpush(&phi->refs, val);
       }
-      putbranch(fn, end);
+      if (fn->curblk)
+         putbranch(fn, end);
    }
 }
 
