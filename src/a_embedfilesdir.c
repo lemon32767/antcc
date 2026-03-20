@@ -13,7 +13,7 @@ typedef __typeof__((char*)0 - (char*)0) ptrdiff_t;\n\
 typedef __typeof__(sizeof 0) size_t;\n\
 typedef __typeof__(L'a') wchar_t;\n\
 #undef NULL\n\
-#define NULL ((void *)0)\n\
+#define NULL ((void*)0)\n\
 #undef offsetof\n\
 #define offsetof(type, memb) ((size_t)((char *)&((type *)0)->memb - (char *)0))\n\
 ")},

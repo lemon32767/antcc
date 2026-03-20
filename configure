@@ -57,7 +57,7 @@ test -n "$host" || die "cannot determine host"
 
 host_arch=
 host_os=
-host_abi=
+host_abi=none
 host_predefs=
 
 echo "host: $host"
@@ -123,8 +123,8 @@ case "$host" in
     DYNAMIC_LINKER=$sysroot/usr/libexec/ld.so
     ldstartfiles='"-l:crt0.o", "-l:crtbegin.o"'
     ldendfiles='"-lc", "-l:crtend.o"'
-    ldstartfiles_pie='"-l:crt0.o", "-l:crtbeginS.o"'
-    ldendfiles_pie='"-lc", "-l:crtendS.o"'
+    ldstartfiles_pie="$ldstartfiles"
+    ldendfiles_pie="$ldendfiles"
     linkflags='"-L'$sysroot'/usr/lib"'
     host_predefs='
     "_ANSI_LIBRARY", /* works around __only_inline functions in libc headers */
