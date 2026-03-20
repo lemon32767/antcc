@@ -403,11 +403,15 @@ eval(Expr *ex, enum evalmode mode)
    case EGETF: goto Unop;
    case ESEQ:
       if (!eval(&ex->sub[0], mode)) return 0;
+      Span span = ex->span;
       *ex = ex->sub[1];
+      ex->span = span;
       return eval(ex, mode);
    case ECOND:
       if (!eval(&ex->sub[0], mode)) return 0;
+      span = ex->span;
       *ex = ex->sub[2-truthy(&ex->sub[0])];
+      ex->span = span;
       return eval(ex, mode);
    case EINIT:
       for (InitElem *v = ex->init->vals; v; v = v->next) {

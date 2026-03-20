@@ -1233,10 +1233,12 @@ Unary:
          ty = unops[nunop].ty;
          if (!castcheck(ty, &ex))
             error(&span, "cannot cast value of type '%ty' to '%ty'", ex.ty, ty);
-         if (ex.t == ENUMLIT && isint(ex.ty) && ty.t == TYPTR)
+         if (ex.t == ENUMLIT && isint(ex.ty) && ty.t == TYPTR) {
             ex.ty = ty;
-         else
+            ex.span = span;
+         } else {
             ex = mkexpr(ECAST, span, ty, .sub = exprdup(cm, &ex));
+         }
       }
    }
 
