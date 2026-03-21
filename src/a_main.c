@@ -474,11 +474,13 @@ findlinkcmd(CmdArgs *cmd)
       vpush(cmd, HOST_CC);
    } else {
       vpush(cmd, HOST_LD);
-      vpushn(cmd, host_linkcmd, countof(host_linkcmd));
+      if (*host_linkcmd) vpushn(cmd, host_linkcmd, countof(host_linkcmd));
       if (ccopt.pie) {
-         vpushn(cmd, host_ldstartfiles_pie, countof(host_ldstartfiles_pie));
+         if (*host_ldstartfiles_pie)
+            vpushn(cmd, host_ldstartfiles_pie, countof(host_ldstartfiles_pie));
       } else {
-         vpushn(cmd, host_ldstartfiles, countof(host_ldstartfiles));
+         if (*host_ldstartfiles)
+            vpushn(cmd, host_ldstartfiles, countof(host_ldstartfiles));
       }
    }
 }
@@ -518,10 +520,13 @@ dolink(void)
       vpush(&cmd, a);
    }
    if (!task.link_with_cc) {
-      if (ccopt.pie)
-         vpushn(&cmd, host_ldendfiles_pie, countof(host_ldendfiles_pie));
-      else
-         vpushn(&cmd, host_ldendfiles, countof(host_ldendfiles));
+      if (ccopt.pie) {
+         if (*host_ldstartfiles_pie)
+            vpushn(&cmd, host_ldendfiles_pie, countof(host_ldendfiles_pie));
+      } else {
+         if (*host_ldendfiles)
+            vpushn(&cmd, host_ldendfiles, countof(host_ldendfiles));
+      }
    }
    if (task.verbose) {
       for (int i = 0; i < cmd.n; ++i)
@@ -734,6 +739,7 @@ main(int argc, char **argv)
    if (getenv("ANTCC_VERBOSE")) {
       task.verbose = 1;
    }
+   task.link_with_cc = HOST_LINK_WITH_CC;
 
    /* parse cli ags */
    if (argc == 1) {

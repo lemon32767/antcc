@@ -55,8 +55,8 @@ fi
 : ${linker:=ld}
 test -n "$host" || die "cannot determine host"
 
-host_arch=
-host_os=
+host_arch=unk
+host_os=unk
 host_abi=none
 host_predefs=
 
@@ -77,6 +77,8 @@ findgcclibdir () {
         die "cannot determine gcclibdir"
     fi
 }
+
+link_with_cc=0
 
 case "$host" in
 *-linux-*gnu*)
@@ -131,7 +133,8 @@ case "$host" in
     '
     ;;
 *)
-    die "unknown/unsupported target '$host'"
+    link_with_cc=1
+    echo "warning: unknown/unsupported target '$host'" >&2
 esac
 echo dynamic linker: $DYNAMIC_LINKER
 
@@ -180,6 +183,10 @@ echo using os: "$host_os"
 echo using abi: "$host_abi"
 echo host include paths: "$host_include_dirs"
 
+if ! test -n "$DYNAMIC_LINKER"; then
+    linkflags="\"--dynamic-linker=$DYNAMIC_LINKER\", $linkflags"
+fi
+
 echo "/** GENERATED WITH $0 $* **/
 #define HOST_TRIPLE \"$host\"
 #define HOST_ARCH   IS$host_arch
@@ -190,11 +197,12 @@ echo "/** GENERATED WITH $0 $* **/
 #define HOST_CC \"$CC\"
 static const char *const host_predefs[] = {$host_predefs 0
 };
-static const char *const host_linkcmd[] = {\"--dynamic-linker=$DYNAMIC_LINKER\", $linkflags};
-static const char *const host_ldstartfiles[] = {$ldstartfiles};
-static const char *const host_ldendfiles[] = {$ldendfiles};
-static const char *const host_ldstartfiles_pie[] = {$ldstartfiles_pie};
-static const char *const host_ldendfiles_pie[] = {$ldendfiles_pie};
+#define HOST_LINK_WITH_CC $link_with_cc
+static const char *const host_linkcmd[] = {${linkflags:=0}};
+static const char *const host_ldstartfiles[] = {${ldstartfiles:=0}};
+static const char *const host_ldendfiles[] = {${ldendfiles:=0}};
+static const char *const host_ldstartfiles_pie[] = {${ldstartfiles_pie:=0}};
+static const char *const host_ldendfiles_pie[] = {${ldendfiles_pie:=0}};
 "  > src/hostconfig.h
 
 echo "# GENERATED WITH $0 $*
