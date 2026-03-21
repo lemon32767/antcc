@@ -24,7 +24,7 @@ intrin(Block *blk, int *curi, enum intrin in, Arg *args, int narg, IRType ret)
          /* memcpy */
          *args[1].ty = *args[0].ty = mktyperef(cls2type(KPTR));
          insertinstr(blk, (*curi)++, mkarginstr(cls2type(cls), mkintcon(cls, td->siz)));
-         *this = mkinstr(Ocall, 0, mksymref(intern("memcpy"), SFUNC), this->r);
+         *this = mkinstr2(Ocall, 0, mksymref(intern("memcpy"), SFUNC), this->r);
          calltab.p[this->r.i].narg = 3;
          calltab.p[this->r.i].ret = cls2type(0);
          return 0;
@@ -33,11 +33,11 @@ intrin(Block *blk, int *curi, enum intrin in, Arg *args, int narg, IRType ret)
          for (int off = 0; off < td->siz; off += step) {
             Ref psrc = *args[1].arg, pdst = *args[0].arg, src;
             if (off) {
-               pdst = insertinstr(blk, ++*curi, mkinstr(Oadd, KPTR, *args[0].arg, mkref(RICON, off)));
-               psrc = insertinstr(blk, ++*curi, mkinstr(Oadd, KPTR, *args[1].arg, mkref(RICON, off)));
+               pdst = insertinstr(blk, ++*curi, mkinstr2(Oadd, KPTR, *args[0].arg, mkref(RICON, off)));
+               psrc = insertinstr(blk, ++*curi, mkinstr2(Oadd, KPTR, *args[1].arg, mkref(RICON, off)));
             }
-            src = insertinstr(blk, ++*curi, mkinstr(Oloads8 + 2*ilog2(step), step < 8 ? KI32 : KI64, psrc));
-            insertinstr(blk, ++*curi, mkinstr(Ostorei8 + ilog2(step), 0, pdst, src));
+            src = insertinstr(blk, ++*curi, mkinstr1(Oloads8 + 2*ilog2(step), step < 8 ? KI32 : KI64, psrc));
+            insertinstr(blk, ++*curi, mkinstr2(Ostorei8 + ilog2(step), 0, pdst, src));
          }
          return 1;
       }

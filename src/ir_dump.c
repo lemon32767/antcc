@@ -215,7 +215,7 @@ dumpinst(const Instr *ins)
       if (i == 1 && (ins->op == Ocall || ins->op == Ointrin)) {
          dumpcall(&calltab.p[ins->r.i]);
       } else {
-         dumpref(ins->op, (&ins->l)[i]);
+         dumpref(ins->op, ins->oper[i]);
       }
    }
    if (oisalloca(ins->op) && ins->l.t == RICON) {

@@ -3121,7 +3121,7 @@ geninit(Function *fn, Type t, Ref dst, const Expr *src)
             /* write individual zeros at non initialized gaps */
             for (uint i = 0; bsiter(&i, azero, countof(azero)) && i < siz; i += align) {
                adr = irbinop(fn, Oadd, KPTR, dst, mkref(RICON, i));
-               addinstr(fn, mkinstr(Ostorei8 + ilog2(align), 0, .l = adr, .r = ZEROREF));
+               addinstr(fn, mkinstr2(Ostorei8 + ilog2(align), 0, adr, ZEROREF));
             }
          } else {
             goto Memset0;
@@ -4564,7 +4564,7 @@ function(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uchar *
    EMITS {
       for (int i = 0; i < td->nmemb; ++i) {
          IRType pty = mkirtype(td->param[i]);
-         Ref r = addinstr(fn, mkinstr(Oparam, pty.isagg ? KPTR : pty.cls,
+         Ref r = addinstr(fn, mkinstr2(Oparam, pty.isagg ? KPTR : pty.cls,
                                             mkref(RICON, i), mktyperef(pty)));
          assert(r.t == RTMP && r.i == i);
       }
@@ -4579,7 +4579,7 @@ function(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uchar *
                arg.id = addinstr(fn, mkalloca(typesize(arg.ty), typealign(arg.ty))).i;
                genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RTMP, i));
             } else {
-               arg.id = addinstr(fn, mkinstr(Ocopy, KPTR, mkref(RTMP, i))).i;
+               arg.id = addinstr(fn, mkinstr1(Ocopy, KPTR, mkref(RTMP, i))).i;
             }
          }
          putdecl(cm, &arg);

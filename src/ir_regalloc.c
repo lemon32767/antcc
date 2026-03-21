@@ -215,7 +215,7 @@ pmadd(PMState *pms, enum irclass k, Alloc dst, Alloc src)
    pms->pmove[pms->npmove++] = (struct PMove) { k, PMTOMOVE, dst, src };
 }
 
-#define mkmove(k, rd, rs) mkinstr(Omove, k, mkref(RREG, rd), mkref(RREG, rs))
+#define mkmove(k, rd, rs) mkinstr2(Omove, k, mkref(RREG, rd), mkref(RREG, rs))
 static void
 emitmove(Function *fn, enum irclass k, Alloc dst, Alloc src, Block *blk, int curi)
 {
@@ -243,7 +243,7 @@ emitmove(Function *fn, enum irclass k, Alloc dst, Alloc src, Block *blk, int cur
       insertinstr(blk, curi++, mv);
    } else reg = src.a;
    if (dst.t == ASTACK) {
-      mv = mkinstr(cls2store[k], 0, stkslotref(fn, dst.a*8), mkref(RREG, reg));
+      mv = mkinstr2(cls2store[k], 0, stkslotref(fn, dst.a*8), mkref(RREG, reg));
       insertinstr(blk, curi, mv);
    }
 }
@@ -275,7 +275,7 @@ pmrec(PMState *pms, int i, Block *blk, int curi, enum irclass *k)
    Swap:
       if (pm->src.t == AREG && pm->dst.t == AREG) {
          insertinstr(blk, curi,
-               mkinstr(Oswap, *k, mkref(RREG, pm->dst.a), mkref(RREG, pm->src.a), .keep = 1));
+               (Instr){Oswap, *k, .keep=1, .l = mkref(RREG, pm->dst.a), .r = mkref(RREG, pm->src.a)});
       } else if (pm->src.t != pm->dst.t) {
          Alloc reg, stk, regtmp;
          if (pm->src.t == AREG)
@@ -286,7 +286,7 @@ pmrec(PMState *pms, int i, Block *blk, int curi, enum irclass *k)
          regtmp = areg(kisint(*k) ? mctarg->gprscratch : mctarg->fprscratch);
          emitmove(pms->fn, *k, regtmp, stk, blk, curi++);
          insertinstr(blk, curi++,
-               mkinstr(Oswap, *k, mkref(RREG, reg.a), mkref(RREG, regtmp.a), .keep = 1));
+               (Instr){Oswap, *k, .keep=1, .l = mkref(RREG, reg.a), .r = mkref(RREG, regtmp.a)});
          emitmove(pms->fn, *k, stk, regtmp, blk, curi++);
       } else {
          /* FIXME using scratch gpr and fpr for this is hackish */
@@ -411,7 +411,7 @@ fixcssa(Function *fn)
          for (int i = 0; i < blk->phi.n; ++i) {
             int phi = blk->phi.p[i];
             Ref *args = phitab.p[instrtab[phi].l.i];
-            args[p] = insertinstr(n, n->ins.n, mkinstr(Ocopy, instrtab[phi].cls, args[p]));
+            args[p] = insertinstr(n, n->ins.n, mkinstr1(Ocopy, instrtab[phi].cls, args[p]));
          }
       }
    } while ((blk = blk->lnext) != fn->entry);
@@ -660,7 +660,7 @@ buildintervals(RegAlloc *ra)
          if (!intervaldef(ra, out, blk, pos, reghint)) {
             if (insrescls(*ins) && ins->op != Omove && !ins->keep && !(ins->op == Ocopy && ins->l.t == RREG)) {
                /* dead */
-               *ins = mkinstr(Onop,0,);
+               *ins = mkinstr0(Onop,0);
             }
          }
          bsclr(live, out);
@@ -680,7 +680,7 @@ buildintervals(RegAlloc *ra)
                    *   move RCX, %1
                    *   %2 = shl 1, RCX
                    * and %2 is dead, the move to RCX can be killed */
-                  *ins = mkinstr(Onop,0,);
+                  *ins = mkinstr0(Onop,0);
                }
             } else {
                rsset(&ra->fn->regusage, ins->l.i);
@@ -719,14 +719,25 @@ buildintervals(RegAlloc *ra)
           *    live.add(opd)
           */
          reghint = (ins && ins->op == Omove && ins->l.t == RREG) ? ins->l.i : -1;
-         queue[0] = ins->r, queue[1] = ins->l;
+         int nqueue;
+         if (ins->op == Omove) {
+            nqueue = 1;
+            queue[0] = ins->r;
+         } else {
+            switch ((nqueue = opnarg[ins->op])) {
+            case 2: queue[2] = ins->oper[2];
+            case 1: queue[1] = ins->oper[1];
+            case 0: queue[0] = ins->oper[0];
+            }
+         }
          if (0) {
          Branchopd:
             reghint = -1;
             curi = blk->ins.n;
             pos = blk->inumstart + blk->ins.n + 1;
+            nqueue = 2;
          }
-         for (int nqueue = ins && ins->op == Omove ? 1 : 2; nqueue > 0;) {
+         while (nqueue > 0) {
             Ref r = queue[--nqueue];
 
             /* do not allocate a reg for a cmp op used as branch argument, since it's a pseudo op */
@@ -1252,7 +1263,7 @@ devirt(RegAlloc *ra, Block *blk)
             }
             ins->reg = reg+1;
             insertinstr(blk, ++curi,
-                  mkinstr(store, 0, stkslotref(fn, alloc->a*8), mkref(RREG, reg)));
+                  mkinstr2(store, 0, stkslotref(fn, alloc->a*8), mkref(RREG, reg)));
             if (nspill > 0 && dosave) {
                emitmove(fn, isgpr(reg) ? KPTR : KF64, areg(reg),
                      spillsave[nspill-1], blk, ++curi);

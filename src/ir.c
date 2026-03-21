@@ -484,7 +484,7 @@ insertphi(Block *blk, enum irclass cls)
    assert(blk->npred > 0);
    xbgrowz(&refs, blk->npred);
    vpush(&phitab, refs);
-   instrtab[new] = mkinstr(Ophi, cls, mkref(RXXX, phitab.n - 1));
+   instrtab[new] = mkinstr1(Ophi, cls, {.i = phitab.n - 1});
    vpush(&blk->phi, new);
    return mkref(RTMP, new);
 }

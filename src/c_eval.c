@@ -83,7 +83,8 @@ lit2ssym(Expr *ex)
 {
    ex->ssym.sym = xcon2sym(expraddr(NULL, ex).i);
    ex->ssym.local = 1;
-   ex->ssym.func = ex->ssym.off = 0;
+   ex->ssym.func = 0;
+   ex->ssym.off = 0;
    ex->t = ESSYMREF;
    return ex;
 }

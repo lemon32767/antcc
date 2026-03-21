@@ -35,7 +35,7 @@ copyopt(Function *fn)
             if (ins->cls != k) continue;
 
             replcuses(var, arg);
-            *ins = mkinstr(Onop,0,);
+            *ins = mkinstr0(Onop,0);
             deluses(var.i);
          }
       }

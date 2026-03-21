@@ -100,7 +100,7 @@ irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r)
    default:
       assert(!"binop?");
    }
-   return fn ? addinstr(fn, mkinstr(op, k, l, r)) : NOREF;
+   return fn ? addinstr(fn, mkinstr2(op, k, l, r)) : NOREF;
 }
 
 /* implements f32/f64 -> u64 conversion */
@@ -195,7 +195,7 @@ irunop(Function *fn, enum op op, enum irclass k, Ref a)
       break;
    default: assert(!"unop?");
    }
-   return fn ? addinstr(fn, mkinstr(op, k, a)) : NOREF;
+   return fn ? addinstr(fn, mkinstr1(op, k, a)) : NOREF;
 }
 
 int allocinstr(void);
@@ -242,7 +242,7 @@ addphi(Function *fn, enum irclass cls, Ref *r)
    vpush(&phitab, refs);
    /*assert(fn->curblk->ins.n == 0);*/
    int new = allocinstr();
-   instrtab[new] = mkinstr(Ophi, cls, .l.i = phitab.n-1);
+   instrtab[new] = mkinstr1(Ophi, cls, {.i=phitab.n-1});
    for (int i = 0; i < fn->curblk->npred; ++i) {
       adduse(fn->curblk, new, r[i]);
    }

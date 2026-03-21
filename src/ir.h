@@ -122,9 +122,12 @@ typedef struct Instr {
          keep : 1; /* for codegen, keep instr even if result seems unused */
    uchar inplace : 1; /* set (by isel) for instructions which modify its first arg in place */
    uchar reg; /* 0 -> no reg; else reg + 1 */
-   Ref l, r; /* args */
+   union { /* operands */
+      struct { Ref l, r; };
+      Ref oper[3];
+   };
 } Instr;
-static_assert(sizeof(Instr) == 4*3);
+static_assert(sizeof(Instr) == 4*4);
 
 enum jumpkind { JXXX, Jb, Jret, Jtrap, };
 
@@ -253,8 +256,10 @@ extern struct dattab {vec_of(IRDat);} dattab;
 extern struct contab {vec_of(IRCon);} contab;
 extern struct addrtab {vec_of(IRAddr);} addrtab;
 extern int visitmark;
-#define mkinstr(O, C, ...) ((Instr) { .op = (O), .cls = (C), .reg=0, __VA_ARGS__ })
-#define mkarginstr(ty, x) mkinstr(Oarg, 0, mktyperef(ty), (x))
+#define mkinstr0(O, C) ((Instr) { .op = (O), .cls = (C), .reg=0 })
+#define mkinstr1(O, C, x) ((Instr) { .op = (O), .cls = (C), .reg=0, .l = x})
+#define mkinstr2(O, C, x,y) ((Instr) { .op = (O), .cls = (C), .reg=0, .l = x, .r = y})
+#define mkarginstr(ty, x) mkinstr2(Oarg, 0, mktyperef(ty), (x))
 void irinit(Function *);
 void irfini(Function *);
 #define cls2type(k) ((IRType){.cls=(k)})
@@ -276,7 +281,7 @@ Ref mkdatref(internstr sym, Type ctype, uint siz, uint align,
 internstr xcon2sym(int ref);
 Instr mkalloca(uint siz, uint align);
 Ref mkcallarg(IRType ret, uint narg, int vararg);
-#define mkintrin(B, C, N) mkinstr(Ointrin, C, {{.t=RICON,B}}, mkcallarg((IRType){{0}},N,-1))
+#define mkintrin(B, C, N) mkinstr2(Ointrin, C, mkref(RICON, B), mkcallarg((IRType){{0}},N,-1))
 Ref mkaddr(IRAddr);
 void addpred(Block *blk, Block *p);
 

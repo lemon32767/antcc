@@ -46,7 +46,7 @@ va_start_comp(Function *fn, Expr *ex, bool discard)
    assert(typedecay(ex->sub[1].ty).bits == typedecay(cvalistty).bits);
    if (!typedata[fn->fnty.dat].variadic)
       error(&ex->span, "va_start used in non-variadic function");
-   addinstr(fn, mkinstr(Ovastart, 0, compileexpr(fn, &ex->sub[1], 0)));
+   addinstr(fn, mkinstr1(Ovastart, 0, compileexpr(fn, &ex->sub[1], 0)));
    return NOREF;
 }
 
@@ -87,20 +87,6 @@ trap_comp(Function *fn, Expr *ex, bool discard)
    puttrap(fn);
    useblk(fn, newblk(fn)); /* unreachable block, but simplifies expr codegen */
    return NOREF;
-}
-
-static inline Ref
-cvtintref(Function *fn, enum irclass dst, Ref src)
-{
-   if (src.t == RTMP) {
-      if (insrescls(instrtab[src.i]) != dst)
-         return addinstr(fn, mkinstr(Ocopy, dst, src));
-      return src;
-   } else if (isintcon(src)) {
-      vlong x = intconval(src);
-      return mkintcon(dst, cls2siz[dst] == 4 ? (int)x : x);
-   }
-   assert(!"int ref?");
 }
 
 /* __builtin_bswap16 */
@@ -162,7 +148,7 @@ builtin_va_arg_comp(Function *fn, const Expr *ex, bool discard)
 {
    assert(ex->t == EVAARG && ex->ty.t);
    enum irclass k = isagg(ex->ty) ? KPTR : type2cls[scalartypet(ex->ty)];
-   return addinstr(fn, mkinstr(Ovaarg, k, compileexpr(fn, ex->sub, 0), mktyperef(mkirtype(ex->ty))));
+   return addinstr(fn, mkinstr2(Ovaarg, k, compileexpr(fn, ex->sub, 0), mktyperef(mkirtype(ex->ty))));
 }
 
 bool

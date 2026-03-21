@@ -276,7 +276,7 @@ mem2reg(Function *fn)
 
             if (oisstore(ins->op)) {
                writevar(&sb, var, use->blk, ins->r);
-               *ins = mkinstr(Onop,0,);
+               *ins = mkinstr0(Onop,0);
             } else if (oisload(ins->op)) {
                Ref val = readvar(&sb, var, k = ins->cls, use->blk);
                adduse(use->blk, use->u, val);
@@ -285,7 +285,7 @@ mem2reg(Function *fn)
                   assert(val.bits);
                   ext = Ocopy;
                }
-               *ins = mkinstr(ext, k, val);
+               *ins = mkinstr1(ext, k, val);
             }
          }
          /* remove alloca */

@@ -125,7 +125,7 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv)
       Instr *ins = &instrtab[blk->ins.p[i]];
       if (ins->op == Oarg) {
          args[--n] = ins->r;
-         *ins = mkinstr(Onop,0,);
+         *ins = mkinstr0(Onop,0);
       }
    }
    if (call->abiret[1].ty.bits) {
@@ -135,14 +135,14 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv)
    }
    Block *exit = blksplitafter(fn, blk, curi-1);
    if (!ins->cls) {
-      *ins = mkinstr(Onop,0,);
+      *ins = mkinstr0(Onop,0);
    } else {
       if (sv->nretpoints == 1) {
-         *ins = mkinstr(Ocopy, ins->cls, );
+         *ins = mkinstr1(Ocopy, ins->cls, NOREF);
       } else {
          /* turn into a phi */
-         *ins = mkinstr(Ophi, ins->cls, );
-         exit->ins.p[0] = newinstr(blk, mkinstr(Onop,0,));
+         *ins = mkinstr1(Ophi, ins->cls, NOREF);
+         exit->ins.p[0] = newinstr(blk, mkinstr0(Onop,0));
          vpush(&exit->phi, res);
       }
    }
@@ -187,7 +187,7 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv)
          for (int i = 0; i < b->npred; ++i)
             refs[i] = mapref(instrmap, sv, src[i]);
          vpush(&phitab, refs);
-         instrtab[instrmap[t]] = mkinstr(Ophi, sv->instrtab[t].cls, .l.i = phitab.n-1);
+         instrtab[instrmap[t]] = mkinstr1(Ophi, sv->instrtab[t].cls, {.i = phitab.n-1});
          new->phi.p[i] = instrmap[t];
       }
       vresize(&new->ins, b->ins.n);

@@ -21,12 +21,12 @@ mulk(Instr *ins, Block *blk, int *curi)
       /* x * 5 ==> (x << 2) + x */
       ins->op = Oadd;
       ins->r = ins->l;
-      ins->l = insertinstr(blk, (*curi)++, mkinstr(Oshl, cls, ins->l, mkref(RICON, ilog2(iv-1))));
+      ins->l = insertinstr(blk, (*curi)++, mkinstr2(Oshl, cls, ins->l, mkref(RICON, ilog2(iv-1))));
    } else if (ispo2(iv+1)) {
       /* x * 7 ==> (x << 3) - x */
       ins->op = Osub;
       ins->r = ins->l;
-      ins->l = insertinstr(blk, (*curi)++, mkinstr(Oshl, cls, ins->l, mkref(RICON, ilog2(iv+1))));
+      ins->l = insertinstr(blk, (*curi)++, mkinstr2(Oshl, cls, ins->l, mkref(RICON, ilog2(iv+1))));
    } else return 0;
    if (neg) {
       ins->l = insertinstr(blk, (*curi)++, *ins);
@@ -58,12 +58,12 @@ divmodk(Instr *ins, Block *blk, int *curi)
       case Odiv: case Orem:
          /* have to adjust to round negatives toward zero */
          /* x' = (((x < 0 ? -1 : 0) >>> (Nbit - s)) + x) */
-         temp = insertinstr(blk, (*curi)++, mkinstr(Osar, cls, ins->l, mkref(RICON, nbit - 1)));
-         temp = insertinstr(blk, (*curi)++, mkinstr(Oslr, cls, temp, mkref(RICON, nbit - s)));
-         temp = insertinstr(blk, (*curi)++, mkinstr(Oadd, cls, ins->l, temp));
+         temp = insertinstr(blk, (*curi)++, mkinstr2(Osar, cls, ins->l, mkref(RICON, nbit - 1)));
+         temp = insertinstr(blk, (*curi)++, mkinstr2(Oslr, cls, temp, mkref(RICON, nbit - s)));
+         temp = insertinstr(blk, (*curi)++, mkinstr2(Oadd, cls, ins->l, temp));
          if (op == Odiv) {
             /* (-) (x' >> s) */
-            Instr sar = mkinstr(Osar, cls, temp, mkref(RICON, s));
+            Instr sar = mkinstr2(Osar, cls, temp, mkref(RICON, s));
             if (!neg) *ins = sar;
             else {
                temp = insertinstr(blk, (*curi)++, sar);
@@ -71,7 +71,7 @@ divmodk(Instr *ins, Block *blk, int *curi)
             }
          } else {
             /* x - (x' & -(2^s)) */
-            temp = insertinstr(blk, (*curi)++, mkinstr(Oand, cls, temp, mkintcon(cls, neg ? iv : -iv)));
+            temp = insertinstr(blk, (*curi)++, mkinstr2(Oand, cls, temp, mkintcon(cls, neg ? iv : -iv)));
             ins->op = Osub, ins->r = temp;
          }
          break;
@@ -89,7 +89,7 @@ doins(Instr *ins, Block *blk, int *curi)
       Ref r = narg == 1 ? irunop(NULL, ins->op, ins->cls, ins->l)
                               : irbinop(NULL, ins->op, ins->cls, ins->l, ins->r);
       if (r.bits) {
-         *ins = mkinstr(Onop,0,);
+         *ins = mkinstr0(Onop,0);
          replcuses(mkref(RTMP, ins - instrtab), r);
          return 1;
       }
@@ -101,7 +101,7 @@ doins(Instr *ins, Block *blk, int *curi)
        || (isnumcon(ins->l) && k == concls(ins->l))
        || (kisint(k) && ins->l.t == RICON)) {
          Ref it = ins->l;
-         *ins = mkinstr(Onop,0,);
+         *ins = mkinstr0(Onop,0);
          replcuses(mkref(RTMP, ins - instrtab), it);
          return 1;
       }
@@ -130,7 +130,7 @@ doins(Instr *ins, Block *blk, int *curi)
             }
             ins->l = lhs->l, ins->r = mkintcon(ins->cls, c);
             deluse(blk, ins - instrtab, mkref(RTMP, lhs - instrtab));
-            if (!instruse[lhs - instrtab]) *lhs = mkinstr(Onop,0,);
+            if (!instruse[lhs - instrtab]) *lhs = mkinstr0(Onop,0);
             return 1;
          }
       }

@@ -58,7 +58,7 @@ abiarg(ABIArgVec *abiargs, uchar *r2off, int *ni, int *nf, int *ns, IRType ty)
 static Instr
 copyparam(Function *fn, int *curi, int param, ABIArg abi)
 {
-   Instr par = mkinstr(Oparam, abi.ty.cls, mkref(RICON, param), mktyperef(abi.ty));
+   Instr par = mkinstr2(Oparam, abi.ty.cls, mkref(RICON, param), mktyperef(abi.ty));
    if (!abi.isstk) { /* reg */
       assert(!abi.ty.isagg);
       return par;
@@ -75,7 +75,7 @@ copyparam(Function *fn, int *curi, int param, ABIArg abi)
       case KF32: ld = Oloadf32; break;
       case KF64: ld = Oloadf64; break;
       }
-      return mkinstr(ld, abi.ty.cls, insertinstr(fn->entry, (*curi)++, par));
+      return mkinstr1(ld, abi.ty.cls, insertinstr(fn->entry, (*curi)++, par));
    } else { /* aggregate in stack */
       par.cls = KPTR;
       return par;
@@ -109,7 +109,7 @@ patchparam(Function *fn, int *curi, int *param, int tydat, int nabi, ABIArg abi[
          assert(td->siz <= 16 && td->align <= 16);
          align = td->siz <= 4 ? 4 : alignup(td->align, 8);
          nalloc = td->siz/align + (td->siz%align != 0);
-         *ins = mkinstr(Oalloca1 + ilog2(align), KPTR, mkref(RICON, nalloc));
+         *ins = mkinstr1(Oalloca1 + ilog2(align), KPTR, mkref(RICON, nalloc));
          alloc = mkref(RTMP, ins - instrtab);
          r[0] = insertinstr(blk, ++*curi, copyparam(fn, NULL, *param, abi[0]));
          if (nabi > 1)
@@ -121,11 +121,11 @@ patchparam(Function *fn, int *curi, int *param, int tydat, int nabi, ABIArg abi[
           *  store* %x, %a
           *  store* %x + N, %b
           */
-         st = mkinstr(cls2store[abi[0].ty.cls], 0, alloc, r[0]);
+         st = mkinstr2(cls2store[abi[0].ty.cls], 0, alloc, r[0]);
          insertinstr(blk, ++*curi, st);
          if (nabi > 1) {
-            Instr tmp = mkinstr(Oadd, KPTR, alloc, mkref(RICON, r2off));
-            st = mkinstr(cls2store[abi[1].ty.cls], 0, insertinstr(blk, ++*curi, tmp), r[1]);
+            Instr tmp = mkinstr2(Oadd, KPTR, alloc, mkref(RICON, r2off));
+            st = mkinstr2(cls2store[abi[1].ty.cls], 0, insertinstr(blk, ++*curi, tmp), r[1]);
             insertinstr(blk, ++*curi, st);
          }
       }
@@ -165,7 +165,7 @@ load2regs(Ref out[2], IRType typ, Ref src, int nabi, ABIArg abi[2], uchar r2off,
          if (i == 0)
             ins.l = src;
          else {
-            Instr adr = mkinstr(Oadd, KPTR, src, mkref(RICON, r2off));
+            Instr adr = mkinstr2(Oadd, KPTR, src, mkref(RICON, r2off));
             ins.l = insertinstr(blk, (*curi)++, adr);
          }
          temp = insertinstr(blk, (*curi)++, ins);
@@ -184,13 +184,13 @@ load2regs(Ref out[2], IRType typ, Ref src, int nabi, ABIArg abi[2], uchar r2off,
             if (i+o == 0)
                ld.l = src;
             else {
-               Instr adr = mkinstr(Oadd, KPTR, src, mkref(RICON, (i == 0 ? 0 : r2off) + o*align));
+               Instr adr = mkinstr2(Oadd, KPTR, src, mkref(RICON, (i == 0 ? 0 : r2off) + o*align));
                ld.l = insertinstr(blk, (*curi)++, adr);
             }
             temp = insertinstr(blk, (*curi)++, ld);
             if (o > 0) {
-               Ref t = insertinstr(blk, (*curi)++, mkinstr(Oshl, ld.cls, temp, mkref(RICON, o*align*8)));
-               reg = insertinstr(blk, (*curi)++, mkinstr(Oior, ld.cls, reg, t));
+               Ref t = insertinstr(blk, (*curi)++, mkinstr2(Oshl, ld.cls, temp, mkref(RICON, o*align*8)));
+               reg = insertinstr(blk, (*curi)++, mkinstr2(Oior, ld.cls, reg, t));
             } else {
                reg = temp;
             }
@@ -223,10 +223,10 @@ patcharg(Block *blk, int *icall, IRCall *call,
          arg->cls = KPTR;
          arg->r = mkref(RICON, abi->stk);
          for (uint off = 0; off < siz; off += align) {
-            Ref sadr = off == 0 ? src : insertinstr(blk, ++arginst, mkinstr(Oadd, KPTR, src, mkref(RICON, off)));
-            Ref tmp = insertinstr(blk, ++arginst, mkinstr(Oloads8+2*ilog2(align), align < 8 ? KI32 : KI64, sadr));
-            Ref dadr = off == 0 ? dst : insertinstr(blk, ++arginst, mkinstr(Oadd, KPTR, dst, mkref(RICON, off)));
-            insertinstr(blk, ++arginst, mkinstr(Ostorei8+ilog2(align), 0, dadr, tmp));
+            Ref sadr = off == 0 ? src : insertinstr(blk, ++arginst, mkinstr2(Oadd, KPTR, src, mkref(RICON, off)));
+            Ref tmp = insertinstr(blk, ++arginst, mkinstr1(Oloads8+2*ilog2(align), align < 8 ? KI32 : KI64, sadr));
+            Ref dadr = off == 0 ? dst : insertinstr(blk, ++arginst, mkinstr2(Oadd, KPTR, dst, mkref(RICON, off)));
+            insertinstr(blk, ++arginst, mkinstr2(Ostorei8+ilog2(align), 0, dadr, tmp));
          }
          *icall = arginst + (call->narg - argidx);
          return 1;
@@ -238,7 +238,7 @@ patcharg(Block *blk, int *icall, IRCall *call,
          delinstr(blk, arginst);
          load2regs(r, ref2type(arg->l), arg->r, nabi, abi, r2off, blk, &arginst);
          for (int i = 0; i < nabi; ++i)
-            insertinstr(blk, arginst++, mkinstr(Oarg, 0, mktyperef(abi[i].ty), r[i]));
+            insertinstr(blk, arginst++, mkinstr2(Oarg, 0, mktyperef(abi[i].ty), r[i]));
          *icall = arginst + (call->narg - argidx - 1);
          return nabi;
       }
@@ -281,7 +281,7 @@ abi0_call(Function *fn, Instr *ins, Block *blk, int *curi)
 
       if (!nret) /* hidden pointer argument */
          insertinstr(blk, (*curi)++ - call->narg,
-                     mkinstr(Oarg, 0, mktyperef((IRType){.cls=KPTR}), retmem));
+                     mkinstr2(Oarg, 0, mktyperef((IRType){.cls=KPTR}), retmem));
    }
 
    /* adjust args */
@@ -316,7 +316,7 @@ abi0_call(Function *fn, Instr *ins, Block *blk, int *curi)
          ins->cls = call->abiret[0].ty.cls;
          r[0] = mkref(RTMP, ins - instrtab);
          if (nret == 2) {
-            ret2 = mkinstr(Ocall2r, call->abiret[1].ty.cls, r[0]);
+            ret2 = mkinstr1(Ocall2r, call->abiret[1].ty.cls, r[0]);
             r[1] = insertinstr(blk, ++*curi, ret2);
          }
          for (int i = 0; i < nret; ++i) {
@@ -324,7 +324,7 @@ abi0_call(Function *fn, Instr *ins, Block *blk, int *curi)
             if (i == 0) {
                store.l = retmem;
             } else {
-               Instr addr = mkinstr(Oadd, KPTR, retmem, mkref(RICON, call->r2off));
+               Instr addr = mkinstr2(Oadd, KPTR, retmem, mkref(RICON, call->r2off));
                store.l = insertinstr(blk, ++*curi, addr);
             }
             store.r = r[i];
@@ -404,7 +404,7 @@ abi0(Function *fn)
          }
       } while ((blk = blk->lnext) != fn->entry);
       if (rvovar != -1)
-         instrtab[rvovar] = mkinstr(Ocopy, KPTR, sret);
+         instrtab[rvovar] = mkinstr1(Ocopy, KPTR, sret);
    }
 
    blk = fn->entry->lnext;
