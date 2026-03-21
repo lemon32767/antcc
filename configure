@@ -55,8 +55,8 @@ fi
 : ${linker:=ld}
 test -n "$host" || die "cannot determine host"
 
-host_arch=unk
-host_os=unk
+host_arch=
+host_os=unknown
 host_abi=none
 host_predefs=
 
