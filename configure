@@ -183,7 +183,7 @@ echo using os: "$host_os"
 echo using abi: "$host_abi"
 echo host include paths: "$host_include_dirs"
 
-if ! test -n "$DYNAMIC_LINKER"; then
+if test -n "$DYNAMIC_LINKER"; then
     linkflags="\"--dynamic-linker=$DYNAMIC_LINKER\", $linkflags"
 fi
 
