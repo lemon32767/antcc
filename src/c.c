@@ -349,7 +349,7 @@ gettagged(CComp *cm, Span *span, enum typetag tt, internstr name, bool dodef)
    assert(name);
    for (Env *e = cm->env; e; e = e->up) {
       for (Tagged *l = NULL; envitertagged(&l, e);) {
-         if (name == ttypenames[typedata[l->ty.dat].id]) {
+         if (name == tagtypetags[typedata[l->ty.dat].id]) {
             if (dodef && e != cm->env)
                goto Break2;
             *span = l->span;
@@ -371,7 +371,7 @@ deftagged(CComp *cm, Span *span, enum typetag tt, internstr name, Type ty)
    TypeData td = {0};
    assert(name);
    for (Tagged *l = NULL; envitertagged(&l, cm->env);) {
-      if (name == ttypenames[typedata[l->ty.dat].id]) {
+      if (name == tagtypetags[typedata[l->ty.dat].id]) {
          *span = l->span;
          return l->ty;
       }
@@ -2063,7 +2063,7 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id)
                f.f.bitoff -= 8*siz;
             }
             if (!decl.name && !bitftypesiz) {
-               if (!isagg(decl.ty) || ttypenames[typedata[decl.ty.dat].id]) {
+               if (!isagg(decl.ty) || tagtypetags[typedata[decl.ty.dat].id]) {
                   warn(&decl.span, "declaration does not declare anything");
                   continue;
                } else if (ccopt.cstd < STDC11 && ccopt.pedant) {

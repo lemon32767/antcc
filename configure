@@ -94,9 +94,7 @@ case "$host" in
     ldendfiles_pie='"-lc", "-l:crtendS.o", "-l:crtn.o"'
     findgcclibdir
     linkflags='"-L", "'$GCCLIBDIR'",'
-    host_predefs='
-    "__SIZE_TYPE__=unsigned long int", /* work around https://sourceware.org/bugzilla/show_bug.cgi?id=33969 */
-    '
+    host_predefs=''
     ;;
 *-linux-*musl*)
     host_os=linux

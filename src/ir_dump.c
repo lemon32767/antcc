@@ -81,8 +81,8 @@ prityp(IRType typ)
    else {
       const TypeData *td = &typedata[typ.dat];
       const char *tag = td->t == TYSTRUCT ? "struct" : "union";
-      if (ttypenames[td->id])
-         bfmt(out, "%s.%s.%d", tag, ttypenames[td->id], td->id);
+      if (tagtypetags[td->id])
+         bfmt(out, "%s.%s.%d", tag, tagtypetags[td->id], td->id);
       else
          bfmt(out, "%s.%d", tag, td->id);
    }

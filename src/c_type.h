@@ -122,7 +122,8 @@ typedef struct TypeData {
 } TypeData;
 
 extern TypeData typedata[];
-extern internstr ttypenames[/*id*/];
+extern internstr tagtypetags[/*id*/];
+extern const char *const primtypenames[/*enum typetag*/];
 
 bool isincomplete(Type);
 uint typesize(Type);

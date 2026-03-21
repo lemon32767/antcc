@@ -144,6 +144,10 @@ enum { /* GCC include directory search order: https://gcc.gnu.org/onlinedocs/gcc
 };
 extern CInclPath *cinclpaths[5];
 
+/** c_lex.c **/
+void cpp0define(const char *name, const char *body);
+void cpp0undef(const char *name);
+
 /**********/
 /* Target */
 /**********/

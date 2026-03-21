@@ -9,9 +9,9 @@ struct EmbedFile {
 } embedfilesdir[] = {
 {"stddef.h", S("\
 #pragma once\n\
-typedef __typeof__((char*)0 - (char*)0) ptrdiff_t;\n\
-typedef __typeof__(sizeof 0) size_t;\n\
-typedef __typeof__(L'a') wchar_t;\n\
+typedef __PTRDIFF_TYPE__ ptrdiff_t;\n\
+typedef __SIZE_TYPE__ size_t;\n\
+typedef __WCHAR_TYPE__ wchar_t;\n\
 #undef NULL\n\
 #define NULL ((void*)0)\n\
 #undef offsetof\n\

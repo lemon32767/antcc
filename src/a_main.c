@@ -121,7 +121,29 @@ static Task task = { .inf = VINIT(infilebuf, countof(infilebuf)) };
 
 static void prihelp(void);
 
-void cpppredef(bool undef, const char *cmd);
+void cpp0define(const char *name, const char *body);
+void cpp0undef(const char *name);
+
+static void
+predef(bool undef, const char *cmd)
+{
+   char buf[1024];
+   const char *sep = strchr(cmd, '='),
+              *body = sep ? sep+1 : "1";
+   const char *name;
+   if (sep) {
+      uint n = sep - cmd;
+      assert(n < sizeof buf - 1);
+      memcpy(buf, cmd, n);
+      buf[n] = 0;
+      name = buf;
+   } else {
+      name = cmd;
+   }
+   if (undef) cpp0undef(name);
+   else cpp0define(name, body);
+}
+
 
 static void
 optparse(char **args)
@@ -251,7 +273,7 @@ optparse(char **args)
       } else if (*arg == 'D' || *arg == 'U') {
          const char *def = arg[1] ? arg+1 : *++args;
          if (!def) fatal(NULL, "macro name missing after `-%c`", *arg);
-         cpppredef(*arg == 'U', def);
+         predef(*arg == 'U', def);
       } else if (*arg == 'O') {
          /* TODO optimization level */
       } else if (*arg == 'I' || !strcmp(arg, "-include-directory")) {
@@ -754,7 +776,7 @@ main(int argc, char **argv)
    }
 
    for (const char *const *p = host_predefs; *p; ++p)
-      cpppredef(0, *p);
+      predef(0, *p);
 
    return driver();
 }

@@ -2,7 +2,28 @@
 #include "u_hash.h"
 
 TypeData typedata[1<<13];
-internstr ttypenames[1<<10];
+internstr tagtypetags[1<<10];
+const char *const primtypenames[] = {
+   [TYBOOL]     = "bool",
+   [TYCHAR]     = "char",
+   [TYSCHAR]    = "signed char",
+   [TYUCHAR]    = "unsigned char",
+   [TYSHORT]    = "short",
+   [TYUSHORT]   = "unsigned short",
+   [TYINT]      = "int",
+   [TYUINT]     = "unsigned int",
+   [TYLONG]     = "long",
+   [TYULONG]    = "unsigned long",
+   [TYVLONG]    = "long long",
+   [TYUVLONG]   = "unsigned long long",
+   [TYFLOAT]    = "float",
+   [TYDOUBLE]   = "double",
+   [TYLDOUBLE]  = "long double",
+   [TYCOMPLEXF] = "float complex",
+   [TYCOMPLEX]  = "double complex",
+   [TYCOMPLEXL] = "long double complex",
+   [TYVOID]     = "void",
+};
 
 static ushort
 hashtd(const TypeData *td)
@@ -188,11 +209,11 @@ completetype(internstr name, int id, TypeData *td)
 {
    assert(td->t == TYENUM || td->t == TYSTRUCT || td->t == TYUNION);
    td->id = id;
-   assert(id < countof(ttypenames) && "too many tag types");
-   if (ttypenames[id])
-      assert(ttypenames[id] == name && "bad redefn");
+   assert(id < countof(tagtypetags) && "too many tag types");
+   if (tagtypetags[id])
+      assert(tagtypetags[id] == name && "bad redefn");
    else
-      ttypenames[id] = name;
+      tagtypetags[id] = name;
    return mktype(td->t, .dat = interntd(td), .backing = td->t == TYENUM ? td->backing : 0);
 }
 

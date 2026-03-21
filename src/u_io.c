@@ -194,26 +194,11 @@ pritypebefore(WriteBuf *buf, Type ty, int qual)
    const char *s, *s2;
    Type chld;
    int n;
+   if (isprim(ty)) {
+      n = bfmt(buf, "%s", primtypenames[ty.t]);
+      return n + priquals(buf, qual);
+   }
    switch (ty.t) {
-   case TYVOID:   s = "void"; Prim: n = bfmt(buf, "%s", s); return n + priquals(buf, qual);
-   case TYBOOL:   s = "bool"; goto Prim;
-   case TYCHAR:   s = "char"; goto Prim;
-   case TYSCHAR:  s = "signed char"; goto Prim;
-   case TYUCHAR:  s = "unsigned char"; goto Prim;
-   case TYSHORT:  s = "short"; goto Prim;
-   case TYUSHORT: s = "unsigned short"; goto Prim;
-   case TYINT:    s = "int"; goto Prim;
-   case TYUINT:   s = "unsigned int"; goto Prim;
-   case TYLONG:   s = "long"; goto Prim;
-   case TYULONG:  s = "unsigned long"; goto Prim;
-   case TYVLONG:  s = "long long"; goto Prim;
-   case TYUVLONG: s = "unsigned long long"; goto Prim;
-   case TYFLOAT:  s = "float"; goto Prim;
-   case TYDOUBLE: s = "double"; goto Prim;
-   case TYLDOUBLE:s = "long double"; goto Prim;
-   case TYCOMPLEXF:s = "float complex"; goto Prim;
-   case TYCOMPLEX: s = "double complex"; goto Prim;
-   case TYCOMPLEXL:s = "long double complex"; goto Prim;
    case TYPTR:
       chld = typechild(ty);
       n = pritypebefore(buf, chld, ty.flag & TFCHLDQUAL);
@@ -231,7 +216,7 @@ pritypebefore(WriteBuf *buf, Type ty, int qual)
    case TYSTRUCT:
       s = "struct";
    Tagged:
-      n = bfmt(buf, "%s %s", s, (s2 = (char *)ttypenames[typedata[ty.dat].id]) ? s2 : "(anonymous)");
+      n = bfmt(buf, "%s %s", s, (s2 = (char *)tagtypetags[typedata[ty.dat].id]) ? s2 : "(anonymous)");
       return n + priquals(buf, qual);
    case TYUNION:
       s = "union";

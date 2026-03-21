@@ -614,6 +614,8 @@ End:
 static bool
 tokequ(const Token *a, const Token *b)
 {
+   if (a == b) return 1;
+   if (!a || !b) return 0;
    if (a->t != b->t) return 0;
    if (a->t == TKNUMLIT || a->t == TKSTRLIT || a->t == TKCHRLIT) {
       if (a->len != b->len) return 0;
@@ -640,13 +642,13 @@ typedef struct Macro {
         variadic : 1;
    short id;
    union {
-      void (*handler)(Lexer *, Token *);
+      void (*handler)(Lexer *, Token *); /* special && !fnlike */
+      void (*handlerfn)(Lexer *, Token *, const Token *, int); /* special && fnlike */
+      const Token *single; /* predef && !special */
       struct TokList {
          uint off; /* mtoksbuf[] */
          int n;
       } rl;
-      const Token *single; /* predef */
-      void (*handlerfn)(Lexer *, Token *ret, const Token *arg, int narg);
    };
 } Macro;
 
@@ -662,6 +664,16 @@ macroequ(const Macro *a, const Macro *b)
             return 0;
    }
    if (a->special) return a->handler == b->handler;
+   if (a->predef || b->predef) {
+      if (a->predef && b->predef)
+         return tokequ(a->single, b->single);
+      if (a->predef && !b->predef) {
+         return (!!a->single) == b->rl.n
+            && (!a->single || tokequ(a->single, &mtoksbuf.p[b->rl.off]));
+      }
+      return (!!b->single) == a->rl.n
+         && (!b->single || tokequ(b->single, &mtoksbuf.p[a->rl.off]));
+   }
    if (a->rl.n != b->rl.n) return 0;
    const Token *tka = &mtoksbuf.p[a->rl.off], *tkb = &mtoksbuf.p[b->rl.off];
    for (int i = 0; i < a->rl.n; ++i) {
@@ -2215,23 +2227,57 @@ lexpeek(Lexer *lx, Token *tk_)
 
 /* Predefined/builtin macros */
 
-static vec_of(uchar) ppcmdline;
+static char ppcmdlinebuf0[4000];
+static WriteBuf ppcmdline = MEMBUF(ppcmdlinebuf0, sizeof ppcmdlinebuf0);
+
+static void
+ppcmdappendf(const char *fmt, ...)
+{
+   va_list ap;
+   uint lensave = ppcmdline.len;
+Redo:
+   va_start(ap, fmt);
+   uint n = vbfmt(&ppcmdline, fmt, ap);
+   va_end(ap);
+   if (ppcmdline.err) {
+      uint newcap = ppcmdline.cap + n + 100;
+      if (ppcmdline.buf == ppcmdlinebuf0) {
+         ppcmdline.buf = xcalloc(newcap);
+         memcpy(ppcmdline.buf, ppcmdlinebuf0, sizeof ppcmdlinebuf0);
+      } else {
+         ppcmdline.buf = xrealloc(ppcmdline.buf, newcap);
+         memset(ppcmdline.buf + ppcmdline.cap, 0, newcap - ppcmdline.cap);
+      }
+      ppcmdline.cap = newcap;
+      ppcmdline.len = lensave;
+      ppcmdline.err = 0;
+      goto Redo;
+   }
+}
+
+static void
+putdef1(const char *name)
+{
+   static const Token tok_1 = { TKNUMLIT, .s = "1", .len = 1, .litlit = 1 };
+   putmac(intern(name), &(Macro) {
+      .predef = 1,
+      .single = &tok_1
+   });
+}
 
 void
-cpppredef(bool undef, const char *cmd)
+cpp0define(const char *name, const char *body)
 {
-   const char *sep = strchr(cmd, '='), *body = sep ? sep+1 : "1";
-   uint namelen = sep ? sep - cmd : strlen(cmd);
-   char line[1024];
-   WriteBuf wbuf = MEMBUF(line, sizeof line);
-   if (!ppcmdline.p) vinit(&ppcmdline, NULL, 1<<10);
-   int n;
-   if (undef)
-      n = bfmt(&wbuf, "#undef %S\n", cmd, namelen);
+   if (!body || !strcmp(body, "1"))
+      putdef1(name);
    else
-      n = bfmt(&wbuf, "#define %S %s\n", cmd, namelen, body);
-   assert(n <= sizeof line);
-   vpushn(&ppcmdline, line, n);
+      ppcmdappendf("#define %s %s\n", name, body);
+}
+
+void
+cpp0undef(const char *name)
+{
+   ppcmdappendf("#undef %s\n", name);
 }
 
 static void
@@ -2330,17 +2376,6 @@ mac__has_builtin(Lexer *lx, Token *tk, const Token *args, int narg)
    tk->s = &"01"[has];
 }
 
-
-static void
-putdef1(const char *name)
-{
-   static const Token tok_1 = { TKNUMLIT, .s = "1", .len = 1, .litlit = 1 };
-   putmac(intern(name), &(Macro) {
-      .predef = 1,
-      .single = &tok_1
-   });
-}
-
 static void
 putdefs1(const char *s)
 {
@@ -2373,13 +2408,7 @@ addpredefmacros(Arena **tmparena)
    static const char
       cpredefs[] =
          "__antcc__\0__STDC__\0__STDC_NO_ATOMICS__\0__STDC_NO_COMPLEX__\0__STDC_NO_THREADS__\0__STDC_NO_VLA__\0",
-      *ospredefs[] = {
-         [OSlinux] = "__linux\0__linux__\0linux\0unix\0__unix\0__unix__\0",
-         [OSopenbsd] = "__OpenBSD__\0unix\0__unix\0__unix__\0"
-      }, *archpredefs[] = {
-         [ISx86_64] = "__x86_64__\0__x86_64\0__amd64__\0__amd64\0",
-         [ISaarch64] = "__aarch64__\0__aarch64\0",
-      }, cstdver[][8] = {
+      cstdver[][8] = {
          [STDC89] = "199409L",
          [STDC99] = "199901L",
          [STDC11] = "201112L",
@@ -2388,36 +2417,22 @@ addpredefmacros(Arena **tmparena)
 
    tok_stdc.s = cstdver[ccopt.cstd];
    tok_stdc.len = 7;
+   if (ccopt.cstd >= STDC99)
+      putdef1("__GNUC_STDC_INLINE__");
 
    for (int i = 0; i < countof(macs); ++i)
       putmac(intern(macs[i].name), &macs[i].m);
    putdefs1(cpredefs);
    if (target.os != OSunknown) putdef1("__STDC_HOSTED__");
-   putdefs1(ospredefs[target.os]);
-   putdefs1(archpredefs[target.arch]);
-   if (ccopt.pie) {
-      putdef1("__pie__"), putdef1("__PIE__");
-   }
-   if (ccopt.pic) {
-      putdef1("__pic__"), putdef1("__PIC__");
-   }
-   if (targ_primsizes[TYPTR] == 4) {
-      putdef1("_ILP32"), putdef1("__ILP32__");
-   } else if (targ_primsizes[TYLONG] == 4) {
-      putdef1("_LLP64"), putdef1("__LLP64__");
-   } else {
-      assert(targ_primsizes[TYINT] == 4);
-      putdef1("_LP64"), putdef1("__LP64__");
-   }
 
-   if (ppcmdline.n) {
+   if (ppcmdline.len) {
       MemFile *f;
       Lexer lx[1] = {0};
       lx->fileid = getpredeffile(&f, "<command line>");
       assert(!f->p);
-      lx->ndat = f->n = ppcmdline.n;
-      vpushn(&ppcmdline, "\0\0\0\0\0\0", 6);
-      lx->dat = f->p = ppcmdline.p;
+      lx->ndat = f->n = ppcmdline.len;
+      ppcmdappendf("%S", "\0\0\0\0\0\0", 6);
+      lx->dat = f->p = (uchar *)ppcmdline.buf;
       lx->tmparena = tmparena;
       lx->chrbuf0 = countof(lx->chrbuf);
       lx->firstdirective = 1;
@@ -2431,11 +2446,15 @@ initlexer(Lexer *lx, const char **err, const char *file)
    enum { NARENA = 1<<12 };
    static union { char m[sizeof(Arena) + NARENA]; Arena *_align; } amem;
    static Arena *tmparena = (void *)amem.m;
+   static bool predefs;
 
    if (!tmparena->cap) tmparena->cap = NARENA;
    if (!mtoksbuf.p) vinit(&mtoksbuf, NULL, 1024);
    if (!mdyntoksbuf.p) vinit(&mdyntoksbuf, NULL, 256);
-   if (!macroht.v) addpredefmacros(&tmparena);
+   if (!predefs) {
+      addpredefmacros(&tmparena);
+      predefs = 1;
+   }
 
    MemFile *f;
    int fileid = openfile(err, &f, file);
