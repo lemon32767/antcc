@@ -1,7 +1,7 @@
 #!/bin/sh
 
 die() {
-    echo "$0: Error: $@" >&2
+    echo "$0: Error: $*" >&2
     exit 1
 }
 
@@ -49,7 +49,7 @@ else
     # try target-triple-ld (cross compiling)
     if ! test -n "$linker" && command -v "$host"-ld >/dev/null; then
         linker="$host"-ld
-        sysroot=$(($host-cc -print-sysroot || $host-gcc -print-sysroot) 2>/dev/null)
+        sysroot=$( ($host-cc -print-sysroot || $host-gcc -print-sysroot) 2>/dev/null)
     fi
 fi
 : ${linker:=ld}
@@ -72,7 +72,7 @@ esac
 linkflags=
 
 findgcclibdir () {
-    : ${GCCLIBDIR:=$(dirname "$("$host"-gcc -print-file-name=crtbegin.o 2>/devnull || $CC -print-file-name=crtbegin.o 2>/dev/null)")}
+    : ${GCCLIBDIR:=$(dirname $( ("$host"-gcc -print-file-name=crtbegin.o || $CC -print-file-name=crtbegin.o) 2>/dev/null) )}
     if ! test -n $GCCLIBDIR; then
         die "cannot determine gcclibdir"
     fi
@@ -180,7 +180,7 @@ echo using os: "$host_os"
 echo using abi: "$host_abi"
 echo host include paths: "$host_include_dirs"
 
-echo "/** GENERATED WITH $0 $@ **/
+echo "/** GENERATED WITH $0 $* **/
 #define HOST_TRIPLE \"$host\"
 #define HOST_ARCH   IS$host_arch
 #define HOST_OS     OS$host_os
@@ -197,7 +197,7 @@ static const char *const host_ldstartfiles_pie[] = {$ldstartfiles_pie};
 static const char *const host_ldendfiles_pie[] = {$ldendfiles_pie};
 "  > src/hostconfig.h
 
-echo "# GENERATED WITH $0 $@
+echo "# GENERATED WITH $0 $*
 PREFIX = $prefix
 CC     = $CC
 CFLAGS = ${CFLAGS:--Wall -std=c11 -pedantic}" > config.mk
