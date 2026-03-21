@@ -72,7 +72,7 @@ esac
 linkflags=
 
 findgcclibdir () {
-    : ${GCCLIBDIR:=$(dirname $(("$host"-gcc -print-file-name=crtbegin.o || $CC -print-file-name=crtbegin.o) 2>/dev/null))}
+    : ${GCCLIBDIR:=$(dirname "$("$host"-gcc -print-file-name=crtbegin.o 2>/devnull || $CC -print-file-name=crtbegin.o 2>/dev/null)")}
     if ! test -n $GCCLIBDIR; then
         die "cannot determine gcclibdir"
     fi
