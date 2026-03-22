@@ -39,6 +39,7 @@ For now just x86-64 POSIX (Sys-V + ELF). aarch64 backend is in the works.  Teste
 
  - `x86_64-linux-gnu`
  - `x86_64-linux-musl`
+ - `x86_64-unknown-openbsd`
 
 ## Usage
 
