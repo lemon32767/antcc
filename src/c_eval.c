@@ -201,7 +201,7 @@ unop(Expr *ex, enum evalmode mode)
             } else {
                assert(ex2.t == ESSYMREF);
                ex->t = ESSYMREF;
-               vlong off = (vlong) sub->ssym.off + ex->fld.off;
+               vlong off = (vlong) ex2.ssym.off + ex->fld.off;
                if ((int) off != off) return 0;
                ex->ssym = ex2.ssym;
                ex->ssym.off = off;
