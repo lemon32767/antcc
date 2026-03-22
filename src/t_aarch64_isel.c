@@ -3,13 +3,13 @@
 #define isimm32(r) (iscon(r) && concls(r) == KI32)
 
 static inline uint
-clz(uvlong x)
+clz(u64int x)
 {
 #if HAS_BUILTIN(clzll)
    return __builtin_clzll(x);
 #else
    int i = 0;
-   for (uvlong mask = BIT(63);; ++i, mask >>= 1)
+   for (u64int mask = BIT(63);; ++i, mask >>= 1)
       if (x & mask)
          break;
    return i;
@@ -18,14 +18,14 @@ clz(uvlong x)
 
 /* Encode logical immediate */
 bool
-aarch64_logimm(uint *enc, enum irclass k, uvlong x)
+aarch64_logimm(uint *enc, enum irclass k, u64int x)
 {
    /* https://github.com/v8/v8/blob/927ccc6076e25a614787c7011315468e40fe39a4/src/codegen/arm64/assembler-arm64.cc#L4409 */
    if (k == KI32) x = (uint)x | x << 32;
    bool neg;
    if ((neg = x & 1)) x = ~x;
    if (x == 0) return 0;
-   uvlong a = x & (~x + 1),
+   u64int a = x & (~x + 1),
           xa = x + a,
           b = xa & (~xa + 1),
           xa_b = xa - b,
@@ -45,14 +45,14 @@ aarch64_logimm(uint *enc, enum irclass k, uvlong x)
    }
    if (!ispo2(d)) return 0;
    if (((b - a) & ~mask) != 0) return 0;
-   static const uvlong M[] = {
+   static const u64int M[] = {
       0x0000000000000001, 0x0000000100000001, 0x0001000100010001,
       0x0101010101010101, 0x1111111111111111, 0x5555555555555555,
    };
    int i = clz(d) - 57;
    assert((uint)i < countof(M));
-   uvlong m = M[i];
-   uvlong y = (b - a) * m;
+   u64int m = M[i];
+   u64int y = (b - a) * m;
    if (y != x) return 0;
    if (enc) {
       int clzb = b == 0 ? -1 : clz(b),
@@ -88,7 +88,7 @@ fixarg(Ref *r, Instr *ins, Block *blk, int *curi)
 {
    enum op op = ins ? ins->op : 0;
    if (isintcon(*r)) {
-      vlong x = intconval(*r);
+      s64int x = intconval(*r);
       switch (op) {
          case Ocopy: return;
       default:
@@ -98,7 +98,7 @@ fixarg(Ref *r, Instr *ins, Block *blk, int *curi)
             if ((x &~ 0xFFF) == 0 || (x &~ 0xFFF000) == 0) return;
             break;
          case Oshl: case Osar: case Oslr:
-            if ((uvlong)x < (ins->cls == KI32 ? 32 : 64)) return;
+            if ((u64int)x < (ins->cls == KI32 ? 32 : 64)) return;
             break;
          case Oand: case Oior: case Oxor:
             if (aarch64_logimm(NULL, ins->cls, x)) return;
@@ -110,12 +110,12 @@ fixarg(Ref *r, Instr *ins, Block *blk, int *curi)
       enum irclass k = concls(*r), ki = KI32 + k-KF32;
       if (contab.p[r->i].f != 0.0) {
          union {
-            vlong i64;
+            s64int i64;
             int i32;
             float f32;
             double f64;
          } pun;
-         vlong i;
+         s64int i;
          if (k == KF32) {
             pun.f32 = contab.p[r->i].f;
             i = pun.i32;
@@ -229,7 +229,7 @@ static bool
 aimm(IRAddr *addr, int disp)
 {
    if (addr->index.bits) return 0;
-   vlong a = addr->disp;
+   s64int a = addr->disp;
    a += disp;
    if ((int)a == a) {
       addr->disp = a;
@@ -307,7 +307,7 @@ fuseaddr(Ref *r, Block *blk, int *curi, uint siz/*1,2,4,8*/)
    if (r->t != RSTACK && r->t != RTMP) return 0;
    if (!aadd(&addr, blk, curi, *r, siz)) return 0;
    if (!(addr.disp >= -256 && addr.disp < 256) /* for 9-bit signed unscaled offset */
-    && !(!(addr.disp & (siz-1)) && (uvlong)addr.disp < (1<<12)*siz)) /* 12-bit unsigned scaled offset */
+    && !(!(addr.disp & (siz-1)) && (u64int)addr.disp < (1<<12)*siz)) /* 12-bit unsigned scaled offset */
       return 0;
    if (isaddrcon(addr.base,0) && (!(contab.p[addr.base.i].flag & SLOCAL) || addr.index.bits)) {
       /* first load symbol address into a temp register */

@@ -133,7 +133,7 @@ putquoted(WriteBuf *buf, uchar c, uchar qchar, int next)
 }
 
 static int
-putuint(WriteBuf *buf, uvlong x, int base, bool lower)
+putuint(WriteBuf *buf, u64int x, int base, bool lower)
 {
    uchar tmp[64];
    uchar *end = tmp + sizeof(tmp);
@@ -288,7 +288,7 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap)
 {
    bool quote, umod, lmod, zmod, lower, possign;
    int base;
-   vlong i;
+   s64int i;
    int pad, prec, q;
    const char *s;
    void *p;
@@ -403,14 +403,14 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap)
          base = 10;
       Int:
          if (base != 10) umod = 1;
-         i = lmod ? va_arg(ap, vlong)
+         i = lmod ? va_arg(ap, s64int)
            : umod ? va_arg(ap, uint)
-           : zmod && sizeof(&i-&i) > sizeof(int) ? va_arg(ap, vlong)
-           : (vlong)va_arg(ap, int);
+           : zmod && sizeof(&i-&i) > sizeof(int) ? va_arg(ap, s64int)
+           : (s64int)va_arg(ap, int);
          tmp2.len = 0;
          if (!umod && i < 0) {
             n += bputc(buf, '-');
-            i = -(uvlong)i;
+            i = -(u64int)i;
          } else if (possign) {
             n += bputc(buf, '+');
          }
@@ -445,7 +445,7 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap)
          } else {
             n += bwriteS(buf, "0x");
             tmp2.len = 0;
-            n += putuint(prec > 0 ? &tmp2 : buf, (uvlong)p, 16, 1);
+            n += putuint(prec > 0 ? &tmp2 : buf, (u64int)p, 16, 1);
             if (prec > 0) {
                int fil = prec - tmp2.len;
                while (fil-- > 0) n += bputc(buf, '0');

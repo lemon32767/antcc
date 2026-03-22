@@ -120,7 +120,7 @@ enum initlexer {
 
 int lex(Lexer *, Token *);
 int lexpeek(Lexer *, Token *);
-enum typetag parsenumlit(uvlong *, double *, const Token *, bool ispp);
+enum typetag parsenumlit(u64int *, double *, const Token *, bool ispp);
 enum initlexer initlexer(Lexer *, const char **err, const char *file);
 void lexerdump(Lexer *, WriteBuf *out);
 void lexerfreetemps(Lexer *);

@@ -133,7 +133,7 @@ mkirtype(Type t)
 }
 
 Ref
-mkintcon(enum irclass k, vlong i)
+mkintcon(enum irclass k, s64int i)
 {
    if (i < 1l << 28 && i >= -(1l << 28)) {
       return mkref(RICON, i);

@@ -5,7 +5,7 @@ Ref
 irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r)
 {
    static const Ref ONE = {.t=RICON, .i=1};
-   vlong iv;
+   s64int iv;
    Ref c;
 
    if (foldbinop(&c, op, k, l, r))

@@ -38,7 +38,7 @@ struct Expr {
             uchar bitsiz, bitoff;
          } fld; /* EGETF */
       };
-      uvlong u; vlong i; double f; /* ENUMLIT */
+      u64int u; s64int i; double f; /* ENUMLIT */
       struct {
          union {
             uchar *p;
@@ -107,7 +107,7 @@ typedef struct Decl {
    union {
       internstr sym; /* static/extern scls */
       struct { ushort align; int id; }; /* local var */
-      vlong value; /* enum constant */
+      s64int value; /* enum constant */
       const Builtin *builtin; /* .isbuiltin */
    };
 } Decl;

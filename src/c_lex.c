@@ -120,10 +120,10 @@ aissep(int c) {
 }
 
 enum typetag
-parsenumlit(uvlong *outi, double *outf, const Token *tk, bool ispp)
+parsenumlit(u64int *outi, double *outf, const Token *tk, bool ispp)
 {
    if (tk->t == TKCHRLIT) {
-      uvlong n = 0;
+      u64int n = 0;
       if (!tk->wide) {
          for (int i = 0; i < tk->len; ++i)
             n = n << 8 | (uchar)tk->s[i];
@@ -158,8 +158,8 @@ parsenumlit(uvlong *outi, double *outf, const Token *tk, bool ispp)
       }
       return 0;
    } else { /* int literal */
-      static uvlong max4typ[TYUVLONG-TYINT+1];
-      uvlong n = 0;
+      static u64int max4typ[TYUVLONG-TYINT+1];
+      u64int n = 0;
       int base = 10, nsx;
       bool dec, u = 0, longlongok = ccopt.cstd >= STDC99 || !ccopt.pedant;
       enum typetag ty = 0;
@@ -1474,14 +1474,14 @@ tkprec(int tt)
    return -1;
 }
 
-static vlong
+static s64int
 expr(Lexer *lx, bool *pu, int prec, bool ignore)
 {
    Token tk;
    enum typetag ty;
    char unops[16];
    int nunop = 0;
-   vlong x, y;
+   s64int x, y;
    bool xu = 0, yu; /* x unsigned?; y unsigned? */
 
 Unary:
@@ -1505,7 +1505,7 @@ Switch:
       break;
    case TKNUMLIT:
    case TKCHRLIT:
-      ty = parsenumlit((uvlong *)&x, NULL, &tk, 1);
+      ty = parsenumlit((u64int *)&x, NULL, &tk, 1);
       if (!ty) {
          error(&tk.span, "bad number literal");
          goto Err;
@@ -1546,7 +1546,7 @@ Switch:
    }
 
    while (nunop > 0) switch (unops[--nunop]) {
-      case '-': x = -(uvlong)x; break;
+      case '-': x = -(u64int)x; break;
       case '~': x = ~x; break;
       case '!': x = !x; break;
       default: assert(0);
@@ -1562,7 +1562,7 @@ Switch:
          xu = 0;
       } else if (tk.t == '?') {
          Span span = tk.span;
-         vlong m = expr(lx, &xu, 1, ignore || !x);
+         s64int m = expr(lx, &xu, 1, ignore || !x);
          if (elex(lx, &tk) != ':') {
             error(&tk.span, "expected ':'");
             note(DGERROR, &span, "to match conditional expression here");
@@ -1575,34 +1575,34 @@ Switch:
          y = expr(lx, &yu, opprec + 1, ignore);
          bool u = xu | yu;
          switch ((int) tk.t) {
-         case   '+': x += (uvlong) y; break;
-         case   '-': x -= (uvlong) y; break;
-         case   '*': x = u ? (uvlong) x * y : x * y; break;
+         case   '+': x += (u64int) y; break;
+         case   '-': x -= (u64int) y; break;
+         case   '*': x = u ? (u64int) x * y : x * y; break;
          case   '&': x &= y; break;
          case   '^': x ^= y; break;
          case   '|': x |= y; break;
-         case   '/': if (y) x = u ? (uvlong) x / y : x / y;
+         case   '/': if (y) x = u ? (u64int) x / y : x / y;
                      else if (ignore) x = 0;
                      else goto Div0;
                      break;
-         case   '%': if (y) x = u ? (uvlong) x % y : x % y;
+         case   '%': if (y) x = u ? (u64int) x % y : x % y;
                      else if (ignore) x = 0;
                      else Div0: error(&tk.span, "division by zero");
                      break;
-         case TKSHL: if ((uvlong)y < 64) x <<= y;
+         case TKSHL: if ((u64int)y < 64) x <<= y;
                      else if (ignore) x = 0;
                      else goto BadShift;
                      break;
                      u = xu;
-         case TKSHR: if ((uvlong)y < 64) x = u ? (uvlong) x >> y : x >> y;
+         case TKSHR: if ((u64int)y < 64) x = u ? (u64int) x >> y : x >> y;
                      else if (ignore) x = 0;
                      else BadShift: error(&tk.span, "bad shift by %ld", y);
                      u = xu;
                      break;
-         case   '<': x = u ? (uvlong) x < y  : x < y;  u = 0; break;
-         case   '>': x = u ? (uvlong) x > y  : x > y;  u = 0; break;
-         case TKLTE: x = u ? (uvlong) x <= y : x <= y; u = 0; break;
-         case TKGTE: x = u ? (uvlong) x >= y : x >= y; u = 0; break;
+         case   '<': x = u ? (u64int) x < y  : x < y;  u = 0; break;
+         case   '>': x = u ? (u64int) x > y  : x > y;  u = 0; break;
+         case TKLTE: x = u ? (u64int) x <= y : x <= y; u = 0; break;
+         case TKGTE: x = u ? (u64int) x >= y : x >= y; u = 0; break;
          case TKEQU: x = x == y; u = 0; break;
          case TKNEQ: x = x != y; u = 0; break;
          default: assert(0);
@@ -1644,7 +1644,7 @@ static int includedepth;
 static void
 ppif(Lexer *lx, const Span *span)
 {
-   vlong v = expr(lx, NULL, 0, 0);
+   s64int v = expr(lx, NULL, 0, 0);
    assert(nppcnd < countof(ppcndstk) && "too many nested #if");
    ppcndstk[nppcnd].ifspan = span->sl;
    ppcndstk[nppcnd].filedepth = includedepth;
@@ -1675,7 +1675,7 @@ ppifxdef(Lexer *lx, bool defp, const Span *span)
 static void
 ppelif(Lexer *lx, const Span *span)
 {
-   vlong v;
+   s64int v;
    PPCond *cnd;
 
    if (!nppcnd) {
@@ -1920,7 +1920,7 @@ ppline(Lexer *lx, Token *tk0)
          tks[ntk++] = tk;
       }
    }
-   uvlong lineno = 0;
+   u64int lineno = 0;
    char *file = NULL;
    if (ntk > 0 && tks[0].t == TKNUMLIT) {
       if (!parsenumlit(&lineno, NULL, &tks[0], 1) || (lineno == 0 && !ext))

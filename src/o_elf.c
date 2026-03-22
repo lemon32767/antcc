@@ -16,7 +16,7 @@ typedef struct {
    uchar  bind : 4,
           type : 4;
    ushort shndx;
-   uvlong value,
+   u64int value,
           size;
 } Sym;
 static vec_of(Sym) symtab;
@@ -26,7 +26,7 @@ typedef struct {
    uchar section;
    ushort kind;
    uint off;
-   vlong addend;
+   s64int addend;
    union {
       uint symidx;
       internstr symname;
@@ -115,7 +115,7 @@ elfhassym(internstr nam, uint *value)
 }
 
 void
-elfaddsym(internstr nam, int info, enum section sect, uvlong value, uvlong size)
+elfaddsym(internstr nam, int info, enum section sect, u64int value, u64int size)
 {
    Sym *sym = findsym(nam), sym0;
    if (!sym) {
@@ -160,7 +160,7 @@ static const ushort relktab[][NRELOCKIND] = {
 };
 
 void
-elfreloc(internstr sym, enum relockind kind, enum section section, uint off, vlong addend)
+elfreloc(internstr sym, enum relockind kind, enum section section, uint off, s64int addend)
 {
    switch (section) {
    default: assert(0);

@@ -1385,7 +1385,7 @@ typedef struct InitParser {
          struct InitReloc {
             struct InitReloc *link;
             internstr sym;
-            vlong addend;
+            s64int addend;
             uint off;
          } *drel;
       };
@@ -1427,7 +1427,7 @@ dumpini(InitParser *ip)
 }
 #endif
 
-static vlong /* -> returns addend */
+static s64int /* -> returns addend */
 expr2reloc(internstr *psym, const Expr *ex)
 {
    if (ex->t == ESSYMREF) {
@@ -1489,7 +1489,7 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
          case 4: isint(ty) ? wr32targ(p, e->u) : wrf32targ(p, e->f); break;
          case 8: isint(ty) ? wr64targ(p, e->u) : wrf64targ(p, e->f); break;
          } else {
-            uvlong mask = (bitsiz == 64 ? -1ull : (1ull << bitsiz) - 1) << bitoff;
+            u64int mask = (bitsiz == 64 ? -1ull : (1ull << bitsiz) - 1) << bitoff;
             if (bitoff + bitsiz > siz*8) siz <<= 1; /* straddles an allocation boundary */
             switch (siz) {
             default: assert(0);
@@ -1506,7 +1506,7 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
          memcpy(p, ex->s.p, n);
       } else {
          internstr sym;
-         vlong addend = expr2reloc(&sym, ex);
+         s64int addend = expr2reloc(&sym, ex);
          if (!ip->dyn) {
             assert(ip->sec != Srodata || rodatarelocok());
             objreloc(sym, targ_64bit ? REL_ABS64 : REL_ABS32,
@@ -1706,7 +1706,7 @@ designators(InitParser *ip, CComp *cm)
 
    for (;;) {
       uint off, bitsiz, bitoff;
-      uvlong idx = ~0ull;
+      u64int idx = ~0ull;
       if (match(cm, &tk, '[')) {
          Expr ex = commaexpr(cm);
          span = tk.span;
@@ -2110,7 +2110,7 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id)
 }
 
 static inline void
-inttyminmax(vlong *min, uvlong *max, enum typetag tt)
+inttyminmax(s64int *min, u64int *max, enum typetag tt)
 {
    uint bits = 8*targ_primsizes[tt];
    *min = isunsignedt(tt) ? 0 : -(1ull << (bits - 1));
@@ -2130,12 +2130,12 @@ static Type
 buildenum(CComp *cm, internstr name, const Span *span, int id)
 {
    Token tk;
-   vlong tymin, minv = 0;
-   uvlong tymax, maxv = 0;
+   s64int tymin, minv = 0;
+   u64int tymax, maxv = 0;
    TypeData td = {TYENUM, .backing = TYINT};
    Type ty = mktype(td.backing);
    Span maxvspan;
-   vlong iota = 0;
+   s64int iota = 0;
    bool somelonglong = 0;
 
    inttyminmax(&tymin, &tymax, td.backing);
@@ -2157,7 +2157,7 @@ buildenum(CComp *cm, internstr name, const Span *span, int id)
          lex(cm, NULL);
          continue;
       }
-      while (issigned(ty) ? (iota > (vlong)tymax || iota < tymin) : iota > tymax)
+      while (issigned(ty) ? (iota > (s64int)tymax || iota < tymin) : iota > tymax)
          inttyminmax(&tymin, &tymax, ++ty.t);
       somelonglong |= ty.t >= TYVLONG;
       if ((isunsigned(ty) || iota > 0) && iota > maxv)
@@ -3479,7 +3479,7 @@ genbitfload(Function *fn, Ref *tmpval, const Type ty, Ref *addr,
    enum irclass k = type2cls[scalartypet(ty)];
    uint off = fld->off, bitsiz = fld->bitsiz, bitoff = fld->bitoff;
    Ref tmp;
-   uvlong mask;
+   u64int mask;
 
    assert(k);
    *addr = irbinop(fn, Oadd, KPTR, *addr, mkintcon(KI32, off));
@@ -3509,7 +3509,7 @@ genbitfstore(Function *fn, const Type ty, Ref addr,
    enum irclass k = type2cls[scalartypet(ty)];
    uint off = fld->off, bitsiz = fld->bitsiz, bitoff = fld->bitoff;
    uint bittypesize = 8*typesize(ty);
-   uvlong mask;
+   u64int mask;
 
    assert(k);
    if (!tmp.bits) {
@@ -3523,7 +3523,7 @@ genbitfstore(Function *fn, const Type ty, Ref addr,
 
    /* shift and mask source value */
    if (isintcon(val)) {
-      val = mkintcon(k, ((uvlong)intconval(val) << bitoff) & mask);
+      val = mkintcon(k, ((u64int)intconval(val) << bitoff) & mask);
    } else {
       val = irbinop(fn, Oshl, k, val, mkref(RICON, bitoff));
       if (bitsiz < bittypesize)
@@ -3952,7 +3952,7 @@ loopbody(CComp *cm, Function *fn, Block *brk, Block *cont)
 #define EMITS if (doemit && !nerror)
 
 typedef struct {
-   vlong val;
+   s64int val;
    Block *blk;
    Span span;
 } SwitchCase;
@@ -3966,7 +3966,7 @@ static int
 cmpswcase(const void *aa, const void *bb)
 {
    const SwitchCase *a = aa, *b = bb;
-   vlong v1 = a->val, v2 = b->val;
+   s64int v1 = a->val, v2 = b->val;
    if (v1 != v2) return v1 < v2 ? -1 : 1;
    return (a > b) - (a < b); /* preserve original order */
 }
@@ -4017,7 +4017,7 @@ genswitch(CComp *cm, Function *fn, const Expr *ex)
     *       3. binary search
     *       4. jump tables? (harder, backend refactoring)
     */
-   vlong prev;
+   s64int prev;
    for (int i = 0; i < st.cases.n; ++i) {
       const SwitchCase *c = &st.cases.p[i];
       if (i > 0) {

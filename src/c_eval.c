@@ -31,7 +31,7 @@ numcast(Type ty, Expr *dst, const Expr *src)
 {
    enum typetag td = targ2hosttype(scalartypet(ty)),
                 ts = targ2hosttype(scalartypet(src->ty));
-   vlong isrc;
+   s64int isrc;
    Expr tmp;
    if (src == dst) tmp = *src, src = &tmp;
 
@@ -107,7 +107,7 @@ staticaddrof(Expr *ex, enum evalmode mode)
    } else if (ex->t == EGETF && (ret = staticaddrof(ex->sub, mode)).t) {
       if (ret.t == ESSYMREF) {
          ex->t = ESSYMREF;
-         vlong off = (vlong) ret.ssym.off + ex->fld.off;
+         s64int off = (s64int) ret.ssym.off + ex->fld.off;
          if ((int) off != off) return ret.t = 0, ret;
          ret.ssym.off = off;
       } else if (ret.t == ENUMLIT) {
@@ -143,7 +143,7 @@ unop(Expr *ex, enum evalmode mode)
    Expr *sub = ex->sub, ex2;
 
    if (mode >= EVSTATICINI && ex->t == EDEREF) {
-      uvlong off;
+      u64int off;
       uchar *p;
       uint len;
       uint csiz;
@@ -201,7 +201,7 @@ unop(Expr *ex, enum evalmode mode)
             } else {
                assert(ex2.t == ESSYMREF);
                ex->t = ESSYMREF;
-               vlong off = (vlong) ex2.ssym.off + ex->fld.off;
+               s64int off = (s64int) ex2.ssym.off + ex->fld.off;
                if ((int) off != off) return 0;
                ex->ssym = ex2.ssym;
                ex->ssym.off = off;
@@ -268,8 +268,8 @@ binop(Expr *ex, enum evalmode mode)
          if (a->t == ESTRLIT) {
             lit2ssym(a);
          } else assert(a->t == ESSYMREF);
-         vlong addend = b->i * typesize(typechild(a->ty)),
-               off = a->ssym.off + (uvlong) (ex->t == EADD ? addend : -addend);
+         s64int addend = b->i * typesize(typechild(a->ty)),
+               off = a->ssym.off + (u64int) (ex->t == EADD ? addend : -addend);
          ex->t = ESSYMREF;
          if ((int) off != off) return 0;
          ex->ssym = a->ssym;

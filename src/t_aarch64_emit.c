@@ -31,7 +31,7 @@ typedef struct Oper {
             short disp;
          };
       } m;
-      vlong imm; uvlong uimm; /* OIMM */
+      s64int imm; u64int uimm; /* OIMM */
       struct { /* OSYM */
          ushort con;
          int cdisp;
@@ -541,7 +541,7 @@ gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val
    if (isintcon(val)) {
       assert(dst.reg <= R(31));
       /* MOV r, #imm */
-      uvlong u = intconval(val);
+      u64int u = intconval(val);
       if (~u <= 0xFFFF) {
          /* immediate can be encoded with 1 MOVN instruction */
          Xmovn(pcode, cls, dst, mkoper(OIMM, .imm = ~u));

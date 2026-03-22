@@ -7,8 +7,8 @@
 
 void elfinit(void);
 enum section elfhassym(internstr , uint *value);
-void elfaddsym(internstr , int info, enum section, uvlong value, uvlong size);
-void elfreloc(internstr sym, enum relockind, enum section, uint off, vlong addend);
+void elfaddsym(internstr , int info, enum section, u64int value, u64int size);
+void elfreloc(internstr sym, enum relockind, enum section, uint off, s64int addend);
 void elffini(WriteBuf *);
 
 ObjFile objout;
@@ -90,7 +90,7 @@ objnewdat(internstr name, enum section sec, bool globl, uint siz, uint align)
 }
 
 void
-objreloc(internstr sym, enum relockind reloc, enum section section, uint off, vlong addend)
+objreloc(internstr sym, enum relockind reloc, enum section section, uint off, s64int addend)
 {
    switch (mctarg->objkind) {
    case OBJELF:

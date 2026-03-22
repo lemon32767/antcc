@@ -8,7 +8,7 @@ enum reg {
 #define V(n) (V0+n)
 };
 
-bool aarch64_logimm(uint *enc, enum irclass, uvlong x);
+bool aarch64_logimm(uint *enc, enum irclass, u64int x);
 void aarch64_isel(Function *);
 void aarch64_emit(Function *);
 

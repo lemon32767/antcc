@@ -32,7 +32,7 @@ typedef struct IRCon {
    union {
       internstr sym;
       int dat;
-      vlong i;
+      s64int i;
       double f;
    };
 } IRCon;
@@ -84,7 +84,7 @@ typedef struct IRAddr {
 } IRAddr;
 
 #define insrescls(ins) (oiscmp((ins).op) ? KI32 : (ins).cls)
-#define NOREF ((Ref) {0})
+#define NOREF ((Ref) {{0}})
 #define UNDREF ((Ref) {{ 0, -1 }})
 #define ZEROREF ((Ref) {{ RICON, 0 }})
 #define mkref(t, x) ((Ref) {{ (t), (x) }})
@@ -161,16 +161,16 @@ typedef struct IRUse {
 
 enum { MAXREGS = 64 };
 /** register set **/
-typedef uvlong regset;
+typedef u64int regset;
 #define BIT(x) (1ull<<(x))
 #define rsset(pS, r) (*(pS) |= 1ull << (r))
 #define rsclr(pS, r) (*(pS) &=~ (1ull << (r)))
 #define rstest(S, r) ((S) >> (r) & 1)
 static inline bool
-rsiter(int *i, uvlong rs)
+rsiter(int *i, u64int rs)
 {
    if (*i > 63) return 0;
-   uvlong mask = -(1ull << *i);
+   u64int mask = -(1ull << *i);
    if ((rs & mask) == 0) return 0;
    *i = lowestsetbit(rs & mask);
    return 1;
@@ -265,7 +265,7 @@ void irfini(Function *);
 #define cls2type(k) ((IRType){.cls=(k)})
 IRType mkirtype(Type);
 Ref newxcon(const IRCon *);
-Ref mkintcon(enum irclass, vlong);
+Ref mkintcon(enum irclass, s64int);
 Ref mkfltcon(enum irclass, double);
 #define iscon(r) in_range((r).t, RICON, RXCON)
 #define concls(r) ((r).t == RICON ? KI32 : contab.p[(r).i].cls)

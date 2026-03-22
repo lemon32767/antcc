@@ -3,9 +3,9 @@
 static int
 mulk(Instr *ins, Block *blk, int *curi)
 {
-   vlong iv = intconval(ins->r);
+   s64int iv = intconval(ins->r);
    enum irclass cls = ins->cls;
-   assert((uvlong)iv > 1 && "trivial mul not handled by irbinop() ?");
+   assert((u64int)iv > 1 && "trivial mul not handled by irbinop() ?");
    bool neg = iv < 0;
    if (neg) iv = -iv;
    /* This can be generalized to any sequence of shifts and
@@ -41,7 +41,7 @@ divmodk(Instr *ins, Block *blk, int *curi)
 {
    enum op op = ins->op;
    enum irclass cls = ins->cls;
-   vlong iv = intconval(ins->r);
+   s64int iv = intconval(ins->r);
    uint nbit = 8 * cls2siz[cls];
    bool neg = (op == Odiv || op == Orem) && iv < 0;
    if (ispo2(iv) || (neg && ispo2(-iv))) { /* simple po2 cases */
@@ -122,7 +122,7 @@ doins(Instr *ins, Block *blk, int *curi)
          Instr *lhs = &instrtab[ins->l.i];
          enum op o = lhs->op;
          if (ins->cls == lhs->cls && (o == Oadd || o == Osub || o == Oxor) && isintcon(lhs->r)) {
-            uvlong c = intconval(ins->r), q = intconval(lhs->r);
+            u64int c = intconval(ins->r), q = intconval(lhs->r);
             switch (o) { default: assert(0);
             case Oadd: c -= q; break; /* x + 3 == C ==> x == C - 3 */
             case Osub: c += q; break; /* x - 3 == C ==> x == C + 3 */

@@ -194,9 +194,9 @@ selcall(Function *fn, Instr *ins, Block *blk, int *curi)
 }
 
 static bool
-aimm(IRAddr *addr, vlong disp)
+aimm(IRAddr *addr, s64int disp)
 {
-   vlong a = addr->disp;
+   s64int a = addr->disp;
    a += disp;
    if ((int)a == a) {
       addr->disp = a;
@@ -222,7 +222,7 @@ ascale(IRAddr *addr, Ref a, Ref b)
       /* XXX maybe we shouldn't do this here because it should be done by a generic
        * arithemetic optimization pass ? */
       if (ins->op == Oadd && (ins->l.t == RREG || ins->l.t == RTMP) && isintcon(ins->r)) {
-         vlong a = ((vlong) addr->disp + intconval(ins->r)) * (1 << b.i);
+         s64int a = ((s64int) addr->disp + intconval(ins->r)) * (1 << b.i);
          if (a != (int) a) return 0;
          addr->disp = a;
          addr->index = ins->l;
@@ -253,7 +253,7 @@ aadd(IRAddr *out, Block *blk, int *curi, Ref r, bool recurring)
          Add2:;
             int n1 = !!out->base.bits + !!out->index.bits;
             int n2 = !!adr.base.bits + !!adr.index.bits;
-            vlong off = (vlong) out->disp + adr.disp;
+            s64int off = (s64int) out->disp + adr.disp;
             if (n1+n2 > 2 || (int)off != off) goto Ref;
             if (n1 == 0) {
                *out = adr;
@@ -453,7 +453,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
          goto ALU;
       } else if (kisint(ins->cls) && isintcon(ins->r)) {
          ins->op = op = Oadd;
-         ins->r = mkintcon(concls(ins->r), -(uvlong)intconval(ins->r));
+         ins->r = mkintcon(concls(ins->r), -(u64int)intconval(ins->r));
       } else {
          goto ALU;
       }
@@ -476,7 +476,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
    case Oneg:
       if (kisflt(ins->cls)) {
          /* flip sign bit with XORPS/D */
-         static const uvlong sd[2] = {0x8000000000000000,0x8000000000000000};
+         static const u64int sd[2] = {0x8000000000000000,0x8000000000000000};
          static const uint sf[4] = {0x80000000,80000000,0x80000000,80000000};
          ins->op = Oxor;
          ins->r = mkdatref(NULL, mktype(ins->cls == KF32 ? TYFLOAT : TYDOUBLE), /*siz*/16,

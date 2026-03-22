@@ -49,7 +49,7 @@ ref2oper(Ref r)
       if (contab.p[r.i].cls == KI32)
          return mkoper(OIMM, .imm = contab.p[r.i].i);
       else if (contab.p[r.i].cls == KI64) {
-         vlong i = contab.p[r.i].i;
+         s64int i = contab.p[r.i].i;
          assert(i == (int)i);
          return mkoper(OIMM, .imm = i);
       } else if (!contab.p[r.i].cls) {

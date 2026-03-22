@@ -12,8 +12,8 @@
 typedef unsigned char uchar;
 typedef   signed char schar;
 typedef unsigned short ushort;
-typedef unsigned long long uvlong;
-typedef   signed long long vlong;
+typedef unsigned long long u64int;
+typedef   signed long long s64int;
 typedef unsigned uint;
 
 #if __STDC_VERSION__ >= 202311L
@@ -46,7 +46,7 @@ void _assertfmt(const char *file, int line, const char *func, const char *expr);
 #define popcnt(x) __builtin_popcountll(x)
 #else
 static inline uint
-popcnt(uvlong x) {
+popcnt(u64int x) {
    uint n = 0;
    while (x) n += x&1, x >>= 1;
    return n;
@@ -54,7 +54,7 @@ popcnt(uvlong x) {
 #endif
 
 static inline bool
-ispo2(uvlong x) {
+ispo2(u64int x) {
    return (x != 0) & ((x & (x - 1)) == 0);
 }
 
@@ -62,7 +62,7 @@ ispo2(uvlong x) {
 #define ilog2(x) __builtin_ctzll(x)
 #else
 static inline uint
-ilog2(uvlong x) { /* assumes x is a power of 2 */
+ilog2(u64int x) { /* assumes x is a power of 2 */
    uint n = 0;
    while (x >>= 1) ++n;
    return n;
@@ -73,10 +73,10 @@ ilog2(uvlong x) { /* assumes x is a power of 2 */
 #define lowestsetbit(x) __builtin_ctzll(x)
 #else
 static inline uint
-lowestsetbit(uvlong x)
+lowestsetbit(u64int x)
 {
    int i = 0;
-   for (uvlong mask = 1;; ++i, mask <<= 1)
+   for (u64int mask = 1;; ++i, mask <<= 1)
       if (x & mask)
          break;
    return i;

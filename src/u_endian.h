@@ -29,9 +29,9 @@ bswap32(uint x) {
 #if HAS_BUILTIN(bswap64)
 #define bswap64 __builtin_bswap64
 #else
-static inline uvlong
-bswap64(uvlong x) {
-   return (uvlong) bswap32(x) << 32 | bswap32(x >> 32);
+static inline u64int
+bswap64(u64int x) {
+   return (u64int) bswap32(x) << 32 | bswap32(x >> 32);
 }
 #endif
 
@@ -68,7 +68,7 @@ wr32le(uchar *p, uint x)
 }
 
 static inline void
-wr64le(uchar *p, uvlong x)
+wr64le(uchar *p, u64int x)
 {
 #ifndef HOST_LIL_ENDIAN
    x = bswap64(x);
@@ -97,7 +97,7 @@ wr32be(uchar *p, uint x)
 }
 
 static inline void
-wr64be(uchar *p, uvlong x)
+wr64be(uchar *p, u64int x)
 {
 #ifndef HOST_BIG_ENDIAN
    x = bswap64(x);
@@ -125,10 +125,10 @@ rd32targ(uchar *p)
    return x;
 }
 
-static inline uvlong
+static inline u64int
 rd64targ(uchar *p)
 {
-   uvlong x;
+   u64int x;
    memcpy(&x, p, sizeof x);
    if (!hostntarg_sameendian()) x = bswap64(x);
    return x;
@@ -144,7 +144,7 @@ rdf32targ(uchar *p)
 static inline double
 rdf64targ(uchar *p)
 {
-   union { uvlong i; double f; } u = { rd64targ(p) };
+   union { u64int i; double f; } u = { rd64targ(p) };
    return u.f;
 }
 
@@ -163,7 +163,7 @@ wr32targ(uchar *p, uint x)
 }
 
 static inline void
-wr64targ(uchar *p, uvlong x)
+wr64targ(uchar *p, u64int x)
 {
    if (!hostntarg_sameendian()) x = bswap64(x);
    memcpy(p, &x, sizeof x);
@@ -179,7 +179,7 @@ wrf32targ(uchar *p, float x)
 static inline void
 wrf64targ(uchar *p, double x)
 {
-   union { double f; uvlong i; } u = { x };
+   union { double f; u64int i; } u = { x };
    wr64targ(p, u.i);
 }
 

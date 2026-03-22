@@ -8,10 +8,10 @@ __attribute__((no_sanitize("float-cast-overflow"))) /* silence UBsan for float->
 static Ref
 foldint(enum op op, enum irclass k, Ref lr, Ref rr)
 {
-   vlong x;
+   s64int x;
    union {
-      vlong s;
-      uvlong u;
+      s64int s;
+      u64int u;
    } l = {.s = intconval(lr)}, r = {.s = intconval(rr)};
    bool w = cls2siz[k] == 8;
    if (in_range(op, Odiv, Ourem)) assert(r.u != 0);
@@ -24,10 +24,10 @@ foldint(enum op op, enum irclass k, Ref lr, Ref rr)
    if (f != f) x = 0;       \
    else x = (TI)f;          \
 } while (0)
-   case Ocvtf32s: if (w) CVTF2I(float,   vlong); else CVTF2I(float,  int);  break;
-   case Ocvtf32u: if (w) CVTF2I(float,  uvlong); else CVTF2I(float,  uint); break;
-   case Ocvtf64s: if (w) CVTF2I(double,  vlong);  else CVTF2I(double, int);  break;
-   case Ocvtf64u: if (w) CVTF2I(double, uvlong); else CVTF2I(double, uint); break;
+   case Ocvtf32s: if (w) CVTF2I(float,  s64int); else CVTF2I(float,  int);  break;
+   case Ocvtf32u: if (w) CVTF2I(float,  u64int); else CVTF2I(float,  uint); break;
+   case Ocvtf64s: if (w) CVTF2I(double, s64int); else CVTF2I(double, int);  break;
+   case Ocvtf64u: if (w) CVTF2I(double, u64int); else CVTF2I(double, uint); break;
 #undef CVTF2I
    case Oexts8:  x = (schar)l.s; break;
    case Oextu8:  x = (uchar)l.s; break;
@@ -84,8 +84,8 @@ foldflt(enum op op, enum irclass k, Ref lr, Ref rr)
    case Ocvtf64f32: x = (float)l; break;
    case Ocvts32f:   x = (int)intconval(lr); break;
    case Ocvtu32f:   x = (int)intconval(lr); break;
-   case Ocvts64f:   x = (vlong)intconval(lr); break;
-   case Ocvtu64f:   x = (uvlong)intconval(lr); break;
+   case Ocvts64f:   x = (s64int)intconval(lr); break;
+   case Ocvtu64f:   x = (u64int)intconval(lr); break;
    case Oadd: x = l + r; break;
    case Osub: x = l - r; break;
    case Omul: x = l * r; break;

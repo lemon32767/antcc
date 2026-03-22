@@ -70,7 +70,7 @@ static_assert(sizeof(Type) == 4);
 
 typedef struct {
    internstr name;
-   union { vlong i; uvlong u; };
+   union { s64int i; u64int u; };
 } EnumVar;
 
 typedef struct {
