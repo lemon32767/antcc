@@ -75,5 +75,6 @@ _(phi,       1)
 _(swap,      2)
 _(vastart,   1)
 _(vaarg,     2)
-/* machine-specific instructions */
+/* machine-specific/internal instructions */
 _(xvaprologue, 1)
+_(msub,    3)

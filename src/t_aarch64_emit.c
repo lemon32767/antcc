@@ -227,6 +227,9 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper o[3])
    case EN_ADDSUBSHFT3R: case EN_LOGSHFT3R:
       ins |= sf<<31 | o[2].shft<<22 | o[2].reg<<16 | o[2].shamt<<10 | o[1].reg<<5 | o[0].reg;
       break;
+   case EN_ARITH2R:
+      ins |= sf<<31 | o[1].reg<<5 | o[0].reg;
+      break;
    case EN_ARITH3R:
       ins |= sf<<31 | o[2].reg<<16 | o[1].reg<<5 | o[0].reg;
       break;
@@ -350,6 +353,15 @@ Xmadd(uchar **pcode, enum irclass k, Oper d, Oper n, Oper m, Oper a)
        && opermatch(PGPRZ, k, a) && opermatch(PGPRZ, k, m));
    uint sf = k > KI32;
    W32(0x1B000000 | sf<<31 | m.reg<<16 | a.reg<<10 | n.reg<<5 | d.reg);
+}
+
+static void
+Xmsub(uchar **pcode, enum irclass k, Oper d, Oper n, Oper m, Oper a)
+{
+   assert(opermatch(PGPRZ, k, d) && opermatch(PGPRZ, k, n)
+       && opermatch(PGPRZ, k, a) && opermatch(PGPRZ, k, m));
+   uint sf = k > KI32;
+   W32(0x1B008000 | sf<<31 | m.reg<<16 | a.reg<<10 | n.reg<<5 | d.reg);
 }
 
 DEFINSTR3(Xsdiv, {4|8, {PGPRZ, PGPRZ, PGPRZ}, 0x1AC00C00, EN_ARITH3R})
@@ -514,6 +526,10 @@ DEFINSTR3(Xfdiv, {4|8, {PFPR, PFPR, PFPR}, 0x1E201800, EN_FP3R})
 DEFINSTR2(Xfcmp,
    {4|8, {PFPR, PZERO}, 0x1E602008, EN_FPCMPZ},
    {4|8, {PFPR,  PFPR}, 0x1E602000, EN_FPCMP},
+)
+DEFINSTR2(Xrev,
+   {4  , {PGPRZ, PGPRZ}, 0x5AC00800, EN_ARITH2R},
+   {  8, {PGPRZ, PGPRZ}, 0xDAC00C00, EN_ARITH2R},
 )
 
 static void
@@ -744,11 +760,17 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins)
    Cvt:
       X2(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l));
       break;
+   case Obswap32: case Obswap64:
+      Xrev(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l));
+      break;
    case Oadd: X3 = kisint(cls) ? Xadd : Xfadd; goto ALU3;
    case Osub: X3 = kisint(cls) ? Xsub : Xfsub; goto ALU3;
    case Omul: if (kisflt(cls)) { X3 = Xfmul; goto ALU3; }
       /* MUL Rd,Rn,Rm ==> MADD Rd,Rn,Rm,zr */
       Xmadd(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r), REGZR);
+      break;
+   case Omsub:
+      Xmsub(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r), ref2oper(ins->oper[2]));
       break;
    case Odiv: X3 = kisint(cls) ? Xsdiv : Xfdiv; goto ALU3;
    case Oudiv: X3 = Xudiv; goto ALU3;

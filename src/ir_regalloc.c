@@ -725,9 +725,9 @@ buildintervals(RegAlloc *ra)
             queue[0] = ins->r;
          } else {
             switch ((nqueue = opnarg[ins->op])) {
-            case 2: queue[2] = ins->oper[2];
-            case 1: queue[1] = ins->oper[1];
-            case 0: queue[0] = ins->oper[0];
+            case 3: queue[2] = ins->oper[2];
+            case 2: queue[1] = ins->oper[1];
+            case 1: queue[0] = ins->oper[0];
             }
          }
          if (0) {
@@ -1148,15 +1148,15 @@ devirt(RegAlloc *ra, Block *blk)
       Interval *it;
       Alloc *alloc;
       IRAddr newaddr;
-      Ref *argref[4];
+      Ref *argref[6];
       int curi0;
       int naddr = 0;
       int nargref = 0;
       int nspill = 0;
 
       /** devirtualize operands **/
-      for (int i = 0; i < 2; ++i) {
-         Ref *r = &i[&ins->l];
+      for (int i = 0; i < 3; ++i) {
+         Ref *r = &ins->oper[i];
          if (r->t == RADDR) {
             IRAddr *a = &addrtab.p[r->i];
             ++naddr;

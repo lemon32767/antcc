@@ -26,7 +26,7 @@ run() {
             echo '-------'
         else
             actual=build/"$(echo "$f" | sed 's/\.c$/.actual/')"
-            x "$exe" $args > "$actual"
+            x $QEMU "$exe" $args > "$actual"
             if ! cmp "$actual"  "$expected" > /dev/null; then
                 echo --- !TEST ERROR "$f"
                 diff --unified=0 "$expected" "$actual"

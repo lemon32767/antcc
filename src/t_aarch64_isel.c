@@ -137,7 +137,15 @@ fixarg(Ref *r, Instr *ins, Block *blk, int *curi)
       else
          *r = insertinstr(blk, (*curi)++, adr);
    } else if (r->t != RTMP) Reg: {
-      regarg(r, r->t == RTMP ? instrtab[r->i].cls : ins->cls ? ins->cls : KI32, blk, curi);
+      enum irclass k;
+      if (r->t == RTMP) k = insrescls(instrtab[r->i]);
+      else if (ins->op == Oarg) {
+         IRType ty = ref2type(ins->l);
+         k = ty.isagg ? KPTR : ty.cls;
+      } else {
+         k = ins->cls;
+      }
+      regarg(r, k, blk, curi);
    }
 }
 
@@ -351,8 +359,9 @@ loadstoreaddr(Block *blk, Ref *r, int *curi, enum op op)
 static void
 sel(Function *fn, Instr *ins, Block *blk, int *curi)
 {
-   enum op op = ins->op;
+   Ref tmp;
    enum irclass cls;
+   enum op op = ins->op;
 
    if (oisarith(ins->op) && arithfold(ins)) {
       fixarg(&ins->l, ins, blk, curi);
@@ -390,6 +399,18 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
       regarg(&ins->l, ins->cls, blk, curi);
       ins->op = Ocopy;
       break;
+   case Obswap32: case Obswap64:
+      regarg(&ins->l, ins->cls, blk, curi);
+      break;
+   case Obswap16:
+      /* %tmp = rev %x
+       * %res = lsr %tmp, 16 */
+      regarg(&ins->l, ins->cls, blk, curi);
+      tmp = insertinstr(blk, (*curi)++, mkinstr1(Obswap32, KI32, ins->l));
+      ins->op = Oslr;
+      ins->l = tmp;
+      ins->r = mkref(RICON, 16);
+      break;
    case Oadd:
       if (isnumcon(ins->l)) {
          /* swap to have const in rhs */
@@ -409,7 +430,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
    case Oand: case Oior: case Oxor:
       if (isnumcon(ins->l)) {
          /* swap to have const in rhs */
-         Ref tmp = ins->l;
+         tmp = ins->l;
          ins->l = ins->r;
          ins->r = tmp;
       }
@@ -421,9 +442,20 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
       regarg(&ins->l, ins->cls, blk, curi);
       fixarg(&ins->r, ins, blk, curi);
       break;
-   case Omul: case Odiv: case Oudiv: case Ourem:
+   case Omul: case Odiv: case Oudiv:
       regarg(&ins->l, ins->cls, blk, curi);
       regarg(&ins->r, ins->cls, blk, curi);
+      break;
+   case Orem: case Ourem:
+      regarg(&ins->l, ins->cls, blk, curi);
+      regarg(&ins->r, ins->cls, blk, curi);
+      /* %tmp = div %l, %r
+       * %res = msub %tmp, %r, %l */
+      tmp = insertinstr(blk, (*curi)++,
+            mkinstr2(op == Orem ? Odiv : Oudiv, ins->cls, ins->l, ins->r));
+      ins->op = Omsub;
+      ins->oper[2] = ins->l;
+      ins->oper[0] = tmp;
       break;
    case Oarg:
       fixarg(&ins->r, ins, blk, curi);
