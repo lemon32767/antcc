@@ -257,6 +257,12 @@ mem2reg(Function *fn)
          do {
             if (use->u == USERJUMP) goto Skip;
             Instr *m = &instrtab[use->u];
+            if (use->blk->id < sb.lastvisit) {
+               /* alloca appears after some of its uses; happens rarely, only
+                * generated with code with gotos into loops. breaks this algo
+                * due to reprocessing sealed blocks */
+               goto Skip;
+            }
             if (oisload(m->op) && (!sz || sz == loadsz(m->op))) {
                sz = loadsz(m->op);
                k = loadcls(m->op);
