@@ -241,7 +241,10 @@ mem2reg(Function *fn)
    sortrpo(fn);
 
    Block *blk = fn->entry;
+   bool again = 0, neveragain = 0;
+Again:
    do {
+      if (!neveragain || blk == fn->entry)
       for (int i = 0; i < blk->ins.n; ++i) {
          enum irclass k = 0;
          int sz = 0;
@@ -257,10 +260,16 @@ mem2reg(Function *fn)
          do {
             if (use->u == USERJUMP) goto Skip;
             Instr *m = &instrtab[use->u];
-            if (use->blk->id < sb.lastvisit) {
-               /* alloca appears after some of its uses; happens rarely, only
+            if (use->blk->id < blk->id) {
+               assert(!neveragain);
+               /* alloca appears after some of its uses; happens rarely, like
                 * generated with code with gotos into loops. breaks this algo
                 * due to reprocessing sealed blocks */
+               /* move to entry block and reprocess later */
+               vpush(&fn->entry->ins, var);
+               extern int allocinstr(void);
+               instrtab[blk->ins.p[i] = allocinstr()] = (Instr){Onop};
+               again = 1;
                goto Skip;
             }
             if (oisload(m->op) && (!sz || sz == loadsz(m->op))) {
@@ -305,6 +314,13 @@ mem2reg(Function *fn)
       ++sb.lastvisit;
       tryseal(&sb, blk);
    } while ((blk = blk->lnext) != fn->entry);
+   if (again) {
+      memset(sb.sealed, 0, BSSIZE(fn->nblk) * sizeof *sb.sealed);
+      neveragain = 1;
+      sb.lastvisit = 0;
+      again = 0;
+      goto Again;
+   }
 
    do {
       /* remove phis marked for deletion */
