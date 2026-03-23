@@ -1,7 +1,7 @@
-/* 0.2.2 */
+/* 0.2.3 */
 #define ANTCC_VERSION_MAJOR 0
 #define ANTCC_VERSION_MINOR 2
-#define ANTCC_VERSION_PATCH 2
+#define ANTCC_VERSION_PATCH 3
 
 #define XSTR_(...) #__VA_ARGS__
 #define XSTR(...) XSTR_(__VA_ARGS__)
