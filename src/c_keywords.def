@@ -1,7 +1,7 @@
 /* !SORTED */
 /* token            cstd    (alias) */
-_(_Alignas,         STDC11, )
-_(_Alignof,         STDC11, )
+_(_Alignas,         STDC11, "__alignas__", "__alignas")
+_(_Alignof,         STDC11, "__alignof__", "__alignof")
 _(_Atomic,          STDC11, )
 _(_BitInt,          STDC23, )
 _(_Bool,            STDC99, )
