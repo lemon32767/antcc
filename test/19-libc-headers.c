@@ -34,9 +34,10 @@
 #ifndef __STDC_NO_ATOMICS__
 #include <stdatomic.h>
 #endif
+#ifndef __STDC_NO_THREADS__
 #include <threads.h>
+#endif
 #include <stdnoreturn.h>
-#include <stdbit.h>
 
 /* C23 */
 // #include <stdbit.h>
