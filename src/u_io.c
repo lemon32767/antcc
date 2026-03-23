@@ -857,10 +857,6 @@ openfile(const char **err, MemFile **pf, const char *path)
    size_t h, id, n = countof(fileht);
 
    if (*path == '@' && path[1] == ':') {
-      /* fast path to rule out filenames we know for sure aren't builtin */
-      /* !KEEP SYNC with embedfilesdir */
-      if (path[2] != 's' /* std*.h */
-       && path[2] != 'f' /* float.h */) return -1;
       uid.dev = -1;
       uid.str = path;
       h = hashs(0, path+2);

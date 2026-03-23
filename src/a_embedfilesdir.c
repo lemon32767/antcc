@@ -85,6 +85,20 @@ typedef __builtin_va_list __gnuc_va_list;\n\
 #define LDBL_TRUE_MIN    4.94066e-324\n\
 ")},
 
+{"iso646.h", S("\
+#define and     &&\
+#define and_eq  &=\
+#define bitand  &\
+#define bitor   |\
+#define compl   ~\
+#define not     !\
+#define not_eq  !=\
+#define or      ||\
+#define or_eq   |=\
+#define xor     ^\
+#define xor_eq  ^=\
+")},
+
 {"stdnoreturn.h", S("\
 #define noreturn _Noreturn\n\
 ")},
