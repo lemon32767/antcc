@@ -1,11 +1,12 @@
 /* EXPECT:
-1 2 3 4 5 6 (nil) 9 abcdef
+1 2 3 4 5 6 0x0 9 abcdef
 : 10, 20
 1.000000 2.000000 3.000000 {4.000000,5.000000} -0.000000(80000000h) 99.000000
 : -1.000000
 */
 
 #include <stdio.h>
+#include <inttypes.h>
 
 struct l { short s[10]; };
 struct x { long p; };
@@ -13,8 +14,9 @@ struct ll { long a, b; };
 
 struct ll f(int a, int b, struct l c, int d, int e, int f, void *g, struct x x, char *s) {
    printf("%d %d %d %d ", a, b, c.s[0], d);
-   printf("%d %d %p %ld %s\n", e, f, g, x.p, s);
-   return (struct ll){10,20};
+   printf("%d %d 0x%"PRIxPTR" %ld %s\n", e, f, (intptr_t)g, x.p, s);
+   return (struct ll){10,20
+   };
 }
 
 struct f2 { float f[2]; };

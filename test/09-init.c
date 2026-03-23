@@ -7,8 +7,8 @@ U.x = 1
 str[] -> "abcdef"
 strs -> "axcxdxbx"
 desgn1[] -> {0.000000,0.000000}, {1.000000,3.000000}, {-0.500000,0.000000}
-desgn2 -> {(nil),{0,1.000000},(null)}
-desgn3 -> {(nil),{{{-1},0.000000},{{0},0.000000},{{6},1.000000}},"k"}
+desgn2 -> {0x0,{0,1.000000},(null)}
+desgn3 -> {0x0,{{{-1},0.000000},{{0},0.000000},{{6},1.000000}},"k"}
 fi -> {1.500000 | 1069547520}
 arrdsgn[] -> {0,5,0,0,1}
 s -> "abc"
@@ -61,6 +61,8 @@ void *rec[1] = {rec+1};
 
 int static_eval = sizeof(char[ 1 ? 1 : 0/0]);
 
+#include <inttypes.h>
+
 int printf(char *, ...);
 int main() {
    printf("gexplicit[4] -> %d,%d,%d,%d\n", gexplicit[0], gexplicit[1], gexplicit[2], gexplicit[3]);
@@ -71,8 +73,8 @@ int main() {
    printf("str[] -> \"%s\"\n", str);
    printf("strs -> \"%.*s\"\n", (int)sizeof strs, strs);
    printf("desgn1[] -> {%f,%f}, {%f,%f}, {%f,%f}\n", desgn1[0].x, desgn1[0].y, desgn1[1].x, desgn1[1].y, desgn1[2].x, desgn1[2].y);
-   printf("desgn2 -> {%p,{%d,%f},%s}\n", desgn2.j, desgn2.y, desgn2.z, desgn2.g);
-   printf("desgn3 -> {%p,{{{%d},%f},{{%d},%f},{{%d},%f}},\"%s\"}\n", desgn3.j,
+   printf("desgn2 -> {0x%"PRIxPTR",{%d,%f},%s}\n", desgn2.j, desgn2.y, desgn2.z, desgn2.g);
+   printf("desgn3 -> {0x%"PRIxPTR",{{{%d},%f},{{%d},%f},{{%d},%f}},\"%s\"}\n", desgn3.j,
          desgn3.a[0].y, desgn3.a[0].z, desgn3.a[1].y, desgn3.a[1].z,
          desgn3.a[2].y, desgn3.a[2].z, desgn3.g);
    printf("fi -> {%f | %d}\n", fi.f, fi.i);
