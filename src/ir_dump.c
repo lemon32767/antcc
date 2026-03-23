@@ -210,7 +210,7 @@ dumpinst(const Instr *ins)
       if (oiscmp(ins->op))
          bfmt(out, "%s ", clsname[ins->cls]);
    }
-   for (i = 0; i < opnarg[ins->op]; ++i) {
+   for (i = 0; i < opnoper[ins->op]; ++i) {
       if (i) bfmt(out, ", ");
       if (i == 1 && (ins->op == Ocall || ins->op == Ointrin)) {
          dumpcall(&calltab.p[ins->r.i]);

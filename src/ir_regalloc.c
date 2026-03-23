@@ -85,13 +85,13 @@ liveuse(BitSet *defined, Instr *ins, Ref *r, Block *blk)
 static void
 fixlive(Function *fn)
 {
-   extern int ninstr;
+   extern int ninstrtab;
    Block *blk = fn->entry;
    BitSet definedbuf[4] = {0};
    BitSet *defined = definedbuf;
 
-   if (BSSIZE(ninstr) >= countof(definedbuf))
-      defined = xcalloc(sizeof *defined * BSSIZE(ninstr));
+   if (BSSIZE(ninstrtab) >= countof(definedbuf))
+      defined = xcalloc(sizeof *defined * BSSIZE(ninstrtab));
    npendingphi = 0;
 
    do {
@@ -597,10 +597,10 @@ defreg(RegAlloc *ra, int reg, int pos) {
 static void
 buildintervals(RegAlloc *ra)
 {
-   extern int ninstr;
+   extern int ninstrtab;
    Block *blk, *last;
    BitSet **livein = alloc(ra->arena, ra->fn->nblk * sizeof *livein, 0);
-   size_t bssize = BSSIZE(ninstr);
+   size_t bssize = BSSIZE(ninstrtab);
    struct Loop {
       struct Loop *next;
       Block *hdr, *end;
@@ -608,8 +608,8 @@ buildintervals(RegAlloc *ra)
    } *loops = NULL;
    for (int i = 0; i < ra->fn->nblk; ++i)
       livein[i] = allocz(ra->arena, bssize * sizeof *livein[i], 0);
-   ra->intertab = allocz(ra->arena, ninstr * sizeof *ra->intertab, 0);
-   ra->ninter = ninstr;
+   ra->intertab = allocz(ra->arena, ninstrtab * sizeof *ra->intertab, 0);
+   ra->ninter = ninstrtab;
 
    uint n = numberinstrs(ra->fn);
    assert((ushort)n == n && "too many instrs for Range");
@@ -724,7 +724,7 @@ buildintervals(RegAlloc *ra)
             nqueue = 1;
             queue[0] = ins->r;
          } else {
-            switch ((nqueue = opnarg[ins->op])) {
+            switch ((nqueue = opnoper[ins->op])) {
             case 3: queue[2] = ins->oper[2];
             case 2: queue[1] = ins->oper[1];
             case 1: queue[0] = ins->oper[0];
@@ -801,7 +801,7 @@ buildintervals(RegAlloc *ra)
    } while ((blk = blk->lprev) != last);
 
    if (ccopt.dbg.r) {
-      for (int var = 0; var < ninstr; ++var) {
+      for (int var = 0; var < ninstrtab; ++var) {
          Interval *it = &ra->intertab[var];
          if (!it->nrange) continue;
          DBG("lifetime of %%%d: ", var);
@@ -982,7 +982,7 @@ linearscan(RegAlloc *ra)
          }
       }
       /* for 2-address instrs, exclude reg from 2nd arg (unless arg#1 == arg#2) */
-      if (ins->inplace && opnarg[ins->op] == 2) {
+      if (ins->inplace && opnoper[ins->op] == 2) {
          int xreg;
          if (ins->r.t == RREG) rsset(&excl, ins->r.i);
          else if (ins->r.t == RTMP && (xreg = instrtab[ins->r.i].reg)) {
@@ -1046,7 +1046,7 @@ linearscan(RegAlloc *ra)
          goto GotReg;
       } else {
          /* for two-address instructions, try to use the reg of left arg */
-         if (ins->op != Ophi && (opnarg[ins->op] == 1 || (opnarg[ins->op] == 2 && ins->inplace))) {
+         if (ins->op != Ophi && (opnoper[ins->op] == 1 || (opnoper[ins->op] == 2 && ins->inplace))) {
             DBG(" %%%d try %d,%d\n", this, ins->l.t,ins->l.i);
             if (ins->l.t == RREG && rstest(avail, reg = ins->l.i))
                goto GotReg;
@@ -1155,7 +1155,7 @@ devirt(RegAlloc *ra, Block *blk)
       int nspill = 0;
 
       /** devirtualize operands **/
-      for (int i = 0; i < opnarg[ins->op]; ++i) {
+      for (int i = 0; i < opnoper[ins->op]; ++i) {
          Ref *r = &ins->oper[i];
          if (r->t == RADDR) {
             IRAddr *a = &addrtab.p[r->i];

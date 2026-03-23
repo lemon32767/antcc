@@ -12,7 +12,7 @@ insequ(const Instr *a, const Instr *b)
 {
    if (a->op != b->op) return 0;
    enum op op = a->op;
-   switch (opnarg[op]) {
+   switch (opnoper[op]) {
    default: assert(0);
    case 2: if (a->r.bits != b->r.bits) return 0;
    case 1: if (a->l.bits != b->l.bits) return 0;
@@ -68,8 +68,8 @@ void
 cselim(Function *fn)
 {
    FREQUIRE(FNUSE | FNRPO | FNDOM | FNBLKID);
-   extern int ninstr;
-   for (ninsht = 32; ninsht <= ninstr; ninsht *= 2) ;
+   extern int ninstrtab;
+   for (ninsht = 32; ninsht <= ninstrtab; ninsht *= 2) ;
    insht = allocz(fn->passarena, ninsht * sizeof *insht, 0);
    int memno = 0, cutoff = 0;
    Block *blk = fn->entry;

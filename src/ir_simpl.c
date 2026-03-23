@@ -84,7 +84,7 @@ divmodk(Instr *ins, Block *blk, int *curi)
 static int
 doins(Instr *ins, Block *blk, int *curi)
 {
-   int narg = opnarg[ins->op];
+   int narg = opnoper[ins->op];
    if (oisarith(ins->op)) {
       Ref r = narg == 1 ? irunop(NULL, ins->op, ins->cls, ins->l)
                               : irbinop(NULL, ins->op, ins->cls, ins->l, ins->r);

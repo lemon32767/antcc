@@ -106,7 +106,7 @@ enum op {
 #define oisstore(o) in_range(o, Ostorei8, Ostoref64)
 #define oisload(o) in_range(o, Oloads8, Oloadf64)
 extern const char *opnames[];
-extern const uchar opnarg[];
+extern const uchar opnoper[];
 
 enum intrin {
    INxxx,

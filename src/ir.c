@@ -20,7 +20,7 @@ const char *opnames[] = {
 #undef _
 };
 
-const uchar opnarg[] = {
+const uchar opnoper[] = {
    0,
 #define _(o,n) n,
 #include "ir_op.def"
@@ -29,7 +29,7 @@ const uchar opnarg[] = {
 
 Instr instrtab[MAXINSTR];
 IRUse *instruse[MAXINSTR];
-int ninstr;
+int ninstrtab, nfreeinstr;
 static int instrfreelist;
 static IRUse *usefreelist;
 static Arena **usearena;
@@ -53,7 +53,8 @@ irinit(Function *fn)
 
    assert(fn->arena && !fn->passarena);
 
-   ninstr = 0;
+   ninstrtab = 0;
+   nfreeinstr = 0;
    instrfreelist = -1;
    usefreelist = NULL;
    usearena = fn->arena;
@@ -376,14 +377,25 @@ allocinstr(void)
    int t;
    if (instrfreelist != -1) {
       t = instrfreelist;
-      memcpy(&instrfreelist, &instrtab[t], sizeof(int));
+      instrfreelist = instrtab[t].l.i;
+      instrtab[t].l = mkref(RXXX, 0);
+      --nfreeinstr;
       if (instruse[t]) deluses(t);
    } else {
-      assert(ninstr < countof(instrtab));
-      t = ninstr++;
+      assert(ninstrtab < countof(instrtab));
+      t = ninstrtab++;
       instruse[t] = NULL;
    }
    return t;
+}
+
+static inline void
+freeinstr(int t)
+{
+   instrtab[t].op = Oxxx;
+   instrtab[t].l = mkref(RXXX, instrfreelist);
+   instrfreelist = t;
+   ++nfreeinstr;
 }
 
 void
@@ -426,7 +438,7 @@ filluses(Function *fn)
 {
    Block *blk = fn->entry;
 
-   for (int i = 0; i < ninstr; ++i)
+   for (int i = 0; i < ninstrtab; ++i)
       deluses(i);
 
    do {
@@ -535,6 +547,8 @@ replcuses(Ref from, Ref to)
       if (use->u == USERJUMP) {
          u = &use->blk->jmp.arg[0];
          n = 2;
+      } else if (!instrtab[use->u].op) { /* dead */
+         continue;
       } else if (instrtab[use->u].op == Ophi) {
          u = phitab.p[instrtab[use->u].l.i];
          n = use->blk->npred;
@@ -576,8 +590,7 @@ delinstr(Block *blk, int idx)
    for (int i = 0; i < 2; ++i) {
       deluse(blk, t, (&instrtab[t].l)[i]);
    }
-   memcpy(&instrtab[t], &instrfreelist, sizeof(int));
-   instrfreelist = t;
+   freeinstr(t);
    deluses(t);
    for (int i = idx; i < blk->ins.n - 1; ++i)
       blk->ins.p[i] = blk->ins.p[i + 1];
@@ -589,8 +602,7 @@ delphi(Block *blk, int idx)
 {
    int t = blk->phi.p[idx];
    assert(idx >= 0 && idx < blk->phi.n);
-   memcpy(&instrtab[t], &instrfreelist, sizeof(int));
-   instrfreelist = t;
+   freeinstr(t);
    deluses(t);
    for (int i = idx; i < blk->phi.n - 1; ++i)
       blk->phi.p[i] = blk->phi.p[i + 1];
@@ -605,15 +617,13 @@ delnops(Block *blk)
    while (blk->ins.n > 0 && instrtab[t = blk->ins.p[blk->ins.n - 1]].op == Onop) {
       --blk->ins.n;
       deluses(t);
-      memcpy(&instrtab[t], &instrfreelist, sizeof(int));
-      instrfreelist = t;
+      freeinstr(t);
    }
    /* delete rest of nops */
    for (i = blk->ins.n - 2, n = 0; i >= 0; --i) {
       if (instrtab[t = blk->ins.p[i]].op == Onop) {
          deluses(t);
-         memcpy(&instrtab[t], &instrfreelist, sizeof(int));
-         instrfreelist = t;
+         freeinstr(t);
          ++n;
       } else if (n) {
          memmove(blk->ins.p+i+1, blk->ins.p+i+1+n, (blk->ins.n - n - i - 1)*sizeof *blk->ins.p);
@@ -669,6 +679,7 @@ irfini(Function *fn)
    }
    if (ccopt.o >= OPT1) {
       doinline(fn);
+      freearena(fn->passarena);
       filldom(fn);
       if (!(fn->prop & FNUSE)) filluses(fn);
       cselim(fn);

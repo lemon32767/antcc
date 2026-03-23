@@ -235,8 +235,9 @@ patcharg(Block *blk, int *icall, IRCall *call,
          return 1;
       } else { /* aggregate in registers */
          Ref r[2];
+         IRType typ = ref2type(arg->l);
          delinstr(blk, arginst);
-         load2regs(r, ref2type(arg->l), arg->r, nabi, abi, r2off, blk, &arginst);
+         load2regs(r, typ, arg->r, nabi, abi, r2off, blk, &arginst);
          for (int i = 0; i < nabi; ++i)
             insertinstr(blk, arginst++, mkinstr2(Oarg, 0, mktyperef(abi[i].ty), r[i]));
          *icall = arginst + (call->narg - argidx - 1);

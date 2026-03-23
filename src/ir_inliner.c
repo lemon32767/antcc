@@ -1,7 +1,7 @@
 #include "ir.h"
 
 typedef struct SavedFunc {
-   uint ninstr;
+   uint ninstrtab;
    Instr *instrtab;
    IRCon *contab;
    IRCall *calltab;
@@ -22,12 +22,12 @@ bool
 maybeinlinee(Function *fn)
 {
    static Arena *savearena;
-   extern int ninstr;
+   extern int ninstrtab, nfreeinstr;
 
    // TODO better heuristics
    if (ccopt.o < OPT1) return 0;
    if (!fn->inlin && ccopt.o < OPT2) return 0;
-   if (ninstr > MAX_INLINED_FN_NINS) return 0;
+   if (ninstrtab - nfreeinstr > MAX_INLINED_FN_NINS) return 0;
    if (fn->nblk > MAX_INLINED_FN_NBLK) return 0;
    for (int i = 0; i < fn->nabiarg; ++i) {
       /* TODO inlining functions with stack args */
@@ -80,7 +80,7 @@ maybeinlinee(Function *fn)
       b->lnext = b->lnext == fn->entry ? NULL : bmap[b->lnext->id];
    } while ((b = b->lnext));
    
-   sv->instrtab = alloccopy(&savearena, instrtab, sizeof *instrtab * (sv->ninstr = ninstr), 0);
+   sv->instrtab = alloccopy(&savearena, instrtab, sizeof *instrtab * (sv->ninstrtab = ninstrtab), 0);
    sv->contab = alloccopy(&savearena, contab.p, sizeof *contab.p * contab.n, 0);
    if (calltab.n) {
       sv->calltab = alloccopy(&savearena, calltab.p, sizeof *calltab.p * calltab.n, 0);
@@ -148,16 +148,14 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv)
    }
 
    Block *bmap[MAX_INLINED_FN_NBLK];
-   short instrmap[MAX_INLINED_FN_NINS];
+   short *instrmap = alloc(fn->passarena, sv->ninstrtab * sizeof *instrmap, 0);
    for (Block *b = sv->entry; b; b = b->lnext) {
       bmap[b->id] = newblk(fn);
    }
-   for (int i = 0; i < sv->ninstr; ++i) {
-      /* TODO don't wastefully allocate for tombstone instructions
-       * - mark instructions some way when they are freed (put in instrfreelist)
-       * */
+   for (int i = 0; i < sv->ninstrtab; ++i) {
       int allocinstr(void);
-      instrmap[i] = allocinstr();
+      if (sv->instrtab[i].op)
+         instrmap[i] = allocinstr();
    }
 
    exit->npred = 0;
