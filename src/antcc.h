@@ -305,7 +305,7 @@ typedef struct WriteBuf {
          uint len;
          int fd;
       };
-      void *fp;
+      void *_fp;
    };
    bool err;
    bool isfp;

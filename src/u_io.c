@@ -15,11 +15,13 @@ WriteBuf bstdout, bstderr;
 void
 ioinit(void)
 {
-   bstdout.fp = stdout;
+   bstdout._fp = stdout;
    bstdout.isfp = 1;
-   bstderr.fp = stderr;
+   bstderr._fp = stderr;
    bstderr.isfp = 1;
 }
+
+#define b_fp(b) ((FILE *)(b)->_fp)
 
 void
 iowrite(WriteBuf *buf, const void *Src, int n)
@@ -27,8 +29,8 @@ iowrite(WriteBuf *buf, const void *Src, int n)
    const uchar *src = Src;
 
    if (buf->isfp) {
-      fwrite(Src, 1, n, buf->fp);
-      buf->err = ferror(buf->fp) != 0;
+      fwrite(Src, 1, n, b_fp(buf));
+      buf->err = ferror(b_fp(buf)) != 0;
       return;
    }
    while (n > 0) {
@@ -55,8 +57,8 @@ ioflush(WriteBuf *buf)
    int i, ret;
 
    if (buf->isfp) {
-      fflush(buf->fp);
-      buf->err = ferror(buf->fp) != 0;
+      fflush(b_fp(buf));
+      buf->err = ferror(b_fp(buf)) != 0;
       return;
    }
    buf->err = 0;
@@ -83,7 +85,7 @@ void
 ioputc(WriteBuf *buf, uchar c)
 {
    if (buf->isfp) {
-      buf->err = fputc(c, buf->fp) != EOF;
+      buf->err = fputc(c, b_fp(buf)) != EOF;
       return;
    }
    if (buf->len == buf->cap) {
