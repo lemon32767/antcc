@@ -1155,7 +1155,7 @@ devirt(RegAlloc *ra, Block *blk)
       int nspill = 0;
 
       /** devirtualize operands **/
-      for (int i = 0; i < 3; ++i) {
+      for (int i = 0; i < opnarg[ins->op]; ++i) {
          Ref *r = &ins->oper[i];
          if (r->t == RADDR) {
             IRAddr *a = &addrtab.p[r->i];
