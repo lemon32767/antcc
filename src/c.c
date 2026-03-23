@@ -2198,7 +2198,6 @@ buildenum(CComp *cm, internstr name, const Span *span, int id)
       ty = completetype(name, id, &td);
    else
       ty = mktagtype(name, &td);
-   ty.backing = td.backing;
    return ty;
 }
 

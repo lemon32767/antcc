@@ -30,10 +30,7 @@ enum typeflagmask {
 typedef union Type {
    struct {
       uchar t; /* type tag */
-      union {
-         uchar flag;
-         uchar backing; /* type tag for enum backing int */
-      };
+      uchar flag;
       union {
          struct {
             uchar child; /* prim type tag */
@@ -141,11 +138,10 @@ Type cvtarith(Type a, Type b);
 static inline Type
 typechild(Type t)
 {
-   if (t.t == TYENUM) return mktype(t.backing ? t.backing : typedata[t.dat].backing);
+   if (t.t == TYENUM) return mktype(typedata[t.dat].backing);
    if (t.flag & TFCHLDPRIM) return mktype(t.child);
    if (t.flag & TFCHLDISDAT) {
       Type chld = mktype(typedata[t.dat].t, .dat = t.dat);
-      if (chld.t == TYENUM) chld.backing = typedata[t.dat].backing;
       return chld;
    }
    return typedata[t.dat].child;
@@ -153,7 +149,7 @@ typechild(Type t)
 static inline enum typetag
 scalartypet(Type t)
 {
-   if (t.t == TYENUM) return t.backing ? t.backing : typedata[t.dat].backing;
+   if (t.t == TYENUM) return typedata[t.dat].backing;
    if (isptrcvt(t)) return TYPTR;
    assert(!iscomplex(t));
    return t.t;

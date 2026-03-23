@@ -214,7 +214,7 @@ completetype(internstr name, int id, TypeData *td)
       assert(tagtypetags[id] == name && "bad redefn");
    else
       tagtypetags[id] = name;
-   return mktype(td->t, .dat = interntd(td), .backing = td->t == TYENUM ? td->backing : 0);
+   return mktype(td->t, .dat = interntd(td));
 }
 
 Type
