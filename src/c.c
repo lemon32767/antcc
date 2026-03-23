@@ -2892,6 +2892,7 @@ pdecl(DeclState *st, CComp *cm) {
       return decl;
    }
    decl = declarator(st, cm, decl.span);
+   while (attrspec(cm, &st->attr)) ;
    if (decl.ty.t != TYFUNC && st->fninline)
       error(&decl.span, "`inline' used on non-function declaration");
    if (decl.ty.t != TYFUNC && st->fnnoreturn)
