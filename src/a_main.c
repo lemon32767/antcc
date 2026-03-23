@@ -688,7 +688,7 @@ cc1(const char *out, const char *in)
    if (task.verbose) efmt("cc1(/*out*/ %'s, /*in*/ %'s)\n", out, in);
    if (!ccopt.dbg.any && !task.syntaxonly) objini(in, out);
    ccomp(in);
-   if (!ccopt.dbg.any && !task.syntaxonly && !nerror) objfini();
+   if (!task.syntaxonly && !nerror) objfini(!ccopt.dbg.any);
    return !!nerror;
 }
 

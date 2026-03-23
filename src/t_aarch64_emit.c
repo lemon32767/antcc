@@ -269,19 +269,19 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper o[3])
       break;
    case EN_ADRSYMLO21:
       ins |= o[0].reg;
-      objreloc(xcon2sym(o[1].con), REL_ADR_PREL_LO21, Stext, *pcode - objout.textbegin, o[1].cdisp);
+      objrelocxcon(o[1].con, REL_ADR_PREL_LO21, Stext, *pcode - objout.textbegin, o[1].cdisp);
       break;
    case EN_ADRSYMPGHI21:
       ins |= o[0].reg;
-      objreloc(xcon2sym(o[1].con), REL_ADR_PREL_PG_HI21, Stext, *pcode - objout.textbegin, o[1].cdisp);
+      objrelocxcon(o[1].con, REL_ADR_PREL_PG_HI21, Stext, *pcode - objout.textbegin, o[1].cdisp);
       break;
    case EN_ADDSYMLO12:
       ins |= sf<<31 | o[1].reg<<5 | o[0].reg;
-      objreloc(xcon2sym(o[2].con), REL_ADD_ABS_LO12_NC, Stext, *pcode - objout.textbegin, o[1].cdisp);
+      objrelocxcon(o[2].con, REL_ADD_ABS_LO12_NC, Stext, *pcode - objout.textbegin, o[1].cdisp);
       break;
    case EN_LDSYMLO19:
       ins |= o[0].reg;
-      objreloc(xcon2sym(o[1].con), REL_LD_PREL_LO19, Stext, *pcode - objout.textbegin, o[1].cdisp);
+      objrelocxcon(o[1].con, REL_LD_PREL_LO19, Stext, *pcode - objout.textbegin, o[1].cdisp);
       break;
    case EN_FP2R:
       ins |= sf<<22 | (o[1].reg&31)<<5 | (o[0].reg&31);
@@ -494,7 +494,7 @@ static void
 Xcall(uchar **pcode, Oper dst)
 {
    if (dst.t == OSYM) {
-      objreloc(xcon2sym(dst.con), REL_CALL26, Stext, *pcode - objout.textbegin, 0);
+      objrelocxcon(dst.con, REL_CALL26, Stext, *pcode - objout.textbegin, 0);
       W32(0x94000000); /* BL <rel26> */
    } else {
       assert(opermatch(PGPRZ, KPTR, dst));

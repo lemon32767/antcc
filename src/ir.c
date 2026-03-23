@@ -688,8 +688,16 @@ irfini(Function *fn)
       freearena(fn->passarena);
    }
    if (maybeinlinee(fn)) {
-      // goto Fin; XXX do this by having inline function rematerialization when symbol is actually referenced
+      freearena(fn->passarena);
+      return;
    }
+
+   irfini_end(fn);
+}
+
+void
+irfini_end(Function *fn)
+{
    lowerstack(fn);
    freearena(fn->passarena);
    if (ccopt.dbg.o) {
@@ -702,7 +710,6 @@ irfini(Function *fn)
    if (objout.code)
       mctarg->emit(fn);
 
-//Fin:
    freearena(fn->passarena);
    freefn(fn);
 }

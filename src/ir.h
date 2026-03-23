@@ -28,7 +28,7 @@ enum symflags {
 typedef struct IRCon {
    bool issym, isdat, deref;
    uchar cls;
-   uchar flag;
+   uchar flag; /* enum symflags */
    union {
       internstr sym;
       int dat;
@@ -262,6 +262,7 @@ extern int visitmark;
 #define mkarginstr(ty, x) mkinstr2(Oarg, 0, mktyperef(ty), (x))
 void irinit(Function *);
 void irfini(Function *);
+void irfini_end(Function *);
 #define cls2type(k) ((IRType){.cls=(k)})
 IRType mkirtype(Type);
 Ref newxcon(const IRCon *);
@@ -279,6 +280,7 @@ Ref mksymref(internstr, enum symflags);
 Ref mkdatref(internstr sym, Type ctype, uint siz, uint align,
                    const void *, uint n, bool deref, bool funclocal);
 internstr xcon2sym(int ref);
+#define objrelocxcon(xc, ...) objreloc(xcon2sym(xc), contab.p[xc].flag, __VA_ARGS__)
 Instr mkalloca(uint siz, uint align);
 Ref mkcallarg(IRType ret, uint narg, int vararg);
 #define mkintrin(B, C, N) mkinstr2(Ointrin, C, mkref(RICON, B), mkcallarg((IRType){{0}},N,-1))
@@ -350,6 +352,7 @@ void cselim(Function *);
 /** inliner.c **/
 bool maybeinlinee(Function *);
 void doinline(Function *);
+void emitxinlfns(bool all);
 
 /** intrin.c **/
 void lowerintrin(Function *);

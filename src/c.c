@@ -1387,6 +1387,7 @@ typedef struct InitParser {
             internstr sym;
             s64int addend;
             uint off;
+            uchar flag;
          } *drel;
       };
    };
@@ -1428,14 +1429,17 @@ dumpini(InitParser *ip)
 #endif
 
 static s64int /* -> returns addend */
-expr2reloc(internstr *psym, const Expr *ex)
+expr2reloc(internstr *psym, enum symflags *sf, const Expr *ex)
 {
    if (ex->t == ESSYMREF) {
       *psym = ex->ssym.sym;
+      *sf = (SLOCAL &- ex->ssym.local) | (SFUNC &- ex->ssym.func);
       return ex->ssym.off;
    } else if (ex->t == ESTRLIT || ex->t == EINIT) {
       if (ex->t == ESTRLIT) assert(ex->ty.t == TYARRAY);
-      *psym = xcon2sym(expraddr(NULL, ex).i);
+      Ref r = expraddr(NULL, ex);
+      *psym = xcon2sym(r.i);
+      *sf = contab.p[r.i].flag;
       return 0;
    }
    fatal(&ex->span, "internal bug: non static reloc?");
@@ -1506,10 +1510,11 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
          memcpy(p, ex->s.p, n);
       } else {
          internstr sym;
-         s64int addend = expr2reloc(&sym, ex);
+         enum symflags sf;
+         s64int addend = expr2reloc(&sym, &sf, ex);
          if (!ip->dyn) {
             assert(ip->sec != Srodata || rodatarelocok());
-            objreloc(sym, targ_64bit ? REL_ABS64 : REL_ABS32,
+            objreloc(sym, sf, targ_64bit ? REL_ABS64 : REL_ABS32,
                      ip->sec, ip->off + off, addend);
          } else {
             InitReloc *rel = alloc(ip->arena, sizeof *rel, 0);
@@ -1517,6 +1522,7 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
             rel->sym = sym;
             rel->off = off;
             rel->addend = addend;
+            rel->flag = sf;
             ip->drel = rel;
          }
       }
@@ -1886,7 +1892,8 @@ initializer(CComp *cm, Type *ty, enum evalmode ev, bool globl,
          memcpy(p + off, ip->ddat.p, ip->ddat.n);
          memset(p + off + ip->ddat.n, 0, siz - ip->ddat.n);
          for (InitReloc *rel = ip->drel; rel; rel = rel->link) {
-            objreloc(rel->sym, targ_64bit ? REL_ABS64 : REL_ABS32, sec, off + rel->off, rel->addend);
+            objreloc(rel->sym, rel->flag, targ_64bit ? REL_ABS64 : REL_ABS32,
+                     sec, off + rel->off, rel->addend);
          }
       }
       vfree(&ip->ddat);

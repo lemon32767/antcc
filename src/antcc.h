@@ -291,7 +291,7 @@ extern char pmap_tombstone_[];
 #define pmap_del(m, k) pmap_del_(&(m)->mb, k)
 #define pmap_each(m,kx,pvx) \
    for (size_t _i = 0; _i < (m)->mb.N && ((kx) = (m)->mb.k[_i], (pvx) = &(m)->v[_i], 1); ++_i) \
-      if (kx && kx != pmap_tombstone_)
+      if (kx && kx != (void*)pmap_tombstone_)
 
 /********/
 /** IO **/

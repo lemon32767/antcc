@@ -89,9 +89,13 @@ objnewdat(internstr name, enum section sec, bool globl, uint siz, uint align)
    return off;
 }
 
+static pmap_of(uchar) needed_fns;
+
 void
-objreloc(internstr sym, enum relockind reloc, enum section section, uint off, s64int addend)
+objreloc(internstr sym, int symflags, enum relockind reloc, enum section section, uint off, s64int addend)
 {
+   if ((symflags & (SLOCAL|SFUNC)) == (SLOCAL|SFUNC))
+      pmap_set(&needed_fns, sym, 1);
    switch (mctarg->objkind) {
    case OBJELF:
       elfreloc(sym, reloc, section, off, addend);
@@ -99,9 +103,17 @@ objreloc(internstr sym, enum relockind reloc, enum section section, uint off, s6
    }
 }
 
-void
-objfini(void)
+bool
+fnisneeded(internstr name)
 {
+   return pmap_get(&needed_fns, name) != NULL;
+}
+
+void
+objfini(bool emit)
+{
+   emitxinlfns(/*all*/!emit);
+   if (!emit) return;
    static char buf[1<<12];
    WriteBuf out = FDBUF(buf, sizeof buf, open(objout.outfile, O_WRONLY | O_CREAT | O_TRUNC, 0666));
    if (out.fd < 0) fatal(NULL, "could not open %'s for writing: %s", objout.outfile, strerror(errno));

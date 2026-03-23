@@ -358,7 +358,7 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper dst, Op
             } else {
                enum relockind r = REL_PCREL32;
                if (mem.t == OSYMGOT) r = rex ? REL_GOTPCRELX_REX : REL_GOTPCRELX;
-               objreloc(xcon2sym(mem.con), r, Stext, *pcode - objout.textbegin, disp);
+               objrelocxcon(mem.con, r, Stext, *pcode - objout.textbegin, disp);
                I32(0);
             }
          } else {
@@ -366,7 +366,7 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper dst, Op
             assert(!ccopt.pic && !ccopt.pie && "cannot encode [RIP-rel + REG] for position independent");
             B(/*mod 0*/ (reg & 7) << 3 | RSP);
             B(mem.cshift << 6 | ((mem.cindex & 7) << 3) | RBP); /* SIB [index*s + disp32] */
-            objreloc(xcon2sym(mem.con), REL_ABS32S, Stext, *pcode - objout.textbegin, mem.disp);
+            objrelocxcon(mem.con, REL_ABS32S, Stext, *pcode - objout.textbegin, mem.disp);
             I32(0);
          }
       } else {
@@ -455,7 +455,7 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper dst, Op
          I32(addr - (*pcode - objout.textbegin) - 4);
       } else {
          enum relockind r = (ccopt.pie|ccopt.pic) ? REL_PLT32 : REL_PCREL32;
-         objreloc(sym, r, Stext, *pcode - objout.textbegin, -4);
+         objrelocxcon(dst.con, r, Stext, *pcode - objout.textbegin, -4);
          I32(0);
       }
       break;

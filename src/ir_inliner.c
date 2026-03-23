@@ -1,7 +1,9 @@
 #include "ir.h"
+#include "obj.h"
 
 typedef struct SavedFunc {
-   uint ninstrtab;
+   bool emitted;
+   uint ninstrtab, ncontab, ncalltab, nphitab;
    Instr *instrtab;
    IRCon *contab;
    IRCall *calltab;
@@ -17,16 +19,16 @@ enum { MAX_INLINED_FN_NINS = 50,
        MAX_INLINED_FN_NBLK = 16, };
 
 static pmap_of(SavedFunc *) savedfns;
+static Arena *savearena;
 
 bool
 maybeinlinee(Function *fn)
 {
-   static Arena *savearena;
    extern int ninstrtab, nfreeinstr;
 
    // TODO better heuristics
    if (ccopt.o < OPT1) return 0;
-   if (!fn->inlin && ccopt.o < OPT2) return 0;
+   if (!(fn->inlin || (!fn->globl && ccopt.o >= OPT2))) return 0;
    if (ninstrtab - nfreeinstr > MAX_INLINED_FN_NINS) return 0;
    if (fn->nblk > MAX_INLINED_FN_NBLK) return 0;
    for (int i = 0; i < fn->nabiarg; ++i) {
@@ -50,20 +52,14 @@ maybeinlinee(Function *fn)
    if (fn->abiarg)
       sv->abiarg = alloccopy(&savearena, fn->abiarg, sizeof *sv->abiarg * fn->nabiarg, 0);
    sv->nabiarg = fn->nabiarg;
-   if ((sv->nabiret = fn->nabiret) > 0)
-      memcpy(sv->abiret, fn->abiret, sizeof sv->abiret);
+   sv->nabiret = fn->nabiret;
+   memcpy(sv->abiret, fn->abiret, sizeof sv->abiret);
    Block *bmap[MAX_INLINED_FN_NBLK];
    Block *b = fn->entry;
    int id = 0;
    do {
       b->id = id++;
       Block *q = alloccopy(&savearena, b, sizeof *b, 0);
-      if (q->phi.n)
-         q->phi.p = alloccopy(&savearena, q->phi.p, sizeof *q->phi.p * q->phi.n, 0);
-      if (q->ins.n)
-         q->ins.p = alloccopy(&savearena, q->ins.p, sizeof *q->ins.p * q->ins.n, 0);
-      if (q->npred > 1)
-         q->_pred = alloccopy(&savearena, q->_pred, sizeof *q->_pred * q->npred, 0);
       q->lprev = NULL;
       q->idom = NULL;
       bmap[b->id] = q;
@@ -81,8 +77,8 @@ maybeinlinee(Function *fn)
    } while ((b = b->lnext));
    
    sv->instrtab = alloccopy(&savearena, instrtab, sizeof *instrtab * (sv->ninstrtab = ninstrtab), 0);
-   sv->contab = alloccopy(&savearena, contab.p, sizeof *contab.p * contab.n, 0);
-   if (calltab.n) {
+   sv->contab = alloccopy(&savearena, contab.p, sizeof *contab.p * (sv->ncontab = contab.n), 0);
+   if ((sv->ncalltab = calltab.n)) {
       sv->calltab = alloccopy(&savearena, calltab.p, sizeof *calltab.p * calltab.n, 0);
       for (int i = 0; i < calltab.n; ++i) {
          if (sv->calltab[i].abiarg)
@@ -90,11 +86,9 @@ maybeinlinee(Function *fn)
                   sv->calltab[i].narg * sizeof *sv->calltab[i].abiarg, 0);
       }
    }
-   if (phitab.n) {
-      sv->phitab = alloc(&savearena, sizeof *phitab.p * phitab.n, 0);
-      for (int i = 0; i < phitab.n; ++i) {
-         sv->phitab[i] = alloccopy(&savearena, phitab.p[i], sizeof *phitab.p[i] * xbcap(phitab.p[i]), 0);
-      }
+   if ((sv->nphitab = phitab.n)) {
+      sv->phitab = alloccopy(&savearena, phitab.p, sizeof *phitab.p * phitab.n, 0);
+      phitab.n = 0;
    }
    pmap_set(&savedfns, fn->name, sv);
    return 1;
@@ -180,7 +174,7 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv)
       for (int i = 0; i < b->phi.n; ++i) {
          int t = b->phi.p[i];
          Ref *refs = NULL,
-                   *src = sv->phitab[sv->instrtab[t].l.i];
+             *src = sv->phitab[sv->instrtab[t].l.i];
          xbgrow(&refs, b->npred);
          for (int i = 0; i < b->npred; ++i)
             refs[i] = mapref(instrmap, sv, src[i]);
@@ -302,6 +296,80 @@ doinline(Function *fn)
       Skip:;
       }
    } while ((b = b->lnext) != fn->entry);
+}
+
+static Function
+rematerialize(Arena **arena, internstr name, SavedFunc *sv)
+{
+   Function fn = { arena, .name = name, .globl = 0/*always localG*/, .fnty = sv->fnty,
+      .retty = sv->retty, .abiarg = sv->abiarg, .nabiarg = sv->nabiarg,
+      .abiret = {sv->abiret[0], sv->abiret[1]}, .nabiret = sv->nabiret,
+   };
+   irinit(&fn);
+   extern int ninstrtab;
+   ninstrtab = sv->ninstrtab;
+   memcpy(instrtab, sv->instrtab, ninstrtab * sizeof *instrtab);
+   vpushn(&calltab, sv->calltab, sv->ncalltab);
+   vpushn(&phitab, sv->phitab, sv->nphitab);
+   vpushn(&contab, sv->contab, sv->ncontab);
+
+   fn.nblk = 0;
+   struct Block *last = fn.entry = NULL;
+   for (struct Block *b = sv->entry, *next; b; b = next) {
+      next = b->lnext;
+      if (last) {
+         b->lprev = last;
+         last->lnext = b;
+      } else {
+         fn.entry = b;
+         b->lprev = b;
+      }
+      last = b;
+      if (!next) {
+         fn.entry->lprev = b;
+         b->lnext = fn.entry;
+      }
+      ++fn.nblk;
+   }
+   fn.entry->lprev->lnext = fn.entry;
+   memset(instruse, 0, sizeof *instruse * ninstrtab);
+   filluses(&fn);
+
+   return fn;
+}
+
+void
+emitxinlfns(bool all)
+{
+   enum { N = 1 << 12 };
+   static union { char m[sizeof(Arena) + N]; Arena *_align; } amem[2];
+   Arena *arena = (void *)amem[0].m, *passarena = (void *)amem[1].m;
+   arena->cap = N;
+   passarena->cap = N;
+
+   /* looping until fixpoint because emitting functions might generate
+    * references to other stashed functions, which might have already been
+    * visited, but they need to be visited them again */
+   for (bool change = 1; change;) {
+      change = 0;
+      SavedFunc **psv, *sv;
+      internstr name;
+      pmap_each(&savedfns, name, psv) {
+         sv = *psv;
+         if (!sv->emitted && (all || fnisneeded(name))) {
+            sv->emitted = 1;
+            Function fn = rematerialize(&arena, name, sv);
+            fn.passarena = &passarena;
+            if (ccopt.dbg.y) {
+               bfmt(ccopt.dbgout, "<< Rematerialize inlinee >>\n");
+               irdump(&fn);
+            }
+            irfini_end(&fn);
+            change = 1;
+            freearena(&arena);
+         }
+      }
+   }
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

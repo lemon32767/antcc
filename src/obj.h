@@ -33,7 +33,8 @@ void objini(const char *infile, const char *outfile);
 void objdeffunc(internstr nam, bool globl, uint off, uint siz);
 enum section objhassym(internstr name, uint *off);
 uint objnewdat(internstr name, enum section, bool globl, uint siz, uint align);
-void objreloc(internstr sym, enum relockind, enum section, uint off, s64int addend);
-void objfini(void);
+void objreloc(internstr sym, /*enum symflags*/int, enum relockind, enum section, uint off, s64int addend);
+void objfini(bool emit);
+bool fnisneeded(internstr);
 
 /* vim:set ts=3 sw=3 expandtab: */
