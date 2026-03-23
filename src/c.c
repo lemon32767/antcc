@@ -2439,6 +2439,8 @@ declspec(DeclState *st, CComp *cm, Span *pspan)
          }
          /* fallthru */
       default:
+         if (attrspec(cm, &st->attr))
+            continue;
          goto End;
       case TKW_BitInt:
       case TKW_Decimal128: case TKW_Decimal32:
