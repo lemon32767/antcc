@@ -2152,7 +2152,7 @@ ppdirective(Lexer *lx, bool *skip, bool *inclerror)
          lx->firstdirective = 0;
       *skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
    } else {
-      if (!skip) {
+      if (!*skip) {
       BadPP:
          error(&tk->span, "invalid preprocessor directive");
       }
