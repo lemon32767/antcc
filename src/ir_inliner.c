@@ -271,7 +271,6 @@ doinline(Function *fn)
          SavedFunc **pcallee, *sv;
          if ((pcallee = pmap_get(&savedfns, fname))
            && (sv = *pcallee)->nabiarg == call->narg && call->vararg == -1
-           && call->narg == sv->nabiarg
            && (!call->narg || !memcmp(sv->abiarg, call->abiarg, sizeof *sv->abiarg * sv->nabiarg))
            && !memcmp(sv->abiret, call->abiret, sizeof sv->abiret)) {
             for (struct Stack *s = stk; s != stkend; ++s) {
