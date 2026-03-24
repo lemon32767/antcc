@@ -16,118 +16,40 @@
 #define DBG(...) ((void)0)
 #endif
 
-/* The algorithm used here to introduce phis for temporaries whose definitions
- * appear later than some of its uses is very similar to that in mem2reg() */
-
-static int livelastblk;
-typedef struct { ushort var, phi; } PendingPhi;
-static vec_of(PendingPhi) *pendingphis;
-static int npendingphi;
-static ushort **curdefs;
-static Ref readvar(BitSet *defined, enum irclass cls, int var, Block *blk);
-
-static void
-fillphi(BitSet *defined, Ref phi, enum irclass cls, int var, Block *blk)
+static bool
+checkliveuse(BitSet *defined, Instr *ins, Ref r, Block *blk)
 {
-   Ref *args = phitab.p[instrtab[phi.i].l.i];
-   assert(blk->npred > 0);
-   for (int i = 0; i < blk->npred; ++i)
-      args[i] = readvar(defined, cls, var, blk);
+   if (r.t == RADDR) {
+      return checkliveuse(defined, ins, addrtab.p[r.i].base, blk)
+          && checkliveuse(defined, ins, addrtab.p[r.i].index, blk);
+   } else if (r.t != RTMP) return 1;
+   return bstest(defined, r.i);
 }
 
-static Ref
-readvar(BitSet *defined, enum irclass cls, int var, Block *blk)
-{
-   Ref val;
-
-   if (bstest(defined, var)) return mkref(RTMP, var);
-   assert(cls && "?");
-
-   /* memoed definition */
-   if (xbcap(curdefs) > blk->id && xbcap(curdefs[blk->id]) > var && curdefs[blk->id][var])
-      return mkref(RTMP, curdefs[blk->id][var]);
-
-   xbgrowz(&curdefs, blk->id + 1);
-   if (blk->id > livelastblk) {
-      ++npendingphi;
-      val = insertphi(blk, cls);
-      xbgrowz(&pendingphis, blk->id + 1);
-      vpush(&pendingphis[blk->id], ((PendingPhi) { var, val.i }));
-   } else if (blk->npred == 1) {
-      val = readvar(defined, cls, var, blkpred(blk, 0));
-   } else {
-      val = insertphi(blk, cls);
-      fillphi(defined, val, cls, var, blk);
-   }
-   xbgrowz(&curdefs[blk->id], var + 1);
-   assert(val.i > 0);
-   curdefs[blk->id][var] = val.i;
-   return val;
-}
-
+/* ensure the definition of a temporary appears before all of its uses */
 static void
-liveuse(BitSet *defined, Instr *ins, Ref *r, Block *blk)
-{
-   int var;
-   if (r->t == RADDR) {
-      liveuse(defined, ins, &addrtab.p[r->i].base, blk);
-      liveuse(defined, ins, &addrtab.p[r->i].index, blk);
-      return;
-   } else if (r->t != RTMP) return;
-   var = r->i;
-   if (bstest(defined, var)) return;
-
-   *r = readvar(defined, insrescls(instrtab[r->i]), var, blk);
-}
-
-/* regalloc() assumes every use of a temporary is visited before its definition
- * so this pass fixes cases where that would not apply by introducing phi functions */
-static void
-fixlive(Function *fn)
+checklive(Function *fn)
 {
    extern int ninstrtab;
    Block *blk = fn->entry;
-   BitSet definedbuf[4] = {0};
-   BitSet *defined = definedbuf;
+   BitSet definedbuf[4] = {0}, *defined = definedbuf;
 
    if (BSSIZE(ninstrtab) >= countof(definedbuf))
-      defined = xcalloc(sizeof *defined * BSSIZE(ninstrtab));
-   npendingphi = 0;
+      defined = allocz(fn->passarena, BSSIZE(ninstrtab)*sizeof *defined, 0);
 
+   bool ok = 1;
    do {
-      for (int i = 0; i < blk->phi.n; ++i) {
-         int var = blk->phi.p[i];
-         bsset(defined, var);
-      }
-
+      for (int i = 0; i < blk->phi.n; ++i)
+         bsset(defined, blk->phi.p[i]);
       for (int i = 0; i < blk->ins.n; ++i) {
-         int var = blk->ins.p[i];
-         Instr *ins = &instrtab[var];
-         if (ins->l.t) liveuse(defined, ins, &ins->l, blk);
-         if (ins->r.t) liveuse(defined, ins, &ins->r, blk);
-         bsset(defined, var);
+         int t = blk->ins.p[i];
+         Instr *ins = &instrtab[t];
+         for (int i = 0; i < opnoper[ins->op]; ++i)
+            ok &= checkliveuse(defined, ins, ins->oper[i], blk);
+         bsset(defined, t);
       }
    } while ((blk = blk->lnext) != fn->entry);
-
-   do {
-      vec_of(PendingPhi) *pphi;
-
-      if (!npendingphi) break;
-      if (xbcap(pendingphis) <= blk->id) break;
-
-      pphi = (void *)&pendingphis[blk->id];
-      npendingphi -= pphi->n;
-      for (int i = 0; i < pphi->n; ++i) {
-         fillphi(defined, mkref(RTMP, pphi->p[i].phi), instrtab[pphi->p[i].phi].cls, pphi->p[i].var, blk);
-      }
-      vfree(pphi);
-   } while ((blk = blk->lnext) != fn->entry);
-
-   if (ccopt.dbg.l) {
-      bfmt(ccopt.dbgout, "<< After liveness fixup >>\n");
-      irdump(fn);
-   }
-   if (defined != definedbuf) free(defined);
+   assert(ok && "bad liveness");
 }
 
 static regset gpregset, fpregset;
@@ -1388,8 +1310,8 @@ regalloc(Function *fn)
    /* put into reverse post order */
    sortrpo(fn);
 
-   /* fix liveness ranges */
-   fixlive(fn);
+   /* check liveness ranges */
+   checklive(fn);
 
    /* transform into CSSA */
    fixcssa(fn);
