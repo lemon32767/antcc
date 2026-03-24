@@ -227,7 +227,10 @@ optparse(char **args)
          const char *s = *++args;
          if (!s) fatal(NULL, "missing target name");
          task.targ = s;
-      } else if (*arg == 'l' || *arg == 'L' || *arg == 'B' || !strcmp(arg, "shared") || !strcmp(arg, "pthread") || !strcmp(arg, "static")) {
+      } else if (!strcmp(arg, "pthread")) {
+         cpp0define("_REENTRANT", NULL);
+         vpush(&task.linkargs, "-lpthread");
+      } else if (*arg == 'l' || *arg == 'L' || *arg == 'B' || !strcmp(arg, "shared") || !strcmp(arg, "static")) {
          /* XXX having some issues with linker commands for -shared */
          if (!strcmp(arg, "shared"))
             task.link_with_cc = 1;
