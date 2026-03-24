@@ -1,8 +1,10 @@
 - aarch64 backend
 - STDC: thread local, VLAs, complex, long double, atomics
-- test on non-GNU and non-linux POSIX systems (alpine, various BSDs)
+- get working on the other BSDs
+    - implement more GNU extensions: __attribute__, __builtin_*, ...
+- __asm__
+- windows (mingw)
 - DWARF debug information
-- implement GNU extensions: __attribute__, __builtin_*, ...
 - compiler optimizations:
     - dead store/load optimization, forwarding
     - all kinds of loop optimizations
