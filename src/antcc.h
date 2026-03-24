@@ -247,33 +247,6 @@ void vresize_(struct vecbase *, uint siz, uint N);
 #define vpushn(v, xs, N) vpushn_(&(v)->_vb, sizeof *(v)->p, xs, N)
 #define vresize(v, N) vresize_(&(v)->_vb, sizeof *(v)->p, N)
 
-/** map of short -> T **/
-#define imap_of(T) struct { T *v; int tmp; struct imapbase mb; }
-struct imapbase { short *k; BitSet *bs; uint n, N; };
-
-void imap_init_(struct imapbase *, void **v, uint vsiz, uint N);
-int imap_get_(struct imapbase *, short k);
-int imap_set_(struct imapbase *, void **v, uint vsiz, short k);
-#define imap_free(m) (free((m)->mb.k), memset((m), 0, sizeof *(m)))
-#define imap_init(m, N) (imap_free(m), imap_init_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, (N)))
-#define imap_clear(m) ((m)->mb.bs ? bszero((m)->mb.bs, BSSIZE((m)->mb.N)) : (void)0, \
-                       (m)->mb.n = 0)
-#define imap_get(m, k) ((m)->tmp = imap_get_(&(m)->mb, k), (m)->tmp < 0 ? NULL : &(m)->v[(m)->tmp])
-#define imap_set(m, k, ...) ((m)->tmp = imap_set_(&(m)->mb, (void **)&(m)->v, sizeof*(m)->v, k), \
-                           (m)->v[(m)->tmp] = (__VA_ARGS__), &(m)->v[(m)->tmp])
-#define imap_each(m,kx,pvx) \
-   for (int _i = 0; _i < (m)->mb.N && ((kx) = (m)->mb.k[_i], (pvx) = &(m)->v[_i], 1); ++_i) \
-      if (bstest((m)->mb.bs, _i))
-#define imap_copy(dst,src) do {                                                       \
-   size_t N = (src)->mb.N;                                                            \
-   if (!N) break;                                                                     \
-   (dst)->mb.n = (src)->mb.n;                                                         \
-   imap_init((dst), N);                                                               \
-   memcpy((dst)->mb.k, (src)->mb.k,                                                   \
-         N*(sizeof*(src)->mb.k + sizeof*(src)->v) + BSSIZE(N)*sizeof(BitSet)); \
-} while (0)
-
-
 /** map of non-null ptr -> T **/
 #define pmap_of(T) struct { T *v; int tmp; struct pmapbase mb; }
 struct pmapbase { void **k; uint n, N; };
