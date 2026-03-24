@@ -562,6 +562,8 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap)
                   n += tok->len;
                } else if (aisprint(tok->t)) {
                   n += bputc(buf, tok->t);
+               } else if (tok->t == '\n') {
+                  n += bwriteS(buf, "<newline>");
                } else {
                   n += bwriteS(buf, "??");
                }

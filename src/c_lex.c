@@ -1141,6 +1141,8 @@ advancemacstk(Lexer *lx, Token *tk)
    return tryexpand(lx, tk) != EXPSTACK;
 }
 
+static int ppdirective(Lexer *lx, bool *skip, bool *inclerror);
+
 static void
 expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac)
 {
@@ -1159,19 +1161,27 @@ expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac)
      *args = mac->nparam < countof(_args0) ? _args0 : alloc(lx->tmparena, sizeof *args * mac->nparam, 0);
 
    cur = i = bal = len = narg = 0;
+   bool cndskip = 0;
    for (MacroStack *s = lx->macstk;;) {
       if (!s) {
          bool nl = 0;
+      Linebegin:
          for (;; nl = 1) {
             lex0(lx, &tk, 0);
             if (tk.t != '\n') break;
          }
          tk.space |= nl;
-      }
-      else {
+         if (nl && tk.t == '#') {
+            /* extension: embedding directive within a macro argument */
+            ppdirective(lx, &cndskip, NULL);
+            goto Linebegin;
+         }
+      } else {
          tk = s->idx < s->rl.n ? stkgetrl(s)[s->idx++] : (Token){TKEOF};
       }
-      if (((tk.t == ')' && bal == 0) || tk.t == TKEOF)) break;
+      if (tk.t == TKEOF) break;
+      if (cndskip) continue;
+      if (((tk.t == ')' && bal == 0))) break;
       if (tk.t == ',' && bal == 0) {
          ++narg;
          if (i == mac->nparam-1 && !mac->variadic) {
@@ -2086,6 +2096,72 @@ identkeyword(Token *tk)
    }
 }
 
+static int
+ppdirective(Lexer *lx, bool *skip, bool *inclerror)
+{
+   Token tk[1];
+   enum directive lastcmd = 0;
+
+   if (lex0(lx, tk, 0) == '\n') { }
+   else if (tk->t == TKNUMLIT || tk->t == TKIDENT) {
+      lastcmd = tk->t == TKNUMLIT ? PPLINE : findppcmd(tk);
+      if (nppcnd == lx->nppcnd0) lx->inclguard = NULL;
+      if (!*skip) {
+         switch (lastcmd) {
+         case PPXXX: goto BadPP;
+         case PPDEFINE:   ppdefine(lx); break;
+         case PPUNDEF:    ppundef(lx); break;
+         case PPIF:       ppif(lx, &tk->span); break;
+         case PPIFDEF:    ppifxdef(lx, 1, &tk->span); break;
+         case PPIFNDEF:   ppifxdef(lx, 0, &tk->span); break;
+         case PPELIF:     ppelif(lx, &tk->span); break;
+         case PPELIFDEF:  ppelifxdef(lx, 1, &tk->span); break;
+         case PPELIFNDEF: ppelifxdef(lx, 0, &tk->span); break;
+         case PPELSE:     ppelse(lx, &tk->span); break;
+         case PPENDIF:    ppendif(lx, &tk->span); break;
+         case PPLINE:     ppline(lx, tk); break;
+         case PPPRAGMA:   pppragma(lx, &tk->span); break;
+         case PPWARNING:  ppdiag(lx, &tk->span, 0); break;
+         case PPERROR:    ppdiag(lx, &tk->span, 1); break;
+         case PPINCLUDE:  if (!inclerror)
+                             error(&tk->span, "#include directive within macro argument");
+                          else
+                             *inclerror |= !ppinclude(lx, &tk->span);
+                          break;
+         default: assert(0&&"nyi");
+         }
+      } else {
+         switch (lastcmd) {
+         case PPIF: /* increment nesting level */
+         case PPIFDEF:
+         case PPIFNDEF:
+            assert(nppcnd < countof(ppcndstk) && "too many nested #if");
+            ppcndstk[nppcnd].ifspan = tk->span.sl;
+            ppcndstk[nppcnd].cnd = PPCNDTAKEN;
+            ppcndstk[nppcnd++].elsep = 0;
+            break;
+         case PPELIF:     ppelif(lx, &tk->span); break;
+         case PPELIFDEF:  ppelifxdef(lx, 1, &tk->span); break;
+         case PPELIFNDEF: ppelifxdef(lx, 0, &tk->span); break;
+         case PPELSE:     ppelse(lx, &tk->span); break;
+         case PPENDIF:    ppendif(lx, &tk->span); break;
+         default: ppskipline(lx); break;
+         }
+      }
+      if (lastcmd != PPINCLUDE)
+         lx->firstdirective = 0;
+      *skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
+   } else {
+      if (!skip) {
+      BadPP:
+         error(&tk->span, "invalid preprocessor directive");
+      }
+      ppskipline(lx);
+   }
+
+   return lastcmd;
+}
+
 int
 lex(Lexer *lx, Token *tk_)
 {
@@ -2114,59 +2190,8 @@ Begin:
    for (;;) {
       while ((t = lex0(lx, tk, 0)) == '\n') linebegin = 1;
       if (t == '#' && linebegin) {
-         if (lex0(lx, tk, 0) == '\n') { }
-         else if (tk->t == TKNUMLIT || tk->t == TKIDENT) {
-            lastcmd = tk->t == TKNUMLIT ? PPLINE : findppcmd(tk);
-            if (nppcnd == lx->nppcnd0) lx->inclguard = NULL;
-            if (!skip) {
-               switch (lastcmd) {
-               case PPXXX: goto BadPP;
-               case PPDEFINE:   ppdefine(lx); break;
-               case PPUNDEF:    ppundef(lx); break;
-               case PPIF:       ppif(lx, &tk->span); break;
-               case PPIFDEF:    ppifxdef(lx, 1, &tk->span); break;
-               case PPIFNDEF:   ppifxdef(lx, 0, &tk->span); break;
-               case PPELIF:     ppelif(lx, &tk->span); break;
-               case PPELIFDEF:  ppelifxdef(lx, 1, &tk->span); break;
-               case PPELIFNDEF: ppelifxdef(lx, 0, &tk->span); break;
-               case PPELSE:     ppelse(lx, &tk->span); break;
-               case PPENDIF:    ppendif(lx, &tk->span); break;
-               case PPLINE:     ppline(lx, tk); break;
-               case PPPRAGMA:   pppragma(lx, &tk->span); break;
-               case PPWARNING:  ppdiag(lx, &tk->span, 0); break;
-               case PPERROR:    ppdiag(lx, &tk->span, 1); break;
-               case PPINCLUDE:  inclerror |= !ppinclude(lx, &tk->span); break;
-               default: assert(0&&"nyi");
-               }
-            } else {
-               switch (lastcmd) {
-               case PPIF: /* increment nesting level */
-               case PPIFDEF:
-               case PPIFNDEF:
-                  assert(nppcnd < countof(ppcndstk) && "too many nested #if");
-                  ppcndstk[nppcnd].ifspan = tk->span.sl;
-                  ppcndstk[nppcnd].cnd = PPCNDTAKEN;
-                  ppcndstk[nppcnd++].elsep = 0;
-                  break;
-               case PPELIF:     ppelif(lx, &tk->span); break;
-               case PPELIFDEF:  ppelifxdef(lx, 1, &tk->span); break;
-               case PPELIFNDEF: ppelifxdef(lx, 0, &tk->span); break;
-               case PPELSE:     ppelse(lx, &tk->span); break;
-               case PPENDIF:    ppendif(lx, &tk->span); break;
-               default: ppskipline(lx); break;
-               }
-            }
-            if (lastcmd != PPINCLUDE)
-               lx->firstdirective = 0;
-            skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
-         } else {
-            if (!skip) {
-            BadPP:
-               error(&tk->span, "invalid preprocessor directive");
-            }
-            ppskipline(lx);
-         }
          linebegin = 1;
+         lastcmd = ppdirective(lx, &skip, &inclerror);
       } else {
          lx->firstdirective = 0;
          linebegin = 0;

@@ -14,6 +14,7 @@ token spacing:
 sum = 1 + 2 +3;$
 [ baz] ;$
 +. *$
+x=7
 */
 
 #include "07-pp.h"
@@ -128,6 +129,16 @@ S\
         xstr(+qx2 ( .)//
 qx2(*) ) "$\n"
         );
+
+#define A(x,y) x=y
+   A(int x,
+#if 1
+         7
+#else 
+         3
+#endif
+      );
+   printf("x=%d\n",x);
 
    CAT(ret,urn) 0;
 }
