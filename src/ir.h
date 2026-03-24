@@ -105,6 +105,7 @@ enum op {
 #define oisalloca(o) in_range(o, Oalloca1, Oalloca16)
 #define oisstore(o) in_range(o, Ostorei8, Ostoref64)
 #define oisload(o) in_range(o, Oloads8, Oloadf64)
+#define oisloadstore(o) in_range(o, Oloads8, Ostoref64)
 extern const char *opnames[];
 extern const uchar opnoper[];
 

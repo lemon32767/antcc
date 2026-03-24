@@ -1,6 +1,5 @@
 #include "ir.h"
 #include "u_bits.h"
-#include <stdlib.h> /* qsort */
 
 static const uchar loadszcls[] = {
    [Oloads8  - Oloads8] = 1|KI32<<4, [Oloadu8  - Oloads8] = 1|KI32<<4,
@@ -33,17 +32,22 @@ static const uchar storesz[] = {
 
 typedef struct SSABuilder {
    Arena **arena;
-   imap_of(Ref *) curdefs; /* map of var to (map of block to def of var) */
+   struct Var {
+      uchar cls, ext;
+      ushort i;
+      Ref curdefs[]; /* map blk -> def */
+   } **vars;
    BitSet *sealed, /* set of sealed blocks */
           *marked; /* blocks marked, for 'Marker Algorithm' in the paper */
    int lastvisit;
    int nblk;
 } SSABuilder;
+typedef struct Var Var;
 
-static Ref readvar(SSABuilder *, int var, enum irclass, Block *);
+static Ref readvar(SSABuilder *, Var *, enum irclass, Block *);
 
 static Ref
-deltrivialphis(SSABuilder *sb, int var, Block *blk, Ref phiref)
+deltrivialphis(SSABuilder *sb, Var *var, Block *blk, Ref phiref)
 {
    assert(instrtab[phiref.i].op == Ophi);
    Ref *args = phitab.p[instrtab[phiref.i].l.i];
@@ -62,26 +66,22 @@ deltrivialphis(SSABuilder *sb, int var, Block *blk, Ref phiref)
 
    /* replace uses */
    replcuses(phiref, same);
-   Ref **pcurdefs = imap_get(&sb->curdefs, var);
-   assert (pcurdefs);
    for (int i = blk->id; i < sb->nblk; ++i) {
-      if ((*pcurdefs)[i].bits == phiref.bits)
-         (*pcurdefs)[i] = same;
+      if (var->curdefs[i].bits == phiref.bits)
+         var->curdefs[i] = same;
    }
 
    /* stops infinite recursion and marks phi for removal */
    instrtab[phiref.i].op = Onop;
 
    /* recursively try to remove all phi users as they might have become trivial */
-Redo:
-   for (IRUse *use = instruse[phiref.i]; use; use = use->next) {
+   for (IRUse *use = instruse[phiref.i], *next; use; use = next) {
+      next = use->next;
       if (use->u != USERJUMP && instrtab[use->u].op == Ophi && use->u != phiref.i) {
          Ref it = mkref(RTMP, use->u);
          Ref vphi2 = deltrivialphis(sb, var, use->blk, it);
          if (vphi2.bits != it.bits) {
             same = vphi2;
-            /* deletion happened so phiref use may have changed */
-            goto Redo;
          }
       }
    }
@@ -91,7 +91,7 @@ Redo:
 }
 
 static Ref
-addphiargs(SSABuilder *sb, int var, enum irclass cls, Block *blk, Ref phiref)
+addphiargs(SSABuilder *sb, Var *var, enum irclass cls, Block *blk, Ref phiref)
 {
    Ref *args = phitab.p[instrtab[phiref.i].l.i];
    for (int i = 0; i < blk->npred; ++i) {
@@ -104,26 +104,22 @@ addphiargs(SSABuilder *sb, int var, enum irclass cls, Block *blk, Ref phiref)
 }
 
 static void
-writevar(SSABuilder *sb, int var, Block *blk, Ref val)
+writevar(SSABuilder *sb, Var *var, Block *blk, Ref val)
 {
-   Ref **pcurdefs;
-   if (!(pcurdefs = imap_get(&sb->curdefs, var))) {
-      pcurdefs = imap_set(&sb->curdefs, var, allocz(sb->arena, sb->nblk * sizeof(Ref), 0));
-   }
    if (val.t == RTMP) assert(instrtab[val.i].op != Onop);
-   (*pcurdefs)[blk->id] = val;
+   var->curdefs[blk->id] = val;
 }
 
 enum { RPENDINGPHI = 7 };
 static Ref
-readvarrec(SSABuilder *sb, int var, enum irclass cls, Block *blk)
+readvarrec(SSABuilder *sb, Var *var, enum irclass cls, Block *blk)
 {
    Ref val;
    assert(blk->npred > 0);
    if (!bstest(sb->sealed, blk->id)) { /* unsealed block */
       /* add pending phi */
       val = insertphi(blk, cls);
-      instrtab[val.i].r = mkref(RPENDINGPHI, var);
+      instrtab[val.i].r = mkref(RPENDINGPHI, var->i);
    } else if (blk->npred == 1) { /* trivial case when block has a single predecessor */
       val = readvar(sb, var, cls, blkpred(blk, 0));
    } else if (!bstest(sb->marked, blk->id)) {
@@ -138,10 +134,8 @@ readvarrec(SSABuilder *sb, int var, enum irclass cls, Block *blk)
          Ref it = readvar(sb, var, cls, pred);
          if (!bstest(sb->marked, blk->id)) {
             /* recursion reached this blk again, use its phi */
-            Ref **pcurdefs = imap_get(&sb->curdefs, var);
             /* must have called writevar */
-            assert(*pcurdefs && (*pcurdefs)[blk->id].bits);
-            return (*pcurdefs)[blk->id];
+            return var->curdefs[blk->id];
          }
          if (i == 0) val = it;
          else if (it.bits != val.bits) /* found a different definition, must add phi */
@@ -161,11 +155,10 @@ readvarrec(SSABuilder *sb, int var, enum irclass cls, Block *blk)
 }
 
 static Ref
-readvar(SSABuilder *sb, int var, enum irclass cls, Block *blk)
+readvar(SSABuilder *sb, Var *var, enum irclass cls, Block *blk)
 {
-   Ref **pcurdefs;
-   if ((pcurdefs = imap_get(&sb->curdefs, var)) && (*pcurdefs)[blk->id].bits)
-      return (*pcurdefs)[blk->id];
+   if (var->curdefs[blk->id].bits)
+      return var->curdefs[blk->id];
    if (blk->npred == 0) /* entry block, var is read before being written to */
       return UNDREF;
    return readvarrec(sb, var, cls, blk);
@@ -188,7 +181,7 @@ Recur:
    for (int i = 0; i < blk->phi.n; ++i) {
       Instr *ins = &instrtab[blk->phi.p[i]];
       if (ins->r.t == RPENDINGPHI)
-         addphiargs(sb, ins->r.i, ins->cls, blk, mkref(RTMP, blk->phi.p[i]));
+         addphiargs(sb, sb->vars[ins->r.i], ins->cls, blk, mkref(RTMP, blk->phi.p[i]));
    }
    if (blk->s1 && !blk->s2) {
       blk = blk->s1;
@@ -208,27 +201,6 @@ tryseal(SSABuilder *sb, Block *blk)
    trysealrec(sb, blk);
 }
 
-static int
-blkfindins(Block *blk, int ins)
-{
-   for (int i = 0; i < blk->phi.n; ++i)
-      if (blk->phi.p[i] == ins) return -1;
-   for (int i = 0; i < blk->ins.n; ++i)
-      if (blk->ins.p[i] == ins) return i;
-   assert(0 && "ins not in blk");
-}
-
-static int
-rcmpuse(const void *a, const void *b)
-{
-   /* postorder sort */
-   const IRUse *ua = *(IRUse **)a, *ub = *(IRUse **)b;
-   Block *blk = ua->blk;
-   if (ua->blk != ub->blk) return ub->blk->id - ua->blk->id;
-   assert(ua->u != USERJUMP && ub->u != USERJUMP);
-   return blkfindins(blk, ub->u) - blkfindins(blk, ua->u);
-}
-
 void
 mem2reg(Function *fn)
 {
@@ -238,103 +210,96 @@ mem2reg(Function *fn)
 
    sb.sealed = allocz(sb.arena, BSSIZE(fn->nblk) * sizeof *sb.sealed, 0);
    sb.marked = allocz(sb.arena, BSSIZE(fn->nblk) * sizeof *sb.sealed, 0);
+   extern int ninstrtab;
+   sb.vars = allocz(sb.arena, ninstrtab * sizeof *sb.vars, 0);
    sortrpo(fn);
 
+   static void *DEAD = "X";
    Block *blk = fn->entry;
-   bool again = 0, neveragain = 0;
-Again:
+   /* gather variables */
    do {
-      if (!neveragain || blk == fn->entry)
       for (int i = 0; i < blk->ins.n; ++i) {
+         enum op ext = Ocopy;
          enum irclass k = 0;
          int sz = 0;
-         enum op ext = Ocopy;
-         int var = blk->ins.p[i];
+         int var = blk->ins.p[i], nwrite = 0, nread = 0;
          Instr *ins = &instrtab[var];
-         IRUse *use;
          
          /* find allocas only used in loads/stores of uniform size */
-         if (!oisalloca(ins->op) || !(use = instruse[var])) continue;
-         IRUse *usesbuf[64];
-         vec_of(IRUse *) uses = VINIT(usesbuf, countof(usesbuf));
-         do {
+         if (!oisalloca(ins->op) || ins->keep/*!volatile*/) continue;
+         for (IRUse *use = instruse[var]; use; use = use->next) {
             if (use->u == USERJUMP) goto Skip;
             Instr *m = &instrtab[use->u];
-            if (use->blk->id < blk->id) {
-               assert(!neveragain);
-               /* alloca appears after some of its uses; happens rarely, like
-                * generated with code with gotos into loops. breaks this algo
-                * due to reprocessing sealed blocks */
-               /* move to entry block and reprocess later */
-               vpush(&fn->entry->ins, var);
-               extern int allocinstr(void);
-               instrtab[blk->ins.p[i] = allocinstr()] = (Instr){Onop};
-               again = 1;
-               goto Skip;
-            }
             if (oisload(m->op) && (!sz || sz == loadsz(m->op))) {
+               ++nwrite;
                sz = loadsz(m->op);
                k = loadcls(m->op);
                if (sz < 4) ext = load2ext(m->op);
             } else if (oisstore(m->op) && m->l.bits == mkref(RTMP, var).bits
               && (!sz || sz == storesz(m->op))) {
+               ++nread;
                sz = storesz(m->op);
             } else goto Skip;
-            vpush(&uses, use);
-         } while ((use = use->next));
-         
-         /* visit uses in rpo */
-         qsort(uses.p, uses.n, sizeof *uses.p, rcmpuse);
-         for (int i = uses.n-1; i >= 0; --i) {
-            use = uses.p[i];
-            ins = &instrtab[use->u];
-
-            if (oisstore(ins->op)) {
-               writevar(&sb, var, use->blk, ins->r);
-               *ins = mkinstr0(Onop,0);
-            } else if (oisload(ins->op)) {
-               Ref val = readvar(&sb, var, k = ins->cls, use->blk);
-               adduse(use->blk, use->u, val);
-               if (ext != Ocopy && isintcon(val)) { /* fold constant int extension */
-                  val = irunop(NULL, ext, k, val);
-                  assert(val.bits);
-                  ext = Ocopy;
-               }
-               *ins = mkinstr1(ext, k, val);
-            }
+         }
+         if (nwrite && nread) { /* vars with no reads or no writes are dead */
+            Var *v = allocz(sb.arena, sizeof *v + sb.nblk*sizeof *v->curdefs, 0);
+            v->ext = ext;
+            v->cls = k;
+            v->i = var;
+            sb.vars[var] = v;
+         } else {
+            sb.vars[var] = DEAD;
          }
          /* remove alloca */
          delinstr(blk, i--);
-         
-      Skip:
-         vfree(&uses);
+      Skip:;
+      }
+   } while ((blk = blk->lnext) != fn->entry);
+
+   /* perform SSA construction */
+   do {
+      for (int i = 0; i < blk->ins.n; ++i) {
+         Instr *ins = &instrtab[blk->ins.p[i]];
+         Var *var;
+         if (!oisloadstore(ins->op)) continue;
+         if (ins->l.t != RTMP || !(var = sb.vars[ins->l.i])) continue;
+         if (oisstore(ins->op)) {
+            if (var != DEAD)
+               writevar(&sb, var, blk, ins->r);
+            *ins = mkinstr0(Onop,0);
+         } else if (var == DEAD) {
+            *ins = mkinstr1(Ocopy, ins->cls, UNDREF);
+         } else {
+            enum irclass k = ins->cls;
+            enum op ext = var->ext;
+            Ref val = readvar(&sb, var, k, blk);
+            adduse(blk, blk->ins.p[i], val);
+            if (ext != Ocopy && isnumcon(val)) {
+               /* fold constant expression */
+               val = irunop(NULL, ext, k, val);
+               assert(val.bits);
+               ext = Ocopy;
+            }
+            *ins = mkinstr1(ext, k, val);
+         }
       }
 
       assert(sb.lastvisit == blk->id);
-      ++sb.lastvisit;
       tryseal(&sb, blk);
+      ++sb.lastvisit;
    } while ((blk = blk->lnext) != fn->entry);
-   if (again) {
-      memset(sb.sealed, 0, BSSIZE(fn->nblk) * sizeof *sb.sealed);
-      neveragain = 1;
-      sb.lastvisit = 0;
-      again = 0;
-      goto Again;
-   }
 
+   /* remove phis marked for deletion */
    do {
-      /* remove phis marked for deletion */
       for (int i = 0; i < blk->phi.n; ++i)
          if (instrtab[blk->phi.p[i]].op == Onop)
             delphi(blk, i--);
    } while ((blk = blk->lnext) != fn->entry);
 
-   imap_free(&sb.curdefs);
    if (ccopt.dbg.m) {
       bfmt(ccopt.dbgout, "<< After mem2reg >>\n");
       irdump(fn);
    }
 }
-
 
 /* vim:set ts=3 sw=3 expandtab: */
