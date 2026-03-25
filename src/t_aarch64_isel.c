@@ -343,14 +343,18 @@ static void
 loadstoreaddr(Block *blk, Ref *r, int *curi, enum op op)
 {
    uint siz = oisload(op) ? loadsz[op-Oloads8] : storesz[op-Ostorei8];
+   bool pcrelok = in_range(op, Oloads32, Oloadf64); /* LDR-LDRSW have PC-relative literal form */
    if (isimm32(*r)) {
-      *r = mkaddr((IRAddr){.base = *r});
+      regarg(r, KPTR, blk, curi);
    } else if (isaddrcon(*r, 0)) {
-      bool pcrelok = in_range(op, Oloads32, Oloadi64); /* LDR-LDRSW have PC-relative literal form */
       if (!pcrelok || !(contab.p[r->i].flag & SLOCAL))
          regarg(r, KPTR, blk, curi);
    } else if (r->t == RTMP || r->t == RSTACK) {
-      fuseaddr(r, blk, curi, siz);
+      Ref b;
+      if (fuseaddr(r, blk, curi, siz)
+       && isaddrcon(b = addrtab.p[r->i].base,0)
+       && (!pcrelok || !(contab.p[b.i].flag & SLOCAL)))
+         regarg(r, KPTR, blk, curi);
    } else if (r->t != RREG) {
       *r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, KPTR, *r));
    }
@@ -369,7 +373,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
    }
 
    switch (op) {
-   //default: assert(0);
+   default: assert(0);
    case Onop: break;
    case Oalloca1: case Oalloca2: case Oalloca4: case Oalloca8: case Oalloca16:
       assert(!"unlowered alloca");

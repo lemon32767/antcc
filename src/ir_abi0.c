@@ -45,8 +45,13 @@ abiarg(ABIArgVec *abiargs, uchar *r2off, int *ni, int *nf, int *ns, IRType ty)
    int ret = mctarg->abiarg(r, cls, r2off, ni, nf, ns, ty);
    if (!ret) { /* in stack */
       vpush(abiargs, ((ABIArg) { ty, .isstk = 1, .stk = r[0] }));
-   } else if (ret == 1 && ty.isagg && cls[0] == KPTR) { /* aggregate by pointer */
-      vpush(abiargs, ((ABIArg) { cls2type(cls[0]), .reg = r[0] }));
+   } else if (ty.isagg && cls[0] == KPTR) { /* aggregate by pointer */
+      ABIArg a = { cls2type(KPTR) };
+      if (ret < 0) /* stack */
+         a.isstk = 1, a.stk = r[0];
+      else /* reg */
+         a.isstk = 0, a.reg = r[0];
+      vpush(abiargs, a);
    } else { /* by regs */
       vpush(abiargs, ((ABIArg) { cls2type(cls[0]), .reg = r[0] }));
       if (ret == 2)

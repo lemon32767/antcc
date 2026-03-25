@@ -1,5 +1,60 @@
 #include "t_aarch64.h"
 
+/* Ref: https://github.com/ARM-software/abi-aa/blob/2025Q4/aapcs64/aapcs64.rst */
+
+static bool
+hfa_scalar(enum typetag *hfa_t, enum typetag t)
+{
+   if (!isfltt(t)) return 0;
+   if (!*hfa_t) *hfa_t = t;
+   else if (*hfa_t != t) return 0;
+   return 1;
+}
+
+static bool cls_hfa(enum typetag *, const TypeData *td);
+
+static bool
+hfa_arr(enum typetag *hfa_t, Type ty)
+{
+   Type chld = typechild(ty);
+   if (isagg(chld))
+      return cls_hfa(hfa_t, &typedata[chld.dat]);
+   if (chld.t == TYARRAY)
+      return hfa_arr(hfa_t, chld);
+   return hfa_scalar(hfa_t, scalartypet(chld));
+}
+
+static bool
+cls_hfa(enum typetag *hfa_t, const TypeData *td)
+{
+   assert(isaggt(td->t));
+   for (int i = 0; i < td->nmemb; ++i) {
+      FieldData *fld = &td->fld[i].f;
+      if (isagg(fld->t)) {
+         if (!cls_hfa(hfa_t, &typedata[fld->t.dat]))
+            return 0;
+      } else if (fld->t.t == TYARRAY) {
+         if (isincomplete(fld->t)) continue;
+         if (!hfa_arr(hfa_t, fld->t))
+            return 0;
+      } else {
+         if (!hfa_scalar(hfa_t, scalartypet(fld->t)))
+            return 0;
+      }
+   }
+   return 1;
+}
+
+static enum irclass
+classify(const TypeData *td)
+{
+   if (td->siz > 16) return 0;
+   enum typetag hfa_t = 0;
+   return cls_hfa(&hfa_t, td) ? type2cls[hfa_t] : (td->siz > 4 ? KI64 : KI32);
+}
+
+/* XXX types with alignment >= 16 */
+
 static int
 abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType typ)
 {
@@ -9,13 +64,60 @@ abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType
          r[0] = V(0) + (*nf)++;
       } else if (kisint(cls[0]) && *ni < NINT) {
          r[0] = R0 + (*ni)++;
-      } else {
+      } else { /* passed on the stack */
          r[0] = *ns;
          *ns += 8;
-         return 0; /* MEMORY */
+         return 0;
       }
       return 1;
-   } else assert(!"nyi");
+   }
+   cls[0] = cls[1] = 0;
+   enum irclass k = classify(&typedata[typ.dat]);
+   if (!k) { /* copied to caller memory and passed as a pointer */
+      cls[0] = KPTR;
+      if (*ni < NINT) { /* in a gpr */
+         r[0] = R0 + (*ni)++;
+         return 1;
+      } else { /* that pointer, passed on the stack */
+         r[0] = *ns;
+         *ns += 8;
+         return -1;
+      }
+   }
+   *r2off = cls2siz[k];
+   int n;
+   uint tsiz = typedata[typ.dat].siz;
+   if (kisflt(k)) { /* HFAA ([1..4]f32 or [1..2]f64) */
+      n = tsiz / cls2siz[k];
+      assert(n <= 2 && "oops");
+      if (n <= NFLT - *nf) {
+         for (int i = 0; i < n; ++i) {
+            r[i] = V(0) + *nf + i;
+            cls[i] = type2cls[k];
+         }
+         *nf += n;
+      } else { /* stack */
+         *nf = NFLT;
+      Stack:
+         r[0] = *ns;
+         *ns = alignup(*ns + tsiz, 8);
+         r[1] = -1;
+         return cls[0] = cls[1] = 0;
+      }
+   } else { /* Composite Type <= 16 bytes */
+      n = 1 + (tsiz > 8);
+      if (n <= NINT - *ni) {
+         r[0] = R0 + *ni;
+         if (n > 1) r[1] = r[0] + 1;
+         *ni += n;
+         cls[0] = tsiz > 4 ? KI64 : KI32;
+         if (n > 1) cls[1] = KI64;
+      } else {
+         *ni = NINT;
+         goto Stack;
+      }
+   }
+   return n;
 }
 
 static int

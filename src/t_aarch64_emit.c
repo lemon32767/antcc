@@ -277,7 +277,7 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper o[3])
       break;
    case EN_ADDSYMLO12:
       ins |= sf<<31 | o[1].reg<<5 | o[0].reg;
-      objrelocxcon(o[2].con, REL_ADD_ABS_LO12_NC, Stext, *pcode - objout.textbegin, o[1].cdisp);
+      objrelocxcon(o[2].con, REL_ADD_ABS_LO12_NC, Stext, *pcode - objout.textbegin, o[2].cdisp);
       break;
    case EN_LDSYMLO19:
       ins |= o[0].reg;
@@ -329,7 +329,7 @@ DEFINSTR2(Xadrp,
    {8, {PGPRZ, PSYM}, 0x90000000, EN_ADRSYMPGHI21} /* ADR (sym pg hi21) */
 )
 DEFINSTR2(Xadr,
-   {8, {PGPRZ, PSYM}, 0x10000000, EN_ADRSYMLO21} /* ADR (sym pg hi21) */
+   {8, {PGPRZ, PSYM}, 0x10000000, EN_ADRSYMLO21} /* ADR (sym lo21) */
 )
 
 DEFINSTR3(Xadd,
@@ -418,6 +418,8 @@ DEFINSTR2(Xfldr,
    {8, {PFPR, PMEMAIMMX}, 0xFD400000, EN_MEMAIMMX},
    {4, {PFPR, PMEMAREG},  0xBC600800, EN_MEMAREG}, /* LDR (register) */
    {8, {PFPR, PMEMAREG},  0xFC600800, EN_MEMAREG},
+   {4, {PFPR, PSYM}, 0x1C000000, EN_LDSYMLO19}, /* LDR (literal) */
+   {8, {PFPR, PSYM}, 0x5C000000, EN_LDSYMLO19},
    {4, {PFPR, PMEMPREPOST}, 0xBC400000, EN_MEMAPREPOST}, /* LDR (immediate, (pre/postinc)) */
    {8, {PFPR, PMEMPREPOST}, 0xFC400000, EN_MEMAPREPOST},
 )

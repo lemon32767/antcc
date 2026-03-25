@@ -40,12 +40,15 @@ classifyarr(uchar cls[2], Type ty, uint off)
    return !!cls[0] + !!cls[1];
 }
 
+/* XXX types with alignment >= 16 */
+
 static int
 classify(uchar cls[2], const TypeData *td, uint off)
 {
    uint siz = alignup(td->siz, 4);
    if (siz > 16) /* MEMORY */
       return 0;
+   assert(isaggt(td->t));
    for (int i = 0; i < td->nmemb; ++i) {
       FieldData *fld = &td->fld[i].f;
       uint align = typealign(fld->t);
