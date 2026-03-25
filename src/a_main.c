@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <signal.h>
 #include <unistd.h>
@@ -13,6 +14,7 @@
 CCOption ccopt;
 CInclPath *cinclpaths[5];
 static CInclPath **cinclpath_tails[5];
+static int nsysinclpaths;
 
 static void
 addinclpath(int ord, const char *path)
@@ -27,6 +29,8 @@ addinclpath(int ord, const char *path)
       cinclpaths[ord] = p;
    }
    cinclpath_tails[ord] = &p->next;
+   if (*path == '/')
+      ++nsysinclpaths;
 }
 
 /* parse an argument of the form 'opt=abcd'
@@ -771,11 +775,28 @@ main(int argc, char **argv)
       prihelp();
       return 1;
    }
+   int nincl0 = nsysinclpaths;
    optparse(argv);
 
    /* global init */
    if (!targ_init(task.targ, &host_targ) || !target.arch) {
       fatal(NULL, "unsupported target: %s", task.targ ? task.targ : HOST_TRIPLE);
+   }
+   if (iscrosscc() && nsysinclpaths == nincl0) {
+      /* try '/usr/<target>/include' */
+      struct stat st;
+      char path[4096];
+      int n = bfmt(&(WriteBuf)MEMBUF(path,sizeof path), "/usr/%s/include/%c", task.targ, 0);
+      if (n < sizeof path
+       && stat(path, &st) == 0) {
+         path[n-2] = '\0';
+         addinclpath(CINCL_isystem, alloccopy(&globarena, path, n, 1));
+         note(0, NULL, "found cross compiler include path %'s", path);
+      } else {
+         warn(NULL,
+               "defaulting to host include paths while cross compiling for %s might not work",
+               task.targ);
+      }
    }
 
    for (const char *const *p = host_predefs; *p; ++p)
