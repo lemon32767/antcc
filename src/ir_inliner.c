@@ -307,7 +307,7 @@ rematerialize(Arena **arena, internstr name, SavedFunc *sv)
    irinit(&fn);
    extern int ninstrtab;
    ninstrtab = sv->ninstrtab;
-   memcpy(instrtab, sv->instrtab, ninstrtab * sizeof *instrtab);
+   if (ninstrtab) memcpy(instrtab, sv->instrtab, ninstrtab * sizeof *instrtab);
    vpushn(&calltab, sv->calltab, sv->ncalltab);
    vpushn(&phitab, sv->phitab, sv->nphitab);
    vpushn(&contab, sv->contab, sv->ncontab);
