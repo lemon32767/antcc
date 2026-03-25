@@ -450,8 +450,8 @@ filluses(Function *fn)
       }
       for (int i = 0; i < blk->ins.n; ++i) {
          int ins = blk->ins.p[i];
-         adduse(blk, ins, instrtab[ins].l);
-         adduse(blk, ins, instrtab[ins].r);
+         for (int i = 0; i < opnoper[instrtab[ins].op]; ++i)
+            adduse(blk, ins, instrtab[ins].oper[i]);
       }
       adduse(blk, USERJUMP, blk->jmp.arg[0]);
       adduse(blk, USERJUMP, blk->jmp.arg[1]);
@@ -466,8 +466,8 @@ newinstr(Block *at, Instr ins)
    int new = allocinstr();
    instrtab[new] = ins;
    if (at) {
-      adduse(at, new, ins.l);
-      adduse(at, new, ins.r);
+      for (int i = 0; i < opnoper[ins.op]; ++i)
+         adduse(at, new, ins.oper[i]);
    }
    return new;
 }

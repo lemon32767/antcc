@@ -428,6 +428,7 @@ abi0(Function *fn)
       if (isagg(fn->retty) && blk->jmp.t == Jret && blk->jmp.arg[0].bits) {
          assert(!blk->jmp.arg[1].bits);
          if (fn->nabiret) { /* aggregate return in register(s) */
+            deluse(blk, USERJUMP, blk->jmp.arg[0]);
             Ref r[2];
             int curi = blk->ins.n;
             load2regs(r, mkirtype(fn->retty), blk->jmp.arg[0], fn->nabiret, fn->abiret, r2off, blk, &curi);
