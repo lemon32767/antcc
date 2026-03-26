@@ -155,7 +155,8 @@ static const ushort relktab[][NRELOCKIND] = {
       [REL_ADR_PREL_LO21] = 274, /* R_AARCH64_ADR_PREL_LO21 */
       [REL_ADR_PREL_PG_HI21] = 276, /* R_AARCH64_ADR_PREL_PG_HI21_NC */
       [REL_ADD_ABS_LO12_NC] = 277, /* R_AARCH64_ADD_ABS_LO12_NC */
-
+      [REL_ADR_GOT_PAGE] = 311, /* R_AARCH64_ADR_GOT_PAGE */
+      [REL_LD64_GOT_LO12_NC] = 312, /* R_AARCH64_LD64_GOT_LO12_NC */
    }
 };
 

@@ -7,7 +7,7 @@
  *    AAELF ABI https://github.com/ARM-software/abi-aa/blob/main/aaelf64/aaelf64.rst
  */
 
-enum operkind { ONONE, OREGZR, OREG, OIMM, OMEM, OSYM };
+enum operkind { ONONE, OREGZR, OREG, OIMM, OMEM, OMEMGOT, OSYM, OSYMGOT };
 enum shiftkind { SLSL, SLSR, SASR, SROR };
 enum addrmode { AIMMIDX, AREGIDX, APREIDX, APOSTIDX };
 enum addrregext { XUXTW = 2, XLSL = 3, XSXTW = 6, XSXTX = 7 };
@@ -23,12 +23,13 @@ typedef struct Oper {
          uchar mode : 3; /* enum addrmode */
          uchar base : 5; /* reg */
          union {
-            struct {
+            struct { /* AREGIDX */
                uchar index : 5; /* reg */
                uchar ext : 3; /* enum addrregext */
                uchar shamt;
             };
-            short disp;
+            ushort con; /* OMEMGOT */
+            short disp; /* AIMM/PRE/POSTIDX */
          };
       } m;
       s64int imm; u64int uimm; /* OIMM */
@@ -43,6 +44,13 @@ typedef struct Oper {
 #define mkoper(t, ...) ((Oper){(t), __VA_ARGS__})
 #define reg2oper(r) (assert((uint)(r) <= V(31)), mkoper(OREG, .reg = (r)))
 
+static inline bool usegot(int c)
+{
+   const IRCon *con = &contab.p[c];
+   return (ccopt.pic || (con->flag & SFUNC)) && !con->deref && !con->isdat
+       && (con->flag & (SLOCAL|SFUNC)) != (SLOCAL|SFUNC);
+}
+
 static Oper
 mkmemoper(uint msiz, Ref r)
 {
@@ -52,13 +60,13 @@ mkmemoper(uint msiz, Ref r)
    } else if (r.t == RREG) {
       return mkoper(OMEM, .m = {AIMMIDX, .base = r.i});
    } else if (isaddrcon(r,1)) {
-      return mkoper(OSYM, .con = r.i,);
+      return mkoper(OSYM + usegot(r.i), .con = r.i,);
    } else if (r.t == RADDR) {
       const IRAddr *addr = &addrtab.p[r.i];
       assert(addr->shift <= 3 && (!addr->disp || !addr->index.bits));
       if (isaddrcon(addr->base,0)) {
          assert(!addr->index.bits);
-         return mkoper(OSYM, .con = addr->base.i, .cdisp = addr->disp);
+         return mkoper(OSYM + usegot(addr->base.i), .con = addr->base.i, .cdisp = addr->disp);
       }
       assert(addr->base.t == RREG);
       if (!addr->index.bits) {
@@ -92,10 +100,10 @@ ref2oper(Ref r)
          assert(contab.p[r.i].f == 0.0);
          return mkoper(OIMM, .imm = 0);
       } else if (!contab.p[r.i].cls) {
-         return mkoper(OSYM, .con = r.i);
+   case RADDR:
+         return mkmemoper(0, r);
       }
       assert(0);
-   case RADDR: return mkmemoper(0, r);
    default: assert(0);
    }
 }
@@ -170,7 +178,7 @@ opermatch(enum operpat pat, enum irclass k, Oper o)
    case PFPR:  return o.t == OREG && in_range(o.reg, V0, V(31));
    case PZERO: return o.t == OIMM && o.imm == 0;
    case PU6:   return o.t == OIMM && (uint)o.imm < 63;
-   case PSYM:  return o.t == OSYM;
+   case PSYM:  return in_range(o.t, OSYM, OSYMGOT);
    case PU12SL12:
       return o.t == OIMM && ((o.imm &~ 0xFFF) == 0 || (o.imm &~ 0xFFF000) == 0);
    case PU16SL16:
@@ -185,7 +193,8 @@ opermatch(enum operpat pat, enum irclass k, Oper o)
    case PMEMAIMMW:
       return o.t == OMEM && o.m.mode == AIMMIDX && (uint)o.m.disp < (1<<14) && !(o.m.disp % 4);
    case PMEMAIMMX:
-      return o.t == OMEM && o.m.mode == AIMMIDX && (uint)o.m.disp < (1<<15) && !(o.m.disp % 8);
+      return (o.t == OMEM && o.m.mode == AIMMIDX && (uint)o.m.disp < (1<<15) && !(o.m.disp % 8))
+          || (o.t == OMEMGOT);
    case PMEMAREG:
       return o.t == OMEM && o.m.mode == AREGIDX;
    case PMEMPREPOST:
@@ -250,7 +259,14 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper o[3])
       break;
    case EN_MEMAIMMH: o[1].m.disp >>= 1; goto AImm;
    case EN_MEMAIMMW: o[1].m.disp >>= 2; goto AImm;
-   case EN_MEMAIMMX: o[1].m.disp >>= 3; goto AImm;
+   case EN_MEMAIMMX:
+      if (o[1].t != OMEMGOT) {
+         o[1].m.disp >>= 3;
+         goto AImm;
+      }
+      ins |= o[1].m.base<<5 | (o[0].reg&31);
+      objrelocxcon(o[1].m.con, REL_LD64_GOT_LO12_NC, Stext, *pcode - objout.textbegin, 0);
+      break;
    case EN_MEMAPREPOST:
       ins |= (o[1].m.disp&0x1FF)<<12 | o[1].m.base<<5 | (o[0].reg&31);
       if (o[1].m.mode == APREIDX) ins |= 3<<10;
@@ -273,7 +289,9 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper o[3])
       break;
    case EN_ADRSYMPGHI21:
       ins |= o[0].reg;
-      objrelocxcon(o[1].con, REL_ADR_PREL_PG_HI21, Stext, *pcode - objout.textbegin, o[1].cdisp);
+      objrelocxcon(o[1].con, o[1].t == OSYMGOT ? REL_ADR_GOT_PAGE
+                                               : REL_ADR_PREL_PG_HI21,
+                   Stext, *pcode - objout.textbegin, o[1].cdisp);
       break;
    case EN_ADDSYMLO12:
       ins |= sf<<31 | o[1].reg<<5 | o[0].reg;
@@ -495,7 +513,7 @@ DEFINSTR3(Xfstp,
 static void
 Xcall(uchar **pcode, Oper dst)
 {
-   if (dst.t == OSYM) {
+   if (in_range(dst.t, OSYM, OSYMGOT)) {
       objrelocxcon(dst.con, REL_CALL26, Stext, *pcode - objout.textbegin, 0);
       W32(0x94000000); /* BL <rel26> */
    } else {
@@ -563,7 +581,10 @@ gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val
             }
          }
       }
-   } else if (opermatch(PGPRZ, cls, (src = ref2oper(val))) && kisint(cls)) {
+      return;
+   }
+   src = ref2oper(val);
+   if (opermatch(PGPRZ, cls, src) && kisint(cls)) {
       Xorr(pcode, cls, dst, REGZR, src); /* MOV Rd, Rn ==> ORR Rd, zr, Rn */
    } else if (kisflt(cls) || opermatch(PFPR, 0, src)) {
       if (src.t == OREG)
@@ -571,10 +592,16 @@ gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val
       else if (src.t == OIMM && src.imm == 0)
          Xfmov(pcode, cls, dst, REGZR);
       else assert(0);
-   } else if (isaddrcon(val,0) || (val.t == RADDR && isaddrcon(addrtab.p[val.i].base,0))) {
-      if ((ccopt.pic || (contab.p[val.i].flag & SFUNC)) && !(contab.p[val.i].flag & SLOCAL)) {
+   } else if (in_range(src.t, OSYM, OSYMGOT)) {
+      if (ccopt.pic || src.t == OSYMGOT) {
          Xadrp(pcode, KPTR, dst, src);
-         Xadd(pcode, KPTR, dst, dst, src);
+         if (src.t == OSYM) {
+            Xadd(pcode, KPTR, dst, dst, src);
+         } else { /* load from GOT (reg + got_lo12) */
+            assert(dst.t == OREG);
+            src = mkoper(OMEMGOT, .m = {AIMMIDX, .base = dst.reg, .con = src.con});
+            Xldr(pcode, KPTR, dst, src);
+         }
       } else {
          Xadr(pcode, KPTR, dst, src);
       }
@@ -879,8 +906,9 @@ static void
 prologue(uchar **pcode, Frame *frame, Function *fn)
 {
    *frame = (Frame){0};
-   regset save = frame->save = (fn->regusage & mctarg->rcallee) | (usefp * BIT(FP)) | (!fn->isleaf * BIT(LR));
+   regset save = frame->save = (fn->regusage & mctarg->rcallee) | (usefp * BIT(FP));
    if (save) {
+      save = rsset(&frame->save, LR);
       int prev = 0;
       struct RPair *p = frame->pairs;
       for (uint reg = V(8); reg <= V(15); ++reg) {
