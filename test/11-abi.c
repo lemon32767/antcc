@@ -24,7 +24,7 @@ union fi { float f; int i; };
 
 struct hs { float x[10]; };
 
-struct hs g(float a, float b, float c, struct f2 d, union fi e, double z) {
+struct hs g(float a, float b, float c, struct f2 d, union fi e, double q, double qq, double qqq, double z) {
    printf("%f %f %f {%f,%f} ", a, b, c, d.f[0], d.f[1]);
    printf("%f(%xh) %f\n", e.f, e.i, z);
    return (struct hs){-1.0f};
@@ -33,7 +33,7 @@ struct hs g(float a, float b, float c, struct f2 d, union fi e, double z) {
 int main() {
    struct ll a = f(1,2,(struct l){3},4,5,6, NULL, (struct x){9}, "abcdef");
    printf(": %ld, %ld\n", a.a, a.b);
-   struct hs h = g(1.0f, 2.0, 3.0f, (struct f2){4.0,5.0}, (union fi){-0.0f}, 99.f);
+   struct hs h = g(1.0f, 2.0, 3.0f, (struct f2){4.0,5.0}, (union fi){-0.0f}, 0,0,0, 99.f);
    printf(": %f\n", h.x[0]);
 }
 

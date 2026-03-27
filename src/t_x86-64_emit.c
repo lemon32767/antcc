@@ -374,10 +374,11 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper dst, Op
          bool sib = 0;
          if (mem.base == RBP) {
             if (!usebp) {
-               /* if RBP isn't being set up (leaf functions with no stack allocations),
-                * access thru RSP (function arguments in the stack) */
                mem.base = RSP;
-               mem.disp -= 8;
+               if (mem.disp > 0) {
+                  /* function stack parameters */
+                  mem.disp -= 8;
+               }
             } else if (mem.disp <= 0) {
                mem.disp += rbpoff;
             }
@@ -1313,6 +1314,8 @@ nops(uchar **pcode, int align)
    }
 }
 
+enum { STACKREDZONE = 128 };
+
 static void
 emitbin(Function *fn)
 {
@@ -1327,9 +1330,9 @@ emitbin(Function *fn)
 
    /** prologue **/
 
-   /* only use frame pointer in non-leaf functions and functions that use the stack */
+   /* only use frame pointer in non-leaf functions and functions with large stack frames */
    usebp = 0;
-   if (!fn->isleaf || fn->stksiz) {
+   if (!fn->isleaf || fn->stksiz >= STACKREDZONE) {
       usebp = 1;
       /* push rbp; mov rbp, rsp */
       DS("\x55\x48\x89\xE5");
@@ -1349,7 +1352,7 @@ emitbin(Function *fn)
       }
    }
 
-   if (fn->stksiz != 0) {
+   if (usebp && fn->stksiz > 0) {
       /* sub rsp, <stack size> */
       if (fn->stksiz < 128)
          DS("\x48\x83\xEC"), B(fn->stksiz);
@@ -1414,7 +1417,7 @@ emitbin(Function *fn)
          if (blk->lnext != fn->entry && blk->lnext->jmp.t == Jret && blk->lnext->ins.n == 0)
             continue; /* fallthru to next blk's RET */
          /* epilogue */
-         if (fn->stksiz && (saverestore || !usebp))
+         if (fn->stksiz && saverestore)
             Xadd(pcode, KPTR, mkoper(OREG, .reg = RSP), mkoper(OIMM, .imm = fn->stksiz));
          if (saverestore)
             calleerestore(pcode, fn);
