@@ -91,18 +91,18 @@ static void
 patchparam(Function *fn, int *curi, int *param, int tydat, int nabi, ABIArg abi[2], uchar r2off)
 {
    Block *blk = fn->entry;
-   assert(in_range(nabi,1,2));
 
    for (; *curi < blk->ins.n; ++*curi) {
       Instr *ins = &instrtab[blk->ins.p[*curi]];
       if (ins->op != Oparam) continue;
       assert(ins->r.t == RTYPE
             && ins->r.i == (tydat < 0 ? abi[0].ty : (IRType){.isagg=1, .dat=tydat}).bits);
-      if (abi[0].ty.isagg || tydat < 0) {
+      if (abi[0].ty.isagg || tydat < 0 || abi[0].ty.bits == cls2type(KPTR).bits) {
          /* aggregate in stack or scalar, just copy */
-         assert(nabi == 1);
+         assert(nabi < 2);
          *ins = copyparam(fn, curi, *param, abi[0]);
       } else { /* aggregate in registers, materialize */
+         assert(nabi >= 1);
          Ref alloc, r[2];
          Instr st;
          const TypeData *td;
@@ -120,13 +120,13 @@ patchparam(Function *fn, int *curi, int *param, int tydat, int nabi, ABIArg abi[
          if (nabi > 1)
             r[1] = insertinstr(blk, ++*curi, copyparam(fn, NULL, ++*param, abi[1]));
          /* transform
-          *  %x = copy %p
+          *  %x = param %p
           * into
           *  %x = alloca...
           *  store* %x, %a
           *  store* %x + N, %b
           */
-         st = mkinstr2(cls2store[abi[0].ty.cls], 0, alloc, r[0]);
+         st = mkinstr2(cls2store[abi[0].ty.isagg ? KPTR : abi[0].ty.cls], 0, alloc, r[0]);
          insertinstr(blk, ++*curi, st);
          if (nabi > 1) {
             Instr tmp = mkinstr2(Oadd, KPTR, alloc, mkref(RICON, r2off));
@@ -174,7 +174,6 @@ load2regs(Ref out[2], IRType typ, Ref src, int nabi, ABIArg abi[2], uchar r2off,
             ins.l = insertinstr(blk, (*curi)++, adr);
          }
          temp = insertinstr(blk, (*curi)++, ins);
-         //insertinstr(blk, (*curi)++, mkarginstr(abi[i].ty, temp));
          out[i] = temp;
       }
    } else {
@@ -200,7 +199,6 @@ load2regs(Ref out[2], IRType typ, Ref src, int nabi, ABIArg abi[2], uchar r2off,
                reg = temp;
             }
          }
-         //insertinstr(blk, arginst++, mkarginstr(abi[i].ty, reg));
          out[i] = reg;
       }
    }
@@ -215,6 +213,7 @@ patcharg(Block *blk, int *icall, IRCall *call,
    assert(arg->op == Oarg && arg->l.t == RTYPE);
    if (ref2type(arg->l).isagg) { /* aggregate argument */
       if (abi[0].ty.isagg) {  /* aggregate in stack */
+         assert(nabi == 0);
          /* XXX do this better.. */
          /* ptr %dst = arg <stk dst> */
          /* (blit %dst, %src) */
@@ -236,9 +235,12 @@ patcharg(Block *blk, int *icall, IRCall *call,
          *icall = arginst + (call->narg - argidx);
          return 1;
       } else if (abi[0].ty.cls == KPTR) { /* aggregate by pointer */
+         /* XXX make a copy */
+         assert(nabi == -1 || nabi == 1);
          arg->cls = KPTR;
          return 1;
       } else { /* aggregate in registers */
+         assert(nabi > 0);
          Ref r[2];
          IRType typ = ref2type(arg->l);
          delinstr(blk, arginst);
@@ -249,6 +251,7 @@ patcharg(Block *blk, int *icall, IRCall *call,
          return nabi;
       }
    } else { /* normal scalar argument */
+      assert(nabi >= 0);
       return 1;
    }
 }
@@ -383,7 +386,7 @@ abi0(Function *fn)
       int first = abiargs.n;
       uchar r2off;
       int ret = abiarg(&abiargs, &r2off, &ni, &nf, &ns, pty);
-      patchparam(fn, &istart, &param, pty.isagg ? pty.dat : -1, ret+!ret, &abiargs.p[first], r2off);
+      patchparam(fn, &istart, &param, pty.isagg ? pty.dat : -1, ret, &abiargs.p[first], r2off);
    }
    fn->abiarg = alloccopy(fn->arena, abiargs.p, abiargs.n * sizeof *abiargs.p, 0);
    fn->nabiarg = abiargs.n;

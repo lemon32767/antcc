@@ -38,6 +38,25 @@ ioper(int i)
    return reg < 0 ? mkoper(ONONE,) : reg2oper(reg);
 }
 
+static struct Frame {
+   bool usebp;
+   int stksiz;
+   int size;
+   int nsave;
+} frame;
+
+static int
+stackdisp(int i)
+{
+   if (frame.usebp) {
+      return i < 0 ? 8 - i
+                   : -frame.size + i;
+   } else { /* RSP rel */
+      return i < 0 ? frame.size - i
+                   : -frame.stksiz + i;
+   }
+}
+
 static Oper
 ref2oper(Ref r)
 {
@@ -56,7 +75,7 @@ ref2oper(Ref r)
          return mkoper(OSYM, .con = r.i, .cindex = NOINDEX);
       }
       assert(0);
-   case RADDR: return mkmemoper(r);
+   case RADDR: case RSTACK: return mkmemoper(r);
    default: assert(0);
    }
 }
@@ -126,6 +145,8 @@ mkmemoper(Ref r)
       if (wop.t == OMEM) return wop;
       assert(wop.t == OREG);
       return mkoper(OMEM, .base = wop.reg, .index = NOINDEX);
+   } else if (r.t == RSTACK) {
+      return mkoper(OMEM, .base = frame.usebp ? RBP : RSP, .index = NOINDEX, .disp = stackdisp(r.i));
    } else if (r.t == RADDR) {
       const IRAddr *addr = &addrtab.p[r.i];
       assert(addr->shift <= 3);
@@ -146,9 +167,19 @@ mkmemoper(Ref r)
                              .cindex = addr->base.bits ? mkregoper(addr->base).reg : NOINDEX,
                              .disp = addr->disp);
       }
-      return mkoper(OMEM, .base = addr->base.bits ? mkregoper(addr->base).reg : NOBASE,
-                          .index = addr->index.bits ? mkregoper(addr->index).reg : NOINDEX,
-                          .disp = addr->disp,
+      int base = NOBASE, index = NOINDEX, disp = addr->disp;
+      if (addr->base.t == RREG) base = addr->base.i;
+      else if (addr->base.t == RSTACK) {
+         base = frame.usebp ? RBP : RSP;
+         disp += stackdisp(addr->base.i);
+      }
+      if (addr->index.bits) {
+         assert(addr->index.t == RREG);
+         index = addr->index.i;
+      }
+      return mkoper(OMEM, .base = base,
+                          .index = index,
+                          .disp = disp,
                           .shift = addr->shift);
    } else if (r.t == RXCON) {
       assert(!contab.p[r.i].cls);
@@ -266,8 +297,6 @@ opermatch(enum operpat pat, Oper oper)
 #define I32(w) (wr32le(*pcode, (w)), *pcode += 4)
 #define DS(S) D(S, sizeof S - 1)
 
-static bool usebp; /* use RBP? */
-static int rbpoff;
 static internstr curfnsym;
 static uchar *fnstart;
 
@@ -372,17 +401,7 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper dst, Op
       } else {
          int mod;
          bool sib = 0;
-         if (mem.base == RBP) {
-            if (!usebp) {
-               mem.base = RSP;
-               if (mem.disp > 0) {
-                  /* function stack parameters */
-                  mem.disp -= 8;
-               }
-            } else if (mem.disp <= 0) {
-               mem.disp += rbpoff;
-            }
-         }
+
          if (mem.base != NOBASE) {
             if (mem.index == NOINDEX && mem.shift == 0) sib = 0;
             else sib = 1;
@@ -904,6 +923,8 @@ gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val
          goto GOTLoad;
       }
       Xlea(pcode, cls, dst, ref2oper(val));
+   } else if (val.t == RSTACK) {
+      Xlea(pcode, cls, dst, ref2oper(val));
    } else if (val.bits == ZEROREF.bits && dst.t == OREG && (kisflt(cls) || !flagslivep(blk, curi))) {
       /* dst = 0 -> xor dst, dst; but only if it is ok to clobber flags */
       Xxor(pcode, kisint(cls) ? KI32 : cls, dst, dst);
@@ -1266,31 +1287,30 @@ emitbranch(uchar **pcode, Block *blk)
       Xjcc(pcode, ALWAYS, blk->s2);
 }
 
-static bool
-calleesave(int *npush, uchar **pcode, Function *fn)
+static int
+calleesave(uchar **pcode, Function *fn)
 {
-   bool any = 0;
-   if (rstest(fn->regusage, RBX)) {
-      Xpush(pcode, RBX);
-      ++*npush;
-      any = 1;
-   }
-   for (int r = R12; r <= R15; ++r)
+   int n = 0;
+   for (int r = R15; r >= R12; --r) {
       if (rstest(fn->regusage, r)) {
          Xpush(pcode, r);
-         ++*npush;
-         any = 1;
+         ++n;
       }
-   return any;
+   }
+   if (rstest(fn->regusage, RBX)) {
+      Xpush(pcode, RBX);
+      ++n;
+   }
+   return n;
 }
 
 static void
 calleerestore(uchar **pcode, Function *fn)
 {
-   for (int r = R15; r >= R12; --r)
+   if (rstest(fn->regusage, RBX)) Xpop(pcode, RBX);
+   for (int r = R12; r <= R15; ++r)
       if (rstest(fn->regusage, r))
             Xpop(pcode, r);
-   if (rstest(fn->regusage, RBX)) Xpop(pcode, RBX);
 }
 
 /* align code using NOPs */
@@ -1331,28 +1351,27 @@ emitbin(Function *fn)
    /** prologue **/
 
    /* only use frame pointer in non-leaf functions and functions with large stack frames */
-   usebp = 0;
+   frame.usebp = 0;
    if (!fn->isleaf || fn->stksiz >= STACKREDZONE) {
-      usebp = 1;
+      frame.usebp = 1;
       /* push rbp; mov rbp, rsp */
       DS("\x55\x48\x89\xE5");
    }
-   saverestore = calleesave(&npush, pcode, fn);
-   if (usebp) rbpoff = -npush*8;
+   saverestore = npush = calleesave(pcode, fn);
+   npush += !frame.usebp;
 
-   /* ensure stack is 16-byte aligned for function calls */
-   if (!fn->isleaf && ((fn->stksiz + npush*8) & 0xF) != 0) {
-      assert(usebp);
-      if ((rbpoff & 0xF) == 0) {
-         rbpoff -= 16;
-         fn->stksiz += 24;
-      } else {
-         rbpoff -= 8;
+   /* ensure stack is 16-byte aligned */
+   if (frame.usebp) {
+      frame.size = fn->stksiz + npush*8;
+      if ((frame.size & 0xF) != 0) {
+         if (npush&1) fn->stksiz += 16;
          fn->stksiz += 8;
+         frame.size += 8;
       }
    }
+   frame.stksiz = fn->stksiz;
 
-   if (usebp && fn->stksiz > 0) {
+   if (frame.usebp && fn->stksiz > 0) {
       /* sub rsp, <stack size> */
       if (fn->stksiz < 128)
          DS("\x48\x83\xEC"), B(fn->stksiz);
@@ -1417,11 +1436,11 @@ emitbin(Function *fn)
          if (blk->lnext != fn->entry && blk->lnext->jmp.t == Jret && blk->lnext->ins.n == 0)
             continue; /* fallthru to next blk's RET */
          /* epilogue */
-         if (fn->stksiz && saverestore)
+         if (fn->stksiz && saverestore && frame.usebp)
             Xadd(pcode, KPTR, mkoper(OREG, .reg = RSP), mkoper(OIMM, .imm = fn->stksiz));
          if (saverestore)
             calleerestore(pcode, fn);
-         if (usebp) B(0xC9); /* leave */
+         if (frame.usebp) B(0xC9); /* leave */
          B(0xC3); /* ret */
       } else if (blk->jmp.t == Jtrap) {
          DS("\x0F\x0B"); /* UD2 */

@@ -110,11 +110,8 @@ Begin:
    ShiftImm: /* shift immediate is always 8bit */
       *r = mkref(RICON, sh & 255);
    } else if (r->t == RSTACK) {
-      Instr adr = mkinstr2(Oadd, KPTR, mkref(RREG, RBP), mkintcon(KI32, -r->i));
-      if (op == Ocopy)
-         *ins = adr;
-      else
-         *r = insertinstr(blk, (*curi)++, adr);
+      if (!(oisloadstore(op) && r == &ins->l) && !in_range(op, Ocopy, Omove) && op != Ophi)
+         *r = inscopy(blk, curi, KPTR, *r);
    } else if (r->bits == UNDREF.bits && ins && !in_range(op, Ocopy, Omove) && op != Ophi) {
       *r = inscopy(blk, curi, ins->cls, *r);
    }
@@ -150,7 +147,7 @@ selcall(Function *fn, Instr *ins, Block *blk, int *curi)
          int iargsave = iarg;
          if (!abi.ty.isagg) { /* scalar arg in stack */
             *arg = mkinstr2(cls2store[abi.ty.cls], 0, adr, arg->r);
-            if (isaddrcon(arg->r,1) || arg->r.t == RADDR)
+            if (isaddrcon(arg->r,1) || arg->r.t == RADDR || arg->r.t == RSTACK)
                arg->r = insertinstr(blk, iarg++, mkinstr1(Ocopy, abi.ty.cls, arg->r));
             else
                fixarg(&ins->r, ins, blk, &iarg);
@@ -239,11 +236,9 @@ static bool
 aadd(IRAddr *out, Block *blk, int *curi, Ref r, bool recurring)
 {
    if (r.t == RSTACK) {
-      if (out->base.bits || !aimm(out, -r.i)) {
-         r = insertinstr(blk, (*curi)++, mkinstr2(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, -r.i)));
+      if (out->base.bits)
          goto Ref;
-      }
-      out->base = mkref(RREG, RBP);
+      out->base = r;
    } else if (r.t == RTMP) {
       Instr *ins = &instrtab[r.i];
       IRAddr adr = {0};
@@ -300,7 +295,7 @@ fuseaddr(Ref *r, Block *blk, int *curi)
 {
    IRAddr addr = { 0 };
 
-   if (isaddrcon(*r,1)) return 1;
+   if (isaddrcon(*r,1) || r->t == RSTACK) return 1;
    if (!aadd(&addr, blk, curi, *r, 0)) return 0;
 
    if (isaddrcon(addr.base,0) && (ccopt.pic || (ccopt.pie && addr.index.bits) || (contab.p[addr.base.i].flag & SFUNC))) {
@@ -386,7 +381,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
       if (!fn->abiarg[ins->l.i].isstk)
          *ins = mkinstr1(Ocopy, ins->cls, mkref(RREG, fn->abiarg[ins->l.i].reg));
       else /* stack */
-         *ins = mkinstr2(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, 16+fn->abiarg[ins->l.i].stk));
+         *ins = mkinstr1(Ocopy, KPTR, mkref(RSTACK, -fn->abiarg[ins->l.i].stk-8));
       break;
    case Oarg:
       fixarg(&ins->r, ins, blk, curi);
@@ -412,11 +407,14 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
             ins->op = ((op - Olth) ^ 1) + Olth;
          rswap(ins->l, ins->r);
       }
-      if (ins->l.t != RTMP && ins->l.t != RREG && ins->l.t != RSTACK)
+      if (ins->l.t != RTMP && ins->l.t != RREG)
          ins->l = inscopy(blk, curi, ins->cls, ins->l);
       else
          fixarg(&ins->l, ins, blk, curi);
-      fixarg(&ins->r, ins, blk, curi);
+      if (ins->r.t == RSTACK)
+         ins->r = inscopy(blk, curi, ins->cls, ins->r);
+      else
+         fixarg(&ins->r, ins, blk, curi);
       break;
    case Odiv: case Oudiv: case Orem: case Ourem:
       if (kisflt(ins->cls)) goto ALU;
@@ -505,7 +503,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
       break;
    case Ostorei8: case Ostorei16: case Ostorei32: case Ostorei64: case Ostoref32: case Ostoref64:
       loadstoreaddr(blk, &ins->l, curi);
-      if (isaddrcon(ins->r,1) || ins->r.t == RADDR)
+      if (isaddrcon(ins->r,1) || ins->r.t == RADDR || ins->r.t == RSTACK)
          ins->r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, KPTR, ins->r));
       else
          fixarg(&ins->r, ins, blk, curi);
@@ -554,7 +552,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
       break;
    case Oxvaprologue:
       fuseaddr(&ins->l, blk, curi);
-      assert(ins->l.t == RADDR);
+      assert(ins->l.t == RSTACK);
       /* !this must be the first instruction */
       assert(*curi == 1);
       assert(blk == fn->entry);

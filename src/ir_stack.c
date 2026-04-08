@@ -19,7 +19,7 @@ lowerstack(Function *fn)
             fn->stksiz = alignup(fn->stksiz, 1 << alignlog2);
             if (fn->stksiz > (1<<20)-1) error(NULL, "'%s' stack frame too big", fn->name);
             *ins = mkinstr0(Onop,0);
-            replcuses(mkref(RTMP, t), mkref(RSTACK, fn->stksiz));
+            replcuses(mkref(RTMP, t), mkref(RSTACK, fn->stksiz-siz));
          }
       }
    } while ((blk = blk->lnext) != fn->entry);

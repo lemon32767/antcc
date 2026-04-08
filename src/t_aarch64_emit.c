@@ -51,6 +51,24 @@ static inline bool usegot(int c)
        && (con->flag & (SLOCAL|SFUNC)) != (SLOCAL|SFUNC);
 }
 
+typedef struct Frame {
+   regset save;
+   struct RPair { uchar a,b; } pairs[10];
+   uchar single[3];
+   uint nfpairs, ngpairs;
+   bool usefp;
+   int size;
+} Frame;
+
+static Frame frame;
+
+static int
+stackdisp(int i)
+{
+   return i < 0 ? frame.size - i - 8 /* arg */
+                : frame.size - i + 16*frame.usefp;
+}
+
 static Oper
 mkmemoper(uint msiz, Ref r)
 {
@@ -59,6 +77,9 @@ mkmemoper(uint msiz, Ref r)
       return mkoper(OMEM, .m = {AIMMIDX, .base = instrtab[r.i].reg-1});
    } else if (r.t == RREG) {
       return mkoper(OMEM, .m = {AIMMIDX, .base = r.i});
+   } else if (r.t == RSTACK) {
+      int disp = stackdisp(r.i);
+      return mkoper(OMEM, .m = {AIMMIDX, .base = frame.usefp ? FP : SP, .disp = disp});
    } else if (isaddrcon(r,1)) {
       return mkoper(OSYM + usegot(r.i), .con = r.i,);
    } else if (r.t == RADDR) {
@@ -68,10 +89,19 @@ mkmemoper(uint msiz, Ref r)
          assert(!addr->index.bits);
          return mkoper(OSYM + usegot(addr->base.i), .con = addr->base.i, .cdisp = addr->disp);
       }
-      assert(addr->base.t == RREG);
       if (!addr->index.bits) {
-         return mkoper(OMEM, .m = {.mode = AIMMIDX, .base = addr->base.i, .disp = addr->disp});
+         int base, disp;
+         if (addr->base.t == RREG) {
+            base = addr->base.i;
+            disp = 0;
+         } else if (addr->base.t == RSTACK) {
+            base = frame.usefp ? FP : SP;
+            disp = stackdisp(addr->base.i);
+         } else assert(0);
+         disp += addr->disp;
+         return mkoper(OMEM, .m = {.mode = AIMMIDX, .base = base, .disp = disp});
       } else {
+         assert(addr->base.t == RREG);
          assert(addr->index.t == RREG);
          assert(addr->shift == 0 || 1<<addr->shift == msiz);
          return mkoper(OMEM, .m = {
@@ -100,7 +130,7 @@ ref2oper(Ref r)
          assert(contab.p[r.i].f == 0.0);
          return mkoper(OIMM, .imm = 0);
       } else if (!contab.p[r.i].cls) {
-   case RADDR:
+   case RSTACK: case RADDR:
          return mkmemoper(0, r);
       }
       assert(0);
@@ -209,8 +239,6 @@ opermatch(enum operpat pat, enum irclass k, Oper o)
 
 static uchar *fnstart;
 static internstr curfnsym;
-static bool usefp;
-static int rbpoff;
 
 /* Given an instruction description table, find the first entry that matches
  * the operands and encode it. */
@@ -582,6 +610,9 @@ gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val
          }
       }
       return;
+   } else if (val.t == RSTACK) {
+      Xadd(pcode, cls, dst, reg2oper(FP), mkoper(OIMM, .imm = stackdisp(val.i)));
+      return;
    }
    src = ref2oper(val);
    if (opermatch(PGPRZ, cls, src) && kisint(cls)) {
@@ -895,20 +926,12 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins)
    }
 }
 
-typedef struct Frame {
-   regset save;
-   struct RPair { uchar a,b; } pairs[10];
-   uchar single[2];
-   uint nfpairs, ngpairs;
-} Frame;
-
 static void
 prologue(uchar **pcode, Frame *frame, Function *fn)
 {
    *frame = (Frame){0};
-   regset save = frame->save = (fn->regusage & mctarg->rcallee) | (usefp * BIT(FP));
+   regset save = frame->save = fn->regusage & mctarg->rcallee;
    if (save) {
-      save = rsset(&frame->save, LR);
       int prev = 0;
       struct RPair *p = frame->pairs;
       for (uint reg = V(8); reg <= V(15); ++reg) {
@@ -919,21 +942,16 @@ prologue(uchar **pcode, Frame *frame, Function *fn)
             prev = 0;
          } else prev = reg;
       }
-      uint ngpr = popcnt(save & (BIT(32)-1));
+      uint ngpr = popcnt(save & (BIT(30)-1));
       if (prev) {
+         frame->single[0] = prev;
          if (ngpr & 1) {
-            frame->single[0] = prev;
             frame->single[1] = prev = lowestsetbit(save);
             rsclr(&save, prev);
-         } else {
-            *p++ = (struct RPair) {prev, V(0)};
-            ++frame->nfpairs;
          }
          prev = 0;
-      } else if (ngpr & 1) {
-         prev = 0x100;
       }
-      for (uint reg = R(19); reg <= LR; ++reg) {
+      for (uint reg = R(19); reg < FP; ++reg) {
          if (!rstest(save, reg)) continue;
          if (prev) {
             *p++ = (struct RPair) {prev, reg};
@@ -941,39 +959,64 @@ prologue(uchar **pcode, Frame *frame, Function *fn)
             prev = 0;
          } else prev = reg;
       }
-      assert(!prev);
+      if (prev) frame->single[2] = prev;
 
       p = frame->pairs;
       Oper adr = mkoper(OMEM, .m = {.mode = APREIDX, .base = SP, .disp = -16});
-      for (int i = 0; i < frame->nfpairs; ++i, ++p)
+      for (int i = 0; i < frame->nfpairs; ++i, ++p) {
          Xfstp(pcode, KF64, reg2oper(p->a), reg2oper(p->b), adr);
+         frame->size += 16;
+      }
       adr.m.disp = -8;
-      if (frame->single[0]) Xfstr(pcode, KF64, reg2oper(frame->single[0]), adr);
-      if (frame->single[1]) Xstr(pcode, KPTR, reg2oper(frame->single[1]), adr);
+      int rx;
+      if ((rx = frame->single[0])) {
+         Xfstr(pcode, KF64, reg2oper(rx), adr);
+         frame->size += 8;
+      }
+      if ((rx = frame->single[1])) {
+         Xstr(pcode, KPTR, reg2oper(rx), adr);
+         frame->size += 8;
+      }
       adr.m.disp = -16;
-      for (int i = 0; i < frame->ngpairs; ++i, ++p)
+      for (int i = 0; i < frame->ngpairs; ++i, ++p) {
          Xstp(pcode, KPTR, reg2oper(p->a), reg2oper(p->b), adr);
+         frame->size += 16;
+      }
+      adr.m.disp = -8;
+      if ((rx = frame->single[2])) {
+         Xstr(pcode, KPTR, reg2oper(rx), adr);
+         frame->size += 8;
+      }
    }
-
-   if (usefp) /* MOV x29, sp */
-      Xadd(pcode, KPTR, reg2oper(FP), reg2oper(SP), mkoper(OIMM,));
-
    /* ensure stack is 16-byte aligned for function calls */
-   if (!fn->isleaf && ((fn->stksiz) & 0xF) != 0) {
-      assert(usefp);
-      rbpoff -= 8;
+   if (!fn->isleaf && ((fn->stksiz + frame->size) & 0xF) != 0) {
       fn->stksiz += 8;
    }
-   if (fn->stksiz) Xsub(pcode, KPTR, reg2oper(SP), reg2oper(SP), mkoper(OIMM, .imm = fn->stksiz));
+   frame->size += fn->stksiz;
+   if ((frame->usefp = !fn->isleaf)) {
+      frame->size += 16;
+      Oper adr = mkoper(OMEM, .m = {.mode = APREIDX, .base = SP, .disp = -16 - fn->stksiz});
+      Xstp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
+      Xadd(pcode, KPTR, reg2oper(R(29)), reg2oper(SP), mkoper(OIMM, {0})); /* MOV x29,sp */
+   } else if (fn->stksiz) {
+      Xsub(pcode, KPTR, reg2oper(SP), reg2oper(SP), mkoper(OIMM, .imm = fn->stksiz));
+   }
 }
 
 static void
 epilogue(uchar **pcode, Function *fn, Frame *frame)
 {
-   if (fn->stksiz) Xadd(pcode, KPTR, reg2oper(SP), reg2oper(SP), mkoper(OIMM, .imm = fn->stksiz));
+   Oper adr = mkoper(OMEM, .m = {.mode = APOSTIDX, .base = SP, .disp = 16+fn->stksiz});
+   if (frame->usefp) {
+      Xldp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
+   } else if (fn->stksiz) {
+      Xadd(pcode, KPTR, reg2oper(SP), reg2oper(SP), mkoper(OIMM, .imm = fn->stksiz));
+   }
    if (frame->save) {
       struct RPair *p = frame->pairs + frame->nfpairs + frame->ngpairs - 1;
-      Oper adr = mkoper(OMEM, .m = {.mode = APOSTIDX, .base = SP, .disp = 16});
+      adr.m.disp = 8;
+      if (frame->single[2]) Xldr(pcode, KF64, reg2oper(frame->single[2]), adr);
+      adr.m.disp = 16;
       for (int i = 0; i < frame->ngpairs; ++i, --p)
          Xldp(pcode, KPTR, reg2oper(p->a), reg2oper(p->b), adr);
       adr.m.disp = 8;
@@ -997,9 +1040,6 @@ emitbin(Function *fn)
 
    /** prologue **/
 
-   /* only use frame pointer in non-leaf functions and functions that use the stack */
-   usefp = !fn->isleaf || fn->stksiz;
-   Frame frame;
    prologue(pcode, &frame, fn);
 
    if (*pcode - fnstart > 8) {

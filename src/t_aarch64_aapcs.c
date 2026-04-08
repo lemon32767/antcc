@@ -93,7 +93,7 @@ abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType
       if (n <= NFLT - *nf) {
          for (int i = 0; i < n; ++i) {
             r[i] = V(0) + *nf + i;
-            cls[i] = type2cls[k];
+            cls[i] = k;
          }
          *nf += n;
       } else { /* stack */
@@ -121,17 +121,17 @@ abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType
 }
 
 static int
-abiret(short r[2], uchar cls[2], uchar *r2off, int *ni, IRType typ)
+abiret(short r[2], uchar cls[2], uchar *r2off, int *_ni, IRType typ)
 {
    if (!typ.isagg) {
       r[0] = kisflt(cls[0] = typ.cls) ? V(0) : R0;
       return 1;
    }
-   int nf = 0, ns = 0;
-   int ret = abiarg(r, cls, r2off, ni, &nf, &ns, typ);
-   if (ret) return ret;
+   int ni = 0, nf = 0, ns = 0;
+   int ret = abiarg(r, cls, r2off, &ni, &nf, &ns, typ);
+   if (ret && cls[0] != KPTR) /* in regs */
+      return ret;
    /* caller-allocated result address in x8 */
-   assert(*ni == 0);
    r[0] = -1;
    r[1] = R(8);
    return 0;

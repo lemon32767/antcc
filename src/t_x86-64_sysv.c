@@ -200,7 +200,7 @@ vastart(Function *fn, Block *blk, int *curi)
    int i = *curi + 1;
    insertinstr(blk, i++, mkinstr2(Ostorei64, 0, dst, rsave));
    /* set ap->overflow_arg_area */
-   src = insertinstr(blk, i++, mkinstr2(Oadd, KPTR, mkref(RREG, RBP), mkref(RICON, 16+stk0)));
+   src = insertinstr(blk, i++, mkinstr1(Ocopy, KPTR, mkref(RSTACK, -stk0-8)));
    dst = insertinstr(blk, i++, mkinstr2(Oadd, KPTR, ap, mkref(RICON, 8)));
    insertinstr(blk, i++, mkinstr2(Ostorei64, 0, dst, src));
    /* set ap->gp_offset */

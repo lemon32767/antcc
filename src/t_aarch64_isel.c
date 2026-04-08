@@ -73,7 +73,7 @@ static void fixarg(Ref *r, Instr *ins, Block *blk, int *curi);
 static void
 regarg(Ref *r, enum irclass k, Block *blk, int *curi)
 {
-   if (r->t != RTMP) {
+   if (r->t != RTMP && r->t != RREG) {
       *r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, k, *r));
       if (kisflt(k) || instrtab[r->i].l.t == RSTACK) {
          int iprev = *curi-1;
@@ -90,7 +90,12 @@ fixarg(Ref *r, Instr *ins, Block *blk, int *curi)
    if (isintcon(*r)) {
       s64int x = intconval(*r);
       switch (op) {
-         case Ocopy: return;
+      case Ocopy: case Omove:
+         if (kisint(ins->cls))
+            return;
+      case Oarg:
+         if (ref2type(ins->l).isagg || !kisflt(ref2type(ins->l).cls))
+            return;
       default:
          if (oiscmp(op)) {
          case Oadd: case Osub:
@@ -108,7 +113,8 @@ fixarg(Ref *r, Instr *ins, Block *blk, int *curi)
       goto Reg;
    } else if (isfltcon(*r)) {
       enum irclass k = concls(*r), ki = KI32 + k-KF32;
-      if (contab.p[r->i].f != 0.0) {
+      /* allow positive zero (copy from rzr) */
+      if (contab.p[r->i].i != 0) {
          union {
             s64int i64;
             int i32;
@@ -125,17 +131,17 @@ fixarg(Ref *r, Instr *ins, Block *blk, int *curi)
          }
          Ref gpr = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, ki, mkintcon(ki, i)));
          *r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, k, gpr));
-      } else if (oiscmp(op)) {
+      } else if (oiscmp(op) || ((op == Ocopy || op == Omove) && kisflt(ins->cls))) {
+         return;
+      } else if (op == Oarg && !ref2type(ins->l).isagg && kisflt(ref2type(ins->l).cls)) {
          return;
       } else {
          *r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, k, *r));
       }
    } else if (r->t == RSTACK) {
-      Instr adr = mkinstr2(Osub, KPTR, mkref(RREG, FP), mkintcon(KI32, r->i));
-      if (op == Ocopy)
-         *ins = adr;
-      else
-         *r = insertinstr(blk, (*curi)++, adr);
+      if (op == Ocopy || op == Omove || op == Ophi || op == Oarg)
+         return;
+      goto Reg;
    } else if (r->t != RTMP) Reg: {
       enum irclass k;
       if (r->t == RTMP) k = insrescls(instrtab[r->i]);
@@ -183,14 +189,14 @@ selcall(Function *fn, Instr *ins, Block *blk, int *curi)
          assert(!abi.ty.isagg);
          *arg = mkinstr2(Omove, call->abiarg[i].ty.cls, mkref(RREG, abi.reg), arg->r);
       } else {
-         Ref adr = mkaddr((IRAddr){mkref(RREG, SP), .disp = abi.stk});
+         Ref adr = mkaddr((IRAddr){.base = mkref(RREG, SP), .disp = abi.stk});
          int iargsave = iarg;
          if (!abi.ty.isagg) { /* scalar arg in stack */
             *arg = mkinstr2(cls2store[abi.ty.cls], 0, adr, arg->r);
             if (isaddrcon(arg->r,1) || arg->r.t == RADDR)
                arg->r = insertinstr(blk, iarg++, mkinstr1(Ocopy, abi.ty.cls, arg->r));
             else
-               fixarg(&ins->r, ins, blk, &iarg);
+               fixarg(&arg->r, arg, blk, &iarg);
          } else { /* aggregate arg in stack, callee stack frame destination address */
             *arg = mkinstr1(Ocopy, KPTR, adr);
          }
@@ -256,8 +262,8 @@ static bool
 aadd(IRAddr *addr, Block *blk, int *curi, Ref r, uint siz/*1,2,4,8*/)
 {
    if (r.t == RSTACK) {
-      if (addr->base.bits || addr->index.bits || !aimm(addr, -r.i)) goto Ref;
-      addr->base = mkref(RREG, FP);
+      if (addr->base.bits) goto Ref;
+      addr->base = r;
    } else if (r.t == RTMP) {
       Instr *ins = &instrtab[r.i];
       if (ins->op == Oadd) {
@@ -288,7 +294,7 @@ aadd(IRAddr *addr, Block *blk, int *curi, Ref r, uint siz/*1,2,4,8*/)
       if (!rstest(mctarg->rglob, r.i)) return 0;
    Ref:
       if (r.t == RSTACK && (addr->base.bits || addr->index.bits)) {
-         r = insertinstr(blk, (*curi)++, mkinstr2(Oadd, KPTR, mkref(RREG, FP), mkref(RICON, -r.i)));
+         r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, KPTR, r));
       }
       if (!addr->base.bits) addr->base = r;
       else if (!addr->index.bits) addr->index = r;
@@ -349,7 +355,8 @@ loadstoreaddr(Block *blk, Ref *r, int *curi, enum op op)
    } else if (isaddrcon(*r, 0)) {
       if (!pcrelok || !(contab.p[r->i].flag & SLOCAL))
          regarg(r, KPTR, blk, curi);
-   } else if (r->t == RTMP || r->t == RSTACK) {
+   } else if (r->t == RSTACK) {
+   } else if (r->t == RTMP) {
       Ref b;
       if (fuseaddr(r, blk, curi, siz)
        && isaddrcon(b = addrtab.p[r->i].base,0)
@@ -386,7 +393,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
       if (!fn->abiarg[ins->l.i].isstk)
          *ins = mkinstr1(Ocopy, ins->cls, mkref(RREG, fn->abiarg[ins->l.i].reg));
       else /* stack */
-         *ins = mkinstr2(Oadd, KPTR, mkref(RREG, FP), mkref(RICON, 16+fn->abiarg[ins->l.i].stk));
+         *ins = mkinstr1(Ocopy, KPTR, mkref(RSTACK, -fn->abiarg[ins->l.i].stk-8));
       break;
    case Oneg: case Onot:
    case Ocvtf32s: case Ocvtf32u:
@@ -442,8 +449,8 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
    case Oequ: case Oneq:
    case Olth: case Ogth: case Olte: case Ogte:
    case Oulth: case Ougth: case Oulte: case Ougte:
-   case Omove:
       regarg(&ins->l, ins->cls, blk, curi);
+   case Omove:
       fixarg(&ins->r, ins, blk, curi);
       break;
    case Omul: case Odiv: case Oudiv:

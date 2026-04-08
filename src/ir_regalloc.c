@@ -111,9 +111,7 @@ typedef struct RegAlloc {
        stktop;
 } RegAlloc;
 
-#define stkslotref(fn, off)                             \
-      mkaddr((IRAddr){.base = mkref(RREG, mctarg->bpr), \
-                      .disp = -(fn)->stksiz - 8 - (off)})
+#define stkslotref(fn, off) mkref(RSTACK, (fn)->stksiz + (off))
 
 /* Parallel moves algorithm from QBE
  * <https://c9x.me/git/qbe.git/tree/rega.c?id=e493a7f23352f51acc0a1e12284ab19d7894488a#n201> */
