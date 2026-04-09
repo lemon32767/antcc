@@ -339,7 +339,7 @@ loadstoreaddr(Block *blk, Ref *r, int *curi)
       picfixsym(r, blk, curi);
    } else if (r->t == RSTACK || (r->t == RTMP && addarg4addrp(*r))) {
       fuseaddr(r, blk, curi);
-   } else if (r->t != RREG) {
+   } else if (r->t != RREG && r->t != RTMP) {
       *r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, KPTR, *r));
    }
 }
@@ -501,7 +501,21 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
    case Oloads32: case Oloadu32: case Oloadi64: case Oloadf32: case Oloadf64:
       loadstoreaddr(blk, &ins->l, curi);
       break;
-   case Ostorei8: case Ostorei16: case Ostorei32: case Ostorei64: case Ostoref32: case Ostoref64:
+   case Ostoref32: case Ostoref64:
+      if (isfltcon(ins->r)) {
+         /* for storing float constants, use the integer store instrs since they can
+          * have immediate operands */
+         if (concls(ins->r) == KF64) {
+            s64int pun = intconval(ins->r);
+            ins->r = mkintcon(KI64, pun);
+         } else {
+            union { float f; int i; } pun = { fltconval(ins->r) };
+            ins->r = mkintcon(KI32, pun.i);
+         }
+         ins->op = op = Ostorei32 + (op - Ostoref32);
+      }
+      /* fallthru */
+   case Ostorei8: case Ostorei16: case Ostorei32: case Ostorei64:
       loadstoreaddr(blk, &ins->l, curi);
       if (isaddrcon(ins->r,1) || ins->r.t == RADDR || ins->r.t == RSTACK)
          ins->r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, KPTR, ins->r));
