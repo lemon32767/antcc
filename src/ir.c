@@ -136,12 +136,14 @@ mkirtype(Type t)
 Ref
 mkintcon(enum irclass k, s64int i)
 {
+   if (cls2siz[k] == 4) { /* check upper half is zero or -1 */
+      assert(in_range((i >> 32) + 1, 0, 1));
+      i = (int)i;
+   }
    if (i < 1l << 28 && i >= -(1l << 28)) {
       return mkref(RICON, i);
    } else {
       IRCon con = { .cls = k, .i = i };
-      if (cls2siz[k] == 4) /* check upper half is zero or -1 */
-         assert(in_range((i >> 32) + 1, 0, 1));
       return newxcon(&con);
    }
 }

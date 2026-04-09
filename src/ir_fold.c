@@ -67,7 +67,7 @@ foldint(enum op op, enum irclass k, Ref lr, Ref rr)
    case Ougte: x = l.u >= r.u; break;
    default: assert(0);
    }
-   if (cls2siz[k] < 8) x = (int)x;
+   if (!w) x = (int)x;
    return mkintcon(k, x);
 }
 
