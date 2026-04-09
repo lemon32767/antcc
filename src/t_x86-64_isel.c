@@ -81,7 +81,7 @@ Begin:
          uint ksiz = cls2siz[con->cls];
          Type ctype;
          /* can't use memory arg in rhs if lhs is memory */
-         bool docopy = ins && &ins->l != r && (oisstore(ins->op) || ins->l.t == RADDR);
+         bool docopy = ins && &ins->l != r && (oisstore(ins->op) || ins->l.t == RADDR || ins->l.t == RSTACK);
          if (con->cls <= KPTR && (in_range(op, Ocopy, Omove) || op == Ophi))
             /* in this case we can use movabs */
             return;
@@ -268,6 +268,8 @@ aadd(IRAddr *out, Block *blk, int *curi, Ref r, bool recurring)
          const IRAddr *adr2 = &addrtab.p[ins->l.i];
          adr = *adr2;
          goto Add2;
+      } else if (ins->op == Ocopy && ins->l.t == RSTACK && !out->base.bits) {
+         out->base = ins->l;
       } else if (ins->op == Oshl) {
          if (!ascale(out, ins->l, ins->r)) goto Ref;
          ins->skip = 1;
@@ -327,7 +329,7 @@ addarg4addrp(Ref r)
    if (r.t == RSTACK) return 1;
    if (r.t != RTMP) return 0;
    ins = &instrtab[r.i];
-   return (ins->op == Ocopy && ins->l.t == RADDR) || ins->op == Oadd || ins->op == Oshl;
+   return (ins->op == Ocopy && (ins->l.t == RADDR || ins->l.t == RSTACK)) || ins->op == Oadd || ins->op == Oshl;
 }
 
 static void
