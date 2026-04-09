@@ -933,6 +933,8 @@ gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val
       GOTLoad:
          /* for  mov reg, [rip(sym@GOTPCREL)] */
          Xmov(pcode, cls, dst, mkoper(OSYMGOT, .con = val.i, .cindex = NOINDEX));
+      } else if (ccopt.pic && (contab.p[val.i].flag & SFUNC) && !objhassym(xcon2sym(val.i), NULL)) {
+         goto GOTLoad;
       } else {
          /* for  lea reg, [rip(sym)] */
          Xlea(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));

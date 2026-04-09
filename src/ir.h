@@ -352,7 +352,7 @@ void cselim(Function *);
 
 /** inliner.c **/
 bool maybeinlinee(Function *);
-void doinline(Function *);
+int doinline(Function *);
 void emitxinlfns(bool all);
 
 /** intrin.c **/

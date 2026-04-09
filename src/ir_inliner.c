@@ -2,7 +2,7 @@
 #include "obj.h"
 
 typedef struct SavedFunc {
-   bool emitted;
+   bool emitted, globl;
    uint ninstrtab, ncontab, ncalltab, nphitab;
    Instr *instrtab;
    IRCon *contab;
@@ -28,13 +28,9 @@ maybeinlinee(Function *fn)
 
    // TODO better heuristics
    if (ccopt.o < OPT1) return 0;
-   if (!(fn->inlin || (!fn->globl && ccopt.o >= OPT2))) return 0;
+   if (!(fn->inlin || (ccopt.o >= OPT2))) return 0;
    if (ninstrtab - nfreeinstr > MAX_INLINED_FN_NINS) return 0;
    if (fn->nblk > MAX_INLINED_FN_NBLK) return 0;
-   for (int i = 0; i < fn->nabiarg; ++i) {
-      /* TODO inlining functions with stack args */
-      if (fn->abiarg[i].isstk) return 0;
-   }
    if (fn->nabiret > 1) return 0; /* TODO 2reg scalar return */
 
    if (!savearena) {
@@ -48,6 +44,7 @@ maybeinlinee(Function *fn)
       bfmt(ccopt.dbgout, "> stashing '%s' for inlining\n", fn->name);
    }
    SavedFunc *sv = allocz(&savearena, sizeof *sv, 0);
+   sv->globl = fn->globl;
    sv->fnty = fn->fnty, sv->retty = fn->retty;
    if (fn->abiarg)
       sv->abiarg = alloccopy(&savearena, fn->abiarg, sizeof *sv->abiarg * fn->nabiarg, 0);
@@ -118,8 +115,22 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv)
       assert(i >= 0);
       Instr *ins = &instrtab[blk->ins.p[i]];
       if (ins->op == Oarg) {
-         args[--n] = ins->r;
-         *ins = mkinstr0(Onop,0);
+         ABIArg abi = sv->abiarg[--n];
+         if (!abi.isstk) {
+            args[n] = ins->r;
+            *ins = mkinstr0(Onop,0);
+         } else { /* simulate stack argument with a stack allocation */
+            uint siz, align;
+            args[n] = mkref(RTMP, blk->ins.p[i]);
+            if (abi.ty.isagg) {
+               const TypeData *td = &typedata[abi.ty.dat];
+               siz = td->siz, align = td->align;
+            } else {
+               siz = align = cls2siz[abi.ty.cls];
+               insertinstr(blk, curi++, mkinstr2(cls2store[abi.ty.cls], 0, args[n], ins->r));
+            }
+            *ins = mkalloca(siz, align);
+         }
       }
    }
    if (call->abiret[1].ty.bits) {
@@ -247,16 +258,17 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv)
 }
 
 enum { MAX_REC_INLINE = 16 };
-void
+int
 doinline(Function *fn)
 {
-   if (calltab.n == 0) return;
+   if (calltab.n == 0) return 0;
    Block *b = fn->entry;
    struct Stack { /* stack of callees being inline expanded */
       Block *b; /* block after the end of expansion */
       SavedFunc *sv;
    } stkbuf[MAX_REC_INLINE], *stk = stkbuf + MAX_REC_INLINE, *stkend = stk;
    bool dumpbefore = 0;
+   int any = 0;
    do {
       if (stk != stkend && b == stk->b)
          ++stk; /* pop */
@@ -284,6 +296,7 @@ doinline(Function *fn)
                }
             }
 
+            ++any;
             (--stk)->b = inlcall(fn, b, i, *pcallee);
             stk->sv = sv;
             if (ccopt.dbg.y) {
@@ -295,12 +308,13 @@ doinline(Function *fn)
       Skip:;
       }
    } while ((b = b->lnext) != fn->entry);
+   return any;
 }
 
 static Function
 rematerialize(Arena **arena, internstr name, SavedFunc *sv)
 {
-   Function fn = { arena, .name = name, .globl = 0/*always localG*/, .fnty = sv->fnty,
+   Function fn = { arena, .name = name, .globl = sv->globl, .fnty = sv->fnty,
       .retty = sv->retty, .abiarg = sv->abiarg, .nabiarg = sv->nabiarg,
       .abiret = {sv->abiret[0], sv->abiret[1]}, .nabiret = sv->nabiret,
    };
@@ -355,7 +369,7 @@ emitxinlfns(bool all)
       internstr name;
       pmap_each(&savedfns, name, psv) {
          sv = *psv;
-         if (!sv->emitted && (all || fnisneeded(name))) {
+         if (!sv->emitted && (fnisneeded(name) || sv->globl || all)) {
             sv->emitted = 1;
             Function fn = rematerialize(&arena, name, sv);
             fn.passarena = &passarena;
