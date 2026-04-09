@@ -636,6 +636,10 @@ gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val
       } else {
          Xadr(pcode, KPTR, dst, src);
       }
+   } else if (src.t == OMEM) {
+      assert(dst.t == OREG);
+      assert(src.m.mode == AIMMIDX);
+      Xadd(pcode, cls, dst, reg2oper(src.m.base), mkoper(OIMM, .imm = src.m.disp));
    } else assert(0);
 }
 

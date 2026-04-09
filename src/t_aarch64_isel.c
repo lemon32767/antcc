@@ -232,7 +232,7 @@ selcall(Function *fn, Instr *ins, Block *blk, int *curi)
 }
 
 static bool
-aimm(IRAddr *addr, int disp)
+aimm(IRAddr *addr, s64int disp)
 {
    if (addr->index.bits) return 0;
    s64int a = addr->disp;
@@ -297,7 +297,7 @@ aadd(IRAddr *addr, Block *blk, int *curi, Ref r, uint siz/*1,2,4,8*/)
          r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, KPTR, r));
       }
       if (!addr->base.bits) addr->base = r;
-      else if (!addr->index.bits) addr->index = r;
+      else if (!addr->index.bits && addr->base.t != RSTACK) addr->index = r;
       else return 0;
    } else return 0;
    return 1;
@@ -434,8 +434,22 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
          op = ins->op ^= 1;
          ins->r.i = -ins->r.i;
       }
-      if (!(isaddrcon(ins->l,0) && (contab.p[ins->l.i].flag & SLOCAL)))
+      if (isaddrcon(ins->l,0)) {
+         if (!(contab.p[ins->l.i].flag & SLOCAL) || !isintcon(ins->r) || ins->cls != KPTR) CopyFirst: {
+            regarg(&ins->l, ins->cls, blk, curi);
+         } else TryAdr: {
+            IRAddr adr = {.base = ins->l};
+            s64int disp = intconval(ins->r);
+            if (!aimm(&adr, ins->op == Osub ? -(u64int)disp : disp)) goto CopyFirst;
+            ins->op = Ocopy;
+            ins->l = mkaddr(adr);
+            ins->r = NOREF;
+            break;
+         }
+      } else if (ins->l.t == RSTACK) {
+         if (isintcon(ins->r)) goto TryAdr;
          regarg(&ins->l, ins->cls, blk, curi);
+      }
       fixarg(&ins->r, ins, blk, curi);
       break;
    case Oand: case Oior: case Oxor:
