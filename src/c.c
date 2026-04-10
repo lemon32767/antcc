@@ -2062,7 +2062,7 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id)
          if (decl.ty.t) {
             uint align = typealign(decl.ty);
             uint siz = tysize;
-            uint off = bitftypesiz ? bitfbyteoff : isunion ? 0 : alignup(td.siz, align);
+            uint off = isunion ? 0 : (bitftypesiz ? bitfbyteoff : alignup(td.siz, align));
             NamedField f = { decl.name, { decl.ty, off, bitsiz, bitoff, .qual = decl.qual }};
             if (bitftypesiz && siz != bitftypesiz) while (f.f.bitoff + f.f.bitsiz > 8*siz) {
                /* adjust bitfields narrower than container type */
@@ -2086,12 +2086,14 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id)
                if (typedata[decl.ty.dat].flexi && !isunion)
                   error(&decl.span, "nested aggregate has flexible array member");
             }
-            if (isunion)
+            if (isunion) {
                td.siz = td.siz < siz ? siz : td.siz;
-            else
+               bitsiz = bitfbyteoff = bitoff = bitftypesiz = 0;
+            } else {
+               bitoff += bitsiz;
                td.siz = off + siz;
+            }
             td.align = td.align < align ? align : td.align;
-            bitoff += bitsiz;
          }
       } while (st.more);
    }
