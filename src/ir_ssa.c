@@ -35,6 +35,8 @@ copyopt(Function *fn)
             if (ins->cls != k) continue;
 
             replcuses(var, arg);
+            if (arg.t == RTMP)
+               deluse(blk, var.i, arg);
             *ins = mkinstr0(Onop,0);
             deluses(var.i);
          }

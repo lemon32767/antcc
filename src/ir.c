@@ -680,7 +680,11 @@ irfini(Function *fn)
       copyopt(fn);
    }
    if (ccopt.o >= OPT1) {
-      doinline(fn);
+      if (doinline(fn)) {
+         filluses(fn);
+         copyopt(fn);
+         mem2reg(fn);
+      }
       freearena(fn->passarena);
       filldom(fn);
       if (!(fn->prop & FNUSE)) filluses(fn);
