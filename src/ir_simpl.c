@@ -91,6 +91,7 @@ doins(Instr *ins, Block *blk, int *curi)
       if (r.bits) {
          *ins = mkinstr0(Onop,0);
          replcuses(mkref(RTMP, ins - instrtab), r);
+         deluses(ins - instrtab);
          return 1;
       }
    }
@@ -103,6 +104,7 @@ doins(Instr *ins, Block *blk, int *curi)
          Ref it = ins->l;
          *ins = mkinstr0(Onop,0);
          replcuses(mkref(RTMP, ins - instrtab), it);
+         deluses(ins - instrtab);
          return 1;
       }
       break;
@@ -243,7 +245,7 @@ simpl(Function *fn)
          int phi = blk->phi.p[i];
          /* delete trivial phis */
          Ref *args = phitab.p[instrtab[phi].l.i],
-               same = *args;
+             same = *args;
          if (same.t == RTMP && instrtab[same.i].op == Ophi) goto Next;
          if (blk->npred > 1) for (int j = 1; j < blk->npred; ++j) {
             if (args[j].bits != same.bits) goto Next;

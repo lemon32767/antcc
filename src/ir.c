@@ -541,9 +541,9 @@ void
 replcuses(Ref from, Ref to)
 {
    assert(from.t == RTMP);
-   for (IRUse *use = instruse[from.i], *next; use; use = next) {
+   for (IRUse *use, *next = instruse[from.i]; (use = next);) {
       Ref *u;
-      int n, j;
+      int n;
       next = use->next;
       if (use->u == from.i) continue;
       if (use->u == USERJUMP) {
@@ -556,15 +556,14 @@ replcuses(Ref from, Ref to)
          n = use->blk->npred;
          if (use->blk->phi.n == 0) continue; /* shouldn't happen */
       } else {
-         u = &instrtab[use->u].l;
-         n = 2;
+         u = instrtab[use->u].oper;
+         n = opnoper[instrtab[use->u].op];
       }
 
-      for (j = 0; j < n; ++j) {
+      for (int j = 0; j < n; ++j) {
          if (u[j].bits == from.bits) {
             u[j].bits = to.bits;
             adduse(use->blk, use->u, to);
-            next = use;
             break;
          }
       }

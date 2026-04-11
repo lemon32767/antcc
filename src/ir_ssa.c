@@ -14,11 +14,8 @@ copyopt(Function *fn)
          for (int j = 1; j < blk->npred; ++j) {
             if (arg[j].bits != arg->bits) goto Next;
          }
-         /* being conservative here because phis could have circular dependencies? */
-         if (arg->t != RTMP || instrtab[arg->i].op != Ophi) {
-            replcuses(mkref(RTMP, phi), *arg);
-            delphi(blk, i--);
-         }
+         replcuses(mkref(RTMP, phi), *arg);
+         delphi(blk, i--);
       Next:;
       }
       for (int i = 0; i < blk->ins.n; ++i) {
