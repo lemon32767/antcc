@@ -1360,7 +1360,6 @@ emitbin(Function *fn)
       DS("\x55\x48\x89\xE5");
    }
    saverestore = npush = calleesave(pcode, fn);
-   npush += !frame.usebp;
 
    /* ensure stack is 16-byte aligned */
    if (frame.usebp) {
@@ -1370,6 +1369,8 @@ emitbin(Function *fn)
          fn->stksiz += 8;
          frame.size += 8;
       }
+   } else {
+      frame.size = npush*8;
    }
    frame.stksiz = fn->stksiz;
 
