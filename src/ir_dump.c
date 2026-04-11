@@ -224,6 +224,8 @@ dumpinst(const Instr *ins)
    bfmt(out, "\n");
 }
 
+static bool prinums;
+
 void
 dumpblk(Function *fn, Block *blk)
 {
@@ -245,9 +247,13 @@ dumpblk(Function *fn, Block *blk)
    for (i = 0; i < blk->phi.n; ++i) {
       Instr *phi = &instrtab[blk->phi.p[i]];
       Ref *refs = phitab.p[phi->l.i];
-      if (i == 0) bfmt(out, "%-4d", blk->inumstart);
-      else bfmt(out, " |> ");
-      bfmt(out, "  %s ", clsname[phi->cls]);
+      if (prinums) {
+         if (i == 0)
+            bfmt(out, "%-4d", blk->inumstart);
+         else
+            bfmt(out, " |> ");
+      }
+      bfmt(out, "    %s ", clsname[phi->cls]);
       if (!phi->reg) bfmt(out, "%%%d = %s ", blk->phi.p[i], opnames[phi->op]);
       else bfmt(out, "(%%%d)%s = %s ", phi - instrtab, mctarg->rnames[phi->reg-1], opnames[phi->op]);
       for (int i = 0; i < blk->npred; ++i) {
@@ -258,10 +264,14 @@ dumpblk(Function *fn, Block *blk)
       ioputc(out, '\n');
    }
    for (i = 0; i < blk->ins.n; ++i) {
-      bfmt(out, "%-4d  ", blk->inumstart + 1 + i);
+      if (prinums)
+         bfmt(out, "%-4d", blk->inumstart + 1 + i);
+      iowrite(out, "    ", 4);
       dumpinst(&instrtab[blk->ins.p[i]]);
    }
-   bfmt(out, "%-4d  %s ", blk->inumstart + 1 + i, jnames[blk->jmp.t]);
+   if (prinums)
+      bfmt(out, "%-4d", blk->inumstart + 1 + i);
+   bfmt(out, "    %s ", jnames[blk->jmp.t]);
    if (blk->jmp.t == Jret && blk->jmp.arg[0].bits && !fn->nabiret && isagg(fn->retty)) {
       /* un-lowered struct return */
       dumpref(0, mktyperef(mkirtype(fn->retty)));
@@ -306,7 +316,12 @@ irdump(Function *fn)
       }
       bfmt(out, "\n");
    }
-   numberinstrs(fn);
+   char *getenv(char *), *s;
+   prinums = 0;
+   if ((s = getenv("DUMP_INSTRNUMS")) && *s > '0') {
+      prinums = 1;
+      numberinstrs(fn);
+   }
    blk = fn->entry;
    do {
       assert(blk->lprev->lnext == blk);
