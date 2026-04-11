@@ -3771,7 +3771,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
          genstore(fn, ex->ty, adr, q);
       }
       if (discard) return NOREF;
-      return bitsiz ? narrow(fn, cls, sub[0].ty, q, bitsiz) : q;
+      return narrow(fn, cls, sub[0].ty, q, bitsiz);
    case ESETMUL:
       op = Omul;
       goto Compound;
@@ -3828,7 +3828,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
          genstore(fn, ex->ty, adr, q);
       }
       if (discard) return NOREF;
-      return bitsiz ? narrow(fn, cls, ex->ty, q, bitsiz) : q;
+      return narrow(fn, cls, ex->ty, q, bitsiz);
    case ECALL:
       r = compilecall(fn, ex);
       if (isint(ex->ty))
