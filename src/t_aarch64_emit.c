@@ -984,8 +984,8 @@ prologue(uchar **pcode, Frame *frame, Function *fn)
          frame->size += 8;
       }
    }
-   /* ensure stack is 16-byte aligned for function calls */
-   if (!fn->isleaf && ((fn->stksiz + frame->size) & 0xF) != 0) {
+   /* ensure stack is 16-byte aligned  */
+   if (((fn->stksiz + frame->size) & 0xF) != 0) {
       fn->stksiz += 8;
    }
    frame->size += fn->stksiz;
