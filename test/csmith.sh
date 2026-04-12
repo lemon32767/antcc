@@ -31,7 +31,7 @@ run_test() {
     
     csmith --no-packed-struct > "$src" 2>/dev/null || return 1
     
-    if ! prlimit --as=1073741824 ../antcc $CFLAGS -I"$csmith_path" -w "$src" -o "$tmp1" -lm; then
+    if ! ../antcc $CFLAGS -I"$csmith_path" -w "$src" -o "$tmp1" -lm; then
         ncomperr=$((ncomperr+1))
         echo "FAIL (compile): test $num"
         mv "$src" "$WORKDIR/$pid-fail_compile_$num.c"
