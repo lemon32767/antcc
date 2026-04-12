@@ -993,7 +993,7 @@ prologue(uchar **pcode, Frame *frame, Function *fn)
       frame->size += 16;
       adr.m.disp -= fn->stksiz;
       Xstp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
-      Xadd(pcode, KPTR, reg2oper(R(29)), reg2oper(SP), mkoper(OIMM, {0})); /* MOV x29,sp */
+      Xadd(pcode, KPTR, reg2oper(R(29)), reg2oper(SP), mkoper(OIMM, .imm=0)); /* MOV x29,sp */
    } else if (fn->stksiz) {
       Xsub(pcode, KPTR, reg2oper(SP), reg2oper(SP), mkoper(OIMM, .imm = fn->stksiz + 8*frame->nsingle));
    }

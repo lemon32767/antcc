@@ -1344,7 +1344,6 @@ emitbin(Function *fn)
    Block *blk;
    uchar **pcode = &objout.code;
    int npush = 0;
-   bool saverestore;
 
    nops(pcode, 16);
    fnstart = *pcode;
@@ -1359,7 +1358,7 @@ emitbin(Function *fn)
       /* push rbp; mov rbp, rsp */
       DS("\x55\x48\x89\xE5");
    }
-   saverestore = npush = calleesave(pcode, fn);
+   npush = calleesave(pcode, fn);
 
    /* ensure stack is 16-byte aligned */
    if (frame.usebp) {
@@ -1439,9 +1438,9 @@ emitbin(Function *fn)
          if (blk->lnext != fn->entry && blk->lnext->jmp.t == Jret && blk->lnext->ins.n == 0)
             continue; /* fallthru to next blk's RET */
          /* epilogue */
-         if (fn->stksiz && saverestore && frame.usebp)
+         if (fn->stksiz > 0 && npush > 0 && frame.usebp)
             Xadd(pcode, KPTR, mkoper(OREG, .reg = RSP), mkoper(OIMM, .imm = fn->stksiz));
-         if (saverestore)
+         if (npush > 0)
             calleerestore(pcode, fn);
          if (frame.usebp) B(0xC9); /* leave */
          B(0xC3); /* ret */
