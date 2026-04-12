@@ -264,6 +264,10 @@ aadd(IRAddr *addr, Block *blk, int *curi, Ref r, uint siz/*1,2,4,8*/)
    if (r.t == RSTACK) {
       if (addr->base.bits) goto Ref;
       addr->base = r;
+   } else if (r.t == RADDR) {
+      if (!addr->base.bits && !addr->index.bits && !addr->disp) {
+         *addr = addrtab.p[r.i];
+      } else goto Ref;
    } else if (r.t == RTMP) {
       Instr *ins = &instrtab[r.i];
       if (ins->op == Oadd) {
@@ -534,6 +538,7 @@ seljmp(Function *fn, Block *blk)
          if (blk->jmp.arg[1].bits) {
             r = mkref(RREG, fn->abiret[1].reg);
             ins = &instrtab[insertinstr(blk, blk->ins.n, mkinstr2(Omove, fn->abiret[1].ty.cls, r, blk->jmp.arg[1])).i];
+            blk->jmp.arg[1] = r;
          }
       }
    }
