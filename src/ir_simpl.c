@@ -214,8 +214,7 @@ void
 simpl(Function *fn)
 {
    FREQUIRE(FNUSE);
-   int inschange = 0,
-       blkchange = 0;
+   int blkchange = 0;
    Block **jmpfinal = allocz(fn->passarena, fn->nblk * sizeof *jmpfinal, 0);
    Block *blk = fn->entry;
 
@@ -262,7 +261,7 @@ simpl(Function *fn)
          Instr *ins = &instrtab[blk->ins.p[curi]];
          if (ins->op != Onop) {
             if (!(fn->prop & FNUSE)) filluses(fn);
-            inschange += doins(ins, blk, &curi);
+            doins(ins, blk, &curi);
          }
       }
 
