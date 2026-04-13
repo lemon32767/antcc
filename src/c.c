@@ -3634,9 +3634,13 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
       }
       /* fallthru */
    case EPLUS:
-      r = compileexpr(fn, sub, discard);
-      if (discard) return NOREF;
-      r = scalarcvt(fn, ex->ty, sub->ty, r);
+      if (!iscomplex(sub->ty) || discard) {
+         r = compileexpr(fn, sub, discard);
+         if (discard) return NOREF;
+         r = scalarcvt(fn, ex->ty, sub->ty, r);
+      } else {
+         r = complex2scalar(fn, ex->ty, sub);
+      }
       if (isint(ex->ty) && (typesize(ex->ty) < typesize(sub->ty) || issigned(ex->ty) != issigned(sub->ty)))
          return narrow(fn, type2cls[scalartypet(ex->ty)], ex->ty, r, 0);
       return r;
