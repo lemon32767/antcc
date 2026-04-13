@@ -158,7 +158,6 @@ static const char aarch64_rnames[][6] = {
 
 const MCTarg t_aarch64_aapcs = {
    .gpr0 = R0, .ngpr = 31,
-   .bpr = FP,
    .gprscratch = R(16), .fprscratch = V(31),
    .fpr0 = V0, .nfpr = 32,
    .rcallee = BIT(R(19)) | BIT(R(20)) | BIT(R(21)) | BIT(R(22)) | BIT(R(23))

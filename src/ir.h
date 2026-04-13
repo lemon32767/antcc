@@ -177,7 +177,7 @@ rsiter(int *i, u64int rs)
    return 1;
 }
 
-enum {
+enum fnprop {
    FNBLKID = 1<<0,
    FNUSE   = 1<<1,
    FNRPO   = 1<<2,
@@ -206,7 +206,6 @@ typedef struct Function {
 typedef struct MCTarg {
    short gpr0, /* first gpr */
          ngpr, /* gpr count */
-         bpr,  /* frame/base pointer reg */
          gprscratch, fprscratch, /* scratch registers for regalloc */
          fpr0, /* first fpr */
          nfpr; /* fpr count */
