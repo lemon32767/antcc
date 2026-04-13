@@ -4086,7 +4086,7 @@ compcomplexex(Function *fn, const Expr *ex, bool discard)
          q.b = complex2addr_cvt(fn, ex->ty, &sub[1]);
          addinstr(fn, mkarginstr(typ, q.a));
          addinstr(fn, mkarginstr(typ, q.b));
-         ins.l = mksymref(intern(rtfn[ex->t == EDIV][sty.t - TYFLOAT]), SFUNC);
+         ins.l = mksymref(intern(rtfn[ex->t == EDIV][type2cls[sty.t] - KF32]), SFUNC);
          ins.r = mkcallarg(mkirtype(ex->ty), 2, -1);
          adr = addinstr(fn, ins);
          goto Load;
