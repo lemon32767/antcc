@@ -2,12 +2,15 @@
 
 /* Ref: https://github.com/ARM-software/abi-aa/blob/2025Q4/aapcs64/aapcs64.rst */
 
+
 static bool
-hfa_scalar(enum typetag *hfa_t, enum typetag t)
+hfa_scalar(enum typetag *hfa_t, Type t)
 {
-   if (!isfltt(t)) return 0;
-   if (!*hfa_t) *hfa_t = t;
-   else if (*hfa_t != t) return 0;
+   enum typetag tt;
+   if (isflt(t)) tt = scalartypet(t);
+   if (iscomplex(t)) tt = t.t - TYCOMPLEXF + TYFLOAT;
+   if (!*hfa_t) *hfa_t = tt;
+   else if (*hfa_t != tt) return 0;
    return 1;
 }
 
@@ -21,7 +24,7 @@ hfa_arr(enum typetag *hfa_t, Type ty)
       return cls_hfa(hfa_t, &typedata[chld.dat]);
    if (chld.t == TYARRAY)
       return hfa_arr(hfa_t, chld);
-   return hfa_scalar(hfa_t, scalartypet(chld));
+   return hfa_scalar(hfa_t, chld);
 }
 
 static bool
@@ -38,7 +41,7 @@ cls_hfa(enum typetag *hfa_t, const TypeData *td)
          if (!hfa_arr(hfa_t, fld->t))
             return 0;
       } else {
-         if (!hfa_scalar(hfa_t, scalartypet(fld->t)))
+         if (!hfa_scalar(hfa_t, fld->t))
             return 0;
       }
    }

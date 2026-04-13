@@ -297,6 +297,7 @@ abi0_call(Function *fn, Instr *ins, Block *blk, int *curi)
    for (int i = 0, i2 = ni + sretarghidden; i < call->narg; ++i) {
       int arginst = *curi - (call->narg - i);
       Instr *arg = &instrtab[blk->ins.p[arginst]];
+      assert(arg->op == Oarg);
       IRType pty = ref2type(arg->l);
       uchar r2off;
       int first = abiargs.n;
@@ -361,14 +362,16 @@ abi0(Function *fn)
    uchar r2off;
    Block *blk;
    Ref sret = {0};
+   Type retty = fn->retty;
+   if (iscomplex(retty)) retty = complex2struct(retty);
 
    FREQUIRE(FNUSE);
 
-   if (fn->retty.t == TYVOID) {
+   if (retty.t == TYVOID) {
       fn->nabiret = 0;
    } else {
-      fn->nabiret = abiret(fn->abiret, &abiargs, &r2off, &ni, mkirtype(fn->retty));
-      if (!fn->nabiret && isagg(fn->retty)) { /* ret agg by hidden pointer */
+      fn->nabiret = abiret(fn->abiret, &abiargs, &r2off, &ni, mkirtype(retty));
+      if (!fn->nabiret && isagg(retty)) { /* ret agg by hidden pointer */
          Instr param = copyparam(fn, NULL, 0, abiargs.p[0]);
          sret = insertinstr(fn->entry, 0, param);
          ++istart;
@@ -392,7 +395,7 @@ abi0(Function *fn)
    fn->nabiarg = abiargs.n;
    vfree(&abiargs);
 
-   if (!fn->nabiret && isagg(fn->retty)) {
+   if (!fn->nabiret && isagg(retty)) {
       /* for structures returned by hidden pointer argument,
        * if all return instrs return local var X, make X point to the result location,
        * (return value optimization (RVO)) */
@@ -428,13 +431,13 @@ abi0(Function *fn)
       }
 
       /* adjust returns */
-      if (isagg(fn->retty) && blk->jmp.t == Jret && blk->jmp.arg[0].bits) {
+      if (isagg(retty) && blk->jmp.t == Jret && blk->jmp.arg[0].bits) {
          assert(!blk->jmp.arg[1].bits);
          if (fn->nabiret) { /* aggregate return in register(s) */
             deluse(blk, USERJUMP, blk->jmp.arg[0]);
             Ref r[2];
             int curi = blk->ins.n;
-            load2regs(r, mkirtype(fn->retty), blk->jmp.arg[0], fn->nabiret, fn->abiret, r2off, blk, &curi);
+            load2regs(r, mkirtype(retty), blk->jmp.arg[0], fn->nabiret, fn->abiret, r2off, blk, &curi);
             for (int i = 0; i < fn->nabiret; ++i) {
                blk->jmp.arg[i] = r[i];
                adduse(blk, USERJUMP, r[i]);
@@ -443,7 +446,7 @@ abi0(Function *fn)
             /* aggregate return (arg[0] is pointer to return value) */
             if (rvovar == -1) {
                /* blit %sret, %arg */
-               IRType typ = mkirtype(fn->retty);
+               IRType typ = mkirtype(retty);
                insertinstr(blk, blk->ins.n, mkarginstr(typ, sret));
                insertinstr(blk, blk->ins.n, mkarginstr(typ, blk->jmp.arg[0]));
                insertinstr(blk, blk->ins.n, mkintrin(INstructcopy, 0, 2));

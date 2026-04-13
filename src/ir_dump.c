@@ -272,7 +272,7 @@ dumpblk(Function *fn, Block *blk)
    if (prinums)
       bfmt(out, "%-4d", blk->inumstart + 1 + i);
    bfmt(out, "    %s ", jnames[blk->jmp.t]);
-   if (blk->jmp.t == Jret && blk->jmp.arg[0].bits && !fn->nabiret && isagg(fn->retty)) {
+   if (blk->jmp.t == Jret && blk->jmp.arg[0].bits && !fn->nabiret && (isagg(fn->retty) || iscomplex(fn->retty))) {
       /* un-lowered struct return */
       dumpref(0, mktyperef(mkirtype(fn->retty)));
       bfmt(out, " ");

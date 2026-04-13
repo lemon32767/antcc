@@ -224,7 +224,7 @@ completetype(internstr name, int id, TypeData *td)
       assert(tagtypetags[id] == name && "bad redefn");
    else
       tagtypetags[id] = name;
-   return mktype(td->t, .flag = td->flag, .dat = interntd(td));
+   return mktype(td->t, .dat = interntd(td));
 }
 
 Type
@@ -312,9 +312,24 @@ cvtarith(Type a, Type b)
    if (!isarith(a) || !isarith(b)) return none;
    if (a.t == TYENUM) a = typechild(a);
    if (b.t == TYENUM) b = typechild(b);
+   if (iscomplex(a)) {
+      if (iscomplex(b)) {
+         /* when both are complex, choose type with greatest rank */
+         /* enumeration order of type tags reflects arithmetic type rank */
+         return a.t > b.t ? a : b;
+      }
+      /* complex float + double -> complex double */
+      if (a.t - TYCOMPLEXF + TYFLOAT < b.t)
+         a.t = b.t + TYCOMPLEXF - TYFLOAT;
+      return a;
+   } else if (iscomplex(b)) {
+      /* double + complex float -> complex double */
+      if (b.t - TYCOMPLEXF + TYFLOAT < a.t)
+         b.t = a.t + TYCOMPLEXF - TYFLOAT;
+      return b;
+   }
    if (isflt(a) || isflt(b)) {
       /* when one type is float, choose type with greatest rank */
-      /* enumeration order of type tags reflects arithmetic type rank */
       return a.t > b.t ? a : b;
    }
    a.t = intpromote(a.t);
@@ -338,6 +353,25 @@ cvtarith(Type a, Type b)
          b.t += 1; /* make unsigned */
       return b.t > a.t ? b : a;
    }
+}
+
+/* transform 'complex T' -> struct 'complex T' { T real, imag; } */
+Type
+complex2struct(Type t)
+{
+   assert(iscomplex(t));
+   static Type cache[3];
+   if (cache[t.t-TYCOMPLEXF].t) return cache[t.t-TYCOMPLEXF];
+   static const char *names[] = {
+      "complex$float", "complex$double", "complex$longdouble"
+   };
+   Type base = mktype(t.t - TYCOMPLEXF + TYFLOAT);
+   return cache[t.t-TYCOMPLEXF] = mktagtype(intern(names[t.t-TYCOMPLEXF]), &(TypeData){
+      TYSTRUCT, .fld = (NamedField [2]){
+         {intern("real"), {.t = base, .off = 0}},
+         {intern("imag"), {.t = base, .off = typesize(base)}},
+      }, .nmemb = 2, .align = typealign(base), .siz = typesize(base) * 2
+   });
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

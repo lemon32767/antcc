@@ -6,7 +6,7 @@ A list of missing standard C features:
 ## C99
   - Variable-length arrays (VLAs)
   - Proper `long double` support in platforms with extended floats (currently equivalent to `double`)
-  - `complex` types, `<tgmath.h>` header
+  - `<tgmath.h>` header
   - digraphs
   - Universal character names (`\uXXXX`, `\UXXXXXXXX`)
   - IEEE 754 float support Annex F IEC 60559 (`FLT_EVAL_METHOD`, `FENV_ACCESS` pragma) (not even GCC or Clang care about this)

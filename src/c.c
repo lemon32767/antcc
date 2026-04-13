@@ -1530,6 +1530,7 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
          .bitoff = bitoff,
          .ex = *ex
       }, *new = alloccopy(&cm->exarena, &val, sizeof val, 0);
+      assert(ex->ty.bits == ty.bits);
       *init->tail = new;
       init->tail = &new->next;
       if (!bitsiz) for (uint i = off, end = i + typesize(ex->ty); i < end; ++i) {
@@ -1811,7 +1812,7 @@ initializer(CComp *cm, Type *ty, enum evalmode ev, bool globl,
       } else {
          if (ev && !eval(&ex, ev) && ev != EVFOLD)
             error(&ex.span, "cannot evaluate expression statically");
-         else
+         else if (ev == EVSTATICINI || !isscalar(*ty))
             iniwrite(cm, ip, 0, 0, 0, *ty, &ex);
       }
       if (ip->dyn)
@@ -2964,6 +2965,7 @@ structcopy(Function *fn, Type ty, Ref dst, Ref src)
 static Ref
 structreturn(Function *fn, const Expr *src)
 {
+   assert(isagg(src->ty));
    return expraddr(fn, src);
 }
 
@@ -3104,6 +3106,13 @@ genstore(Function *fn, Type t, Ref ptr, Ref val)
 static void genbitfstore(Function *fn, const Type ty, Ref addr,
                          const ExprGetFld *fld, Ref tmp, Ref val);
 
+typedef struct { Ref a, b; } Ref2;
+static Ref complex2addr_cvt(Function *, Type, const Expr *);
+static Ref complex2scalar(Function *fn, Type to, const Expr *ex);
+static Ref2 cvt2complex(Function *fn, Type base, const Expr *ex);
+Ref2 compcomplexex(Function *, const Expr *, bool discard);
+static void complexstore(Function *fn, Type base, Ref, Ref2);
+
 static void
 geninit(Function *fn, Type t, Ref dst, const Expr *src)
 {
@@ -3151,6 +3160,8 @@ geninit(Function *fn, Type t, Ref dst, const Expr *src)
             geninit(fn, ex->ty, adr, ex);
          } else if (isagg(ex->ty)) {
             structcopy(fn, ex->ty, adr, expraddr(fn, ex));
+         } else if (iscomplex(ex->ty)) {
+            complexstore(fn, typechild(ex->ty), adr, compcomplexex(fn, ex, 0));
          } else if (!val->bitsiz) {
             genstore(fn, ex->ty, adr, exprvalue(fn, ex));
          } else {
@@ -3358,7 +3369,10 @@ Recur:
       ex = &ex->sub[0];
       goto Recur;
    } else {
-      putcondbranch(fn, exprvalue(fn, ex), tr, fl);
+      Ref r;
+      if (!iscomplex(ex->ty)) r = exprvalue(fn, ex);
+      else r = complex2scalar(fn, mktype(TYBOOL), ex);
+      putcondbranch(fn, r, tr, fl);
    }
 }
 
@@ -3406,10 +3420,16 @@ Recur:
       if (!phi) {
          expreffects(fn, ex);
       } else {
-         Ref val = exprvalue(fn, ex);
-         if (isscalar(phi->typ))
-            val = scalarcvt(fn, phi->typ, ex->ty, val);
-         else assert(ex->ty.bits == phi->typ.bits);
+         Ref val;
+         if (!iscomplex(ex->ty)) {
+            val = exprvalue(fn, ex);
+            if (isscalar(phi->typ))
+               val = scalarcvt(fn, phi->typ, ex->ty, val);
+            else assert(ex->ty.bits == phi->typ.bits);
+         } else {
+            assert(isint(phi->typ));
+            val = complex2scalar(fn, phi->typ, ex);
+         }
          vpush(&phi->refs, val);
       }
       if (fn->curblk)
@@ -3454,7 +3474,7 @@ compilecall(Function *fn, const Expr *ex)
       return declsbuf.p[sub[0].decl].builtin->comp(fn, (Expr *)ex, 0);
    }
    ins.op = Ocall;
-   if (isagg(ex->ty)) {
+   if (isagg(ex->ty) || iscomplex(ex->ty)) {
       ins.cls = KPTR;
    } else {
       assert(isscalar(ex->ty) || ex->ty.t == TYVOID);
@@ -3465,7 +3485,11 @@ compilecall(Function *fn, const Expr *ex)
    for (int i = 0; i < ex->narg; ++i) {
       Expr *arg = &sub[i+1];
       Type ty = i < td->nmemb ? td->param[i] : argpromote(arg->ty);
-      Ref r = scalarcvt(fn, ty, typedecay(arg->ty), exprvalue(fn, arg));
+      Ref r;
+      if (!iscomplex(ty))
+         r = scalarcvt(fn, ty, typedecay(arg->ty), exprvalue(fn, arg));
+      else
+         r = complex2addr_cvt(fn, ty, arg);
       vpush(&insns, mkarginstr(mkirtype(ty), r));
    }
    for (int i = 0; i < insns.n; ++i)
@@ -3562,24 +3586,26 @@ knowntruthy(bool *t, Expr *ex)
 Ref
 compileexpr(Function *fn, const Expr *ex, bool discard)
 {
-   Type ty;
-   Ref l, r, q, adr;
-   uint bitsiz;
-   enum op op;
-   enum irclass cls = type2cls[scalartypet(ex->ty)];
-   int swp = 0;
-   Expr *sub;
-
-   //eval((Expr *)ex, EVFOLD);
-   sub = ex->sub;
-
    if (ex->ty.t != TYVOID && !isscalar(ex->ty)) {
       /* fn & array designators evaluate to their address;
        * so do aggregates for the purpose of code generation */
       if (isagg(ex->ty) && isincomplete(ex->ty))
          error(&ex->span, "use of incomplete type '%ty'", ex->ty);
       return expraddr(fn, ex);
+   } else if (iscomplex(ex->ty)) {
+      assert(discard);
+      (void)compcomplexex(fn, ex, discard);
+      return NOREF;
    }
+
+   Type ty;
+   Ref l, r, q, adr;
+   uint bitsiz;
+   enum op op;
+   int swp;
+   enum irclass cls = type2cls[scalartypet(ex->ty)];
+   Expr *sub = ex->sub;
+
    switch (ex->t) {
    case ENUMLIT:
       if (discard) return NOREF;
@@ -3625,12 +3651,16 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
       l = scalarcvt(fn, ex->ty, sub->ty, l);
       return irunop(fn, op, cls, l);
    case ELOGNOT:
-      for (; sub->t == ELOGNOT; ex = sub, sub = sub->sub)
+      for (swp = 0; sub->t == ELOGNOT; ex = sub, sub = sub->sub)
          swp ^= 1;
       op = Oequ + swp;
-      l = compileexpr(fn, sub, discard);
-      if (discard) return NOREF;
-      l = scalarcvt(fn, ex->ty, sub->ty, l);
+      if (!iscomplex(sub->ty) || discard) {
+         l = compileexpr(fn, sub, discard);
+         if (discard) return NOREF;
+         l = scalarcvt(fn, ex->ty, sub->ty, l);
+      } else {
+         l = complex2scalar(fn, mktype(TYBOOL), sub);
+      }
       r = mkintcon(cls, 0);
       return irbinop(fn, op, cls, l, r);
    case EDEREF:
@@ -3744,15 +3774,26 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
    Cmp:
       ty = cvtarith(sub[0].ty, sub[1].ty);
       if (!ty.t) ty.t = TYPTR;
-      if (isunsigned(ty) && in_range(op, Olth, Ogte))
-         op += Oulth - Olth;
-      l = compileexpr(fn, &sub[0], discard);
-      r = compileexpr(fn, &sub[1], discard);
-      if (discard) return NOREF;
-      l = scalarcvt(fn, ty, sub[0].ty, l);
-      r = scalarcvt(fn, ty, sub[1].ty, r);
-      cls = type2cls[ty.t];
-      return irbinop(fn, op, cls, l, r);
+      if (!iscomplex(ty) || discard) {
+         if (isint(ty) && isunsigned(ty) && in_range(op, Olth, Ogte))
+            op += Oulth - Olth;
+         l = compileexpr(fn, &sub[0], discard);
+         r = compileexpr(fn, &sub[1], discard);
+         if (discard) return NOREF;
+         l = scalarcvt(fn, ty, sub[0].ty, l);
+         r = scalarcvt(fn, ty, sub[1].ty, r);
+         cls = type2cls[ty.t];
+         return irbinop(fn, op, cls, l, r);
+      } else {
+         assert(op == Oequ || op == Oneq);
+         Type base = typechild(ty);
+         Ref2 z1 = cvt2complex(fn, base, &sub[0]),
+              z2 = cvt2complex(fn, base, &sub[1]);
+         /* meh */
+         l = irbinop(fn, op, type2cls[base.t], z1.a, z2.a);
+         r = irbinop(fn, op, type2cls[base.t], z1.b, z2.b);
+         return irbinop(fn, op == Oequ ? Oand : Oior, KI32, l, r);
+      }
    case ESET:
       assert(isscalar(ex->ty));
       q = scalarcvt(fn, sub[0].ty, sub[1].ty, exprvalue(fn, &sub[1]));
@@ -3865,6 +3906,275 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
       expreffects(fn, &sub[0]);
       return compileexpr(fn, &sub[1], discard);
    default: assert(!"nyi expr");
+   }
+}
+
+static Ref
+complex2scalar(Function *fn, Type to, const Expr *ex)
+{
+   Ref2 c = compcomplexex(fn, ex, 0);
+   Type base = typechild(ex->ty);
+   to.t = scalartypet(to);
+   if (to.t == TYBOOL) { /* implicit != 0.0 */
+      /* meh */
+      Ref r = scalarcvt(fn, mktype(TYBOOL), base, c.a),
+          i = scalarcvt(fn, mktype(TYBOOL), base, c.b);
+      return irbinop(fn, Oior, KI32, r, i);
+   } else {
+      return scalarcvt(fn, to, base, c.a);
+   }
+}
+
+static Ref2
+cvt2complex(Function *fn, Type base, const Expr *ex)
+{
+   assert(isscalar(base) && isflt(base));
+   if (iscomplex(ex->ty)) {
+      Ref2 c = compcomplexex(fn, ex, 0);
+      Type base2 = typechild(ex->ty);
+      if (base2.bits != base.bits) {
+         c.a = scalarcvt(fn, base, base2, c.a);
+         c.b = scalarcvt(fn, base, base2, c.b);
+      }
+      return c;
+   }
+   return (Ref2){scalarcvt(fn, base, ex->ty, exprvalue(fn, ex)), mkfltcon(type2cls[base.t], 0)};
+}
+
+static Ref2
+complexload(Function *fn, Type base, Ref adr, bool volatyl)
+{
+   assert(isscalar(base) && isflt(base));
+   return (Ref2){
+      genload(fn, base, adr, volatyl),
+      genload(fn, base, irbinop(fn, Oadd, KPTR, adr, mkref(RICON, targ_primsizes[base.t])), volatyl)
+   };
+}
+
+static void
+complexstore(Function *fn, Type base, Ref adr, Ref2 c)
+{
+   assert(isscalar(base) && isflt(base));
+   genstore(fn, base, adr, c.a);
+   genstore(fn, base, irbinop(fn, Oadd, KPTR, adr, mkref(RICON, targ_primsizes[base.t])), c.b);
+}
+
+static Ref
+complex2addr(Function *fn, const Expr *ex)
+{
+   assert(iscomplex(ex->ty));
+   if (islvalue(ex)) return expraddr(fn, ex);
+   Type base = typechild(ex->ty);
+   Ref2 uv = compcomplexex(fn, ex, 0);
+   Ref r = addinstr(fn, mkalloca(targ_primsizes[base.t]*2, targ_primalign[base.t]));
+   complexstore(fn, base, r, uv);
+   return r;
+}
+
+static Ref
+complex2addr_cvt(Function *fn, Type to, const Expr *ex)
+{
+   assert(iscomplex(to));
+   if (ex->ty.bits == to.bits && islvalue(ex))
+      return expraddr(fn, ex);
+   Type base = typechild(to);
+   Ref2 uv = cvt2complex(fn, base, ex);
+   Ref r = addinstr(fn, mkalloca(targ_primsizes[base.t]*2, targ_primalign[base.t]));
+   complexstore(fn, base, r, uv);
+   return r;
+}
+
+Ref2
+compcomplexex(Function *fn, const Expr *ex, bool discard)
+{
+   static const Ref2 NIL = { 0 };
+   assert(iscomplex(ex->ty));
+   Type sty = typechild(ex->ty);
+   assert(isflt(sty));
+   enum irclass cls = type2cls[sty.t];
+   Ref adr, r;
+   Ref2 q, w, z;
+   const Expr *sub = ex->sub;
+   Type ty;
+   enum op op;
+   switch (ex->t) {
+   case ENUMLIT: /* imaginary literal e.g. 1.0iF */
+      if (discard) return NIL;
+      return (Ref2){mkfltcon(cls, 0.0), mkfltcon(cls, ex->f)};
+   case ESYM:
+      if (discard && !(ex->qual & QVOLATILE)) return NIL;
+      adr = expraddr(fn, ex);
+   Load:
+      return complexload(fn, sty, adr, ex->qual & QVOLATILE);
+   case EVAARG:
+      adr = builtin_va_arg_comp(fn, ex, discard);
+      if (discard) return NIL;
+      goto Load;
+   case EGETF:
+      if (discard && !(ex->qual & QVOLATILE)) return NIL;
+      adr = expraddr(fn, ex);
+      goto Load;
+   case ECAST:
+      /* fallthru */
+   case EPLUS:
+      if (discard) {
+         expreffects(fn, sub);
+         return NIL;
+      }
+      return cvt2complex(fn, sty, sub);
+   case ENEG:
+      q = compcomplexex(fn, sub, discard);
+      if (discard) return q;
+      assert(sub->ty.bits == ex->ty.bits);
+      return (Ref2){irunop(fn, Oneg, cls, q.a), irunop(fn, Oneg, cls, q.b)};
+   case EDEREF:
+      discard &= (ex->qual & QVOLATILE) == 0;
+      adr = compileexpr(fn, sub, discard);
+      if (discard) return NIL;
+      goto Load;
+   case ESUB:
+      op = Osub;
+      goto Additive;
+   case EADD:
+      op = Oadd;
+   Additive:
+      if (discard) {
+         expreffects(fn, &sub[0]), expreffects(fn, &sub[1]);
+         return NIL;
+      }
+      q = cvt2complex(fn, sty, &sub[0]);
+      w = cvt2complex(fn, sty, &sub[1]);
+      /* per ISO C, must avoid unnecessarily addition of constant 0.0, not a NO-OP in IEE754 */
+      if (iscomplex(sub[0].ty) && iscomplex(sub[1].ty)) { /* complex + complex */
+      CmplxCmplx:
+         return (Ref2){
+            irbinop(fn, op, cls, q.a, w.a),
+            irbinop(fn, op, cls, q.b, w.b),
+         };
+      } else if (iscomplex(sub[0].ty)) { /* complex + real */
+         return (Ref2){ irbinop(fn, op, cls, q.a, w.a), q.b };
+      } else { /* real + complex */
+         if (op == Osub) goto CmplxCmplx;
+         return (Ref2){ irbinop(fn, op, cls, q.a, w.a), w.b };
+      }
+   case EMUL:
+      if (discard) {
+         expreffects(fn, &sub[0]), expreffects(fn, &sub[1]);
+         return NIL;
+      }
+      int swp = 0;
+      if (iscomplex(sub[0].ty) && !iscomplex(sub[1].ty)) { /* complex * real */
+      Scale:
+         q = cvt2complex(fn, sty, &sub[swp]);
+         r = scalarcvt(fn, sty, sub[swp^1].ty, exprvalue(fn, &sub[swp^1]));
+         return (Ref2){
+            irbinop(fn, Omul, cls, q.a, r),
+            irbinop(fn, Omul, cls, q.b, r),
+         };
+      } else if (!iscomplex(sub[0].ty) && iscomplex(sub[1].ty)) { /* real * complex */
+         swp = 1;
+         goto Scale;
+      } else RuntimeCall: { /* complex * complex */
+         /* call runtime function */
+         static const char *rtfn[][3] = {
+            {"__mulsc3", "__muldc3", "__mulxc3"},
+            {"__divsc3", "__divdc3", "__divxc3"},
+         };
+         Instr ins = {Ocall, KPTR};
+         IRType typ = mkirtype(ex->ty);
+         q.a = complex2addr_cvt(fn, ex->ty, &sub[0]);
+         q.b = complex2addr_cvt(fn, ex->ty, &sub[1]);
+         addinstr(fn, mkarginstr(typ, q.a));
+         addinstr(fn, mkarginstr(typ, q.b));
+         ins.l = mksymref(intern(rtfn[ex->t == EDIV][sty.t - TYFLOAT]), SFUNC);
+         ins.r = mkcallarg(mkirtype(ex->ty), 2, -1);
+         adr = addinstr(fn, ins);
+         goto Load;
+      }
+   case EDIV:
+      if (discard) {
+         expreffects(fn, &sub[0]), expreffects(fn, &sub[1]);
+         return NIL;
+      }
+      if (iscomplex(sub[0].ty) && !iscomplex(sub[1].ty)) { /* complex / real */
+         q = cvt2complex(fn, sty, &sub[0]);
+         r = scalarcvt(fn, sty, sub[1].ty, exprvalue(fn, &sub[1]));
+         return (Ref2){
+            irbinop(fn, Odiv, cls, q.a, r),
+            irbinop(fn, Odiv, cls, q.b, r),
+         };
+      } else { /* any / complex */
+         goto RuntimeCall;
+      }
+   case ESET:
+      assert(sub[0].ty.bits == ex->ty.bits);
+      q = cvt2complex(fn, sty, &sub[1]);
+      adr = expraddr(fn, &sub[0]);
+      genstore(fn, ex->ty, adr, q.a);
+      genstore(fn, ex->ty,
+            irbinop(fn, Oadd, KPTR, adr, mkref(RICON, targ_primsizes[sty.t])), q.b);
+      return q;
+   case EPREINC:
+   case EPOSTINC:
+   case EPREDEC:
+   case EPOSTDEC:
+      assert(ex->ty.bits == sub->ty.bits);
+      adr = expraddr(fn, sub);
+      q = complexload(fn, sty, adr, sub->qual & QVOLATILE);
+      w.a = irbinop(fn, ex->t < EPREDEC ? Oadd : Osub, cls, q.a, mkfltcon(cls, 1.0));
+      w.b = q.b;
+      complexstore(fn, sty, adr, w);
+      return (ex->t == EPREINC || ex->t == EPREDEC) ? w : q;
+   case ESETMUL:
+   case ESETDIV:
+   case ESETSUB:
+   case ESETADD:
+      ty = cvtarith(sub[0].ty, sub[1].ty);
+      adr = expraddr(fn, &sub[0]);
+      w = cvt2complex(fn, sty, &sub[1]);
+      q = compcomplexex(fn,
+            &mkexpr(ex->t - ESETADD + EADD, ex->span, ty, .sub = (Expr *)sub), 0);
+      if (sub[0].ty.bits == sub[1].ty.bits) {
+         complexstore(fn, sty, adr, q);
+      } else {
+         Type to = typechild(sub[0].ty), from = typechild(ty);
+         w.a = scalarcvt(fn, to, from, q.a);
+         w.b = scalarcvt(fn, to, from, q.b);
+         complexstore(fn, sty, adr, w);
+      }
+      return q;
+   case ECALL:
+      adr = compilecall(fn, ex);
+      if (discard) return NIL;
+      goto Load;
+   case ECOND:
+      for (bool c; knowntruthy(&c, &ex->sub[0]);) {
+         r = compileexpr(fn, &ex->sub[2-c], discard);
+         if (discard) return NIL;
+         assert(ex->sub[2-c].ty.bits == ex->ty.bits);
+         return compcomplexex(fn, &ex->sub[2-c], 0);
+      }
+
+      Block *tr, *fl, *end;
+      condjump(fn, &sub[0], tr = newblk(fn), fl = newblk(fn));
+      useblk(fn, tr);
+      q = compcomplexex(fn, &sub[1], discard);
+      end = newblk(fn);
+      if (fn->curblk)
+         putbranch(fn, end);
+      useblk(fn, fl);
+      w = compcomplexex(fn, &sub[2], discard);
+      if (fn->curblk)
+         putbranch(fn, end);
+      useblk(fn, end);
+      if (discard) return NIL;
+      z.a = addphi(fn, cls, (Ref[2]){q.a, w.a});
+      z.b = addphi(fn, cls, (Ref[2]){q.b, w.b});
+      return z;
+   case ESEQ:
+      expreffects(fn, &sub[0]);
+      return compcomplexex(fn, &sub[1], discard);
+   default: assert(!"nyi cmplx expr");
    }
 }
 
@@ -4383,12 +4693,16 @@ stmt(CComp *cm, Function *fn)
                   ex.ty, fn->retty);
          }
          EMITS {
-            if (isscalar(fn->retty))
-               r = scalarcvt(fn, fn->retty, ex.ty, exprvalue(fn, &ex));
-            else if (fn->retty.t == TYVOID)
+            if (isscalar(fn->retty) && !iscomplex(fn->retty)) {
+               if (iscomplex(ex.ty)) r = complex2scalar(fn, fn->retty, &ex);
+               else r = scalarcvt(fn, fn->retty, ex.ty, exprvalue(fn, &ex));
+            } else if (iscomplex(fn->retty)) {
+               r = complex2addr_cvt(fn, fn->retty, &ex);
+            } else if (fn->retty.t == TYVOID) {
                r = (expreffects(fn, &ex), NOREF);
-            else
+            } else {
                r = structreturn(fn, &ex);
+            }
             putreturn(fn, r, NOREF);
          }
       } else {
@@ -4492,7 +4806,11 @@ localdecl(CComp *cm, Function *fn, bool forini)
                         geninit(fn, ty, mkref(RTMP, decl.id), &ini);
                      else if (isagg(ty))
                         structcopy(fn, ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
-                     else {
+                     else if (iscomplex(ty)) {
+                        Type base = typechild(ty);
+                        complexstore(fn, base, mkref(RTMP, decl.id),
+                              cvt2complex(fn, base, &ini));
+                     } else {
                         genstore(fn, ty, mkref(RTMP, decl.id),
                               scalarcvt(fn, ty, ini.ty, exprvalue(fn, &ini)));
                      }
@@ -4581,7 +4899,7 @@ function(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uchar *
          Decl arg = { .ty = td->param[i], .qual = pquals ? pquals[i] : 0,
                              .name = pnames[i], .scls = SCAUTO, .span = pspans[i] };
          EMITS {
-            if (isscalar(arg.ty)) {
+            if (isscalar(arg.ty) && !iscomplex(arg.ty)) {
                arg.id = addinstr(fn, mkalloca(typesize(arg.ty), typealign(arg.ty))).i;
                genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RTMP, i));
             } else {

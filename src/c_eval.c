@@ -400,6 +400,7 @@ binop(Expr *ex, enum evalmode mode)
 bool
 eval(Expr *ex, enum evalmode mode)
 {
+   if (iscomplex(ex->ty)) return 0;
    switch (ex->t) {
    case EGETF: goto Unop;
    case ESEQ:

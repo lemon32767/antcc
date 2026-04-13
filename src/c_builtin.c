@@ -147,7 +147,7 @@ Ref
 builtin_va_arg_comp(Function *fn, const Expr *ex, bool discard)
 {
    assert(ex->t == EVAARG && ex->ty.t);
-   enum irclass k = isagg(ex->ty) ? KPTR : type2cls[scalartypet(ex->ty)];
+   enum irclass k = (isagg(ex->ty) || iscomplex(ex->ty)) ? KPTR : type2cls[scalartypet(ex->ty)];
    return addinstr(fn, mkinstr2(Ovaarg, k, compileexpr(fn, ex->sub, 0), mktyperef(mkirtype(ex->ty))));
 }
 

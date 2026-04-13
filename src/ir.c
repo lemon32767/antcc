@@ -127,6 +127,7 @@ newxcon(const IRCon *con)
 IRType
 mkirtype(Type t)
 {
+   if (iscomplex(t)) t = complex2struct(t);
    if (t.t == TYVOID || isscalar(t))
       return (IRType) { .cls = type2cls[scalartypet(t)] };
    assert(isagg(t));

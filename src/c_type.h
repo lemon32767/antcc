@@ -137,10 +137,12 @@ Type typedecay(Type);
 bool assigncompat(Type dst, Type src);
 enum typetag intpromote(enum typetag);
 Type cvtarith(Type a, Type b);
+Type complex2struct(Type);
 static inline Type
 typechild(Type t)
 {
    if (t.t == TYENUM) return mktype(typedata[t.dat].backing);
+   if (iscomplex(t)) return mktype(t.t - TYCOMPLEXF + TYFLOAT);
    if (t.flag & TFCHLDPRIM) return mktype(t.child);
    if (t.flag & TFCHLDISDAT) {
       Type chld = mktype(typedata[t.dat].t, .flag = typedata[t.dat].flag, .dat = t.dat);

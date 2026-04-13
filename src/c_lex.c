@@ -138,24 +138,26 @@ parsenumlit(u64int *outi, double *outf, const Token *tk, bool ispp)
    } else if (memchr(tk->s, '.', tk->len)) {
       extern double strtod(const char *, char **);
       double f;
-      char buf[80], *suffix;
+      char buf[80], *s;
    Float: /* float literal */
       assert(tk->len < sizeof buf - 1 && "numlit too big");
       memcpy(buf, tk->s, tk->len);
       buf[tk->len] = 0;
-      f = strtod(buf, &suffix);
-      if (suffix == buf)
+      f = strtod(buf, &s);
+      if (s == buf)
          return 0;
-      if (!*suffix) {
-         if (outf) *outf = f;
-         return TYDOUBLE;
-      } else if ((suffix[0]|0x20) == 'f' && !suffix[1]) {
-         if (outf) *outf = f;
-         return TYFLOAT;
-      } else if ((suffix[0]|0x20) == 'l' && !suffix[1]) {
-         if (outf) *outf = f;
-         return TYLDOUBLE;
+      if (outf) *outf = f;
+      if (!*s) return TYDOUBLE;
+      for (char *p = s; *p; ++p) {
+         if ((*p |= 0x20) == 'j') *p = 'i';
       }
+      if (s[0] == 'f' && !s[1]) return TYFLOAT;
+      else if (s[0] == 'l' && !s[1]) return TYLDOUBLE;
+      else if (s[0] == 'i' && !s[1]) return TYCOMPLEX;
+      else if (s[0] == 'i' && s[1] == 'f' && !s[2]) return TYCOMPLEXF;
+      else if (s[0] == 'f' && s[1] == 'i' && !s[2]) return TYCOMPLEXF;
+      else if (s[0] == 'i' && s[1] == 'l' && !s[2]) return TYCOMPLEXL;
+      else if (s[0] == 'l' && s[1] == 'i' && !s[2]) return TYCOMPLEXL;
       return 0;
    } else { /* int literal */
       static u64int max4typ[TYUVLONG-TYINT+1];
@@ -2432,7 +2434,7 @@ addpredefmacros(Arena **tmparena)
    };
    static const char
       cpredefs[] =
-         "__antcc__\0__STDC__\0__STDC_NO_ATOMICS__\0__STDC_NO_COMPLEX__\0__STDC_NO_THREADS__\0__STDC_NO_VLA__\0",
+         "__antcc__\0__STDC__\0__STDC_NO_ATOMICS__\0__STDC_NO_THREADS__\0__STDC_NO_VLA__\0",
       cstdver[][8] = {
          [STDC89] = "199409L",
          [STDC99] = "199901L",

@@ -5,6 +5,10 @@ static int classify(uchar cls[2], const TypeData *td, uint off);
 static void
 clsscalar(uchar cls[2], uint off, Type ty)
 {
+   if (iscomplex(ty)) {
+      classify(cls, &typedata[complex2struct(ty).dat], off);
+      return;
+   }
    enum irclass k = type2cls[scalartypet(ty)];
    uchar *fcls = &cls[off/8];
    if (isflt(ty)) { /* SSE */

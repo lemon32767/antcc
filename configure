@@ -89,9 +89,9 @@ case "$host" in
     aarch64) DYNAMIC_LINKER=$sysroot/lib/ld-linux-aarch64.so.1
     esac
     ldstartfiles='"-l:crt1.o", "-l:crti.o", "-l:crtbegin.o"'
-    ldendfiles='"-lc", "-l:crtend.o", "-l:crtn.o"'
+    ldendfiles='"-lc", "-lgcc", "-l:crtend.o", "-l:crtn.o"'
     ldstartfiles_pie='"-l:Scrt1.o", "-l:crti.o", "-l:crtbeginS.o"'
-    ldendfiles_pie='"-lc", "-l:crtendS.o", "-l:crtn.o"'
+    ldendfiles_pie='"-lc", "-lgcc", "-l:crtendS.o", "-l:crtn.o"'
     findgcclibdir
     linkflags='"-L", "'$GCCLIBDIR'",'
     host_predefs=''
@@ -108,12 +108,12 @@ case "$host" in
         findgcclibdir
         linkflags='"-nostdlib", "-L", "'$sysroot'/usr/lib/musl/lib", "-L", "'$GCCLIBDIR'",'
         ldstartfiles='"'$sysroot'/usr/lib/musl/lib/crt1.o","'$sysroot'/usr/lib/musl/lib/crti.o", "-l:crtbeginS.o"'
-        ldendfiles='"-lc", "-l:crtendS.o", "'$sysroot'/usr/lib/musl/lib/crtn.o"'
+        ldendfiles='"-lc", "-lgcc", "-l:crtendS.o", "'$sysroot'/usr/lib/musl/lib/crtn.o"'
         ldstartfiles_pie='"'$sysroot'/usr/lib/musl/lib/Scrt1.o", "'$sysroot'/usr/lib/musl/lib/crti.o", "-l:crtbeginS.o"'
         ldendfiles_pie="$ldendfiles"
     else
         ldstartfiles='"-l:crt1.o", "-l:crti.o"'
-        ldendfiles='"-lc", "-l:crtn.o"'
+        ldendfiles='"-lc", "-lgcc", "-l:crtn.o"'
         ldstartfiles_pie='"-l:Scrt1.o", "-l:crti.o"'
         ldendfiles_pie="$ldendfiles"
     fi
@@ -122,7 +122,7 @@ case "$host" in
     host_os=openbsd
     DYNAMIC_LINKER=$sysroot/usr/libexec/ld.so
     ldstartfiles='"-l:crt0.o", "-l:crtbegin.o"'
-    ldendfiles='"-lc", "-l:crtend.o"'
+    ldendfiles='"-lc", "-lgcc", "-l:crtend.o"'
     ldstartfiles_pie="$ldstartfiles"
     ldendfiles_pie="$ldendfiles"
     linkflags='"-L'$sysroot'/usr/lib"'
