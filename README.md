@@ -4,7 +4,7 @@ Supports [most of C11 and some C23 features](doc/cstd.md), as well as some GNU e
 
 Currently still in a experimental stage, but can successfully build some
 real-world C codebases such as Lua, SQLite,
-[oksh](https://github.com/ibara/oksh), [tin](http://www.tin.org/) and itself.
+[oksh](https://github.com/ibara/oksh), [tin](http://www.tin.org/), [DOOM](https://github.com/chocolate-doom/chocolate-doom) and itself.
 
 `antcc` is inspired by other small C compilers like
 [tcc](https://bellard.org/tcc/),
