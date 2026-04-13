@@ -345,7 +345,6 @@ finddecl(CComp *cm, internstr name)
 static Type
 gettagged(CComp *cm, Span *span, enum typetag tt, internstr name, bool dodef)
 {
-   TypeData td = {0};
    assert(name);
    for (Env *e = cm->env; e; e = e->up) {
       for (Tagged *l = NULL; envitertagged(&l, e);) {
@@ -361,14 +360,12 @@ gettagged(CComp *cm, Span *span, enum typetag tt, internstr name, bool dodef)
       warn(span, "forward-declared enum is an extension");
    }
 Break2:
-   td.t = tt;
-   return envaddtagged(cm->env, mktagtype(name, &td), span)->ty;
+   return envaddtagged(cm->env, mktagtype(name, &(TypeData){tt, TFUNKNOWN}), span)->ty;
 }
 
 static Type
 deftagged(CComp *cm, Span *span, enum typetag tt, internstr name, Type ty)
 {
-   TypeData td = {0};
    assert(name);
    for (Tagged *l = NULL; envitertagged(&l, cm->env);) {
       if (name == tagtypetags[typedata[l->ty.dat].id]) {
@@ -376,8 +373,7 @@ deftagged(CComp *cm, Span *span, enum typetag tt, internstr name, Type ty)
          return l->ty;
       }
    }
-   td.t = tt;
-   return envaddtagged(cm->env, ty.t ? ty : mktagtype(name, &td), span)->ty;
+   return envaddtagged(cm->env, ty.t ? ty : mktagtype(name, &(TypeData){tt, TFUNKNOWN}), span)->ty;
 }
 
 /*********************/
@@ -398,8 +394,7 @@ argpromote(Type t)
 {
    if (isint(t)) t.t = intpromote(t.t);
    else if (t.t == TYFLOAT) t.t = TYDOUBLE;
-   else if (t.t == TYARRAY) return mkptrtype(typechild(t), t.flag & TFCHLDQUAL);
-   else if (t.t == TYFUNC) return mkptrtype(t, 0);
+   else if (t.t == TYARRAY || t.t == TYFUNC) t = typedecay(t);
    return t;
 }
 
@@ -1319,7 +1314,7 @@ static uint
 nmemb(Type ty)
 {
    switch (ty.t) {
-   case TYARRAY: return typearrlen(ty) ? typearrlen(ty) : -1u;
+   case TYARRAY: return isincomplete(ty) ? -1u : typearrlen(ty);
    case TYUNION: case TYSTRUCT: return typedata[ty.dat].nmemb;
    default: return 1;
    }
@@ -1613,7 +1608,7 @@ ininext(InitParser *ip, CComp *cm)
 Retry:
    targ = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, ip->sub->idx);
 
-   if (isagg(ip->sub->ty) && targ.t == TYARRAY && !typearrlen(targ)) {
+   if (isagg(ip->sub->ty) && targ.t == TYARRAY && isincomplete(targ)) {
       error(&ex.span, "cannot initialize flexible array member");
       ++ip->sub->idx;
       return;
@@ -1876,8 +1871,8 @@ initializer(CComp *cm, Type *ty, enum evalmode ev, bool globl,
 
       if (isincomplete(*ty)) {
          uint len = ip->arrlen > ip->cur->idx ? ip->arrlen : ip->cur->idx;
-         if (len == 0)
-            error(&span, "array cannot have zero length");
+         if (len == 0 && ccopt.pedant)
+            warn(&span, "zero size array is an extension");
          *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, len);
       }
    Dynfix:
@@ -1906,8 +1901,8 @@ initializer(CComp *cm, Type *ty, enum evalmode ev, bool globl,
       uint siz;
       if (isincomplete(*ty)) {
          uint len = ip->arrlen > ip->cur->idx ? ip->arrlen : ip->cur->idx;
-         if (!len)
-            error(&span, "initializer creates a zero-sized array");
+         if (!len && ccopt.pedant)
+            warn(&span, "initializer creates a zero size array");
          *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, len);
       }
 
@@ -2011,7 +2006,7 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id)
             td.flexi = 0;
             error(&flexspan, "flexible array member is not at end of struct");
          }
-         if (!isunion && decl.ty.t == TYARRAY && !typearrlen(decl.ty)) {
+         if (!isunion && decl.ty.t == TYARRAY && typearrlen(decl.ty) == 0) {
             td.flexi = 1;
             flexspan = decl.span;
          } else if (isincomplete(decl.ty)) {
@@ -2098,14 +2093,16 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id)
       } while (st.more);
    }
    if (td.flexi && fld.n == 1)
-      error(&flexspan, "flexible array member in otherwise empty aggregate");
+      warn(&flexspan, "flexible array member in otherwise empty aggregate");
    if (td.flexi && ccopt.cstd < STDC99 && ccopt.pedant)
       warn(&flexspan, "flexible array member in %M is an extension");
    if (fld.n == 0) {
       NamedField dummy = { intern(""), { mktype(TYCHAR), 0 }};
-      error(&tk.span, "%s cannot have zero members", tag);
+      if (ccopt.pedant)
+         warn(&tk.span, "%s with zero members is an extension", tag);
       vpush(&fld, dummy);
-      td.siz = td.align = 1;
+      td.siz = 0;
+      td.align = 1;
    }
    td.siz = alignup(td.siz, td.align);
    td.fld = fld.p;
@@ -2768,7 +2765,7 @@ declarator(DeclState *st, CComp *cm, Span span0) {
          else if (decl.ty.t == TYFUNC)
             error(&l->span, "array has element has function type '%ty'", decl.ty);
          if (l->count.t == EARRAYUNSIZED) /* unsized '[]' */
-            decl.ty = mkarrtype(decl.ty, decl.qual, 0);
+            decl.ty = mkunszarrtype(decl.ty, decl.qual);
          else {
             uint n = 0;
             Expr *ex = &l->count;
@@ -2781,10 +2778,8 @@ declarator(DeclState *st, CComp *cm, Span span0) {
             } else if (ex->u > (1ull << (8*sizeof n)) - 1) {
                error(&ex->span, "array too long (%ul)", ex->u);
             } else if (ex->u == 0) {
-               /* when struct field, silently accept zero-length as synonym of '[]' for flexible array member */
-               if (l->prev != &list || st->kind != DFIELD) {
-                  warn(&ex->span, "array cannot have zero length");
-               }
+               if (ccopt.pedant)
+                  warn(&ex->span, "zero size array is an extension");
             } else {
                n = ex->u;
             }
@@ -4735,6 +4730,7 @@ docomp(CComp *cm)
       cm->env = &toplevel;
    }
    if (!cvalistty.t) {
+      /* XXX hardcoded va_list impl */
       TypeData td = {
          .t = TYSTRUCT, .siz = targ_valistsize, .align = targ_primalign[TYPTR], .nmemb = 1,
          .fld = &(NamedField){intern("-"), {mkarrtype(mktype(TYPTR), 0, 3)}}

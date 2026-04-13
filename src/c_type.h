@@ -25,12 +25,12 @@ enum typeflagmask {
    TFCHLDQUAL  = 3,
    TFCHLDPRIM  = 1<<2,
    TFCHLDISDAT = 1<<3,
+   TFUNKNOWN   = 1<<4, /* array of unknown size, tagged type of unknown content */
 };
-
 typedef union Type {
    struct {
       uchar t; /* type tag */
-      uchar flag;
+      uchar flag; /* enum typeflagmask */
       union {
          struct {
             uchar child; /* prim type tag */
@@ -85,6 +85,7 @@ typedef struct {
 
 typedef struct TypeData {
    uchar t;
+   uchar flag;
    ushort id;
    union {
       Type child;
@@ -127,6 +128,7 @@ uint typesize(Type);
 uint typealign(Type);
 Type mkptrtype(Type, int qual);
 Type mkarrtype(Type t, int qual, uint n);
+Type mkunszarrtype(Type t, int qual);
 Type mkfntype(Type ret, uint n, const Type *, bool kandr, bool variadic);
 Type mktagtype(internstr name, TypeData *td);
 bool getfield(FieldData *res, Type, internstr);
@@ -141,7 +143,7 @@ typechild(Type t)
    if (t.t == TYENUM) return mktype(typedata[t.dat].backing);
    if (t.flag & TFCHLDPRIM) return mktype(t.child);
    if (t.flag & TFCHLDISDAT) {
-      Type chld = mktype(typedata[t.dat].t, .dat = t.dat);
+      Type chld = mktype(typedata[t.dat].t, .flag = typedata[t.dat].flag, .dat = t.dat);
       return chld;
    }
    return typedata[t.dat].child;

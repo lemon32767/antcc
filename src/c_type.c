@@ -105,11 +105,13 @@ interntd(const TypeData *td)
          *slot = *td;
          switch (slot->t) {
          case TYENUM:
+            assert(!(td->flag & TFUNKNOWN) || (!td->var && !td->siz));
             if (slot->var)
                slot->var = alloccopy(&datarena, td->var, nmemb * sizeof *slot->var, 0);
             break;
          case TYSTRUCT:
          case TYUNION:
+            assert(!(td->flag & TFUNKNOWN) || (td->nmemb == 0 && !td->siz));
             if (slot->fld)
                slot->fld = alloccopy(&datarena, td->fld, nmemb * sizeof *slot->fld, 0);
             break;
@@ -132,12 +134,11 @@ isincomplete(Type t)
 {
    switch (t.t) {
    case TYVOID: return 1;
-   case TYARRAY: return !typearrlen(t);
+   case TYARRAY: return t.flag & TFUNKNOWN;
+   case TYENUM:
    case TYSTRUCT:
    case TYUNION:
-      return typedata[t.dat].nmemb == 0;
-   case TYENUM:
-      return !typedata[t.dat].backing;
+      return typedata[t.dat].flag & TFUNKNOWN;
    }
    return 0;
 }
@@ -197,6 +198,15 @@ mkarrtype(Type t, int qual, uint n)
 }
 
 Type
+mkunszarrtype(Type t, int qual)
+{
+   if (isprim(t))
+      return mktype(TYARRAY, .flag = TFCHLDPRIM | (qual & TFCHLDQUAL) | TFUNKNOWN, .child = t.t);
+   return mktype(TYARRAY, .flag = TFUNKNOWN | (qual & TFCHLDQUAL),
+                 .dat = interntd(&(TypeData) { TYARRAY, TFUNKNOWN, .child = t }));
+}
+
+Type
 mkfntype(Type ret, uint n, const Type *par, bool kandr, bool variadic)
 {
    TypeData td = { TYFUNC, .ret = ret, .nmemb = n, .param = par };
@@ -214,7 +224,7 @@ completetype(internstr name, int id, TypeData *td)
       assert(tagtypetags[id] == name && "bad redefn");
    else
       tagtypetags[id] = name;
-   return mktype(td->t, .dat = interntd(td));
+   return mktype(td->t, .flag = td->flag, .dat = interntd(td));
 }
 
 Type
