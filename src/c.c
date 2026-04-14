@@ -540,7 +540,7 @@ condtype(const Expr *a, const Expr *b)
    if (t1.t == TYPTR && t2.t == TYPTR) {
       s1 = typechild(t1), s2 = typechild(t2);
       if (s1.bits == s2.bits || s2.t == TYVOID || s1.t == TYVOID) {
-         return mkptrtype(s1.t == TYVOID ? s1 : s2, (t1.flag | t2.flag) & TFCHLDQUAL);
+         return mkptrtype(s1.t == TYVOID ? s2 : s1, (t1.flag | t2.flag) & TFCHLDQUAL);
       }
    }
    return mktype(0);
