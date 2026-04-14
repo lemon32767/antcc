@@ -13,7 +13,7 @@ lowerstack(Function *fn)
          Instr *ins = &instrtab[t];
          if (oisalloca(ins->op)) {
             uint alignlog2 = ins->op - Oalloca1;
-            assert(ins->l.i > 0);
+            assert(ins->l.i >= 0);
             uint siz = ins->l.i << alignlog2;
             fn->stksiz += siz;
             fn->stksiz = alignup(fn->stksiz, 1 << alignlog2);
