@@ -1,5 +1,5 @@
 - aarch64 backend
-- STDC: thread local, VLAs, complex, long double, atomics
+- STDC: thread local, VLAs, long double, atomics
 - get working on the other BSDs
     - implement more GNU extensions: __attribute__, __builtin_*, ...
 - __asm__
