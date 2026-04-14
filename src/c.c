@@ -2080,8 +2080,10 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id)
             td.anyconst |= decl.qual & QCONST;
             if (isagg(decl.ty)) {
                td.anyconst |= typedata[decl.ty.dat].anyconst;
-               if (typedata[decl.ty.dat].flexi && !isunion)
-                  error(&decl.span, "nested aggregate has flexible array member");
+               if (typedata[decl.ty.dat].flexi && !isunion) {
+                  td.flexi = 1;
+                  flexspan = decl.span;
+               }
             }
             if (isunion) {
                td.siz = td.siz < siz ? siz : td.siz;
