@@ -381,7 +381,9 @@ deftagged(CComp *cm, Span *span, enum typetag tt, internstr name, Type ty)
 /* Expr Typechecking */
 /*********************/
 
-#define iszero(ex) ((ex).t == ENUMLIT && isint((ex).ty) && (ex).u == 0)
+static const Type voidptr = {{ TYPTR, .flag = TFCHLDPRIM, .child = TYVOID }};
+#define iszero(ex) \
+   ((ex).t == ENUMLIT && (ex).u == 0 && (isint((ex).ty) || ((ex).ty.bits == voidptr.bits)))
 
 static bool
 islvalue(const Expr *ex)
@@ -507,7 +509,6 @@ relationalcheck(const Expr *a, const Expr *b)
 static bool
 isnullpo(const Expr *ex) /* match '0' or '(void *) 0' */
 {
-   static const Type voidptr = {{ TYPTR, .flag = TFCHLDPRIM, .child = TYVOID }};
    while (ex->t == ECAST && ex->ty.bits == voidptr.bits)
       ex = ex->sub;
    if (iszero(*ex)) return 1;
@@ -538,10 +539,16 @@ condtype(const Expr *a, const Expr *b)
    if (t1.t == TYPTR && isnullpo(b)) return t1;
    if (isnullpo(a) && t2.t == TYPTR) return t2;
    if (t1.t == TYPTR && t2.t == TYPTR) {
+      int qual = (t1.flag | t2.flag) & TFCHLDQUAL;
       s1 = typechild(t1), s2 = typechild(t2);
       if (s1.bits == s2.bits || s2.t == TYVOID || s1.t == TYVOID) {
-         return mkptrtype(s1.t == TYVOID ? s2 : s1, (t1.flag | t2.flag) & TFCHLDQUAL);
+         return mkptrtype(s1.t == TYVOID ? s1 : s2, qual);
       }
+      Span span = a->span;
+      joinspan(&span.ex, b->span.ex);
+      warn(&span, "pointer type mismatch in conditional expression ('%ty' and '%ty')",
+            a->ty, b->ty);
+      return mkptrtype(mktype(TYVOID), qual);
    }
    return mktype(0);
 }
