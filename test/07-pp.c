@@ -14,7 +14,7 @@ token spacing:
 sum = 1 + 2 +3;$
 [ baz] ;$
 +. *$
-x=7
+x=7 7
 */
 
 #include "07-pp.h"
@@ -138,7 +138,7 @@ qx2(*) ) "$\n"
          3
 #endif
       );
-   printf("x=%d\n",x);
+   printf("x=%d %g\n",x, CAT(7,.));
 
    CAT(ret,urn) 0;
 }

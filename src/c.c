@@ -163,7 +163,8 @@ isexprtok(CComp *cm)
 #define tk(x) [x] = 1
          tk('+'), tk('-'), tk('*'), tk('&'), tk('~'), tk('!'), tk(TKINC), tk(TKDEC),
          tk(TKWsizeof), tk(TKW_Alignof), tk(TKWalignof), tk(TKWtrue), tk(TKWfalse),
-         tk('('), tk(TKNUMLIT), tk(TKCHRLIT), tk(TKSTRLIT), tk(TKW_Generic)
+         tk('('), tk(TKNUMLIT), tk(TKCHRLIT), tk(TKSTRLIT), tk(TKW_Generic),
+         tk(TKW__builtin_va_arg),
 #undef tk
       };
       return tk.t < countof(tks) && tks[tk.t];

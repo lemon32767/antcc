@@ -819,6 +819,12 @@ tokpaste(Lexer *lx, Token *dst, const Token *l, const Token *r)
    } else if (l->t == TKNUMLIT && (isppident(*r) || r->t == TKNUMLIT)) {
       /* 0x ## abc   ;   213 ## 456 */
       t = TKNUMLIT;
+   } else if (l->t == '.' && r->t == TKNUMLIT) {
+      /* . ## 123 */
+      t = TKNUMLIT;
+   } else if (l->t == TKNUMLIT && r->t == '.') {
+      /* 123 ## . */
+      t = TKNUMLIT;
    } else if (l->t && !r->t) {
       if (dst) *dst = *l;
       return 1;
@@ -855,10 +861,18 @@ tokpaste(Lexer *lx, Token *dst, const Token *l, const Token *r)
    if (dst->span.ex.file == r->span.ex.file && dst->span.ex.off < r->span.ex.off)
       joinspan(&dst->span.ex, r->span.ex);
    dst->t = t;
-   dst->len = l->len + r->len;
+
+   int n1, n2;
+   const char *s1, *s2;
+   if (l->t == '.') n1 = 1, s1 = ".";
+   else n1 = l->len, s1 = l->s;
+   if (r->t == '.') n2 = 1, s2 = ".";
+   else n2 = r->len, s2 = r->s;
+
+   dst->len = n1 + n2;
    char *s = (isppident(*dst) && dst->len + 1 < sizeof buf) ? buf : alloc(lx->tmparena, dst->len + 1, 1);
-   memcpy(s, l->s, l->len);
-   memcpy(s + l->len, r->s, r->len);
+   memcpy(s, s1, n1);
+   memcpy(s + n1, s2, n2);
    s[dst->len] = 0;
    dst->space = l->space;
    if (isppident(*dst)) {
