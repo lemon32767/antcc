@@ -3817,10 +3817,10 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
       op = Omul;
       goto Compound;
    case ESETDIV:
-      op = isunsigned(ex->ty) ? Oudiv : Odiv;
+      op = Odiv;
       goto Compound;
    case ESETREM:
-      op = issigned(ex->ty) ? Orem : Ourem;
+      op = Orem;
       goto Compound;
    case ESETAND:
       op = Oand;
@@ -3845,6 +3845,9 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
    Compound:
       ty = in_range(ex->t, ESETSHL, ESETSHR) ? mktype(intpromote(ex->ty.t))
                                              : cvtarith(sub[0].ty, sub[1].ty);
+      if (isunsigned(ty) && in_range(op, Odiv, Orem)) {
+         op = op - Odiv + Oudiv;
+      }
       r = exprvalue(fn, &sub[1]);
       if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
          /* bit-field */
