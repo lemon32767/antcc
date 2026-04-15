@@ -870,6 +870,17 @@ flagslivep(Block *blk, int curi)
    return 1;
 }
 
+static bool
+shouldusegot(int con)
+{
+   IRCon *xcon = &contab.p[con];
+   if ((ccopt.pic || (xcon->flag & SFUNC)) && (xcon->flag & (SLOCAL|SFUNC)) != (SLOCAL|SFUNC))
+      return 1;
+   if (ccopt.pic && objhassym(xcon2sym(con), NULL) != Stext)
+      return 1;
+   return 0;
+}
+
 /* Copy dst = val, with some peephole optimizations */
 static void
 gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val)
@@ -916,8 +927,7 @@ gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val
       }
       /* normal (not 2-address) case */
    Lea:
-      if (isaddrcon(addr->base,0) && (ccopt.pic || (contab.p[addr->base.i].flag & SFUNC))
-       && !(contab.p[addr->base.i].flag & SLOCAL)) {
+      if (isaddrcon(addr->base,0) && shouldusegot(addr->base.i)) {
          assert(!addr->disp && !addr->index.bits);
          val = addr->base;
          goto GOTLoad;
@@ -929,12 +939,10 @@ gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val
       /* dst = 0 -> xor dst, dst; but only if it is ok to clobber flags */
       Xxor(pcode, kisint(cls) ? KI32 : cls, dst, dst);
    } else if (isaddrcon(val,0)) {
-      if ((ccopt.pic || (contab.p[val.i].flag & SFUNC)) && (contab.p[val.i].flag & (SLOCAL|SFUNC)) != (SLOCAL|SFUNC)) {
+      if (shouldusegot(val.i)) {
       GOTLoad:
          /* for  mov reg, [rip(sym@GOTPCREL)] */
          Xmov(pcode, cls, dst, mkoper(OSYMGOT, .con = val.i, .cindex = NOINDEX));
-      } else if (ccopt.pic && (contab.p[val.i].flag & SFUNC) && !objhassym(xcon2sym(val.i), NULL)) {
-         goto GOTLoad;
       } else {
          /* for  lea reg, [rip(sym)] */
          Xlea(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));
