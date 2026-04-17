@@ -5000,7 +5000,6 @@ tldecl(CComp *cm)
          decl.isdef = 1;
          int idecl = putdecl(cm, &decl);
          Decl *d = &declsbuf.p[idecl];
-         if (d->inlin && decl.scls != SCSTATIC) fatal(&d->span, "non-static inline is unimplemented");
          Function fn = { &cm->fnarena, .name = d->sym, .globl = d->scls != SCSTATIC, .fnty = decl.ty, .retty = td->ret, .inlin = d->inlin };
          irinit(&fn);
          function(cm, &fn, st.pnames, st.pspans, st.pqual);

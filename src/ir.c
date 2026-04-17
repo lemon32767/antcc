@@ -697,6 +697,7 @@ irfini(Function *fn)
       freearena(fn->passarena);
       return;
    }
+   assert(!(fn->globl && fn->inlin /* extern inline */));
 
    irfini_end(fn);
 }

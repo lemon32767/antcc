@@ -26,12 +26,14 @@ maybeinlinee(Function *fn)
 {
    extern int ninstrtab, nfreeinstr;
 
-   // TODO better heuristics
-   if (ccopt.o < OPT1) return 0;
-   if (!(fn->inlin || (ccopt.o >= OPT2))) return 0;
-   if (ninstrtab - nfreeinstr > MAX_INLINED_FN_NINS) return 0;
-   if (fn->nblk > MAX_INLINED_FN_NBLK) return 0;
-   if (fn->nabiret > 1) return 0; /* TODO 2reg scalar return */
+   if (!(fn->inlin && fn->globl)) {
+      // TODO better heuristics
+      if (ccopt.o < OPT1) return 0;
+      if (!(fn->inlin || (ccopt.o >= OPT2))) return 0;
+      if (ninstrtab - nfreeinstr > MAX_INLINED_FN_NINS) return 0;
+      if (fn->nblk > MAX_INLINED_FN_NBLK) return 0;
+      if (fn->nabiret > 1) return 0; /* TODO 2reg scalar return */
+   }
 
    if (!savearena) {
       enum { N = 1<<12 };
@@ -51,7 +53,9 @@ maybeinlinee(Function *fn)
    sv->nabiarg = fn->nabiarg;
    sv->nabiret = fn->nabiret;
    memcpy(sv->abiret, fn->abiret, sizeof sv->abiret);
-   Block *bmap[MAX_INLINED_FN_NBLK];
+   Block *_bmap[MAX_INLINED_FN_NBLK],
+         **bmap = fn->nblk < MAX_INLINED_FN_NBLK
+                     ? _bmap : alloc(&savearena, fn->nblk * sizeof *bmap, 0);
    Block *b = fn->entry;
    int id = 0;
    do {
