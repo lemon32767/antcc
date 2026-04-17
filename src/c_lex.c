@@ -1662,7 +1662,7 @@ static struct PPCond {
    int filedepth;
    uchar cnd;
    bool elsep;
-} ppcndstk[32];
+} ppcndstk[64];
 static int nppcnd;
 
 static int includedepth;
