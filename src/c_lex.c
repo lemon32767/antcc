@@ -1782,7 +1782,7 @@ ppelse(Lexer *lx, const Span *span)
 
 enum { MAXINCLUDE = 200 };
 static bool
-tryincludepath(Lexer *lx, const Span *span, char *path)
+tryincludepath(Lexer *lx, const Span *span, char *path, int src_incdiridx)
 {
    Lexer new;
    const char *err;
@@ -1801,6 +1801,7 @@ tryincludepath(Lexer *lx, const Span *span, char *path)
 
       if (++includedepth == MAXINCLUDE)
          lxfatal(lx, span, "Maximum nested include depth of %d reached", includedepth);
+      lx->src_incdiridx = src_incdiridx;
       break;
    case LXFILESKIP:
       xbfree(path);
@@ -1810,17 +1811,20 @@ tryincludepath(Lexer *lx, const Span *span, char *path)
 }
 
 static bool
-doinclude(Lexer *lx, const Span *span, bool quote, const char *str, size_t slen)
+doinclude(Lexer *lx, const Span *span, bool quote, const char *str, size_t slen, bool incnext)
 {
    char *path = NULL;
    const char *base, *end;
-   if (quote) {
-      if (str[0] == '/') {
+   int incdiridx = 0,
+       req_incdiridx = incnext ? lx->src_incdiridx+1 : 0;
+   if (quote && req_incdiridx <= 2) {
+      if (req_incdiridx <= 1 && str[0] == '/') {
          /* try absolute path */
          xbgrow(&path, slen + 1);
          memcpy(path, str, slen);
          path[slen] = 0;
-         if (tryincludepath(lx, span, path)) return 1;
+         incdiridx = 1;
+         if (tryincludepath(lx, span, path, incdiridx)) return 1;
          goto NotFound;
       }
 
@@ -1833,7 +1837,8 @@ doinclude(Lexer *lx, const Span *span, bool quote, const char *str, size_t slen)
       memcpy(path, base, end - base);
       memcpy(path + (end - base), str, slen);
       path[end - base + slen] = 0;
-      if (tryincludepath(lx, span, path)) return 1;
+      incdiridx = 2;
+      if (tryincludepath(lx, span, path, incdiridx)) return 1;
    }
    /* try system paths. order:
     * 1. -iquote
@@ -1844,22 +1849,29 @@ doinclude(Lexer *lx, const Span *span, bool quote, const char *str, size_t slen)
     * 6. -idirafter
     */
    for (int i = quote ? CINCL_iquote : CINCL_I; i < countof(cinclpaths); ++i) {
+      incdiridx = 2 + 1000*i;
       for (CInclPath *p = cinclpaths[i]; p; p = p->next) {
          if (i == CINCLsys) {
             /* try embedded files pseudo-path */
-            xbgrow(&path, slen + 3);
-            path[0] = '@', path[1] = ':';
-            memcpy(path+2, str, slen);
-            path[slen+2] = 0;
-            if (tryincludepath(lx, span, path)) return 1;
+            if (incdiridx >= req_incdiridx) {
+               xbgrow(&path, slen + 3);
+               path[0] = '@', path[1] = ':';
+               memcpy(path+2, str, slen);
+               path[slen+2] = 0;
+               if (tryincludepath(lx, span, path, incdiridx)) return 1;
+            }
+            ++incdiridx;
          }
-         int ndir = strlen(p->path);
-         xbgrow(&path, ndir + slen + 2);
-         memcpy(path, p->path, ndir);
-         path[ndir++] = '/';
-         memcpy(path + ndir, str, slen);
-         path[ndir + slen] = 0;
-         if (tryincludepath(lx, span, path)) return 1;
+         if (incdiridx >= req_incdiridx) {
+            int ndir = strlen(p->path);
+            xbgrow(&path, ndir + slen + 2);
+            memcpy(path, p->path, ndir);
+            path[ndir++] = '/';
+            memcpy(path + ndir, str, slen);
+            path[ndir + slen] = 0;
+            if (tryincludepath(lx, span, path, incdiridx)) return 1;
+         }
+         ++incdiridx;
       }
    }
 NotFound:
@@ -1869,7 +1881,7 @@ NotFound:
 }
 
 static bool
-ppinclude(Lexer *lx, const Span *span0)
+ppinclude(Lexer *lx, const Span *span0, bool incnext)
 {
    Token tk;
    Span span = *span0;
@@ -1877,7 +1889,7 @@ ppinclude(Lexer *lx, const Span *span0)
    if (in_range(lex0(lx, &tk, 1), TKPPHDRH, TKPPHDRQ)) {
       expecteol(lx, "include");
       joinspan(&span.ex, tk.span.ex);
-      return doinclude(lx, &span, tk.t == TKPPHDRQ, tk.s, tk.len);
+      return doinclude(lx, &span, tk.t == TKPPHDRQ, tk.s, tk.len, incnext);
    } else if (tk.t == '\n' || tk.t == TKEOF) {
       goto BadSyntax;
    } else {
@@ -1897,9 +1909,9 @@ ppinclude(Lexer *lx, const Span *span0)
       }
       if (tks.n >= 1 && tks.p[0].t == TKSTRLIT) { /* "header.h" */
          if (tks.n > 1)
-            (ccopt.pedant ? error : warn)(&tks.p[1].span, "extra tokens after #include");
+            (ccopt.pedant ? error : warn)(&tks.p[1].span, "extra tokens after #include directive");
          joinspan(&span.ex, tks.p[0].span.ex);
-         return doinclude(lx, &span, 1, tks.p[0].s, tks.p[0].len);
+         return doinclude(lx, &span, 1, tks.p[0].s, tks.p[0].len, incnext);
       } else if (tks.n > 2 && tks.p[0].t == '<' && tks.p[tks.n-1].t == '>') { /* <header.h> */
          /* this is multiple tokens, concatenate them together */
          char buf[4096];
@@ -1911,7 +1923,7 @@ ppinclude(Lexer *lx, const Span *span0)
          joinspan(&span.ex, tks.p[tks.n-1].span.ex);
          if (wbuf.err) error(&span, "path too long");
          else {
-            return doinclude(lx, &span, 0, buf, wbuf.len);
+            return doinclude(lx, &span, 0, buf, wbuf.len, incnext);
          }
       } else {
       BadSyntax:
@@ -2026,6 +2038,7 @@ enum directive {
    PPIFDEF,
    PPIFNDEF,
    PPINCLUDE,
+   PPINCLUDENEXT,
    PPLINE,
    PPPRAGMA,
    PPUNDEF,
@@ -2048,6 +2061,7 @@ findppcmd(const Token *tk)
       "ifdef",
       "ifndef",
       "include",
+      "include_next",
       "line",
       "pragma",
       "undef",
@@ -2139,11 +2153,13 @@ ppdirective(Lexer *lx, bool *skip, bool *inclerror)
          case PPPRAGMA:   pppragma(lx, &tk->span); break;
          case PPWARNING:  ppdiag(lx, &tk->span, 0); break;
          case PPERROR:    ppdiag(lx, &tk->span, 1); break;
-         case PPINCLUDE:  if (!inclerror)
-                             error(&tk->span, "#include directive within macro argument");
-                          else
-                             *inclerror |= !ppinclude(lx, &tk->span);
-                          break;
+         case PPINCLUDE:
+         case PPINCLUDENEXT:
+            if (!inclerror)
+               error(&tk->span, "#include directive within macro argument");
+            else
+               *inclerror |= !ppinclude(lx, &tk->span, lastcmd == PPINCLUDENEXT);
+            break;
          default: assert(0&&"nyi");
          }
       } else {
@@ -2164,7 +2180,7 @@ ppdirective(Lexer *lx, bool *skip, bool *inclerror)
          default: ppskipline(lx); break;
          }
       }
-      if (lastcmd != PPINCLUDE)
+      if (lastcmd != PPINCLUDE && lastcmd != PPINCLUDENEXT)
          lx->firstdirective = 0;
       *skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
    } else {

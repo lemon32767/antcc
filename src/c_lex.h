@@ -106,6 +106,7 @@ typedef struct Lexer {
    bool firstdirective;
    short nppcnd0;
    short inclnerror, inclnwarn;
+   short src_incdiridx;
    internstr inclguard;
    uchar chrbuf[1<<10];
    uint chridxbuf[1<<10];
