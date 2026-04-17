@@ -1267,7 +1267,7 @@ Unary:
          Expr *sub;
          span.sl = tk.span.sl;
          span.ex = ex.span.ex;
-         if (!isscalar(ex.ty) && !isptrcvt(ex.ty))
+         if (!isptrcvt(ex.ty) && !isscalar(ex.ty))
             error(&ex.span, "?: condition is not a scalar type: '%ty'", ex.ty);
          tmp = commaexpr(cm);
          joinspan(&tk.span.ex, tmp.span.ex);
@@ -4462,7 +4462,7 @@ stmt(CComp *cm, Function *fn)
       expect(cm, '(', NULL);
       ex = commaexpr(cm);
       expect(cm, ')', NULL);
-      if (!isscalar(ex.ty))
+      if (!isptrcvt(ex.ty) && !isscalar(ex.ty))
          error(&ex.span, "'if' condition is not a scalar '%ty'", ex.ty);
       tr = fl = end = NULL;
       EMITS {
