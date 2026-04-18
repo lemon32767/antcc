@@ -405,6 +405,7 @@ tryreadconst(Expr *ex)
    assert(ex->t == ESYM);
    const struct Decl *decl = &declsbuf.p[ex->decl];
    assert(decl->ty.bits == ex->ty.bits && isarith(ex->ty));
+   if ((decl->scls & (SCAUTO|SCREGISTER)) || !decl->sym) return 0;
    uint off;
    const uchar *dat;
    switch (objhassym(decl->sym, &off)) {
