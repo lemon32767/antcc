@@ -749,7 +749,12 @@ callexpr(CComp *cm, const Span *span_, const Expr *callee)
       };
       warn(&span, "call to undeclared function '%s'", name);
       ((Expr *)callee)->ty = decl.ty;
+
+      /* put in the top-level to avoid repeated warnings */
+      Env *save = cm->env;
+      for (Env *e = cm->env; e->up; e = e->up) ;
       ((Expr *)callee)->decl = putdecl(cm, &decl);
+      cm->env = save;
    }
 
    if (!builtin) {
