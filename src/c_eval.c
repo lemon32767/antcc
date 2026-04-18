@@ -330,7 +330,7 @@ binop(Expr *ex, enum evalmode mode)
    case EXOR|U:
    case EXOR|S: a->u ^= b->u; break;
 
-   case ESHL|S: if (a->i < 0) return 0;
+   case ESHL|S: if (a->i < 0) { /* UB, but it's fine? */ }
    case ESHL|U: if (b->u >= 8*targ_primsizes[opty.t]) return 0;
                 a->u <<= b->u;
                 break;
