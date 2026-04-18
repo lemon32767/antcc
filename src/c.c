@@ -4122,9 +4122,7 @@ compcomplexex(Function *fn, const Expr *ex, bool discard)
       assert(sub[0].ty.bits == ex->ty.bits);
       q = cvt2complex(fn, sty, &sub[1]);
       adr = expraddr(fn, &sub[0]);
-      genstore(fn, ex->ty, adr, q.a);
-      genstore(fn, ex->ty,
-            irbinop(fn, Oadd, KPTR, adr, mkref(RICON, targ_primsizes[sty.t])), q.b);
+      complexstore(fn, sty, adr, q);
       return q;
    case EPREINC:
    case EPOSTINC:
