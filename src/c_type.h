@@ -72,7 +72,7 @@ typedef struct {
 
 typedef struct {
    Type t;
-   ushort off;
+   uint off;
    uchar bitsiz,
          bitoff : 6,
          qual : 2;
