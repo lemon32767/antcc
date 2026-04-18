@@ -1002,12 +1002,15 @@ tkprec(int tt)
    return ((uint)tt < countof(bintab)) ?  bintab[tt].prec : 0;
 }
 
-static Expr initializer(CComp *cm, Type *ty, enum evalmode ev,
-                               bool globl, enum qualifier qual, internstr name);
+static Expr initializer(CComp *, Type *ty, enum evalmode ev,
+                        bool globl, enum qualifier qual, internstr name);
+
+static void block(CComp *, Ref *stmtexprval, Type *stmtexprty);
 
 static internstr istr__func__, istr_main, istr_memset;
 
 static internstr mkhiddensym(const char *fnname, const char *name, int id);
+
 
 /* parse an expression with the given operator precedence */
 /* param ident is a kludge to support block labels without backtracking or extra lookahead
@@ -1062,7 +1065,15 @@ Unary:
 
    /* might be unary op (cast) or primary expr */
    case '(':
-      if (!isdecltok(cm)) { /* (expr) */
+      if (match(cm, &tk, '{')) { /* ({ GNU statement expression }) */
+         Span span = tk.span;
+         Ref val;
+         ex.t = EIRVALUE;
+         block(cm, &val, &ex.ty);
+         ex.irref.bits = val.bits;
+         if (expect(cm, ')', NULL)) joinspan(&span.ex, tk.span.ex);
+         ex.span = span;
+      } else if (!isdecltok(cm)) { /* (expr) */
          Span span = tk.span;
          ex = commaexpr(cm);
          joinspan(&span.ex, ex.span.ex);
@@ -3030,7 +3041,7 @@ expraddr(Function *fn, const Expr *ex)
          assert(decl->id >= 0);
          return mkref(RTMP, decl->id);
       case SCEXTERN: case SCNONE: case SCSTATIC:
-         return mksymref(decl->sym, (SFUNC & -(decl->ty.t == TYFUNC)) | (SLOCAL & -(decl->scls == SCSTATIC || decl->isdef)));
+         return mksymref(decl->sym, (SFUNC & -(decl->ty.t == TYFUNC)) | (SLOCAL & -(decl->scls == SCSTATIC || (decl->isdef && !decl->inlin))));
       default:
          assert(0);
       }
@@ -3938,6 +3949,8 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
    case ESEQ:
       expreffects(fn, &sub[0]);
       return compileexpr(fn, &sub[1], discard);
+   case EIRVALUE:
+      return (Ref){.bits = ex->irref.bits};
    default: assert(!"nyi expr");
    }
 }
@@ -4219,9 +4232,8 @@ stmtterm(CComp *cm)
    expect(cm, ';', "to terminate previous statement");
 }
 
-static void block(CComp *cm, Function *fn);
-static bool stmt(CComp *cm, Function *fn);
-static void localdecl(CComp *cm, Function *fn, bool forinit);
+static bool stmt(CComp *, Ref *stmtexprval, Type *stmtexprty);
+static void localdecl(CComp *, bool forinit);
 
 typedef struct Label Label;
 struct Label {
@@ -4244,8 +4256,9 @@ findlabel(CComp *cm, internstr name)
 }
 
 static void
-deflabel(CComp *cm, Function *fn, const Span *span, internstr name)
+deflabel(CComp *cm, const Span *span, internstr name)
 {
+   Function *fn = cm->fn;
    Label *label = findlabel(cm, name);
    if (label && label->usespan.ex.len == 0) {
       error(span, "redefinition of label '%s'", name);
@@ -4279,7 +4292,7 @@ deflabel(CComp *cm, Function *fn, const Span *span, internstr name)
 }
 
 static bool
-loopbody(CComp *cm, Function *fn, Block *brk, Block *cont)
+loopbody(CComp *cm, Block *brk, Block *cont)
 {
    Block *save[2];
    bool terminates = 0;
@@ -4288,7 +4301,7 @@ loopbody(CComp *cm, Function *fn, Block *brk, Block *cont)
    cm->breakto = brk, cm->loopcont = cont;
    ++cm->loopdepth;
 
-   terminates = stmt(cm, fn);
+   terminates = stmt(cm, NULL, NULL);
 
    --cm->loopdepth;
    cm->breakto = save[0], cm->loopcont = save[1];
@@ -4326,9 +4339,10 @@ swsortcases(SwitchCase *cs, uint n)
 }
 
 static bool
-genswitch(CComp *cm, Function *fn, const Expr *ex)
+genswitch(CComp *cm, const Expr *ex)
 {
    Ref sel;
+   Function *fn = cm->fn;
    bool doemit = fn->curblk;
    Block *begin = NULL, *end = NULL, *breaksave = cm->breakto;
    SwitchStmt *stsave = cm->switchstmt, st = {.condtype = ex->ty};
@@ -4347,7 +4361,7 @@ genswitch(CComp *cm, Function *fn, const Expr *ex)
    begin = fn->curblk;
    fn->curblk = NULL;
    ++cm->switchdepth;
-   stmt(cm, fn);
+   stmt(cm, NULL, NULL);
    --cm->switchdepth;
    doemit = fn->curblk;
    cm->switchstmt = stsave;
@@ -4396,8 +4410,9 @@ genswitch(CComp *cm, Function *fn, const Expr *ex)
 }
 
 static bool /* return 1 if stmt is terminating (ends with a jump) */
-stmt(CComp *cm, Function *fn)
+stmt(CComp *cm, Ref *stmtexprval, Type *stmtexprty)
 {
+   Function *fn = cm->fn;
    Block *tr, *fl, *end, *begin;
    union {
       Arena a;
@@ -4449,14 +4464,12 @@ stmt(CComp *cm, Function *fn)
          }
       } else if (tk.t == TKIDENT && match(cm, NULL, ':')) {
          /* <label> ':' */
-         deflabel(cm, fn, &tk.span, tk.name);
+         deflabel(cm, &tk.span, tk.name);
       } else {
          assert(tk.t == TKIDENT);
          /* kludge for no backtracking and no lookahead */
          ex = exprparse(cm, 1, &tk, EFROMSTMT);
-         stmtterm(cm);
-         EMITS expreffects(fn, &ex);
-         return fn->curblk == NULL;
+         goto ExprStmt;
       }
       doemit = 1;
    }
@@ -4465,7 +4478,7 @@ stmt(CComp *cm, Function *fn)
    case '{':
       lex(cm, NULL);
       envdown(cm, &e);
-      block(cm, fn);
+      block(cm, NULL, NULL);
       envup(cm);
       break;
    case ';':
@@ -4485,7 +4498,7 @@ stmt(CComp *cm, Function *fn)
          condjump(fn, &ex, tr, fl);
          useblk(fn, tr);
       }
-      terminates = stmt(cm, fn);
+      terminates = stmt(cm, NULL, NULL);
       if (!match(cm, NULL, TKWelse)) {
          end = fl;
          EMITS if (!terminates) putbranch(fn, end);
@@ -4496,7 +4509,7 @@ stmt(CComp *cm, Function *fn)
             if (!terminates) putbranch(fn, end);
             useblk(fn, fl);
          }
-         terminates &= stmt(cm, fn);
+         terminates &= stmt(cm, NULL, NULL);
          EMITS {
             if (fn->curblk) putbranch(fn, end);
          }
@@ -4533,7 +4546,7 @@ stmt(CComp *cm, Function *fn)
          condjump(fn, &ex, tr = newblk(fn), end = newblk(fn));
          useblk(fn, tr);
       }
-      terminates = loopbody(cm, fn, end, begin);
+      terminates = loopbody(cm, end, begin);
       EMITS {
          if (fn->curblk) putbranch(fn, begin);
          useblk(fn, end);
@@ -4560,7 +4573,7 @@ stmt(CComp *cm, Function *fn)
          tr = newblk(fn);
          end = newblk(fn);
       }
-      terminates = loopbody(cm, fn, end, tr);
+      terminates = loopbody(cm, end, tr);
       expect(cm, TKWwhile, NULL);
       expect(cm, '(', NULL);
       ex = commaexpr(cm);
@@ -4600,7 +4613,7 @@ stmt(CComp *cm, Function *fn)
       envdown(cm, &e);
       if (!match(cm, NULL, ';')) { /* init */
          if (isdecltok(cm)) {
-            localdecl(cm, fn, 1);
+            localdecl(cm, 1);
          } else {
             ex = commaexpr(cm);
             EMITS expreffects(fn, &ex);
@@ -4641,7 +4654,7 @@ stmt(CComp *cm, Function *fn)
          expect(cm, ')', NULL);
       }
 
-      terminates = loopbody(cm, fn, fl, end);
+      terminates = loopbody(cm, fl, end);
 
       EMITS {
          if (end != begin) { /* have iter */
@@ -4667,7 +4680,7 @@ stmt(CComp *cm, Function *fn)
       expect(cm, ')', NULL);
       if (!isint(ex.ty))
          error(&ex.span, "'switch' value is not an integer: '%ty'", ex.ty);
-      terminates = genswitch(cm, fn, &ex);
+      terminates = genswitch(cm, &ex);
       break;
    case TKWbreak:
       lex(cm, &tk);
@@ -4745,8 +4758,11 @@ stmt(CComp *cm, Function *fn)
       break;
    default:
       ex = exprparse(cm, 1, NULL, EFROMSTMT);
+   ExprStmt:
       stmtterm(cm);
-      EMITS expreffects(fn, &ex);
+      if (stmtexprty) *stmtexprty = ex.ty;
+      EMITS r = compileexpr(fn, &ex, stmtexprval == NULL);
+      if (stmtexprval) *stmtexprval = r;
       break;
    }
    freearena(&cm->exarena);
@@ -4756,18 +4772,19 @@ stmt(CComp *cm, Function *fn)
 
 /* parse and compile a function-local declaration */
 static void
-localdecl(CComp *cm, Function *fn, bool forini)
+localdecl(CComp *cm, bool forini)
 {
    Expr ini;
    Token tk;
+   Function *fn = cm->fn;
    const bool doemit = fn->curblk;
    DeclState st = { DFUNCVAR };
 
    if (!forini && match(cm, &tk, TKIDENT)) {
       if (match(cm, NULL, ':')) {
          /* <label> ':' */
-         deflabel(cm, fn, &tk.span, tk.name);
-         stmt(cm, fn);
+         deflabel(cm, &tk.span, tk.name);
+         stmt(cm, NULL, NULL);
          return;
       }
       /* finddecl() -> non null because localdecl() is called when isdecltok() */
@@ -4893,15 +4910,17 @@ localdecl(CComp *cm, Function *fn, bool forini)
 }
 
 static void
-block(CComp *cm, Function *fn)
+block(CComp *cm, Ref *stexval, Type *stexty)
 {
    Token tk;
 
+   if (stexty) *stexty = mktype(TYVOID);
    while (!match(cm, &tk, '}')) {
+      if (stexty) *stexty = mktype(TYVOID);
       if (isdecltok(cm))
-         localdecl(cm, fn, 0);
+         localdecl(cm, 0);
       else
-         stmt(cm, fn);
+         stmt(cm, stexval, stexty);
    }
    cm->fnblkspan = tk.span;
 }
@@ -4911,6 +4930,8 @@ function(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uchar *
 {
    const TypeData *td = &typedata[fn->fnty.dat];
    const bool doemit = fn->curblk;
+   Function *prevfn = cm->fn;
+   cm->fn = fn;
    Env e;
    Token tk;
    envdown(cm, &e);
@@ -4957,7 +4978,7 @@ function(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uchar *
       useblk(fn, blk);
    }
    cm->labels = NULL;
-   block(cm, fn);
+   block(cm, NULL, NULL);
    envup(cm);
    for (Label *l = cm->labels; l; l = l->link) {
       if (l->usespan.ex.len) {
@@ -4979,6 +5000,7 @@ function(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uchar *
          putreturn(fn, NOREF, NOREF);
       }
    }
+   cm->fn = prevfn;
 }
 
 /* top-level declaration */

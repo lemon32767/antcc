@@ -14,6 +14,7 @@ enum exprkind {
    EEQU, ENEQ, ELTH, EGTH, ELTE, EGTE,
    ESET, ESETADD, ESETSUB, ESETMUL, ESETDIV, ESETREM, ESETAND, ESETIOR, ESETXOR, ESETSHL, ESETSHR,
    ESEQ,
+   EIRVALUE,
 };
 #define isunop(t) in_range(t, EPLUS, EPOSTDEC)
 #define isbinop(t) in_range(t, EADD, ESEQ)
@@ -55,6 +56,7 @@ struct Expr {
          bool func : 1, local : 1;
       } ssym; /* ESSYMREF (static symbol addr + off) */
       Init *init; /* EINIT */
+      struct { uint bits; } irref; /* EIRVALUE */
    };
 };
 
@@ -81,6 +83,7 @@ typedef struct {
    struct Block *breakto, *loopcont;
    struct SwitchStmt *switchstmt;
    struct Label *labels;
+   struct Function *fn;
 } CComp;
 
 enum storageclass {
