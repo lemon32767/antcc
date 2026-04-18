@@ -261,7 +261,7 @@ envitertagged(Tagged **l, Env *env)
 }
 
 static bool
-redeclarationok(const Decl *old, const Decl *new)
+redeclarationok(const Decl *old, Decl *new)
 {
    bool takeoldscls = 0;
    if (old->scls != new->scls) {
@@ -273,18 +273,7 @@ redeclarationok(const Decl *old, const Decl *new)
    switch (old->scls) {
    case SCSTATIC:
    case SCEXTERN:
-      if (old->ty.bits == new->ty.bits) goto OkFuncs;
-      if (old->ty.t != new->ty.t) return 0;
-      if (old->ty.t == TYARRAY /* allow 'int x[]; int x[100];' */
-       && typechild(old->ty).bits == typechild(new->ty).bits
-       && (isincomplete(old->ty) || isincomplete(new->ty)))
-      {
-         return 1;
-      }
-      if (old->ty.t == TYFUNC /* allow 'int f(); int f(int);' (some K&R) */
-       && typedata[old->ty.dat].ret.bits == typedata[new->ty.dat].ret.bits
-       && (typedata[old->ty.dat].kandr || typedata[new->ty.dat].kandr))
-      { OkFuncs:
+      if (typescompat(&new->ty, old->ty, new->ty)) {
          if (takeoldscls) ((Decl *)new)->scls = old->scls;
          return 1;
       }
@@ -296,7 +285,7 @@ redeclarationok(const Decl *old, const Decl *new)
 }
 
 static int
-putdecl(CComp *cm, const Decl *decl)
+putdecl(CComp *cm, Decl *decl)
 {
    for (Env *env = cm->env; env; env = env->up) {
       Decl *l;
@@ -404,14 +393,15 @@ argpromote(Type t)
 bool
 assigncheck(Type t, const Expr *src)
 {
-   Type srcty = typedecay(src->ty);;
+   Type srcty = typedecay(src->ty);
    if (assigncompat(t, srcty)) {
       if (t.t == TYPTR && srcty.t == TYPTR
        && (t.flag & TFCHLDQUAL & srcty.flag & TFCHLDQUAL) != (srcty.flag & TFCHLDQUAL)) {
          warn(&src->span, "usage of '%ty' discards pointer qualifiers", src->ty);
       }
       return 1;
-   } else if (t.t == TYPTR && srcty.t == TYPTR) {
+   } else if ((t.t == TYPTR && srcty.t == TYPTR)
+           && !typescompat(NULL, typechild(t), typechild(srcty))) {
       warn(&src->span, "converting between incompatible pointer types ('%ty' -> '%ty')", srcty, t);
       return 1;
    } else if (t.t == TYPTR && iszero(*src)) return 1;
@@ -652,7 +642,7 @@ bintypecheck(const Span *span, enum toktag tt, Expr *lhs, Expr *rhs)
             error(span, "arithmetic on pointer to incomplete type '%ty'", ty);
          else if (pointee1.t == TYFUNC)
             error(span, "arithmetic on function pointer '%ty'", lhs->ty);
-         else if (pointee1.bits != pointee2.bits) {
+         else if (!typescompat(NULL, pointee1, pointee2)) {
             error(span, "arithmetic on incompatible pointer types: '%ty', '%ty'",
                   ty, rhs->ty);
          }

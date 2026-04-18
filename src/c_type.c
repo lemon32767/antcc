@@ -278,7 +278,7 @@ typedecay(Type t)
 bool /* 6.5.16.1 Simple assignment Constraints */
 assigncompat(Type dst, Type src)
 {
-   if (dst.bits == src.bits) return 1;
+   if (dst.bits == src.bits || typescompat(NULL, dst, src)) return 1;
    if (isarith(dst) && isarith(src)) return 1;
    if (dst.t == TYPTR && src.t == TYPTR) {
       Type ds = typechild(dst), ss = typechild(src);
@@ -292,6 +292,72 @@ assigncompat(Type dst, Type src)
       if (dt == TYCHAR && in_range(st, TYUCHAR, TYSCHAR)) return 1;
    } else if (dst.t == TYBOOL && src.t == TYPTR)
       return 1;
+   return 0;
+}
+
+
+bool /* 6.2.7 Compatible type and composite type */
+typescompat(Type *pcompt, Type t1, Type t2)
+{
+   if (t1.bits == t2.bits) {
+      if (pcompt) *pcompt = t1;
+      return 1;
+   }
+   if (t1.t != t2.t) return 0;
+   if (t1.t == TYPTR) {
+      int qual;
+      if ((qual = t1.flag & TFCHLDQUAL) != (t2.flag & TFCHLDQUAL)) return 0;
+      Type chld;
+      if (!typescompat(&chld, typechild(t1), typechild(t2))) return 0;
+      if (pcompt)
+         *pcompt = mkptrtype(chld, qual);
+      return 1;
+   } else if (t1.t == TYARRAY) {
+      int qual;
+      Type chld;
+      if ((qual = t1.flag & TFCHLDQUAL) != (t2.flag & TFCHLDQUAL)) return 0;
+      if (!typescompat(&chld, typechild(t1), typechild(t2))) return 0;
+      if (pcompt) {
+         uint len;
+         if (!(t1.flag & TFUNKNOWN)) {
+            len = typearrlen(t1);
+         Sized:
+            *pcompt = mkarrtype(chld, qual, len);
+         } else if (!(t2.flag & TFUNKNOWN)) {
+            len = typearrlen(t2);
+            goto Sized;
+         } else {
+            *pcompt = mkunszarrtype(chld, qual);
+         }
+      }
+      return 1;
+   } else if (t1.t == TYFUNC) {
+      Type ret, param[40];
+      const TypeData *td1 = &typedata[t1.dat], *td2 = &typedata[t2.dat];
+      if (!typescompat(&ret, td1->ret, td2->ret)) return 0;
+      if (td1->kandr && td2->kandr) {
+         if (pcompt) *pcompt = mkfntype(ret, 0, NULL, /*kandr=*/1, 0);
+         return 1;
+      } else if (td1->kandr || td2->kandr) {
+         if (pcompt) {
+            const TypeData *tdgood = td1->kandr ? td2 : td1;
+            *pcompt = mkfntype(ret, tdgood->nmemb, tdgood->param,
+                  /*kandr=*/0, tdgood->variadic);
+         }
+         return 1;
+      } else if (td1->nmemb != td2->nmemb || td1->variadic != td2->variadic) {
+         return 0;
+      }
+      if (td1->nmemb > countof(param)) return 0; /* meh */
+
+      for (int i = 0, npar = td1->nmemb; i < npar; ++i) {
+         if (!typescompat(&param[i], td1->param[i], td2->param[i]))
+            return 0;
+      }
+      if (pcompt)
+         *pcompt = mkfntype(ret, td1->nmemb, param, 0, td1->variadic);
+      return 1;
+   }
    return 0;
 }
 

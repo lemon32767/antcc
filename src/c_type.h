@@ -135,6 +135,7 @@ bool getfield(FieldData *res, Type, internstr);
 Type completetype(internstr name, int id, TypeData *td);
 Type typedecay(Type);
 bool assigncompat(Type dst, Type src);
+bool typescompat(Type *pcomposite, Type, Type);
 enum typetag intpromote(enum typetag);
 Type cvtarith(Type a, Type b);
 Type complex2struct(Type);
