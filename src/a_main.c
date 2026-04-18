@@ -243,7 +243,7 @@ optparse(char **args)
       } else if (!strcmp(arg, "pthread")) {
          cpp0define("_REENTRANT", NULL);
          vpush(&task.linkargs, "-lpthread");
-      } else if (*arg == 'l' || *arg == 'L' || *arg == 'B' || !strcmp(arg, "shared") || !strcmp(arg, "static")) {
+      } else if (!strcmp(arg, "shared") || !strcmp(arg, "static")) {
          /* XXX having some issues with linker commands for -shared */
          if (!strcmp(arg, "shared"))
             task.link_with_cc = 1;
@@ -261,11 +261,21 @@ optparse(char **args)
                vpush(&task.linkargs, larg);
             }
          }
-      } else if (!memcmp(arg, "z", 2)) {
-         const char *kw = *++args;
-         if (!kw) fatal(NULL, "missing argument to `-z`");
-         vpush(&task.linkargs, "-z");
-         vpush(&task.linkargs, kw);
+      } else if (*arg == 'z' || *arg == 'L' || *arg == 'l' || *arg == 'B') {
+         const char *x = arg[1] ? arg+1 : *++args;
+         if (!x) fatal(NULL, "missing argument to `%S`", arg-1, 2);
+         if (*arg == 'z') {
+            vpush(&task.linkargs, "-z");
+            vpush(&task.linkargs, x);
+         } else {
+            if (arg[1]) vpush(&task.linkargs, arg-1);
+            else {
+               char *temp = alloc(&globarena, 2 + strlen(x) + 1, 1);
+               temp[0] = '-', temp[1] = *arg;
+               strcpy(temp+2, x);
+               vpush(&task.linkargs, temp);
+            }
+         }
       } else if (!strcmp(arg, "v") || !strcmp(arg, "-verbose")) {
          task.verbose = 1;
       } else if (!strcmp(arg, "c")) {
