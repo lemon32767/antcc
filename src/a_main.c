@@ -59,6 +59,15 @@ fileext(const char *path)
 
 enum inft { IFTauto, IFTc, IFTasm, IFTobj, IFTar, IFTdll };
 
+static bool
+isinteger(const char *s)
+{
+   do
+      if (!in_range(*s, '0', '9')) return 0;
+   while (*++s);
+   return 1;
+}
+
 static enum inft
 ftdetect(const char *s)
 {
@@ -67,7 +76,7 @@ ftdetect(const char *s)
    if (!strcmp(ext, "o")) return IFTobj;
    if (!strcmp(ext, "a")) return IFTar;
    if (!strcmp(ext, "s")) return IFTasm;
-   if (!strcmp(ext, "so")) return IFTdll;
+   if (!strcmp(ext, "so") || isinteger(ext)) return IFTdll;
    warn(NULL, "assuming %'s is C source file", s);
    return IFTc;
 }
@@ -252,6 +261,11 @@ optparse(char **args)
                vpush(&task.linkargs, larg);
             }
          }
+      } else if (!memcmp(arg, "z", 2)) {
+         const char *kw = *++args;
+         if (!kw) fatal(NULL, "missing argument to `-z`");
+         vpush(&task.linkargs, "-z");
+         vpush(&task.linkargs, kw);
       } else if (!strcmp(arg, "v") || !strcmp(arg, "-verbose")) {
          task.verbose = 1;
       } else if (!strcmp(arg, "c")) {
