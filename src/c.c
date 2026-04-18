@@ -496,6 +496,19 @@ relationalcheck(const Expr *a, const Expr *b)
    return 0;
 }
 
+/* folding where a constant expression is required as an extension, with a warning */
+bool
+eval2ext(Expr *ex)
+{
+   if (eval(ex, EVINTCONST)) return 1;
+   if (eval(ex, EVFOLD)) {
+      warn(&ex->span, "expression is not a integer constant expression; "
+                      "folding it here is an extension");
+      return 1;
+   }
+   return 0;
+}
+
 static bool
 isnullpo(const Expr *ex) /* match '0' or '(void *) 0' */
 {
@@ -1731,7 +1744,7 @@ designators(InitParser *ip, CComp *cm)
          if (expect(cm, ']', NULL)) joinspan(&span.ex, tk.span.ex);
          if (ip->sub->ty.t != TYARRAY)
             error(&ex.span, "array designator used with non-array type '%ty'", ip->sub->ty);
-         if (!eval(&ex, EVINTCONST))
+         if (!eval2ext(&ex))
             error(&ex.span, "array designator index is not an integer constant");
          else if (issigned(ex.ty) && ex.i < 0)
             error(&ex.span, "negative array designator index");
@@ -1892,13 +1905,15 @@ initializer(CComp *cm, Type *ty, enum evalmode ev, bool globl,
          sec = Sdata;
       if (!nerror) {
          off = objnewdat(sym, sec, globl, siz = typesize(*ty), align = typealign(*ty));
-         p = sec == Srodata ? objout.rodata.p : objout.data.p;
-         assert(ip->ddat.n <= siz);
-         memcpy(p + off, ip->ddat.p, ip->ddat.n);
-         memset(p + off + ip->ddat.n, 0, siz - ip->ddat.n);
-         for (InitReloc *rel = ip->drel; rel; rel = rel->link) {
-            objreloc(rel->sym, rel->flag, targ_64bit ? REL_ABS64 : REL_ABS32,
-                     sec, off + rel->off, rel->addend);
+         if (siz > 0) {
+            p = sec == Srodata ? objout.rodata.p : objout.data.p;
+            assert(ip->ddat.n <= siz);
+            memcpy(p + off, ip->ddat.p, ip->ddat.n);
+            memset(p + off + ip->ddat.n, 0, siz - ip->ddat.n);
+            for (InitReloc *rel = ip->drel; rel; rel = rel->link) {
+               objreloc(rel->sym, rel->flag, targ_64bit ? REL_ABS64 : REL_ABS32,
+                        sec, off + rel->off, rel->addend);
+            }
          }
       }
       vfree(&ip->ddat);
@@ -2032,7 +2047,7 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id)
                error(&decl.span, "bit-field '%s' has non-integer type '%ty'", name, decl.ty);
             } else if (!isint(ex.ty)) {
                error(&ex.span, "integer constant expression has non-integer type '%ty'", decl.ty);
-            } else if (!eval(&ex, EVINTCONST)) {
+            } else if (!eval2ext(&ex)) {
                error(&ex.span, "cannot evaluate integer constant expression");
             } else if (ex.i < 0) {
                error(&ex.span, "bit-field '%s' has negative width '%ld'", name, ex.i);
@@ -2163,7 +2178,7 @@ buildenum(CComp *cm, internstr name, const Span *span, int id)
       expect(cm, TKIDENT, NULL);
       if (match(cm, NULL, '=') || (peek(cm, NULL) == TKNUMLIT && !expect(cm, '=', NULL))) {
          Expr ex = expr(cm);
-         if (eval(&ex, EVINTCONST)) {
+         if (eval2ext(&ex)) {
             iota = ex.i;
             if (ex.ty.t != ty.t)
                inttyminmax(&tymin, &tymax, ex.ty.t);
@@ -2783,7 +2798,7 @@ declarator(DeclState *st, CComp *cm, Span span0) {
             Expr *ex = &l->count;
             if (!ex->t) { /* ['*'] */
                if (l->prev != &list) error(&l->span, "[*] array declarator is not allowed here");
-            } else if (!eval(ex, EVINTCONST)) {
+            } else if (!eval2ext(ex)) {
                error(&ex->span, "array length is not an integer constant");
             } else if (issigned(ex->ty) && ex->i < 0) {
                error(&ex->span, "array length is negative");
@@ -2852,7 +2867,7 @@ pstaticassert(CComp *cm, Span *span)
    joinspan(&span->ex, tk.span.ex);
    if (!msg.t && ccopt.cstd == STDC11)
       warn(span, "static assert without message is a C23 extension");
-   if (!eval(&ex, EVINTCONST)) {
+   if (!eval2ext(&ex)) {
       error(&ex.span, "static assert expression is not an integer constant");
    } else if (iszero(ex)) {
       if (msg.t)
@@ -4401,12 +4416,12 @@ stmt(CComp *cm, Function *fn)
          /* case <expr> ':' */
          if (!cm->switchstmt) error(&tk.span, "'case' outside of switch statement");
          ex = constantexpr(cm);
-         if (!eval(&ex, EVINTCONST))
+         if (!eval2ext(&ex))
             error(&ex.span, "not an integer constant expression");
          else if (cm->switchstmt && ex.ty.bits != cm->switchstmt->condtype.bits) {
             Expr tmp = ex;
             ex = mkexpr(ECAST, ex.span, cm->switchstmt->condtype, .sub = &tmp);
-            bool ok = eval(&ex, EVINTCONST);
+            bool ok = eval2ext(&ex);
             assert(ok && "cast const int?");
             if (ex.i != tmp.i)
                warn(&ex.span, "overflow converting case value to switch condition type");

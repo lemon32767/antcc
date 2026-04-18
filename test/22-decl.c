@@ -14,6 +14,13 @@ extern unsigned local;
 typedef struct foo { char r; } foo_t;
 static const foo_t T = ((foo_t) { 3 });
 
+static const int X = 4;
+struct {
+   int k : X; /* EXTENSION */
+};
+
+foo_t empty[] = {}; /* EXTENSION */
+
 int main() {
 }
 

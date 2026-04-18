@@ -108,7 +108,7 @@ wr64be(uchar *p, u64int x)
 /** target-endian memory read/write **/
 
 static inline ushort
-rd16targ(uchar *p)
+rd16targ(const uchar *p)
 {
    ushort x;
    memcpy(&x, p, sizeof x);
@@ -117,7 +117,7 @@ rd16targ(uchar *p)
 }
 
 static inline uint
-rd32targ(uchar *p)
+rd32targ(const uchar *p)
 {
    uint x;
    memcpy(&x, p, sizeof x);
@@ -126,7 +126,7 @@ rd32targ(uchar *p)
 }
 
 static inline u64int
-rd64targ(uchar *p)
+rd64targ(const uchar *p)
 {
    u64int x;
    memcpy(&x, p, sizeof x);
@@ -135,14 +135,14 @@ rd64targ(uchar *p)
 }
 
 static inline float
-rdf32targ(uchar *p)
+rdf32targ(const uchar *p)
 {
    union { uint i; float f; } u = { rd32targ(p) };
    return u.f;
 }
 
 static inline double
-rdf64targ(uchar *p)
+rdf64targ(const uchar *p)
 {
    union { u64int i; double f; } u = { rd64targ(p) };
    return u.f;

@@ -50,7 +50,7 @@ objnewdat(internstr name, enum section sec, bool globl, uint siz, uint align)
 {
    ObjFile *o = &objout;
    uint off;
-   assert(siz && align && ispo2(align));
+   assert(align && ispo2(align));
    switch (sec) {
    default: assert(0);
    case Stext:

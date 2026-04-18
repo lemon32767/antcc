@@ -1,5 +1,7 @@
 #include "c.h"
 #include "ir.h"
+#include "obj.h"
+#include "u_endian.h"
 #include <limits.h>
 
 static int
@@ -397,6 +399,42 @@ binop(Expr *ex, enum evalmode mode)
    return numcast(ex->ty, ex, a);
 }
 
+static bool
+tryreadconst(Expr *ex)
+{
+   assert(ex->t == ESYM);
+   const struct Decl *decl = &declsbuf.p[ex->decl];
+   assert(decl->ty.bits == ex->ty.bits && isarith(ex->ty));
+   uint off;
+   const uchar *dat;
+   switch (objhassym(decl->sym, &off)) {
+   default: return 0;
+   case Stext:
+      dat = objout.textbegin + off;
+      break;
+   case Srodata:
+      dat = objout.rodata.p + off;
+      break;
+   }
+   int siz = targ_primsizes[scalartypet(decl->ty)];
+   ex->t = ENUMLIT;
+   enum { F = 1 << 6, S = 1 << 5 };
+   switch (isflt(ex->ty)*F | issigned(ex->ty)*S | siz) {
+   case S|1: ex->i = *(schar *)dat; break;
+   case   1: ex->u = *(uchar *)dat; break;
+   case S|2: ex->i = rd16targ(dat); break;
+   case   2: ex->u = rd16targ(dat); break;
+   case S|4: ex->i = rd32targ(dat); break;
+   case   4: ex->u = rd32targ(dat); break;
+   case S|8:
+   case   8: ex->u = rd64targ(dat); break;
+   case F|4: ex->f = rdf32targ(dat); break;
+   case F|8: ex->f = rdf64targ(dat); break;
+   default: assert(!"nyi");
+   }
+   return 1;
+}
+
 bool
 eval(Expr *ex, enum evalmode mode)
 {
@@ -433,6 +471,8 @@ eval(Expr *ex, enum evalmode mode)
             ex->ty = ty;
             return 1;
          }
+      } else if (mode == EVFOLD && isarith(ex->ty)) {
+         return tryreadconst(ex);
       }
       return 0;
    case ESTRLIT: case ESSYMREF:
