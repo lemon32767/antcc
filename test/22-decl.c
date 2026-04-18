@@ -8,6 +8,12 @@ int a[];
 int a[100];
 int a[];
 
+static unsigned local;
+extern unsigned local;
+
+typedef struct foo { char r; } foo_t;
+static const foo_t T = ((foo_t) { 3 });
+
 int main() {
 }
 

@@ -265,7 +265,7 @@ redeclarationok(const Decl *old, Decl *new)
 {
    bool takeoldscls = 0;
    if (old->scls != new->scls) {
-      if (old->scls == SCSTATIC && (new->scls &~ SCEXTERN) == SCNONE && old->ty.t == TYFUNC && new->ty.t == TYFUNC)
+      if (old->scls == SCSTATIC && (new->scls &~ SCEXTERN) == SCNONE)
          takeoldscls = 1;
       else
          return 0;
@@ -1449,16 +1449,19 @@ rodatarelocok(void)
    return !(ccopt.pie | ccopt.pic);
 }
 
+static bool iniwriterec(CComp *cm, InitParser *ip, uint off, Expr *ex);
+
 static void
 iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty, Expr *ex)
 {
-   if (ex->ty.t == TYSTRUCT && ip->ev == EVSTATICINI) {
+   if (isagg(ex->ty) && ip->ev == EVSTATICINI) {
       assert(ty.bits == ex->ty.bits);
+      assert(ex->t != EINIT);
       for (uint i = 0, n = nmemb(ex->ty); i < n; ++i) {
-         uint suboff;
-         Type sub = membertype(&suboff, &bitsiz, &bitoff, ex->ty, i);
-         iniwrite(cm, ip, off + suboff, bitsiz, bitoff, sub, exprdup(cm, &mkexpr(EGETF, ex->span, sub, .sub = ex)));
-      }
+            uint suboff;
+            Type sub = membertype(&suboff, &bitsiz, &bitoff, ex->ty, i);
+            iniwrite(cm, ip, off + suboff, bitsiz, bitoff, sub, exprdup(cm, &mkexpr(EGETF, ex->span, sub, .sub = ex)));
+         }
    } else if (ip->ev == EVSTATICINI) {
       uchar *p;
       uint siz = typesize(ty);
@@ -1812,8 +1815,11 @@ initializer(CComp *cm, Type *ty, enum evalmode ev, bool globl,
          iniwrite(cm, ip, 0, 0, 0, *ty, &ex);
       } else if (!initcheck(*ty, &ex)) {
          error(&ex.span, "cannot initialize '%ty' with expression of type '%ty'", *ty, ex.ty);
+      } else if (ex.t == EINIT) {
+         if (!iniwriterec(cm, ip, 0, &ex))
+            goto CannotEval;
       } else {
-         if (ev && !eval(&ex, ev) && ev != EVFOLD)
+         if (ev && !eval(&ex, ev) && ev != EVFOLD) CannotEval:
             error(&ex.span, "cannot evaluate expression statically");
          else if (ev == EVSTATICINI || !isscalar(*ty))
             iniwrite(cm, ip, 0, 0, 0, *ty, &ex);
