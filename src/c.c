@@ -497,7 +497,7 @@ relationalcheck(const Expr *a, const Expr *b)
 }
 
 /* folding where a constant expression is required as an extension, with a warning */
-bool
+static bool
 eval2ext(Expr *ex)
 {
    if (eval(ex, EVINTCONST)) return 1;
