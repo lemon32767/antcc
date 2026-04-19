@@ -188,6 +188,7 @@ optparse(char **args)
          }
          continue;
       }
+      const char *incpath = NULL;
       int cinclord;
       if (stroneof(arg, "help\0h\0-help\0")) {
          prihelp();
@@ -260,8 +261,10 @@ optparse(char **args)
             if (stroneof(arg+1, badcgflags)) /* error here helps AC configure scripts */
                error(NULL, "unsupported command-line option: `%s`", arg-1);
             else if (!stroneof(arg+1, okcgflags))
-               goto UnkOption;
+               warn(NULL, "unsupported command-line option: `%s`", arg-1);
          }
+      } else if (!strcmp(arg, "match=native") || !memcmp(arg, "mtune=", 6)) {
+         /* ignore */
       } else if (stroneof(arg, "target\0-target\0")) {
          const char *s = *++args;
          if (!s) fatal(NULL, "missing target name");
@@ -334,20 +337,23 @@ optparse(char **args)
       } else if (*arg == 'O') {
          /* TODO optimization level */
       } else if (*arg == 'I' || !strcmp(arg, "-include-directory")) {
-         const char *p;
          cinclord = CINCL_I;
-         if (*arg == 'I' && arg[1]) p = arg+1;
-         else CIncl: p = *++args;
-         if (!p) fatal(NULL, "missing path after `%s`", arg-1);
-         addinclpath(cinclord, p);
-      } else if (!strcmp(arg, "iquote")) {
+         if (*arg == 'I' && arg[1]) incpath = arg+1;
+         else incpath = *++args;
+      CIncl:
+         if (!incpath) fatal(NULL, "missing path after `%s`", arg-1);
+         addinclpath(cinclord, incpath);
+      } else if (!memcmp(arg, "iquote", 6)) {
          cinclord = CINCL_iquote;
+         incpath = arg[6] ? arg+6 : *++args;
          goto CIncl;
-      } else if (!strcmp(arg, "isystem")) {
+      } else if (!memcmp(arg, "isystem", 7)) {
          cinclord = CINCL_isystem;
+         incpath = arg[7] ? arg+7 : *++args;
          goto CIncl;
-      } else if (!strcmp(arg, "idirafter")) {
+      } else if (!memcmp(arg, "idirafter", 9)) {
          cinclord = CINCL_idirafter;
+         incpath = arg[9] ? arg+9 : *++args;
          goto CIncl;
       } else if (!strcmp(arg, "nostdinc") || !strcmp(arg, "-no-standard-includes")) {
          cinclpaths[CINCLsys] = NULL;
@@ -366,7 +372,7 @@ optparse(char **args)
       } else if (*arg == 'w') {
          ccopt.wnone = 1;
          /* TODO warning switches */
-      } else UnkOption: warn(NULL, "unrecognized command-line option: %'s", arg-1);
+      } else UnkOption: error(NULL, "unrecognized command-line option: %'s", arg-1);
    }
 
    if (task.inf.n == 0) fatal(NULL, "no input files");
