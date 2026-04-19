@@ -4018,18 +4018,6 @@ complexstore(Function *fn, Type base, Ref adr, Ref2 c)
 }
 
 static Ref
-complex2addr(Function *fn, const Expr *ex)
-{
-   assert(iscomplex(ex->ty));
-   if (islvalue(ex)) return expraddr(fn, ex);
-   Type base = typechild(ex->ty);
-   Ref2 uv = compcomplexex(fn, ex, 0);
-   Ref r = addinstr(fn, mkalloca(targ_primsizes[base.t]*2, targ_primalign[base.t]));
-   complexstore(fn, base, r, uv);
-   return r;
-}
-
-static Ref
 complex2addr_cvt(Function *fn, Type to, const Expr *ex)
 {
    assert(iscomplex(to));
