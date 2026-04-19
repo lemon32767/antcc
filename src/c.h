@@ -35,7 +35,7 @@ struct Expr {
       struct {
          Expr *sub; /* child(ren) */
          struct ExprGetFld {
-            ushort off;
+            uint off;
             uchar bitsiz, bitoff;
          } fld; /* EGETF */
       };
