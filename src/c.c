@@ -1005,13 +1005,11 @@ tkprec(int tt)
 
 static Expr initializer(CComp *, Type *ty, enum evalmode ev,
                         bool globl, enum qualifier qual, internstr name);
-
 static void block(CComp *, Ref *stmtexprval, Type *stmtexprty);
 
 static internstr istr__func__, istr_main, istr_memset;
 
 static internstr mkhiddensym(const char *fnname, const char *name, int id);
-
 
 /* parse an expression with the given operator precedence */
 /* param ident is a kludge to support block labels without backtracking or extra lookahead
@@ -1070,8 +1068,21 @@ Unary:
          Span span = tk.span;
          Ref val;
          ex.t = EIRVALUE;
-         block(cm, &val, &ex.ty);
-         ex.irref.bits = val.bits;
+         if (!cm->fn) {
+            error(&span, "statement expression not allowed outside function");
+            int bal = 1;
+            do {
+               switch (lex(cm, &tk)) {
+               case '}': --bal; break;
+               case '{': ++bal; break;
+               case TKEOF: bal = 0; break;
+               }
+            } while (bal != 0);
+            ex.ty = mktype(TYINT);
+         } else {
+            block(cm, &val, &ex.ty);
+            ex.irref.bits = val.bits;
+         }
          if (expect(cm, ')', NULL)) joinspan(&span.ex, tk.span.ex);
          ex.span = span;
       } else if (!isdecltok(cm)) { /* (expr) */
