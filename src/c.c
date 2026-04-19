@@ -498,8 +498,9 @@ relationalcheck(const Expr *a, const Expr *b)
 
 /* folding where a constant expression is required as an extension, with a warning */
 static bool
-eval2ext(Expr *ex)
+eval2xintcon(Expr *ex)
 {
+   if (!isint(ex->ty)) return 0;
    if (eval(ex, EVINTCONST)) return 1;
    if (eval(ex, EVFOLD)) {
       warn(&ex->span, "expression is not a integer constant expression; "
@@ -1755,7 +1756,7 @@ designators(InitParser *ip, CComp *cm)
          if (expect(cm, ']', NULL)) joinspan(&span.ex, tk.span.ex);
          if (ip->sub->ty.t != TYARRAY)
             error(&ex.span, "array designator used with non-array type '%ty'", ip->sub->ty);
-         if (!eval2ext(&ex))
+         if (!eval2xintcon(&ex))
             error(&ex.span, "array designator index is not an integer constant");
          else if (issigned(ex.ty) && ex.i < 0)
             error(&ex.span, "negative array designator index");
@@ -2058,7 +2059,7 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id)
                error(&decl.span, "bit-field '%s' has non-integer type '%ty'", name, decl.ty);
             } else if (!isint(ex.ty)) {
                error(&ex.span, "integer constant expression has non-integer type '%ty'", decl.ty);
-            } else if (!eval2ext(&ex)) {
+            } else if (!eval2xintcon(&ex)) {
                error(&ex.span, "cannot evaluate integer constant expression");
             } else if (ex.i < 0) {
                error(&ex.span, "bit-field '%s' has negative width '%ld'", name, ex.i);
@@ -2189,7 +2190,7 @@ buildenum(CComp *cm, internstr name, const Span *span, int id)
       expect(cm, TKIDENT, NULL);
       if (match(cm, NULL, '=') || (peek(cm, NULL) == TKNUMLIT && !expect(cm, '=', NULL))) {
          Expr ex = expr(cm);
-         if (eval2ext(&ex)) {
+         if (eval2xintcon(&ex)) {
             iota = ex.i;
             if (ex.ty.t != ty.t)
                inttyminmax(&tymin, &tymax, ex.ty.t);
@@ -2809,7 +2810,7 @@ declarator(DeclState *st, CComp *cm, Span span0) {
             Expr *ex = &l->count;
             if (!ex->t) { /* ['*'] */
                if (l->prev != &list) error(&l->span, "[*] array declarator is not allowed here");
-            } else if (!eval2ext(ex)) {
+            } else if (!eval2xintcon(ex)) {
                error(&ex->span, "array length is not an integer constant");
             } else if (issigned(ex->ty) && ex->i < 0) {
                error(&ex->span, "array length is negative");
@@ -2878,7 +2879,7 @@ pstaticassert(CComp *cm, Span *span)
    joinspan(&span->ex, tk.span.ex);
    if (!msg.t && ccopt.cstd == STDC11)
       warn(span, "static assert without message is a C23 extension");
-   if (!eval2ext(&ex)) {
+   if (!eval2xintcon(&ex)) {
       error(&ex.span, "static assert expression is not an integer constant");
    } else if (iszero(ex)) {
       if (msg.t)
@@ -4431,12 +4432,12 @@ stmt(CComp *cm, Ref *stmtexprval, Type *stmtexprty)
          /* case <expr> ':' */
          if (!cm->switchstmt) error(&tk.span, "'case' outside of switch statement");
          ex = constantexpr(cm);
-         if (!eval2ext(&ex))
+         if (!eval2xintcon(&ex))
             error(&ex.span, "not an integer constant expression");
          else if (cm->switchstmt && ex.ty.bits != cm->switchstmt->condtype.bits) {
             Expr tmp = ex;
             ex = mkexpr(ECAST, ex.span, cm->switchstmt->condtype, .sub = &tmp);
-            bool ok = eval2ext(&ex);
+            bool ok = eval2xintcon(&ex);
             assert(ok && "cast const int?");
             if (ex.i != tmp.i)
                warn(&ex.span, "overflow converting case value to switch condition type");
