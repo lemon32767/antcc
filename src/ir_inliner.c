@@ -2,7 +2,7 @@
 #include "obj.h"
 
 typedef struct SavedFunc {
-   bool emitted, globl;
+   bool emitted, globl, inlin;
    uint ninstrtab, ncontab, ncalltab, nphitab;
    Instr *instrtab;
    IRCon *contab;
@@ -47,6 +47,7 @@ maybeinlinee(Function *fn)
    }
    SavedFunc *sv = allocz(&savearena, sizeof *sv, 0);
    sv->globl = fn->globl;
+   sv->inlin = fn->inlin;
    sv->fnty = fn->fnty, sv->retty = fn->retty;
    if (fn->abiarg)
       sv->abiarg = alloccopy(&savearena, fn->abiarg, sizeof *sv->abiarg * fn->nabiarg, 0);
@@ -373,7 +374,7 @@ emitxinlfns(bool all)
       internstr name;
       pmap_each(&savedfns, name, psv) {
          sv = *psv;
-         if (!sv->emitted && (fnisneeded(name) || sv->globl || all)) {
+         if (!sv->emitted && (fnisneeded(name) || (sv->globl && !sv->inlin) || all)) {
             sv->emitted = 1;
             Function fn = rematerialize(&arena, name, sv);
             fn.passarena = &passarena;
