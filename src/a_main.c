@@ -157,6 +157,16 @@ predef(bool undef, const char *cmd)
    else cpp0define(name, body);
 }
 
+/* needle in NUL-separated list of strings? */
+static bool
+stroneof(const char *needle, const char *haystack)
+{
+   for (const char *s = haystack; *s; s += strlen(s)+1) {
+      if (!strcmp(s, needle))
+         return 1;
+   }
+   return 0;
+}
 
 static void
 optparse(char **args)
@@ -179,7 +189,7 @@ optparse(char **args)
          continue;
       }
       int cinclord;
-      if (!strcmp(arg, "help") || !strcmp(arg, "h") || !strcmp(arg, "-help")) {
+      if (stroneof(arg, "help\0h\0-help\0")) {
          prihelp();
          exit(0);
       } else if (!strcmp(arg, "dumpmachine")) {
@@ -195,12 +205,16 @@ optparse(char **args)
          pfmt("%s\n", ANTCC_VERSION_STR);
          exit(0);
       } else if ((x = optval(arg, "std"))) {
-         if (!strcmp(x, "c89") || !strcmp(x, "c90")) ccopt.cstd = STDC89;
-         else if (!strcmp(x, "c99")) ccopt.cstd = STDC99;
-         else if (!strcmp(x, "c11")) ccopt.cstd = STDC11;
-         else if (!strcmp(x, "c2x")) ccopt.cstd = STDC23;
-         else if (!strcmp(x, "c23")) ccopt.cstd = STDC23;
-         else goto Bad;
+         if (*x == 'c') x += 1;
+         else if (!memcmp(x, "gnu", 3)) x += 3;
+         else goto UnkOption;
+
+         if (!strcmp(x, "89") || !strcmp(x, "90")) ccopt.cstd = STDC89;
+         else if (!strcmp(x, "99")) ccopt.cstd = STDC99;
+         else if (!strcmp(x, "11") || !strcmp(x, "17")) ccopt.cstd = STDC11;
+         else if (!strcmp(x, "2x")) ccopt.cstd = STDC23;
+         else if (!strcmp(x, "23")) ccopt.cstd = STDC23;
+         else goto UnkOption;
       } else if (!strcmp(arg, "pedantic")) {
          ccopt.pedant = 1;
       } else if (!strcmp(arg, "trigraphs")) {
@@ -233,17 +247,29 @@ optparse(char **args)
             set = 0;
             flag += 3;
          }
-         if (!strcmp(flag, "pie") || !strcmp(flag, "PIE")) ccopt.pie = set;
-         else if (!strcmp(flag, "pic") || !strcmp(flag, "PIC")) ccopt.pic = set;
-         else goto Bad;
-      } else if (!strcmp(arg, "target") || !strcmp(arg, "-target")) {
+         if (stroneof(flag, "pie\0PIE\0")) ccopt.pie = set;
+         else if (stroneof(flag, "pic\0PIC\0")) ccopt.pic = set;
+         else {
+            /* codegen flags unsupported */
+            static const char badcgflags[] = "lto\0lto=full\0lto=thin\0";
+
+            /* flags 'supported' by default, no need to warn as unrecognized */
+            static const char okcgflags[] =
+               "wrapv\0no-strict-aliasing\0no-jump-tables\0no-builtin\0signed-bitfields\0";
+
+            if (stroneof(arg+1, badcgflags)) /* error here helps AC configure scripts */
+               error(NULL, "unsupported command-line option: `%s`", arg-1);
+            else if (!stroneof(arg+1, okcgflags))
+               goto UnkOption;
+         }
+      } else if (stroneof(arg, "target\0-target\0")) {
          const char *s = *++args;
          if (!s) fatal(NULL, "missing target name");
          task.targ = s;
       } else if (!strcmp(arg, "pthread")) {
          cpp0define("_REENTRANT", NULL);
          vpush(&task.linkargs, "-lpthread");
-      } else if (!strcmp(arg, "shared") || !strcmp(arg, "static")) {
+      } else if (stroneof(arg, "shared\0static\0pie\0no-pie\0static-pie\0")) {
          /* XXX having some issues with linker commands for -shared */
          if (!strcmp(arg, "shared"))
             task.link_with_cc = 1;
@@ -261,7 +287,7 @@ optparse(char **args)
                vpush(&task.linkargs, larg);
             }
          }
-      } else if (*arg == 'z' || *arg == 'L' || *arg == 'l' || *arg == 'B') {
+      } else if (strchr("zLlB", *arg)) {
          const char *x = arg[1] ? arg+1 : *++args;
          if (!x) fatal(NULL, "missing argument to `%S`", arg-1, 2);
          if (*arg == 'z') {
@@ -300,7 +326,7 @@ optparse(char **args)
          else if (o == '1' || o == 's' || o == 'z') ccopt.o = OPT1;
          else if ((uint)o - '1' < 9) ccopt.o = OPT2;
          else if (o == '0') ccopt.o = OPT0;
-         else goto Bad;
+         else goto UnkOption;
       } else if (*arg == 'D' || *arg == 'U') {
          const char *def = arg[1] ? arg+1 : *++args;
          if (!def) fatal(NULL, "macro name missing after `-%c`", *arg);
@@ -340,7 +366,7 @@ optparse(char **args)
       } else if (*arg == 'w') {
          ccopt.wnone = 1;
          /* TODO warning switches */
-      } else Bad: warn(NULL, "unrecognized option: %'s", arg-1);
+      } else UnkOption: warn(NULL, "unrecognized command-line option: %'s", arg-1);
    }
 
    if (task.inf.n == 0) fatal(NULL, "no input files");
