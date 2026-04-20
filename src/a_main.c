@@ -263,7 +263,7 @@ optparse(char **args)
             else if (!stroneof(arg+1, okcgflags))
                warn(NULL, "unsupported command-line option: `%s`", arg-1);
          }
-      } else if (!strcmp(arg, "match=native") || !memcmp(arg, "mtune=", 6)) {
+      } else if (!strcmp(arg, "march=native") || !memcmp(arg, "mtune=", 6)) {
          /* ignore */
       } else if (stroneof(arg, "target\0-target\0")) {
          const char *s = *++args;
