@@ -146,6 +146,7 @@ putpredefmacros(void)
    cpp0define("__ORDER_BIG_ENDIAN__", "4321");
    cpp0define("__BYTE_ORDER__",
          targ_bigendian ? "__ORDER_BIG_ENDIAN__" : "__ORDER_LITTLE_ENDIAN__");
+   cpp0define("__USER_LABEL_PREFIX__", "");
 }
 
 bool

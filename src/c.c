@@ -2955,10 +2955,10 @@ pdecl(DeclState *st, CComp *cm) {
    if (st->kind == DTOPLEVEL || st->kind == DFUNCVAR) {
       while (attrspec(cm, &st->attr)) ;
       if (match(cm, NULL, TKW__asm__) && expect(cm, '(', NULL)) {
-         peek(cm, &tk);
-         if (expect(cm, TKSTRLIT, "asm symbol name")) {
+         if (peek(cm, NULL) == TKSTRLIT) {
+            lex(cm, &tk);
             decl.sym = intern_(tk.s, tk.len);
-         }
+         } else expect(cm, TKSTRLIT, "asm symbol name");
          expect(cm, ')', NULL);
       }
       while (attrspec(cm, &st->attr)) ;
