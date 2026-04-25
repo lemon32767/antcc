@@ -16,6 +16,9 @@ typedef __WCHAR_TYPE__ wchar_t;\n\
 #define NULL ((void*)0)\n\
 #undef offsetof\n\
 #define offsetof(type, memb) ((size_t)((char *)&((type *)0)->memb - (char *)0))\n\
+#if __STDC_VERSION__ >= 201112L\n\
+typedef struct {long long __ll; long double __ld;} max_align_t;\n\
+#endif\n\
 ")},
 
 {"stdarg.h", S("\

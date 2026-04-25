@@ -12,7 +12,7 @@ A list of missing standard C features:
   - IEEE 754 float support Annex F IEC 60559 (`FLT_EVAL_METHOD`, `FENV_ACCESS` pragma) (not even GCC or Clang care about this)
 
 ## C11
-  - `_Alignas`, `max_align_t`
+  - `_Alignas`
   - Multithreading support (`_Thread_local`, atomics)
   - `u8".."` string literals
 
