@@ -117,6 +117,35 @@ typedef __builtin_va_list __gnuc_va_list;\n\
 
 {"limits.h", S("\
 #pragma once\n\
+/* Tell glibc not to try to recursively #include_next gcc's <limits.h> */\n\
+#if defined __GNUC__ && !defined _GCC_LIMITS_H\n\
+#define _GCC_LIMITS_H_\n\
+#endif\n\
+/* We want the system libc header for POSIX constants */\n\
+#ifdef __STDC_HOSTED__\n\
+#include_next <limits.h>\n\
+#endif\n\
+\n\
+#undef CHAR_BIT\n\
+#undef CHAR_MAX\n\
+#undef CHAR_MIN\n\
+#undef UCHAR_MAX\n\
+#undef SCHAR_MAX\n\
+#undef SCHAR_MIN\n\
+#undef USHRT_MAX\n\
+#undef SHRT_MAX\n\
+#undef SHRT_MIN\n\
+#undef MB_LEN_MAX\n\
+#undef UINT_MAX\n\
+#undef INT_MAX\n\
+#undef INT_MIN\n\
+#undef ULONG_MAX\n\
+#undef LONG_MAX\n\
+#undef LONG_MIN\n\
+#undef ULLONG_MAX\n\
+#undef LLONG_MAX\n\
+#undef LLONG_MIN\n\
+\n\
 #define CHAR_BIT    8\n\
 #ifdef __CHAR_UNSIGNED__\n\
 #define CHAR_MAX    UCHAR_MAX\n\
@@ -126,24 +155,23 @@ typedef __builtin_va_list __gnuc_va_list;\n\
 #define CHAR_MIN    SCHAR_MIN\n\
 #endif\n\
 #define UCHAR_MAX   255\n\
-#define SCHAR_MAX   +127\n\
+#define SCHAR_MAX   127\n\
 #define SCHAR_MIN   (-128)\n\
 #define USHRT_MAX   65535\n\
 #define SHRT_MAX    32767\n\
 #define SHRT_MIN    (-32768)\n\
 #define MB_LEN_MAX  16\n\
-#define UINT_MAX    4294967295\n\
+#define UINT_MAX    4294967295U\n\
 #define INT_MAX     2147483647\n\
 #define INT_MIN     (-INT_MAX - 1)\n\
 #if __SIZEOF_LONG__ == __SIZEOF__INT__\n\
-#define ULONG_MAX   UINT_MAX\n\
-#define LONG_MAX    INT_MAX\n\
-#define LONG_MIN    INT_MIN\n\
+#define ULONG_MAX   4294967295UL\n\
+#define LONG_MAX    2147483647L\n\
 #else\n\
-#define ULONG_MAX   ULLONG_MAX\n\
-#define LONG_MAX    LLONG_MAX\n\
-#define LONG_MIN    LLONG_MIN\n\
+#define ULONG_MAX   18446744073709551615UL\n\
+#define LONG_MAX    9223372036854775807L\n\
 #endif\n\
+#define LONG_MIN    (-LONG_MAX - 1L)\n\
 #define ULLONG_MAX  18446744073709551615ULL\n\
 #define LLONG_MAX   9223372036854775807LL\n\
 #define LLONG_MIN   (-LLONG_MAX-1)\n\

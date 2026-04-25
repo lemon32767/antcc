@@ -1850,9 +1850,11 @@ doinclude(Lexer *lx, const Span *span, bool quote, const char *str, size_t slen,
     */
    for (int i = quote ? CINCL_iquote : CINCL_I; i < countof(cinclpaths); ++i) {
       incdiridx = 2 + 1000*i;
+      bool triedembed = 0;
       for (CInclPath *p = cinclpaths[i]; p; p = p->next) {
-         if (i == CINCLsys) {
+         if (i == CINCLsys && !triedembed) {
             /* try embedded files pseudo-path */
+            triedembed = 1;
             if (incdiridx >= req_incdiridx) {
                xbgrow(&path, slen + 3);
                path[0] = '@', path[1] = ':';
