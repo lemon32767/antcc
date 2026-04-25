@@ -112,40 +112,6 @@ typedef __builtin_va_list __gnuc_va_list;\n\
 #endif\n\
 ")},
 
-{"limits.h", S("\
-#pragma once\n\
-#define CHAR_BIT    8\n\
-#ifdef __CHAR_UNSIGNED__\n\
-#define CHAR_MAX    UCHAR_MAX\n\
-#define CHAR_MIN    0\n\
-#else\n\
-#define CHAR_MAX    SCHAR_MAX\n\
-#define CHAR_MIN    SCHAR_MIN\n\
-#endif\n\
-#define UCHAR_MAX   255\n\
-#define SCHAR_MAX   +127\n\
-#define SCHAR_MIN   (-128)\n\
-#define USHRT_MAX   65535\n\
-#define SHRT_MAX    32767\n\
-#define SHRT_MIN    (-32768)\n\
-#define MB_LEN_MAX  16\n\
-#define UINT_MAX    4294967295\n\
-#define INT_MAX     2147483647\n\
-#define INT_MIN     (-INT_MAX - 1)\n\
-#if __SIZEOF_LONG__ == __SIZEOF__INT__\n\
-#define ULONG_MAX   UINT_MAX\n\
-#define LONG_MAX    INT_MAX\n\
-#define LONG_MIN    INT_MIN\n\
-#else\n\
-#define ULONG_MAX   ULLONG_MAX\n\
-#define LONG_MAX    LLONG_MAX\n\
-#define LONG_MIN    LLONG_MIN\n\
-#endif\n\
-#define ULLONG_MAX  18446744073709551615ULL\n\
-#define LLONG_MAX   9223372036854775807LL\n\
-#define LLONG_MIN   (-LLONG_MAX-1)\n\
-")},
-
    {NULL}
 };
 
