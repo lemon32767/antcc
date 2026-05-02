@@ -4,11 +4,9 @@ SRC=$(wildcard src/*.c)
 OBJ=$(patsubst src/%.c,build/%.o,$(SRC))
 DEP=$(OBJ:.o=.d)
 
-CFLAGS=-Wall -std=c11 -pedantic
-PREFIX=/usr/local
+include config.mk
 BINDIR=$(PREFIX)/bin
 
--include config.mk
 
 TOOLCC ?= cc
 
@@ -34,13 +32,10 @@ tool/depgen: tool/depgen.c
 $(OUT): tool/depgen $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ)
 
-src/hostconfig.h:
-	./configure
-
-$(BUILDDIR)/%.o: src/%.c src/hostconfig.h
+$(BUILDDIR)/%.o: src/%.c
 	$Vmkdir -p `dirname $@`
-	$Vtool/depgen -MP -MF $(BUILDDIR)/$*.d -MT $@ $<
 	$(CC) $(CFLAGS) -c -o $@ $<
+	$Vtool/depgen -MP -MF $(BUILDDIR)/$*.d -MT $@ $<
 
 clean:
 	$(RM) -r -- $(BUILDDIR)/ test/build/ $(OUT) *.o a.out
