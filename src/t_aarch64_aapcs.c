@@ -8,7 +8,8 @@ hfa_scalar(enum typetag *hfa_t, Type t)
 {
    enum typetag tt;
    if (isflt(t)) tt = scalartypet(t);
-   if (iscomplex(t)) tt = t.t - TYCOMPLEXF + TYFLOAT;
+   else if (iscomplex(t)) tt = t.t - TYCOMPLEXF + TYFLOAT;
+   else return 0;
    if (!*hfa_t) *hfa_t = tt;
    else if (*hfa_t != tt) return 0;
    return 1;
