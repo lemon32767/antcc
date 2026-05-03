@@ -1243,6 +1243,8 @@ Unary:
                   error(&span, "cannot dereference pointer to incomplete type '%ty'", ty);
                   ty = mktype(TYINT);
                }
+            } else if (ex.ty.t == TYFUNC) { /* function->pointer->function decay, no-op */
+               break;
             } else {
                error(&span, "invalid operand to unary * '%ty'", ex.ty);
                ty = mktype(TYINT);
