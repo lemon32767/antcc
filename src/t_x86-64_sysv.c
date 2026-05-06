@@ -220,7 +220,6 @@ vaarg(Function *fn, Block *blk, int *curi)
 {
    short r[2];
    uchar cls[2];
-   Ref tmp;
    int ni = 0, nf = 0, ns = 0;
    uchar r2off;
    int var = blk->ins.p[*curi];
@@ -235,12 +234,12 @@ vaarg(Function *fn, Block *blk, int *curi)
    if (ret == 2) assert(!"nyi");
    else if (ret == 1) {
       Block *merge;
-      Ref phi, phiargs[2];
+      Ref phi, phiargs[2], tmp, roff;
       /* int: l->gp_offset < 48 - num_gp * 8 */
       /* sse: l->fp_offset < 304 - num_gp * 16 (why 304? ... 176) */
       tmp = ni ? ap : insertinstr(blk, (*curi)++, mkinstr2(Oadd, KPTR, ap, mkref(RICON, 4)));
-      tmp = insertinstr(blk, (*curi)++, mkinstr1(Oloadu32, KI32, tmp));
-      tmp = insertinstr(blk, (*curi)++, mkinstr2(Oulte, KI32, tmp, mkref(RICON, ni ? 48 - ni*8 : 176 - nf*16)));
+      roff = insertinstr(blk, (*curi)++, mkinstr1(Oloadu32, KI32, tmp));
+      tmp = insertinstr(blk, (*curi)++, mkinstr2(Oulte, KI32, roff, mkref(RICON, ni ? 48 - ni*8 : 176 - nf*16)));
       merge = blksplitafter(fn, blk, *curi);
       blk->jmp.t = 0;
       useblk(fn, blk);
@@ -249,7 +248,6 @@ vaarg(Function *fn, Block *blk, int *curi)
       {
          /* phi0: &l->reg_save_area[l->gp/fp_offset] */
          Ref sav = addinstr(fn, mkinstr1(Oloadi64, KPTR, irbinop(fn, Oadd, KPTR, ap, mkref(RICON, 16))));
-         Ref roff = addinstr(fn, mkinstr1(Oloadu32, KI32, irbinop(fn, Oadd, KPTR, ap, mkref(RICON, ni ? 0 : 4))));
          phiargs[0] = irbinop(fn, Oadd, KPTR, sav, roff);
          /* l->gp/fp_offset += num_gp/fp * 8(16) */
          roff = irbinop(fn, Oadd, KI32, roff, mkref(RICON, ni ? ni * 8 : nf * 16));
@@ -282,7 +280,7 @@ vaarg(Function *fn, Block *blk, int *curi)
          instrtab[var] = mkinstr1(cls2load[cls[0]], cls[0], phi);
       } else {
          instrtab[var] = mkalloca(8, 8);
-         tmp = insertinstr(merge, 1, mkinstr1(Oloadi64, KI64, phi));
+         Ref tmp = insertinstr(merge, 1, mkinstr1(Oloadi64, KI64, phi));
          insertinstr(merge, 2, mkinstr2(Ostorei64, 0, mkref(RTMP, var), tmp));
       }
       fn->prop &= ~FNUSE;
