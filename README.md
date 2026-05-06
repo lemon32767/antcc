@@ -1,8 +1,11 @@
-`antcc` is a small C compiler using its own independent backend.
+antcc
+=====
+
+A small C compiler using its own independent backend.
 
 Supports [most of C11 and some C23 features](doc/cstd.md), as well as some GNU extensions.
 
-Currently still in a experimental stage, but can successfully build some
+Currently still in an alpha stage, but can successfully build some
 real-world C codebases such as Lua, SQLite,
 [oksh](https://github.com/ibara/oksh), [tin](http://www.tin.org/), [DOOM](https://github.com/chocolate-doom/chocolate-doom) and itself.
 
@@ -12,12 +15,14 @@ real-world C codebases such as Lua, SQLite,
 [chibicc](https://github.com/rui314/chibicc),
 and backends like [QBE](https://c9x.me/compile/) and [LLVM](https://llvm.org/).
 
-## Requirements
+Requirements
+------------
 
 `antcc` is written in standard C11 and can be built with any conforming
 compiler toolchain.  The `Makefile` requires GNU Make.
 
-## Building
+Building
+--------
 
 Run `./configure` to create `hostconfig.h` and `config.mk` for your system.
 
@@ -33,15 +38,17 @@ make dbg #compile with UBsan and Asan
 
 Install with `(sudo) make install`.
 
-## Supported targets
+
+Supported targets
+-----------------
 
 For now just x86-64 POSIX (Sys-V + ELF). aarch64 backend is in the works.  Tested and known to work:
-
  - `x86_64-linux-gnu`
  - `x86_64-linux-musl`
  - `x86_64-unknown-openbsd`
 
-## Usage
+Usage
+-----
 
 The driver is still incomplete but it mimics that of compilers like gcc, see `--help`.
 `antcc` compiles translation units to object files directly, but the driver
@@ -53,7 +60,8 @@ will try to find one (invoking e.g. `aarch64-linux-gnu-gcc`, or falling back
 to [`zig cc`](https://andrewkelley.me/post/zig-cc-powerful-drop-in-replacement-gcc-clang.html)),
 and appropiate include paths must be manually specified. You can specify the compiler target architecture with `-target <triple>`.
 
-## Testing
+Testing
+-------
 
 `bootstrap.sh` will bootstrap the compiler in 3 stages:
   - Stage 0 builds the compiler with the system's C compiler
@@ -68,13 +76,22 @@ There are tests in the `test` directory:
   - `test/sqlite.sh`: compile SQLite and run its testsuite (must pull in external sqlite submodule: `git submodule update --init --recursive`)
   - `test/metalang99.sh`: compile and run [metalang99](https://github.com/hirrolot/metalang99) tests (preprocessor stress testing)
 
-## Issues and contributing
+Contributing
+------------
 
-You can report issues on the [issue tracker](https://codeberg.org/lsof/antcc/issues).
+Please report any miscompilations you find, these are high-priority bugs.
+Other bug reports are welcome, but check [doc/cstd.md](doc/cstd.md) and [BUGS](BUGS) first.
 
-Contributions are welcome as long as they aren't low-effort AI slop, send as pull requests [on Codeberg](https://codeberg.org/lsof/antcc/pulls).
+You can report bugs on the Codeberg issue tracker or by email
+(<code><span>ls</span>of<span class='plzdontscrape'>@mail</span>box.org</code>).
 
-## Internals & Design
+You may also contribute patches as PRs on Codeberg or by email, keeping in mind:
+  - You should match the style of existing code.
+  - Patches should be as small as possible.
+  - Large changes are unlikely to be accepted without prior discussion.
+
+Internals & Design
+------------------
 
 C type representation (`c_type.h` & `c_type.c`) is shared by the frontend and
 backend because the backend is responsible for ABI-specific lowering of calling

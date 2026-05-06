@@ -1,4 +1,4 @@
-A list of missing standard C features:
+A list of **missing** standard C features:
 
 ## ANSI/C89
   - K&R style function definitions with type declarations: `h(a, b) int a; double b; { ... }`
