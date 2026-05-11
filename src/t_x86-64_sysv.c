@@ -279,9 +279,7 @@ vaarg(Function *fn, Block *blk, int *curi)
       if (!ty.isagg) {
          instrtab[var] = mkinstr1(cls2load[cls[0]], cls[0], phi);
       } else {
-         instrtab[var] = mkalloca(8, 8);
-         Ref tmp = insertinstr(merge, 1, mkinstr1(Oloadi64, KI64, phi));
-         insertinstr(merge, 2, mkinstr2(Ostorei64, 0, mkref(RTMP, var), tmp));
+         instrtab[var] = mkinstr1(Ocopy, KPTR, phi);
       }
       fn->prop &= ~FNUSE;
    } else {
