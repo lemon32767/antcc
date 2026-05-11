@@ -706,6 +706,16 @@ static const schar icmpop2cc[] = {
    [Olth] = CCLO, [Ogth] = CCGT, [Olte] = CCLS, [Ogte] = CCGE,
 };
 
+static bool
+cmpzero2branchok(Block *blk, Instr *ins)
+{
+   /* can transform compare-with-zero + branch sequence into CBZ/CBNZ (compare-zero-and-branch)
+    * only if cmp instr is last in block; regalloc could have clobbered reg otherwise
+    * when inserting moves for phis. overly conservative but it's ok */
+   return in_range(ins->op, Oequ, Oneq) && kisint(ins->cls) && ins->r.bits == ZEROREF.bits
+      && (ins - instrtab) == blk->ins.p[blk->ins.n-1];
+}
+
 static void
 emitbranch(uchar **pcode, Block *blk)
 {
@@ -718,7 +728,8 @@ emitbranch(uchar **pcode, Block *blk)
       Ref arg = blk->jmp.arg[0];
       assert(arg.t == RTMP);
       Instr *ins = &instrtab[arg.i];
-      if (in_range(ins->op, Oequ, Oneq) && ins->r.bits == ZEROREF.bits) {
+
+      if (cmpzero2branchok(blk, ins)) {
          cc = ins->op == Oequ ? CCEQ : CCNE;
          cbk = ins->cls;
          cbopr = ref2oper(ins->l);
@@ -880,7 +891,7 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins)
       }
       break;
    case Oequ: case Oneq:
-      if (!ins->reg && kisint(cls) && ins->r.bits == ZEROREF.bits) /* handled by emitbranch for CBZ/CBNZ */
+      if (!ins->reg && cmpzero2branchok(blk, ins)) /* handled by emitbranch for CBZ/CBNZ */
          break;
    case Olth: case Ogth: case Olte: case Ogte:
    case Oulth: case Ougth: case Oulte: case Ougte:
