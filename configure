@@ -122,7 +122,7 @@ case "$host" in
     host_os=openbsd
     DYNAMIC_LINKER=$sysroot/usr/libexec/ld.so
     ldstartfiles='"-l:crt0.o", "-l:crtbegin.o"'
-    ldendfiles='"-lc", "-lgcc", "-l:crtend.o"'
+    ldendfiles='"-lc", "-lcompiler_rt", "-l:crtend.o"'
     ldstartfiles_pie="$ldstartfiles"
     ldendfiles_pie="$ldendfiles"
     linkflags='"-L'$sysroot'/usr/lib"'
