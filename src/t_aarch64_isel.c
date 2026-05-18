@@ -193,10 +193,7 @@ selcall(Function *fn, Instr *ins, Block *blk, int *curi)
          int iargsave = iarg;
          if (!abi.ty.isagg) { /* scalar arg in stack */
             *arg = mkinstr2(cls2store[abi.ty.cls], 0, adr, arg->r);
-            if (isaddrcon(arg->r,1) || arg->r.t == RADDR)
-               arg->r = insertinstr(blk, iarg++, mkinstr1(Ocopy, abi.ty.cls, arg->r));
-            else
-               fixarg(&arg->r, arg, blk, &iarg);
+            regarg(&arg->r, abi.ty.cls, blk, &iarg);
          } else { /* aggregate arg in stack, callee stack frame destination address */
             *arg = mkinstr1(Ocopy, KPTR, adr);
          }
@@ -314,7 +311,8 @@ fuseaddr(Ref *r, Block *blk, int *curi, uint siz/*1,2,4,8*/)
 
    if (isaddrcon(*r,1)) return 1;
 
-   if (r->t != RSTACK && r->t != RTMP) return 0;
+   if (r->t == RSTACK) return 1;
+   if (r->t != RTMP) return 0;
    if (!aadd(&addr, blk, curi, *r, siz)) return 0;
    if (!(addr.disp >= -256 && addr.disp < 256) /* for 9-bit signed unscaled offset */
     && !(!(addr.disp & (siz-1)) && (u64int)addr.disp < (1<<12)*siz)) /* 12-bit unsigned scaled offset */
@@ -502,6 +500,16 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
    case Ostoref64: cls = KF64; Store:
       loadstoreaddr(blk, &ins->l, curi, op);
       regarg(&ins->r, cls, blk, curi);
+      break;
+   case Oxvaprologue:
+      fuseaddr(&ins->l, blk, curi, 8);
+      assert(ins->l.t == RSTACK);
+      /* !this must be the first instruction */
+      assert(*curi == 1);
+      assert(blk == fn->entry);
+      int t = blk->ins.p[0];
+      blk->ins.p[0] = blk->ins.p[1];
+      blk->ins.p[1] = t;
       break;
    }
 }

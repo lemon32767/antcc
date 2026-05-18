@@ -589,6 +589,7 @@ static void
 gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val)
 {
    assert(dst.t == OREG);
+   assert(cls);
    Oper src;
    if (val.bits == UNDREF.bits) return;
    if (isintcon(val)) {
@@ -616,7 +617,7 @@ gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val
       }
       return;
    } else if (val.t == RSTACK) {
-      Xadd(pcode, cls, dst, reg2oper(FP), mkoper(OIMM, .imm = stackdisp(val.i)));
+      Xadd(pcode, cls, dst, reg2oper(frame.usefp ? FP : SP), mkoper(OIMM, .imm = stackdisp(val.i)));
       return;
    }
    src = ref2oper(val);
@@ -694,6 +695,31 @@ Xcbcc(uchar **pcode, enum irclass k, uint rt, enum cc cc, Block *dst)
    assert(in_range(cc, CCEQ, CCNE));
    assert(in_range(rt, 0, 31));
    W32(0x34000000 | (uint)(k > KI32)<<31 | cc<<24 | (disp & 0x7FFFF)<<5 | rt);
+}
+
+static void
+Xvaprologue(uchar **pcode, Function *fn, Oper sav)
+{
+   int named_gr = 0, named_vr = 0;
+   for (int i = 0; i < fn->nabiarg; ++i) {
+      ABIArg abi = fn->abiarg[i];
+      if (!abi.isstk) {
+         if (abi.reg >= V0) ++named_vr;
+         else ++named_gr;
+      }
+   }
+   assert(sav.t == OMEM);
+   /* save GPRS */
+   for (int r = R(0)+named_gr; r <= R(7); ++r) {
+      Xstr(pcode, KPTR, reg2oper(r), sav);
+      sav.m.disp += 8;
+   }
+
+   sav.m.disp = alignup(sav.m.disp, 16);
+   for (int r = V(0)+named_vr; r <= V(7); ++r) {
+      Xfstr(pcode, KF64, reg2oper(r), sav);
+      sav.m.disp += 16;
+   }
 }
 
 /* condition code for CMP */
@@ -942,6 +968,9 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins)
       break;
    case Ocall:
       Xcall(pcode, ref2oper(ins->l));
+      break;
+   case Oxvaprologue:
+      Xvaprologue(pcode, fn, mkmemoper(8, ins->l));
       break;
    }
 }
