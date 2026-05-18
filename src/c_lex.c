@@ -274,6 +274,16 @@ readstrchrlit(Lexer *lx, Token *tk, char delim, int wide)
          case 'r':  c = '\r'; break;
          case 't':  c = '\t'; break;
          case 'v':  c = '\v'; break;
+         case 'e': /* GNU extension '\e' (ESC) */
+            c = '\x1b';
+            if (ccopt.pedant) {
+               static bool warned = 0;
+               if (!warned) {
+                  warn(&span, "non-standard escape sequence '\\e'");
+                  warned = 1;
+               }
+            }
+            break;
          case 'x': case 'X': /* hex */
             n = 0;
             if (!aisxdigit(peek(lx, 0))) goto Badescseq;
