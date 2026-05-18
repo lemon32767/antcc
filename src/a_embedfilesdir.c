@@ -88,6 +88,13 @@ typedef __builtin_va_list __gnuc_va_list;\n\
 #define LDBL_TRUE_MIN    4.94066e-324\n\
 ")},
 
+{"complex.h", S("\
+#pragma once\n\
+#include_next <complex.h>\n\
+#undef _Complex_I\n\
+#define _Complex_I 1.0iF\n\
+")},
+
 {"iso646.h", S("\
 #define and     &&\n\
 #define and_eq  &=\n\
