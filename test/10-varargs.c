@@ -2,8 +2,9 @@
 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 = 36
 <1.5>
 1.1 + 2.1 + 3.1 + 5.1 + 1.5 + -1.5 + 1.5 + -1.5 + 1.5 + -1 = 11.9
-fwd()/1: Hello World
-fwd()/2: Hello World
+fwd()/1: Hello World 42; -1.5,0; -1
+fwd()/2: Hello World 42; -1.5,0; -1
+tail: 5 6 7 800 900
 */
 
 
@@ -38,6 +39,7 @@ double sumf(double x, ...) {
    va_end(ap);
    return x;
 }
+#include <string.h>
 
 void fwd(const char *fmt, ...) {
    va_list ap, aq;
@@ -48,8 +50,16 @@ void fwd(const char *fmt, ...) {
    va_end(ap);
    printf("\n");
    printf("fwd()/2: ");
-   vprintf(fmt, aq);
+   int off = vprintf(fmt, aq);
    printf("\n");
+   va_end(aq);
+   char fmt2[1000], buh[1000];
+   strcpy(fmt2, fmt);
+   strcat(fmt2, "%d %d %d %d %d");
+   va_end(aq);
+   va_start(aq, fmt);
+   vsprintf(buh, fmt2, aq);
+   printf("tail: %s\n", buh + off);
    va_end(aq);
 }
 
@@ -58,5 +68,6 @@ int main() {
    printf(" = %d\n", sum(1,2,3,4,5,6,7,8,0,0));
    printf("<%g>\n", stkarg(0,0,0,0,0,0,0,0,1.5));
    printf(" = %g\n", sumf(1.1, 2.1, 3.1, 5.1, 1.5, -1.5, 1.5, -1.5, 1.5, -1.0, 0.0));
-   fwd("%s %s", "Hello", "World");
+   fwd("%s %s %d; %g,%g; %d", "Hello", "World", 42, -1.5, 0.0, -1,
+         5, 6, 7, 800, 900);
 }
