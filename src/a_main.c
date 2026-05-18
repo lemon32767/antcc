@@ -73,7 +73,7 @@ ftdetect(const char *s)
 {
    const char *ext = fileext(s);
    if (!strcmp(ext, "c")) return IFTc;
-   if (!strcmp(ext, "o")) return IFTobj;
+   if (!strcmp(ext, "o") || !strcmp(ext, "lo")) return IFTobj;
    if (!strcmp(ext, "a")) return IFTar;
    if (!strcmp(ext, "s")) return IFTasm;
    if (!strcmp(ext, "so") || isinteger(ext)) return IFTdll;
