@@ -231,8 +231,7 @@ vaarg(Function *fn, Block *blk, int *curi)
 
    int ret = abiarg(r, cls, &r2off, &ni, &nf, &ns, ty);
 
-   if (ret == 2) assert(!"nyi");
-   else if (ret == 1) {
+   if (ret == 1) {
       Block *merge;
       Ref phi, phiargs[2], tmp, roff;
       /* int: l->gp_offset < 48 - num_gp * 8 */
@@ -263,7 +262,7 @@ vaarg(Function *fn, Block *blk, int *curi)
          Ref adr = irbinop(fn, Oadd, KPTR, ap, mkref(RICON, 8));
          Ref ovf = addinstr(fn, mkinstr1(Oloadi64, KPTR, adr));
          /* align no-op */
-         
+
          phiargs[1] = ovf;
          /* update l->overflow_arg_area += size */
          int siz = 8;
@@ -283,7 +282,9 @@ vaarg(Function *fn, Block *blk, int *curi)
       }
       fn->prop &= ~FNUSE;
    } else {
-      assert(!"nyi");
+      assert(ty.isagg);
+      Type typ = mktype(typedata[ty.dat].t, .dat = ty.dat);
+      fatal(NULL, "NYI: va_arg for '%ty' (#int=%d,#sse=%d,#stk=%d)", typ, ni, nf, ns);
    }
 }
 

@@ -87,7 +87,7 @@ doins(Instr *ins, Block *blk, int *curi)
    int narg = opnoper[ins->op];
    if (oisarith(ins->op)) {
       Ref r = narg == 1 ? irunop(NULL, ins->op, ins->cls, ins->l)
-                              : irbinop(NULL, ins->op, ins->cls, ins->l, ins->r);
+                        : irbinop(NULL, ins->op, ins->cls, ins->l, ins->r);
       if (r.bits) {
          *ins = mkinstr0(Onop,0);
          replcuses(mkref(RTMP, ins - instrtab), r);
