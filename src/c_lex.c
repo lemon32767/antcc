@@ -718,8 +718,8 @@ putmac(internstr name, Macro *mac)
          if (slot->predef)
             warn(&(Span){mac->span}, "redefining builtin macro");
          else {
-            warn(&(Span){mac->span}, "redefining macro");
-            note(DGWARN, &(Span){slot->span}, "previous definition:");
+            if (warn(&(Span){mac->span}, "redefining macro"))
+               note(&(Span){slot->span}, "previous definition:");
          }
          freemac(slot);
          *slot = *mac;
@@ -781,7 +781,7 @@ lxfatal(Lexer *lx, const Span *span, const char *fmt, ...)
    int n = lx->macstk ? lx->macstk - mstk : 0, i = 0;
    for (MacroStack *l = lx->macstk; l && l > mstk; --l, ++i) {
       if (i < 4 || i > n - 5) {
-         note(DGERROR, &(Span){l->exspan}, "expanded from here");
+         note(&(Span){l->exspan}, "expanded from here");
       } else if (i == 5) {
          efmt(" (...) \n");
       }
@@ -789,7 +789,7 @@ lxfatal(Lexer *lx, const Span *span, const char *fmt, ...)
    for (Lexer *sv = lx->save; sv; sv = sv->save) {
       int line;
       const char *f = getfilepos(&line, NULL, sv->fileid, sv->chridx-2);
-      note(DGERROR, NULL, "in file included from %s:%d", f, line);
+      note(NULL, "in file included from %s:%d", f, line);
    }
    if (!fmt || span) efmt("Aborting due to previous error.\n");
    exit(1);
@@ -859,7 +859,7 @@ tokpaste(Lexer *lx, Token *dst, const Token *l, const Token *r)
 
       if (dst) {
          error(&l->span, "pasting %'tk and %'tk does not form a valid preprocessing token", l, r);
-         note(DGERROR, &r->span, "right-hand side");
+         note(&r->span, "right-hand side");
       }
       return 0;
    }
@@ -1601,7 +1601,7 @@ Switch:
          s64int m = expr(lx, &xu, 1, ignore || !x);
          if (elex(lx, &tk) != ':') {
             error(&tk.span, "expected ':'");
-            note(DGERROR, &span, "to match conditional expression here");
+            note(&span, "to match conditional expression here");
             goto Err;
          }
          y = expr(lx, &yu, 1, ignore || x);
@@ -2256,7 +2256,7 @@ Begin:
             if (sv->inclnerror != nerror || sv->inclnwarn != nwarn) {
                int line;
                const char *f = getfilepos(&line, NULL, sv->fileid, sv->chridx-2);
-               note(DGERROR, NULL, "in file included from %s:%d", f, line);
+               note(NULL, "in file included from %s:%d", f, line);
             }
             memcpy(lx, sv, sizeof *lx);
             free(sv);

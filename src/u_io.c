@@ -1096,7 +1096,7 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
 
    if (span && loc == &span->ex && span->sl.len)
       if (span->ex.file != span->sl.file || !((uint) span->sl.off - span->ex.off < span->ex.len))
-         note(kind, &(Span){ span->sl }, "expanded from here");
+         note(&(Span){ span->sl }, "expanded from here");
 
    if (--depth == 0) ioflush(&out);
 }
@@ -1117,7 +1117,7 @@ fatal(const Span *span, const char *fmt, ...)
 int nerror, nwarn;
 enum { MAXERROR = 20 };
 
-void
+bool
 error(const Span *span, const char *fmt, ...)
 {
    va_list ap;
@@ -1130,14 +1130,15 @@ error(const Span *span, const char *fmt, ...)
       efmt("Too many errors emitted, stopping now.\n");
       exit(1);
    }
+   return 1;
 }
 
-void
+bool
 warn(const Span *span, const char *fmt, ...)
 {
    va_list ap;
 
-   if (ccopt.wnone) return;
+   if (ccopt.wnone) return 0;
    if (ccopt.werror) ++nerror;
    else ++nwarn;
    va_start(ap, fmt);
@@ -1147,14 +1148,14 @@ warn(const Span *span, const char *fmt, ...)
       efmt("Too many errors emitted, stopping now.\n");
       exit(1);
    }
+   return 1;
 }
 
 void
-note(enum diagkind src, const Span *span, const char *fmt, ...)
+note(const Span *span, const char *fmt, ...)
 {
    va_list ap;
 
-   if (ccopt.wnone && src == DGWARN) return;
    va_start(ap, fmt);
    vdiag(span, DGNOTE, fmt, ap);
    va_end(ap);

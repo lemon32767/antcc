@@ -300,11 +300,11 @@ putdecl(CComp *cm, Decl *decl)
          Match:
             if ((cm->env->up != NULL && decl->scls == SCSTATIC) || (l->isdef && decl->isdef)) {
                error(&decl->span, "redefinition of '%s'", decl->name);
-               note(DGERROR, &l->span, "previously defined here");
+               note(&l->span, "previously defined here");
                break;
             } else if (!redeclarationok(l, decl)) {
                error(&decl->span, "incompatible redeclaration of '%s'", decl->name);
-               note(DGERROR, &l->span, "previously declared here");
+               note(&l->span, "previously declared here");
                break;
             }
             if (l->isdef && !decl->isdef) return l - declsbuf.p;
@@ -813,7 +813,7 @@ callexpr(CComp *cm, const Span *span_, const Expr *callee)
             td->nmemb, td->nmemb != 1 ? "s" : "");
       printsig = 1;
    }
-   if (printsig) note(DGERROR, &callee->span, "function signature is '%ty'", ty);
+   if (printsig) note(&callee->span, "function signature is '%ty'", ty);
 
    ex = mkexpr(ECALL, span, ty.t == TYFUNC ? td->ret : ty, .narg = args.n,
                .sub = alloc(&cm->exarena, (args.n+1)*sizeof(Expr), 0));
@@ -2288,7 +2288,7 @@ tagtype(CComp *cm, enum toktag kind)
                      &tk, kind);
             else
                error(&tk.span, "redefinition of '%tt %s'", kind, tag);
-            note(DGERROR, &span, "previous definition:");
+            note(&span, "previous definition:");
          }
       }
       if (tt == TYENUM)
@@ -2300,7 +2300,7 @@ tagtype(CComp *cm, enum toktag kind)
    if (t.t != tt) {
       error(&tk.span, "declaring tagged type %'tk as %tt clashes with previous definition",
             &tk, kind);
-      note(DGERROR, &span, "previous definition:");
+      note(&span, "previous definition:");
    }
    return t;
 }
@@ -4387,7 +4387,7 @@ genswitch(CComp *cm, const Expr *ex)
          assert(c->val >= prev);
          if (c->val == prev) {
             error(&c->span, "duplicate case value");
-            note(DGERROR, &c[-1].span, "previously defined here");
+            note(&c[-1].span, "previously defined here");
          }
       }
       EMITS {
