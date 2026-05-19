@@ -1136,7 +1136,7 @@ tryexpand(Lexer *lx, Token *tk)
          .space = tk->space,
       });
    }
-   if (lx->macstk != stkprev) {
+   if (lx->macstk != stkprev && lx->macstk) {
       lx->macstk->space = tk->space;
    }
    return EXPSTACK;
