@@ -52,10 +52,11 @@ checklive(Function *fn)
    assert(ok && "bad liveness");
 }
 
+/* XXX will need a 3rd set for x86 FPU regs */
 static regset gpregset, fpregset;
 
 #define isfpr(reg) in_range((reg), mctarg->fpr0, mctarg->fpr0 + mctarg->nfpr - 1)
-#define isgpr(reg) in_range((reg), mctarg->gpr0, mctarg->gpr0 + mctarg->nfpr - 1)
+#define isgpr(reg) in_range((reg), mctarg->gpr0, mctarg->gpr0 + mctarg->ngpr - 1)
 
 /* an allocated physical register or stack slot */
 enum { ADEAD, AREG, ASTACK };
