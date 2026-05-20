@@ -20,7 +20,6 @@ uchar targ_primalign[TYPTR+1];
 uint targ_valistsize;
 enum typetag targ_sizetype, targ_ptrdifftype, targ_wchartype;
 bool targ_charsigned, targ_bigendian, targ_64bit;
-enum mcarch targ_arch;
 const struct MCTarg *mctarg;
 
 static bool
@@ -200,7 +199,6 @@ targ_init(const char *starg, const TargTriple *dfault)
    targ_bigendian = 0;
    targ_64bit = t->ptrsize == 8;
    mctarg = t->mctarg;
-   targ_arch = ISx86_64;
 
    putpredefmacros();
 
