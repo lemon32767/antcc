@@ -306,7 +306,13 @@ putdecl(CComp *cm, Decl *decl)
                error(&decl->span, "incompatible redeclaration of '%s'", decl->name);
                note(&l->span, "previously declared here");
                break;
+            } else if (decl->sym != l->sym && (decl->sym != decl->name)) {
+               /* conflicting __asm__ names */
+               if (warn(&decl->span, "'asm' declaration conflicts with previous rename, ignored")) {
+                  note(&l->span, "previously defined here");
+               }
             }
+            if (l->sym) decl->sym = l->sym;
             if (l->isdef && !decl->isdef) return l - declsbuf.p;
             break;
          }
