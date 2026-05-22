@@ -2849,10 +2849,12 @@ declarator(DeclState *st, CComp *cm, Span span0) {
             warn(&l->span, "function declaration without a prototype is deprecated");
          decl.ty = mkfntype(decl.ty, l->npar, l->param, l->kandr, l->variadic);
          if (l->param != declparamtmp) free(l->param);
-         if (l->prev == &list && l->npar) { /* last */
-            st->pnames = alloccopy(&cm->fnarena, l->pnames, l->npar * sizeof(char *), 0);
-            st->pspans = alloccopy(&cm->fnarena, l->pspans, l->npar * sizeof(Span), 0);
-            st->pqual = l->pqual ? alloccopy(&cm->fnarena, l->pqual, l->npar, 1) : NULL;
+         if (l->prev == &list) { /* root declaration node */
+            if (l->npar) {
+               st->pnames = alloccopy(&cm->fnarena, l->pnames, l->npar * sizeof(char *), 0);
+               st->pspans = alloccopy(&cm->fnarena, l->pspans, l->npar * sizeof(Span), 0);
+               st->pqual = l->pqual ? alloccopy(&cm->fnarena, l->pqual, l->npar, 1) : NULL;
+            }
             decl.inlin = st->fninline;
             decl.noret = st->fnnoreturn;
          }
