@@ -3048,6 +3048,7 @@ expraddr(Function *fn, const Expr *ex)
 {
    Decl *decl;
    Ref r;
+   bool local;
 
    switch (ex->t) {
    case ESYM:
@@ -3058,7 +3059,8 @@ expraddr(Function *fn, const Expr *ex)
          assert(decl->id >= 0);
          return mkref(RTMP, decl->id);
       case SCEXTERN: case SCNONE: case SCSTATIC:
-         return mksymref(decl->sym, (SFUNC & -(decl->ty.t == TYFUNC)) | (SLOCAL & -(decl->scls == SCSTATIC || (decl->isdef && !decl->inlin))));
+         local = decl->scls == SCSTATIC || (decl->isdef && !decl->inlin);
+         return mksymref(decl->sym, (SFUNC & -(decl->ty.t == TYFUNC)) | (SLOCAL & -local));
       default:
          assert(0);
       }
@@ -5016,7 +5018,8 @@ tldecl(CComp *cm)
    do {
       bool noscls = 0;
       int nerr = nerror;
-      Decl decl = pdecl(&st, cm);
+      Decl decl0 = pdecl(&st, cm),
+          *decl = &decl0;
 
       if (nerror != nerr && st.varini) {
          (void)expr(cm);
@@ -5024,64 +5027,70 @@ tldecl(CComp *cm)
          continue;
       }
       if (st.empty) break;
-      if (!decl.scls) {
+      if (!decl->scls) {
          noscls = 1;
-         decl.scls = SCEXTERN;
+         decl->scls = SCEXTERN;
       }
-      if (!decl.sym) decl.sym = decl.name;
-      decl.isdef = st.varini;
+      if (!decl->sym) decl->sym = decl->name;
+      decl->isdef = st.varini;
       if (st.funcdef) {
-         const TypeData *td = &typedata[decl.ty.dat];
+         const TypeData *td = &typedata[decl->ty.dat];
          if (td->ret.t != TYVOID && isincomplete(td->ret))
-            error(&decl.span, "function definition with incomplete return type '%ty'", td->ret);
+            error(&decl->span, "function definition with incomplete return type '%ty'", td->ret);
          for (int i = 0; i < td->nmemb; ++i) {
             if (td->param[i].t != TYVOID && isincomplete(td->param[i]))
                error(&st.pspans[i], "parameter has incomplete type '%ty'", td->param[i]);
          }
-         decl.isdef = 1;
-         int idecl = putdecl(cm, &decl);
-         Decl *d = &declsbuf.p[idecl];
-         Function fn = { &cm->fnarena, .name = d->sym, .globl = d->scls != SCSTATIC, .fnty = decl.ty, .retty = td->ret, .inlin = d->inlin };
+         decl->isdef = 1;
+         int idecl = putdecl(cm, decl);
+         decl = &declsbuf.p[idecl];
+         Function fn = { &cm->fnarena, .name = decl->sym, .globl = decl->scls != SCSTATIC,
+                         .fnty = decl->ty, .retty = td->ret, .inlin = decl->inlin };
          irinit(&fn);
          function(cm, &fn, st.pnames, st.pspans, st.pqual);
          if (!nerror && ccopt.dbg.p)
             irdump(&fn);
          irfini(&fn);
-      } else if (decl.name) {
-         int idecl = putdecl(cm, &decl);
-         Decl *d = &declsbuf.p[idecl];
+      } else if (decl->name) {
+         int idecl = putdecl(cm, decl);
+         decl = &declsbuf.p[idecl];
          if (st.varini) {
-            if (isagg(decl.ty) && isincomplete(decl.ty))
-               error(&decl.span, "initialization of variable with incomplete type '%ty'", decl.ty);
-            Expr ini = initializer(cm, &decl.ty, EVSTATICINI, d->scls != SCSTATIC, d->qual, d->sym);
-            d = &declsbuf.p[idecl];
-            d->ty = decl.ty;
-            if (d->scls == SCEXTERN && !noscls) {
-               Span span = decl.span;
+            if (isagg(decl->ty) && isincomplete(decl->ty))
+               error(&decl->span, "initialization of variable with incomplete type '%ty'", decl->ty);
+            Expr ini = initializer(cm, &decl->ty, EVSTATICINI, decl->scls != SCSTATIC, decl->qual, decl->sym);
+            decl = &declsbuf.p[idecl];
+            decl->ty = decl->ty;
+            if (decl->scls == SCEXTERN && !noscls) {
+               Span span = decl->span;
                joinspan(&span.ex, ini.span.ex);
                warn(&span, "'extern' variable has initializer");
             }
             pdecl(&st, cm);
-         } else if (d->ty.t != TYFUNC && d->scls != SCTYPEDEF && (d->scls != SCEXTERN || noscls)) {
+         } else if (decl->ty.t != TYFUNC && decl->scls != SCTYPEDEF && (decl->scls != SCEXTERN || noscls)) {
             /* tentative definitions */
-            if (!objhassym(d->sym, NULL)) {
-               uint size = typesize(d->ty);
-               if (isincomplete(d->ty)) {
-                  if (d->ty.t == TYARRAY) {
-                     warn(&d->span, "tentative array definition assumed to have one element");
-                     size = typesize(typechild(d->ty));
+            if (!objhassym(decl->sym, NULL)) {
+               uint size = typesize(decl->ty);
+               if (isincomplete(decl->ty)) {
+                  if (decl->ty.t == TYARRAY) {
+                     warn(&decl->span, "tentative array definition assumed to have one element");
+                     size = typesize(typechild(decl->ty));
                      assert(size != 0);
-                  } else if (isagg(d->ty)) {
-                     warn(&d->span, "tentative definition with incomplete type '%ty'", d->ty);
+                  } else if (isagg(decl->ty)) {
+                     warn(&decl->span, "tentative definition with incomplete type '%ty'", decl->ty);
                      assert(size == 0);
                   } else assert(0);
                }
-               if (size) objnewdat(d->sym, Sbss, d->scls == SCEXTERN, size, typealign(d->ty));
+               if (size) objnewdat(decl->sym, Sbss, decl->scls == SCEXTERN, size, typealign(decl->ty));
             }
          }
-         if (ccopt.dbg.p) bfmt(ccopt.dbgout, "var %s : %tq\n", d->name, d->ty, d->qual);
+         if (ccopt.dbg.p) bfmt(ccopt.dbgout, "decl %s : %tq\n", decl->name, decl->ty, decl->qual);
       } else {
-         if (ccopt.dbg.p && decl.ty.t) bfmt(ccopt.dbgout, "type %ty\n", decl.ty);
+         if (ccopt.dbg.p && decl->ty.t) bfmt(ccopt.dbgout, "type %ty\n", decl->ty);
+      }
+      if (decl->inlin && (decl->scls & SCEXTERN) && !noscls) {
+         /* explicit 'extern inline' instructs definition to be emitted in this TU */
+         assert(decl->ty.t == TYFUNC);
+         markfnneeded(decl->sym);
       }
       freearena(&cm->fnarena);
       freearena(&cm->exarena);

@@ -103,10 +103,16 @@ objreloc(internstr sym, int symflags, enum relockind reloc, enum section section
    }
 }
 
-bool
-fnisneeded(internstr name)
+void
+markfnneeded(internstr sym)
 {
-   return pmap_get(&needed_fns, name) != NULL;
+   pmap_set(&needed_fns, sym, 1);
+}
+
+bool
+fnisneeded(internstr sym)
+{
+   return pmap_get(&needed_fns, sym) != NULL;
 }
 
 void
