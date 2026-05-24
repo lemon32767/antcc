@@ -5048,6 +5048,7 @@ tldecl(CComp *cm)
                          .fnty = decl->ty, .retty = td->ret, .inlin = decl->inlin };
          irinit(&fn);
          function(cm, &fn, st.pnames, st.pspans, st.pqual);
+         decl = &declsbuf.p[idecl];
          if (!nerror && ccopt.dbg.p)
             irdump(&fn);
          irfini(&fn);
@@ -5083,6 +5084,7 @@ tldecl(CComp *cm)
                if (size) objnewdat(decl->sym, Sbss, decl->scls == SCEXTERN, size, typealign(decl->ty));
             }
          }
+         decl = &declsbuf.p[idecl];
          if (ccopt.dbg.p) bfmt(ccopt.dbgout, "decl %s : %tq\n", decl->name, decl->ty, decl->qual);
       } else {
          if (ccopt.dbg.p && decl->ty.t) bfmt(ccopt.dbgout, "type %ty\n", decl->ty);
