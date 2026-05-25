@@ -2,5 +2,4 @@ C frontend does not check uniqueness of fields in aggregate type definitions, du
 are silently ignored instead of raising a compilation error.
 
 Need to debug miscompilations in:
-  - bearssl, test fail KAT GHASH
   - bzip2, assert fail 1007
