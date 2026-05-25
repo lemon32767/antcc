@@ -807,6 +807,12 @@ freestk(RegAlloc *ra, int slot)
       --ra->stktop;
 }
 
+static Alloc
+allocstkend(RegAlloc *ra)
+{
+   return astack(ra->maxstk++);
+}
+
 #define interval2temp(it) (int)(it - ra->intertab)
 
 static void
@@ -1127,7 +1133,8 @@ devirt(RegAlloc *ra, Block *blk)
                   /* if not the designated scratch register, we need to save+restore */
                   if (rstest(fn->regusage, reg) || rstest(mctarg->rcallee, reg)) {
                      dosave = 1;
-                     if (!spillsave[nspill-1].t) spillsave[nspill-1] = allocstk(ra);
+                     if (!spillsave[nspill-1].t)
+                        spillsave[nspill-1] = allocstkend(ra);
                      emitmove(fn, isgpr(reg) ? KPTR : KF64, spillsave[nspill-1], areg(reg), blk, curi++);
                   }
                }
@@ -1177,7 +1184,8 @@ devirt(RegAlloc *ra, Block *blk)
                reg = lowestsetbit(avail);
                if (rstest(fn->regusage, reg) || rstest(mctarg->rcallee, reg)) {
                   dosave = 1;
-                  if (!spillsave[nspill-1].t) spillsave[nspill-1] = allocstk(ra);
+                  if (!spillsave[nspill-1].t)
+                     spillsave[nspill-1] = allocstkend(ra);
                   emitmove(fn, isgpr(reg) ? KPTR : KF64, spillsave[nspill-1], areg(reg), blk, curi++);
                   curi0 = curi;
                }
