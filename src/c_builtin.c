@@ -157,6 +157,7 @@ hasbuiltin(const char *name, uint len)
    for (int i = 0; i < countof(tab); ++i)
       if (!strncmp(name, tab[i].name, len))
          return 1;
+   if (!strcmp(name, "__builtin_va_arg")) return 1;
    return 0;
 }
 
