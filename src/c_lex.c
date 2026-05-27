@@ -2446,6 +2446,24 @@ mac__has_builtin(Lexer *lx, Token *tk, const Token *args, int narg)
 }
 
 static void
+mac__has_attribute(Lexer *lx, Token *tk, const Token *args, int narg)
+{
+   extern bool hasattribute(const char *, uint n);
+   bool has = 0;
+   tk->t = TKNUMLIT, tk->len = 1;
+   if (narg >= 1) {
+      if (isppident(args[0]))
+         has = hasattribute(args[0].s, args[0].len);
+      else goto Bad;
+      if (narg != 1)
+         error(&args[1].span, "expected `)' after '%tk'", &args[0]);
+   } else Bad: {
+      error(narg ? &args[0].span : &tk->span, "'__has_attribute' requires an identifier");
+   }
+   tk->s = &"01"[has];
+}
+
+static void
 putdefs1(const char *s)
 {
    if (s) for (; *s; s += strlen(s) + 1) putdef1(s);
@@ -2468,6 +2486,7 @@ addpredefmacros(Arena **tmparena)
       { "__TIME__", { .predef = 1, .special = 1, .handler = mac__time__ }},
       { "__COUNTER__", { .predef = 1, .special = 1, .handler = mac__counter__ }},
       { "__has_builtin", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_builtin }},
+      { "__has_attribute", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_attribute }},
       { "__STDC_VERSION__", { .predef = 1, .single = &tok_stdc }},
       { "__antcc_major__", { .predef = 1, .single = &tok_major }},
       { "__antcc_minor__", { .predef = 1, .single = &tok_minor }},

@@ -96,20 +96,61 @@ enum storageclass {
    SCREGISTER = 1<<5,
 };
 
+#define LIST_ATTRS(_)          \
+   /*name,               f, v, t */ \
+   _(noreturn,           1, 0, 0)   \
+   _(returns_twice,      1, 0, 0)   \
+   _(noinline,           1, 0, 0)   \
+   _(always_inline,      1, 0, 0)   \
+   _(flatten,            1, 0, 0)   \
+   _(pure,               1, 0, 0)   \
+   _(const,              1, 0, 0)   \
+   _(nothrow,            1, 0, 0)   \
+   _(constructor,        1, 0, 0)   \
+   _(destructor,         1, 0, 0)   \
+   _(used,               1, 1, 1)   \
+   _(unused,             1, 1, 1)   \
+   _(deprecated,         1, 1, 1)   \
+   _(weak,               1, 1, 0)   \
+   _(malloc,             1, 0, 0)   \
+   _(alias,              1, 0, 0)   \
+   _(warn_unused_result, 1, 0, 0)   \
+   _(gnu_inline,         1, 0, 0)   \
+   _(externally_visible, 1, 1, 0)   \
+   _(common,             0, 1, 0)   \
+   _(nocommon,           0, 1, 0)   \
+   _(packed,             0, 1, 1)   \
+   _(transparent_union,  0, 0, 1)   \
+   _(may_alias,          0, 0, 1)   \
+   _(aligned,            0, 1, 1)   \
+
+enum attr {
+   ATTRxxx,
+#define DEF_ATTR(x,...) ATTR##x,
+   LIST_ATTRS(DEF_ATTR)
+#undef DEF_ATTR
+};
+typedef struct Attrs {
+   int align;
+   uint bset;
+} Attrs;
+#define setattr(attrs,A) ((attrs)->bset |= 1<<(A))
+#define hasattr(attrs,A) ((attrs)->bset & 1<<(A))
+
 typedef struct Decl {
    Type ty;
    uchar scls;
-   uchar qual : 2,
-         noret : 1,
+   uchar qual  : 2,
          inlin : 1,
-         isenum : 1,
          isdef : 1,
-         isbuiltin : 1;
+         isenumconst : 1,
+         isbuiltin   : 1;
    Span span;
    internstr name;
+   Attrs attr;
    union {
       internstr sym; /* static/extern scls */
-      struct { ushort align; int id; }; /* local var */
+      int id; /* local var */
       s64int value; /* enum constant */
       const Builtin *builtin; /* .isbuiltin */
    };

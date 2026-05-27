@@ -101,9 +101,7 @@ typedef struct DeclState {
    Type base;
    uchar scls;
    uchar qual;
-   bool fnnoreturn : 1,
-        fninline : 1;
-   uint align;
+   bool fninline : 1;
    bool base0, /* caller set initial base type, but there may be declspecs to parse */
         more, /* caller should keep calling pdecl to get next decl */
         varini, /* caller should parse an initializer ('=' <ini>) and
@@ -117,7 +115,7 @@ typedef struct DeclState {
    internstr *pnames; /* param names for function definition */
    Span *pspans; /* param spans ditto */
    uchar *pqual; /* param quals ditto */
-   int attr;
+   Attrs attr;
 } DeclState;
 static Decl pdecl(DeclState *st, CComp *cm);
 
@@ -1153,7 +1151,7 @@ Unary:
       } else if (decl->scls == SCTYPEDEF) {
          error(&tk.span, "unexpected typename %'tk (expected expression)", &tk);
          ex = mkexpr(ESYM, tk.span, decl->ty, .implicitsym = NULL);
-      } else if (decl->isenum) {
+      } else if (decl->isenumconst) {
          ex = mkexpr(ENUMLIT, tk.span, decl->ty, .i = decl->value);
       } else Sym: {
          if (decl->name == istr__func__ && decl->isbuiltin) { /* lazy __func__ */
@@ -2226,7 +2224,7 @@ buildenum(CComp *cm, internstr name, const Span *span, int id)
 
       decl.name = tk.name;
       decl.ty = ty;
-      decl.isenum = 1;
+      decl.isenumconst = 1;
       decl.value = iota++;
       putdecl(cm, &decl);
       if (!match(cm, &tk, ',')) {
@@ -2306,11 +2304,94 @@ tagtype(CComp *cm, enum toktag kind)
    return t;
 }
 
+static const struct {
+   const char *s;
+   uint slen;
+   uint attr;
+} cattrs[] = {
+#define DEF_ATTR(a,...) {#a, sizeof#a - 1, ATTR##a},
+   LIST_ATTRS(DEF_ATTR)
+#undef DEF_ATTR
+};
+
+bool
+hasattribute(const char *s, uint len)
+{
+   for (int i = 0; i < countof(cattrs); ++i) {
+      if (cattrs[i].slen == len && !memcmp(cattrs[i].s, s, len))
+         return 1;
+   }
+   return 0;
+}
+
 static bool
-attrspec(CComp *cm, int *attr)
+parse1attr(CComp *cm, Attrs *attr, Token *tk)
+{ /* attribute ::= name | name ( params ) */
+   Span span = tk->span;
+   assert(tk->t == TKIDENT || in_range(tk->t, TKWBEGIN_, TKWEND_));
+   enum attr a = ATTRxxx;
+   const char *aname = NULL;
+   for (int i = 0; i < countof(cattrs); ++i) {
+      const char *s = tk->s;
+      uint n = tk->len;
+
+      /* strip __xyz__ -> xyz */
+      if (n > 5 && s[0] == '_' && s[1] == '_' && s[n-2] == '_' && s[n-1] == '_') {
+         s += 2;
+         n -= 4;
+      }
+      if (n == cattrs[i].slen && !memcmp(s, aname = cattrs[i].s, n)) {
+         setattr(attr, a = cattrs[i].attr);
+         break;
+      }
+   }
+   if (a == ATTRxxx)
+      warn(&tk->span, "unknown/unsupported attribute ignored (%'tk)", tk);
+
+   Expr params[4];
+   int nparam = 0;
+   if (match(cm, tk, '(')) {
+      /* params ::= (pseudo-expr1, ...) */
+      while (!match(cm, tk, ')')) {
+         if (nparam == countof(params)) return 0;
+         Expr ex = exprparse(cm, bintab['='].prec, NULL, EATTRARG);
+         if (nparam < countof(params)) params[nparam] = ex;
+         ++nparam;
+         if (!match(cm, NULL, ',')) {
+            peek(cm, tk);
+            if (expect(cm, ')', NULL)) break;
+            else return 0;
+         }
+      }
+      joinspan(&span.ex, tk->span.ex);
+   }
+
+   switch(a) {
+   case ATTRxxx: break;
+   default:
+      if (nparam > 0)
+      BadArgs:
+         error(&span, "wrong number of arguments for attribute '%s'", aname);
+      break;
+   case ATTRaligned:
+      if (nparam > 1) goto BadArgs;
+      else if (nparam == 1) {
+         if (isint(params[0].ty) && eval2xintcon(&params[0])) {
+            attr->align = params[0].i;
+         } else {
+            error(&params[0].span, "'aligned' requires integer constant");
+         }
+      }
+      break;
+   }
+   return 1;
+}
+
+static bool
+attrspec(CComp *cm, Attrs *attr)
 { /* __attribute__ (( attribute-list )) */
    if (!match(cm, NULL, TKW__attribute__)) return 0;
-   if (!expect(cm, '(', "after __attribute__") || !expect(cm, '(', "after __attribute__")) {
+   if (!expect(cm, '(', "after __attribute__") || !expect(cm, '(', "after __attribute__(")) {
    Bad:
       fatal(NULL, NULL);
    }
@@ -2320,22 +2401,7 @@ attrspec(CComp *cm, int *attr)
       if (tk.t != TKIDENT && !in_range(tk.t, TKWBEGIN_, TKWEND_)) {
          fatal(&tk.span, "expected attribute name");
       }
-      internstr name = tk.name;
-      int ltrim = name[0].c == '_' && name[1].c == '_',
-          rtrim = tk.len > 2 && name[tk.len-1].c == '_' && name[tk.len-2].c == '_';
-      if (ltrim || rtrim) { /* trim surrounding '__' */
-         name = intern_(&name->c + ltrim*2, tk.len - ltrim*2 - rtrim*2);
-      }
-      if (match(cm, NULL, '(')) {
-         while (!match(cm, NULL, ')')) {
-            (void)exprparse(cm, bintab['='].prec, NULL, EATTRARG);
-            if (!match(cm, NULL, ',')) {
-               if (expect(cm, ')', NULL)) break;
-               else goto Bad;
-            }
-         }
-      }
-      (void)name;
+      if (!parse1attr(cm, attr, &tk)) goto Bad;
       if (!match(cm, NULL, ',')) {
          if (expect(cm, ')', NULL)) break;
          else goto Bad;
@@ -2407,7 +2473,7 @@ declspec(DeclState *st, CComp *cm, Span *pspan)
          break;
       case TKW_Noreturn:
          if (!properdecl) goto BadFnSpec;
-         st->fnnoreturn = 1;
+         setattr(&st->attr, ATTRnoreturn);
          break;
 
       /* alignment-specifier */
@@ -2856,7 +2922,6 @@ declarator(DeclState *st, CComp *cm, Span span0) {
                st->pqual = l->pqual ? alloccopy(&cm->fnarena, l->pqual, l->npar, 1) : NULL;
             }
             decl.inlin = st->fninline;
-            decl.noret = st->fnnoreturn;
          }
          if (l->pqual != declpqualtmp) free(l->pqual);
          if (l->pnames != declpnamestmp) free(l->pnames);
@@ -2940,25 +3005,27 @@ pdecl(DeclState *st, CComp *cm) {
       peek(cm, &tk);
       decl.span = tk.span;
    }
+   /* XXX check attrs */
    if (st->scls == SCTYPEDEF) properdecl = 0;
 
    if (first && st->tagdecl && match(cm, &tk, ';')) {
-      decl = (Decl) { st->base, st->scls, st->qual, .span = decl.span };
+      decl = (Decl) { st->base, st->scls, st->qual, .span = decl.span, .attr = st->attr };
       return decl;
    } else if (st->kind == DFIELD && match(cm, &tk, ':')) {
-      decl = (Decl) { st->base, st->scls, st->qual, .span = decl.span };
+      decl = (Decl) { st->base, st->scls, st->qual, .span = decl.span, .attr = st->attr };
       st->bitf = 1;
       return decl;
    }
    decl = declarator(st, cm, decl.span);
-   while (attrspec(cm, &st->attr)) ;
+   decl.attr = st->attr;
+   while (attrspec(cm, &decl.attr)) ;
    if (decl.ty.t != TYFUNC && st->fninline)
       error(&decl.span, "`inline' used on non-function declaration");
-   if (decl.ty.t != TYFUNC && st->fnnoreturn)
-      error(&decl.span, "`_Noreturn' used on non-function declaration");
+   /*if (decl.ty.t != TYFUNC && st->fnnoreturn)
+      error(&decl.span, "`_Noreturn' used on non-function declaration");*/
    /* trailing attributes */
    if (st->kind == DTOPLEVEL || st->kind == DFUNCVAR) {
-      while (attrspec(cm, &st->attr)) ;
+      while (attrspec(cm, &decl.attr)) ;
       if (match(cm, NULL, TKW__asm__) && expect(cm, '(', NULL)) {
          if (peek(cm, NULL) == TKSTRLIT) {
             lex(cm, &tk);
@@ -2966,7 +3033,7 @@ pdecl(DeclState *st, CComp *cm) {
          } else expect(cm, TKSTRLIT, "asm symbol name");
          expect(cm, ')', NULL);
       }
-      while (attrspec(cm, &st->attr)) ;
+      while (attrspec(cm, &decl.attr)) ;
    }
 
    if (properdecl && match(cm, &tk, '=')) {
@@ -3553,7 +3620,8 @@ compilecall(Function *fn, const Expr *ex)
    vfree(&insns);
    ins.r = mkcallarg(mkirtype(ex->ty), ex->narg, td->variadic ? td->nmemb : td->kandr ? 0 : -1);
    Ref r = addinstr(fn, ins);
-   if (sub[0].t == ESYM && declsbuf.p[sub[0].decl].noret) /* trap if noreturn func returns */
+   if (sub[0].t == ESYM && hasattr(&declsbuf.p[sub[0].decl].attr, ATTRnoreturn))
+      /* trap if noreturn func returns */
       puttrap(fn);
    return r;
 }
