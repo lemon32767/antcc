@@ -1053,17 +1053,27 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
 
       nmark = loc->len;
       while (i < loc->off + loc->len) {
+         static const char spaces[8] = "        ";
+         enum { NTABWIDTH = 8 };
          int j, end;
          int curoff = bfmt(&out, "%5d | ", line);
          const uchar *linep = &f->p[i];
          bool begintabs = 1;
+         int ntabs = 0;
+         int ltrim = 0;
          for (end = 0; f->p[i] != '\n' && i < f->n; ++i, ++end) {
             uchar c = f->p[i];
             if (c == '\t') {
-               if (!begintabs) c = ' ';
+               if (begintabs) {
+                  ++ntabs;
+                  iowrite(&out, spaces, NTABWIDTH);
+                  continue;
+               }
+               c = ' ';
             } else {
                begintabs = 0;
             }
+            if (!aisspace(c) && !ltrim) ltrim = end;
             ioputc(&out, c);
          }
          ioputc(&out, '\n');
@@ -1074,7 +1084,11 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
          for (begintabs = 1; j < col-1; ++j) {
             uchar c = *linep++;
             if (c == '\t') {
-               if (!begintabs) c = ' ';
+               if (begintabs) {
+                  iowrite(&out, spaces, NTABWIDTH);
+                  continue;
+               }
+               c = ' ';
             } else {
                c = ' ';
                begintabs = 0;
@@ -1083,7 +1097,12 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
          }
          bfmt(&out, color[kind]);
          do {
-            ioputc(&out, mark);
+            if (ntabs > 0) {
+               iowrite(&out, spaces, NTABWIDTH);
+               --ntabs;
+               continue;
+            }
+            ioputc(&out, j < ltrim ? ' ' : mark);
             mark = '~';
          } while (--nmark > 0 && ++j < end);
          col = 1;
