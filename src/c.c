@@ -2370,10 +2370,10 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk)
    int nmaxparam = 0;
    switch (a) {
    case ATTRxxx: break;
-   case ATTRdeprecated:
-      nmaxparam = 1;
-      /*fallthru */
-   default:
+   case ATTRdeprecated: nmaxparam = 1; goto Ignore;
+   case ATTRformat: nmaxparam = 3; goto Ignore;
+   case ATTRnonnull: nmaxparam = 2; goto Ignore;
+   default: Ignore:
       if (nparam > nmaxparam)
       BadArgs:
          error(&span, "wrong number of arguments for attribute '%s'", aname);

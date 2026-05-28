@@ -123,6 +123,8 @@ enum storageclass {
    _(transparent_union,  0, 0, 1)   \
    _(may_alias,          0, 0, 1)   \
    _(aligned,            0, 1, 1)   \
+   _(format,             1, 0, 0)   \
+   _(nonnull,            1, 1, 0)   \
 
 enum attr {
    ATTRxxx,
