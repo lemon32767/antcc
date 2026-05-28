@@ -2345,8 +2345,6 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk)
          break;
       }
    }
-   if (a == ATTRxxx)
-      warn(&tk->span, "unknown/unsupported attribute ignored (%'tk)", tk);
 
    Expr params[4];
    int nparam = 0;
@@ -2366,10 +2364,16 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk)
       joinspan(&span.ex, tk->span.ex);
    }
 
-   switch(a) {
-   case ATTRxxx: break;
+   int nmaxparam = 0;
+   switch (a) {
+   case ATTRxxx:
+      warn(&tk->span, "unknown/unsupported attribute ignored (%'tk)", tk);
+      break;
+   case ATTRdeprecated:
+      nmaxparam = 1;
+      /*fallthru */
    default:
-      if (nparam > 0)
+      if (nparam > nmaxparam)
       BadArgs:
          error(&span, "wrong number of arguments for attribute '%s'", aname);
       break;
