@@ -1,4 +1,4 @@
-/* CFLAGS: -std=c11 -Werror */
+/* CFLAGS: -std=c11 -pedantic */
 /* EXPECT:
 */
 

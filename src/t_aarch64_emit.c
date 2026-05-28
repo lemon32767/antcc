@@ -160,6 +160,7 @@ enum operpat {
    PMEMAIMMW, /* addr 12bit immediate word offset (multiple of 4) */
    PMEMAIMMX, /* addr 12bit immediate doubleword offset (multiple of 8) */
    PMEMPREPOST, /* addr signed 9bit immediate byte offset */
+   PMEMPREPOSTXP, /* addr signed 7bit immediate doubleword offset */
    PMEMAREG, /* addr reg offset, optionally left shifted */
    PSYM, /* symbol */
 };
@@ -176,9 +177,9 @@ enum operenc {
    EN_MEMAIMMH, /* load/store/unsigned-imm (halfword) */
    EN_MEMAIMMW, /* load/store/unsigned-imm (word) */
    EN_MEMAIMMX, /* load/store/unsigned-imm (doubleword) */
-   EN_MEMAPREPOST, /* load/store/pre/postidx-imm */
+   EN_MEMAPREPOST, /* load/store/pre/postidx-imm, single */
    EN_MEMAREG, /* load/store/reg-offset */
-   EN_MEMPPREPOST, /* load/store-pair/pre/postidx-imm */
+   EN_MEMPREPOSTXP, /* load/store-xreg pair/pre/postidx-imm */
    EN_ADRSYMLO21, /* for ADR <sym> */
    EN_ADRSYMPGHI21, /* for ADRP <sym:pghi21> */
    EN_ADDSYMLO12, /* for ADD x,x, <sym:lo12> */
@@ -233,8 +234,14 @@ opermatch(enum operpat pat, enum irclass k, Oper o)
    case PMEMAREG:
       return o.t == OMEM && o.m.mode == AREGIDX;
    case PMEMPREPOST:
-      return o.t == OMEM && (o.m.mode == APREIDX || o.m.mode == APOSTIDX
-                         || (o.m.mode == AIMMIDX && o.m.disp >= -256 && o.m.disp < 256));
+      return o.t == OMEM
+         && (o.m.mode == APREIDX || o.m.mode == APOSTIDX || o.m.mode == AIMMIDX)
+         && o.m.disp >= -256 && o.m.disp < 256;
+   case PMEMPREPOSTXP:
+      return o.t == OMEM
+         && (o.m.mode == APREIDX || o.m.mode == APOSTIDX || o.m.mode == AIMMIDX)
+         && o.m.disp >= -512 && o.m.disp <= 504
+         && !(o.m.disp % 8);
    }
    assert(0);
 }
@@ -309,7 +316,7 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper o[3])
       assert(o[1].m.shamt <= 1);
       ins |= o[1].m.index<<16 | o[1].m.ext<<13 | o[1].m.shamt<<12 | o[1].m.base<<5 | (o[0].reg&31);
       break;
-   case EN_MEMPPREPOST:
+   case EN_MEMPREPOSTXP:
       assert(o[2].m.disp % 8 == 0);
       ins |= (o[2].m.disp/8&0x7F)<<15 | (o[1].reg&31)<<10 | o[2].m.base<<5 | (o[0].reg&31);
       if (o[2].m.mode == APREIDX) ins |= 3<<23;
@@ -532,16 +539,16 @@ DEFINSTR2(Xstrb,
    {4|8, {PGPRZ, PMEMPREPOST}, 0x38000000, EN_MEMAPREPOST}, /* STRB (immediate, (pre/postinc)) */
 )
 DEFINSTR3(Xldp,
-   {8, {PGPRZ, PGPRZ, PMEMPREPOST}, 0xA8400000, EN_MEMPPREPOST} /* LDP (immediate, (pre/postinc)) */
+   {8, {PGPRZ, PGPRZ, PMEMPREPOSTXP}, 0xA8400000, EN_MEMPREPOSTXP} /* LDP (immediate, (pre/postinc)) */
 )
 DEFINSTR3(Xstp,
-   {8, {PGPRZ, PGPRZ, PMEMPREPOST}, 0xA8000000, EN_MEMPPREPOST} /* STP (immediate, (pre/postinc)) */
+   {8, {PGPRZ, PGPRZ, PMEMPREPOSTXP}, 0xA8000000, EN_MEMPREPOSTXP} /* STP (immediate, (pre/postinc)) */
 )
 DEFINSTR3(Xfldp,
-   {8, {PFPR, PFPR, PMEMPREPOST}, 0x6CC00000, EN_MEMPPREPOST} /* LDP (immediate, (pre/postinc)) */
+   {8, {PFPR, PFPR, PMEMPREPOSTXP}, 0x6CC00000, EN_MEMPREPOSTXP} /* LDP (immediate, (pre/postinc)) */
 )
 DEFINSTR3(Xfstp,
-   {8, {PFPR, PFPR, PMEMPREPOST}, 0x6C800000, EN_MEMPPREPOST} /* STP (immediate, (pre/postinc)) */
+   {8, {PFPR, PFPR, PMEMPREPOSTXP}, 0x6C800000, EN_MEMPREPOSTXP} /* STP (immediate, (pre/postinc)) */
 )
 static void
 Xcall(uchar **pcode, Oper dst)
@@ -1032,7 +1039,15 @@ prologue(uchar **pcode, Frame *frame, Function *fn)
    if ((frame->usefp = !fn->isleaf)) {
       frame->size += 16;
       adr.m.disp -= fn->stksiz;
-      Xstp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
+      if (opermatch(PMEMPREPOSTXP, KPTR, adr)) {
+         Xstp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
+      } else {
+         /* disp too large for stp immediate, do subtract + stp */
+         Oper disp = mkoper(OIMM, .imm = -(adr.m.disp + 16));
+         Xsub(pcode, KPTR, reg2oper(SP), reg2oper(SP), disp);
+         adr.m.disp = -16;
+         Xstp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
+      }
       Xadd(pcode, KPTR, reg2oper(R(29)), reg2oper(SP), mkoper(OIMM, .imm=0)); /* MOV x29,sp */
    } else if (fn->stksiz) {
       Xsub(pcode, KPTR, reg2oper(SP), reg2oper(SP), mkoper(OIMM, .imm = fn->stksiz + 8*frame->nsingle));
@@ -1045,7 +1060,15 @@ epilogue(uchar **pcode, Function *fn, Frame *frame)
 {
    Oper adr = mkoper(OMEM, .m = {.mode = APOSTIDX, .base = SP, .disp = 16+fn->stksiz+8*frame->nsingle});
    if (frame->usefp) {
-      Xldp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
+      if (opermatch(PMEMPREPOSTXP, KPTR, adr)) {
+         Xldp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
+      } else {
+         /* disp too large for stp immediate, do add + stp */
+         Oper disp = mkoper(OIMM, .imm = adr.m.disp - 16);
+         adr.m.disp = 16;
+         Xldp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
+         Xadd(pcode, KPTR, reg2oper(SP), reg2oper(SP), disp);
+      }
    } else if (fn->stksiz) {
       Xadd(pcode, KPTR, reg2oper(SP), reg2oper(SP), mkoper(OIMM, .imm = fn->stksiz+8*frame->nsingle));
    }
