@@ -1026,7 +1026,7 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
    static int depth = 0; /* needed for nested note() calls */
 
    static const char *label[] = { "error", "warning", "note" };
-   static const char *color[] = { "%g1;31.", "%g1;35.", "%g1;36." };
+   static const char color[][8] = { "%g1;31.", "%g1;35.", "%g1;36." };
    int line, col;
    MemFile *f;
    const Span0 *loc;

@@ -1,7 +1,10 @@
+#define _POSIX_C_SOURCE 200809L /* fexecve, strsignal */
+#define _DEFAULT_SOURCE /* WCOREDUMP on glibc */
 #include "antcc.h"
 #include "version.h"
 #include "hostconfig.h" /* run ./configure */
 #include "obj.h"
+#include <string.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -460,6 +463,17 @@ sigcleantemps(int _)
    cleantemps();
 }
 
+static int
+checkwstat(int wstat, const char *thing)
+{
+   if (WIFSIGNALED(wstat)) {
+      error(NULL, "%s: %s%s", thing, strsignal(WTERMSIG(wstat)),
+                              WCOREDUMP(wstat) ? " (core dumped)" : "");
+      return 127;
+   }
+   return WEXITSTATUS(wstat);
+}
+
 static void
 compileobjs(void)
 {
@@ -477,10 +491,10 @@ compileobjs(void)
             exit(cc1(task.inf.p[i].temp, task.inf.p[i].path));
          }
          waitpid(p, &wstat, 0);
-         if (!WIFEXITED(wstat)) exit(127);
-         if (WEXITSTATUS(wstat) != 0) {
+         int rc;
+         if ((rc = checkwstat(wstat, "cc1")) != 0) {
             cleantemps();
-            exit(WEXITSTATUS(wstat));
+            exit(rc);
          }
       } else if (ft == IFTobj || ft == IFTar || ft == IFTdll) {
          // passthru
@@ -518,8 +532,7 @@ hasprog(const char *prog)
    }
    int wstat;
    waitpid(p, &wstat, 0);
-   if (!WIFEXITED(wstat)) return 0;
-   return WEXITSTATUS(wstat) < 125;
+   return WIFEXITED(wstat) && WEXITSTATUS(wstat) < 125;
 }
 
 static bool
@@ -630,12 +643,13 @@ dolink(void)
          exit(1);
       }
    }
+   const char *ldname = cmd.p[0];
    vfree(&cmd);
    waitpid(p, &wstat, 0);
-   if (!WIFEXITED(wstat)) return 127;
-   if (WEXITSTATUS(wstat) != 0) {
+   int rc = checkwstat(wstat, ldname);
+   if (rc != 0) {
       error(NULL, "link command failed");
-      return 1;
+      return rc;
    }
    return 0;
 }
@@ -652,8 +666,6 @@ dorun(void)
          efmt(" %s", *s);
       efmt("\n");
    }
-#if _POSIX_C_SOURCE >= 200809L
-   /* use fexecve */
    int fexecve(int fd, char *const argv[], char *const envp[]);
    int fd = open(task.out, O_RDONLY);
    if (fd < 0) {
@@ -669,22 +681,6 @@ dorun(void)
    fexecve(fd, task.runargs - 1, environ);
    error(NULL, "fexecv: %s\n", strerror(errno));
    return 1;
-#else
-   pid_t p;
-   if ((p = fork()) < 0) {
-      error(NULL, "fork(): %s\n", strerror(errno));
-      exit(1);
-   } else if (p == 0) {
-      if (!execv(task.out, task.runargs - 1)) {
-         error(NULL, "execv(): %s\n", strerror(errno));
-         exit(1);
-      }
-   }
-   int wstat;
-   waitpid(p, &wstat, 0);
-   if (!WIFEXITED(wstat)) return 127;
-   return WEXITSTATUS(wstat);
-#endif
 }
 
 static int
@@ -700,7 +696,7 @@ driver(void)
       if (task.inf.p[0].ft != IFTc)
          fatal(NULL, "not a C source file: %s", task.inf.p[0].path);
       return cc1(task.out, task.inf.p[0].path);
-   } else if (task.outft == OFTc) {
+   } else if (task.outft == OFTc) { /* CPP only */
       WriteBuf _buf = {0}, *buf = &bstdout;
       if (task.out) {
          buf = &_buf;
@@ -716,18 +712,17 @@ driver(void)
          cpp(buf, task.inf.p[0].path);
       else for (int i = 0; i < task.inf.n; ++i) {
          pid_t p;
-         int wstat;
-
-         if ((p = fork()) < 0) {
-            error(NULL, "fork(): %s\n", strerror(errno));
-            ok = 0;
-         } else if (p == 0) {
+         if ((p = fork()) == 0) {
             cpp(buf, task.inf.p[i].path);
             exit(0);
+         } else if (p < 0) {
+            error(NULL, "fork(): %s\n", strerror(errno));
+            ok = 0;
          }
+         int wstat;
          waitpid(p, &wstat, 0);
-         if (!WIFEXITED(wstat)) ok = 0;
-         ok = ok && WEXITSTATUS(wstat) == 0;
+         if (checkwstat(wstat, "cpp") != 0)
+            ok = 0;
       }
       ioflush(buf);
       if (task.out)
