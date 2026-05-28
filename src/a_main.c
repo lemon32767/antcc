@@ -849,7 +849,7 @@ main(int argc, char **argv)
        && stat(path, &st) == 0) {
          path[n-2] = '\0';
          addinclpath(CINCL_isystem, alloccopy(&globarena, path, n, 1));
-         note(0, NULL, "found cross compiler include path %'s", path);
+         note(NULL, "found cross compiler include path %'s", path);
       } else {
          warn(NULL,
                "defaulting to host include paths while cross compiling for %s might not work",
