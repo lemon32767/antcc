@@ -2346,6 +2346,9 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk)
       }
    }
 
+   if (a == ATTRxxx)
+      warn(&tk->span, "unknown/unsupported attribute ignored (%'tk)", tk);
+
    Expr params[4];
    int nparam = 0;
    if (match(cm, tk, '(')) {
@@ -2366,9 +2369,7 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk)
 
    int nmaxparam = 0;
    switch (a) {
-   case ATTRxxx:
-      warn(&tk->span, "unknown/unsupported attribute ignored (%'tk)", tk);
-      break;
+   case ATTRxxx: break;
    case ATTRdeprecated:
       nmaxparam = 1;
       /*fallthru */
