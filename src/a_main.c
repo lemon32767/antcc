@@ -200,7 +200,9 @@ optparse(char **args)
          pfmt("antcc version "ANTCC_VERSION_STR"\n"
               "target: "HOST_TRIPLE"\n"
               "include paths: "XSTR(HOST_INCLUDE_DIRS)"\n"
-              "host cc for linking: " HOST_CC "\n");
+              "host ld for linking: " HOST_LD "\n"
+              "host cc: " HOST_CC "\n"
+         );
          exit(0);
       } else if (!strcmp(arg, "dumpversion")) {
          pfmt("%s\n", ANTCC_VERSION_STR);
