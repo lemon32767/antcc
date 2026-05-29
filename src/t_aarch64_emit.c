@@ -527,11 +527,11 @@ DEFINSTR2(Xstr,
    {8, {PGPRZ, PMEMPREPOST}, 0xF8000000, EN_MEMAPREPOST},
 )
 DEFINSTR2(Xfstr,
-   {4, {PFPR, PMEMAIMMW}, 0xBD000000, EN_MEMAIMMW}, /* LDR (immediate) */
+   {4, {PFPR, PMEMAIMMW}, 0xBD000000, EN_MEMAIMMW}, /* STR (immediate) */
    {8, {PFPR, PMEMAIMMX}, 0xFD000000, EN_MEMAIMMX},
-   {4, {PFPR, PMEMAREG},  0xBC200800, EN_MEMAREG}, /* LDR (register) */
-   {8, {PFPR, PMEMAREG},  0xFC200800, EN_MEMAREG},
-   {4, {PFPR, PMEMPREPOST}, 0xBC000000, EN_MEMAPREPOST}, /* LDR (immediate, (pre/postinc)) */
+   {4, {PFPR, PMEMAREG},  0xBC206800, EN_MEMAREG}, /* STR (register) */
+   {8, {PFPR, PMEMAREG},  0xFC206800, EN_MEMAREG},
+   {4, {PFPR, PMEMPREPOST}, 0xBC000000, EN_MEMAPREPOST}, /* STR (immediate, (pre/postinc)) */
    {8, {PFPR, PMEMPREPOST}, 0xFC000000, EN_MEMAPREPOST},
 )
 DEFINSTR2(Xstrh,
@@ -624,6 +624,8 @@ genmovimm(uchar **pcode, enum irclass cls, Oper dst, u64int u)
    }
 }
 
+#define RMEMSCRATCH R(17)
+
 /* if can encode given immediate with pattern, return it
  * otherwise, load imm to scratch reg #2 (IP1/r17) and return reg */
 static Oper
@@ -632,7 +634,7 @@ imm_or_reg(uchar **pcode, enum irclass cls, enum operpat pat, int imm)
    assert(cls == KI32);
    Oper oper = mkoper(OIMM, .imm = imm);
    if (!opermatch(pat, cls, oper)) {
-      oper = mkoper(OREG, .reg = R(17));
+      oper = mkoper(OREG, .reg = RMEMSCRATCH);
       genmovimm(pcode, cls, oper, imm);
    }
    return oper;
@@ -683,6 +685,23 @@ gencopy(uchar **pcode, enum irclass cls, Oper dst, Ref val)
             imm_or_reg(pcode, KI32, PU12SL12, src.m.disp));
    } else assert(0);
 }
+
+static Oper
+genmemoper(uchar **pcode,  enum irclass k, uint msiz, Ref r)
+{
+   Oper oper = mkmemoper(msiz, r);
+   assert(oper.t == OMEM || oper.t == OSYM);
+   if (oper.t == OMEM && oper.m.base == FP && oper.m.mode == AIMMIDX) {
+      enum operpat xpat = PMEMAIMM + ilog2(msiz);
+      assert(in_range(xpat, PMEMAIMM, PMEMAIMMX));
+      if (!opermatch(PMEMPREPOST, k, oper) && !opermatch(xpat, k, oper)) {
+         genmovimm(pcode, KI32, mkoper(OREG, .reg = RMEMSCRATCH), (s64int)oper.m.disp);
+         oper = mkoper(OMEM, .m.mode = AREGIDX, .m.base = FP, .m.index = RMEMSCRATCH);
+      }
+   }
+   return oper;
+}
+
 
 /* maps blk -> address when resolved; or to linked list of jump displacement
  * relocations */
@@ -985,10 +1004,12 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins)
       /* fallthru */
    case Oloadi64: X2 = Xldr;
    Load:
-      X2(pcode, cls, reg2oper(ins->reg-1), mkmemoper(1<<(ins->op - Oloads8)/2, ins->l));
+      X2(pcode, cls, reg2oper(ins->reg-1),
+            genmemoper(pcode, ins->cls, 1<<(ins->op - Oloads8)/2, ins->l));
       break;
    case Oloadf32: case Oloadf64:
-      Xfldr(pcode, cls, reg2oper(ins->reg-1), mkmemoper(ins->op == Oloadf32 ? 4 : 8, ins->l));
+      Xfldr(pcode, cls, reg2oper(ins->reg-1),
+            genmemoper(pcode, ins->cls, ins->op == Oloadf32 ? 4 : 8, ins->l));
       break;
    case Ostorei8:  cls = KI32; X2 = Xstrb; goto Store;
    case Ostorei16: cls = KI32; X2 = Xstrh; goto Store;
@@ -996,16 +1017,17 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins)
    case Ostorei64: cls = KI64; X2 = Xstr;
    Store:
       X2(pcode, cls, ins->r.bits == ZEROREF.bits ? REGZR : ref2oper(ins->r),
-            mkmemoper(1<<(ins->op-Ostorei8), ins->l));
+            genmemoper(pcode, ins->cls, 1<<(ins->op-Ostorei8), ins->l));
       break;
    case Ostoref32: case Ostoref64:
-      Xfstr(pcode, KF32 + ins->op-Ostoref32, ref2oper(ins->r), mkmemoper(ins->op == Oloadf32 ? 4 : 8, ins->l));
+      Xfstr(pcode, KF32 + ins->op-Ostoref32, ref2oper(ins->r),
+            genmemoper(pcode, ins->cls, ins->op == Oloadf32 ? 4 : 8, ins->l));
       break;
    case Ocall:
       Xcall(pcode, ref2oper(ins->l));
       break;
    case Oxvaprologue:
-      Xvaprologue(pcode, fn, mkmemoper(8, ins->l));
+      Xvaprologue(pcode, fn, genmemoper(pcode, KPTR, 8, ins->l));
       break;
    }
 }
@@ -1071,9 +1093,9 @@ prologue(uchar **pcode, Frame *frame, Function *fn)
          Xstp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
       } else {
          /* disp too large for stp immediate, do subtract + stp */
-         Oper disp = imm_or_reg(pcode, KI32, PU12SL12, -(adr.m.disp + 16));
+         Oper disp = imm_or_reg(pcode, KI32, PU12SL12, -adr.m.disp);
          Xsub(pcode, KPTR, reg2oper(SP), reg2oper(SP), disp);
-         adr.m.disp = -16;
+         adr.m.mode = AIMMIDX, adr.m.disp = 0;
          Xstp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
       }
       Xadd(pcode, KPTR, reg2oper(R(29)), reg2oper(SP), mkoper(OIMM, .imm=0)); /* MOV x29,sp */
@@ -1093,11 +1115,12 @@ epilogue(uchar **pcode, Function *fn, Frame *frame)
          Xldp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
       } else {
          /* disp too large for stp immediate, do add + stp */
-         Oper disp = imm_or_reg(pcode, KI32, PU12SL12, adr.m.disp - 16);
-         adr.m.disp = 16;
-         Xldp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
-         Xadd(pcode, KPTR, reg2oper(SP), reg2oper(SP), disp);
-      }
+          Oper disp = imm_or_reg(pcode, KI32, PU12SL12, adr.m.disp);
+          adr.m.mode = AIMMIDX, adr.m.disp = 0;
+          Xldp(pcode, KPTR, reg2oper(FP), reg2oper(LR), adr);
+          Xadd(pcode, KPTR, reg2oper(SP), reg2oper(SP), disp);
+          adr.m.mode = APOSTIDX, adr.m.disp = 16;
+       }
    } else if (fn->stksiz) {
       Xadd(pcode, KPTR, reg2oper(SP), reg2oper(SP),
          imm_or_reg(pcode, KI32, PU12SL12, fn->stksiz + 8*frame->nsingle));

@@ -145,11 +145,11 @@ fixarg(Ref *r, Instr *ins, Block *blk, int *curi)
    } else if (r->t != RTMP) Reg: {
       enum irclass k;
       if (r->t == RTMP) k = insrescls(instrtab[r->i]);
-      else if (ins->op == Oarg) {
+      else if (op == Oarg) {
          IRType ty = ref2type(ins->l);
          k = ty.isagg ? KPTR : ty.cls;
       } else {
-         k = ins->cls;
+         k = ins ? ins->cls : KI32;
       }
       regarg(r, k, blk, curi);
    }
@@ -245,7 +245,8 @@ static bool
 ascale(IRAddr *addr, Ref a, Ref b, uint siz/*1,2,4,8*/)
 {
    if (b.t != RICON) return 0;
-   if (addr->index.bits || (addr->disp && !isaddrcon(addr->base,1))) return 0;
+   if (addr->index.bits || addr->base.t == RSTACK
+         || (addr->disp && !isaddrcon(addr->base,1))) return 0;
    if ((unsigned)b.i > 3 || 1<<b.i != siz) return 0;
    if (a.t == RREG || a.t == RTMP) {
       addr->index = a;
@@ -298,7 +299,7 @@ aadd(IRAddr *addr, Block *blk, int *curi, Ref r, uint siz/*1,2,4,8*/)
          r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, KPTR, r));
       }
       if (!addr->base.bits) addr->base = r;
-      else if (!addr->index.bits && addr->base.t != RSTACK) addr->index = r;
+      else if (!addr->index.bits && addr->base.t != RSTACK && !addr->disp) addr->index = r;
       else return 0;
    } else return 0;
    return 1;
@@ -327,6 +328,7 @@ fuseaddr(Ref *r, Block *blk, int *curi, uint siz/*1,2,4,8*/)
          addr.disp = 0;
       }
    }
+   assert(!addr.index.bits || !addr.disp);
    *r = mkaddr(addr);
    return 1;
 }
@@ -450,8 +452,8 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
          }
       } else if (ins->l.t == RSTACK) {
          if (isintcon(ins->r)) goto TryAdr;
-         regarg(&ins->l, ins->cls, blk, curi);
       }
+      regarg(&ins->l, ins->cls, blk, curi);
       fixarg(&ins->r, ins, blk, curi);
       break;
    case Oand: case Oior: case Oxor:
