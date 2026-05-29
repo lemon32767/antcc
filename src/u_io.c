@@ -1036,7 +1036,11 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
       loc = span->ex.len ? &span->ex : &span->sl;
       f = getfile(loc->file);
       const char *file = getfilepos(&line, &col, loc->file, loc->off);
-      bfmt(&out, "%s:%d:%d: ", file, line, col);
+      if (file[0] == '@' && file[1] == ':')
+         bfmt(&out, "<%s>", file+2);
+      else
+         bfmt(&out, "%s", file);
+      bfmt(&out, ":%d:%d: ", line, col);
    }
    bfmt(&out, color[kind]);
    bfmt(&out, "%s: %g.", label[kind]);
