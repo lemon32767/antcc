@@ -32,6 +32,9 @@ tool/depgen: tool/depgen.c
 $(OUT): tool/depgen $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ)
 
+src/a_embedfilesdir.c: src/a_embedfilesdir.sh
+	src/a_embedfilesdir.sh > src/a_embedfilesdir.c
+
 $(BUILDDIR)/%.o: src/%.c
 	$Vmkdir -p `dirname $@`
 	$(CC) $(CFLAGS) -c -o $@ $<
