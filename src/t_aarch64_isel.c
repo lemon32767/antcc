@@ -446,7 +446,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
       }
    case Osub:
       if (ins->r.t == RICON && ins->r.i < 0) {
-         op = ins->op ^= 1;
+         op = ins->op = Oadd + (op == Oadd);
          ins->r.i = -ins->r.i;
       }
       if (isaddrcon(ins->l,0)) {
