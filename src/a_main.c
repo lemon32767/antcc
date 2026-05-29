@@ -557,7 +557,7 @@ findlinkcmd(CmdArgs *cmd)
          assert(n < sizeof cross-1);
          cross[n] = 0;
          if (hasprog(cross)) {
-            vpush(cmd, alloccopy(&globarena, cross, n, 1));
+            vpush(cmd, alloccopy(&globarena, cross, n+1, 1));
             return;
          }
       }
