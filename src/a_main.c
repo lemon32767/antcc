@@ -171,6 +171,8 @@ stroneof(const char *needle, const char *haystack)
    return 0;
 }
 
+static bool keeptemps;
+
 static void
 optparse(char **args)
 {
@@ -210,6 +212,8 @@ optparse(char **args)
       } else if (!strcmp(arg, "dumpversion")) {
          pfmt("%s\n", ANTCC_VERSION_STR);
          exit(0);
+      } else if (!strcmp(arg, "keep-temps")) {
+         keeptemps = 1;
       } else if ((x = optval(arg, "std"))) {
          if (*x == 'c') x += 1;
          else if (!memcmp(x, "gnu", 3)) x += 3;
@@ -447,6 +451,7 @@ mktemps(void) {
 static void
 cleantemps(void)
 {
+   if (keeptemps) return;
    if (getpid() != rootp) return;
    for (int i = 0; i < task.inf.n; ++i) {
       if (task.inf.p[i].temp) {
