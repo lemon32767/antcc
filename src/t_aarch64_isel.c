@@ -10,7 +10,7 @@ clz(u64int x)
    return __builtin_clzll(x);
 #else
    int i = 0;
-   for (u64int mask = BIT(63);; ++i, mask >>= 1)
+   for (u64int mask = BIT(63); mask; ++i, mask >>= 1)
       if (x & mask)
          break;
    return i;
