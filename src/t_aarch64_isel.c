@@ -1,4 +1,5 @@
 #include "t_aarch64.h"
+#include "obj.h"
 
 #define isimm32(r) (iscon(r) && concls(r) == KI32)
 
@@ -320,7 +321,7 @@ fuseaddr(Ref *r, Block *blk, int *curi, uint siz/*1,2,4,8*/)
       return 0;
    if (isaddrcon(addr.base,0) && (!(contab.p[addr.base.i].flag & SLOCAL) || addr.index.bits)) {
       /* first load symbol address into a temp register */
-      if (addr.disp && (ccopt.pic || (contab.p[addr.base.i].flag & SFUNC)) && !addr.index.bits) {
+      if (addr.disp && (ccopt.pic || ccopt.pie || (contab.p[addr.base.i].flag & SFUNC)) && !addr.index.bits) {
          addr.base = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, KPTR, addr.base));
       } else {
          addr.base = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, KPTR,
@@ -349,22 +350,32 @@ static const uchar storesz[] = {
    [Ostoref32 - Ostorei8] = 4,
    [Ostoref64 - Ostorei8] = 8,
 };
+
+/* can use LDR* PC-relative literal form? only for local symbols in the .text section */
+static bool
+ldrlitok(enum op op, const IRCon *con)
+{
+   return in_range(op, Oloads32, Oloadf64)
+      && (con->flag & SLOCAL)
+      && objhassym(con->sym, NULL) == Stext;
+}
+
 static void
 loadstoreaddr(Block *blk, Ref *r, int *curi, enum op op)
 {
    uint siz = oisload(op) ? loadsz[op-Oloads8] : storesz[op-Ostorei8];
-   bool pcrelok = in_range(op, Oloads32, Oloadf64); /* LDR-LDRSW have PC-relative literal form */
    if (isimm32(*r)) {
       regarg(r, KPTR, blk, curi);
    } else if (isaddrcon(*r, 0)) {
-      if (!pcrelok || !(contab.p[r->i].flag & SLOCAL))
+      if (!ldrlitok(op, &contab.p[r->i]))
          regarg(r, KPTR, blk, curi);
    } else if (r->t == RSTACK) {
+      /*pass*/
    } else if (r->t == RTMP) {
       Ref b;
       if (fuseaddr(r, blk, curi, siz)
        && isaddrcon(b = addrtab.p[r->i].base,0)
-       && (!pcrelok || !(contab.p[b.i].flag & SLOCAL)))
+       && !ldrlitok(op, &contab.p[b.i]))
          regarg(r, KPTR, blk, curi);
    } else if (r->t != RREG) {
       *r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, KPTR, *r));

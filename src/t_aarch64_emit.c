@@ -48,8 +48,9 @@ typedef struct Oper {
 static inline bool usegot(int c)
 {
    const IRCon *con = &contab.p[c];
-   return (ccopt.pic || (con->flag & SFUNC)) && !con->deref && !con->isdat
-       && (con->flag & (SLOCAL|SFUNC)) != (SLOCAL|SFUNC);
+   return ((ccopt.pic | ccopt.pie) || (con->flag & SFUNC))
+       && !con->deref && !con->isdat
+       && !(con->flag & SLOCAL);
 }
 
 typedef struct Frame {
@@ -666,7 +667,7 @@ gencopy(uchar **pcode, enum irclass cls, Oper dst, Ref val)
          Xfmov(pcode, cls, dst, REGZR);
       else assert(0);
    } else if (in_range(src.t, OSYM, OSYMGOT)) {
-      if (ccopt.pic || src.t == OSYMGOT) {
+      if ((ccopt.pic|ccopt.pie) || src.t == OSYMGOT || !(contab.p[src.con].flag & SLOCAL)) {
          Xadrp(pcode, KPTR, dst, src);
          if (src.t == OSYM) {
             Xadd(pcode, KPTR, dst, dst, src);
@@ -690,7 +691,7 @@ static Oper
 genmemoper(uchar **pcode,  enum irclass k, uint msiz, Ref r)
 {
    Oper oper = mkmemoper(msiz, r);
-   assert(oper.t == OMEM || oper.t == OSYM);
+   assert(oper.t == OMEM || in_range(oper.t, OSYM, OSYMGOT));
    if (oper.t == OMEM && oper.m.base == FP && oper.m.mode == AIMMIDX) {
       enum operpat xpat = PMEMAIMM + ilog2(msiz);
       assert(in_range(xpat, PMEMAIMM, PMEMAIMMX));
