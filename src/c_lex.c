@@ -103,21 +103,17 @@ match(Lexer *lx, uchar c)
 }
 
 static bool
-aissep(int c) {
+aissep(int c)
+{
    static const bool tab[] = {
-      ['('] = 1, [')'] = 1, ['['] = 1, [']'] = 1,
-      ['{'] = 1, ['}'] = 1, ['.'] = 1, [','] = 1,
-      [';'] = 1, ['?'] = 1, ['+'] = 1, ['-'] = 1,
-      ['*'] = 1, ['/'] = 1, ['&'] = 1, ['|'] = 1,
-      ['^'] = 1, ['~'] = 1, ['='] = 1, ['\''] = 1,
-      ['"'] = 1, ['<'] = 1, ['>'] = 1, [':'] = 1,
-      ['@'] = 1, ['#'] = 1, ['%'] = 1, ['\\'] = 1,
-      ['`'] = 1, ['!'] = 1,
+      /* nonprint, spaces, punct (except $ and _) */
+      1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,
+      1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,1,1,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,
    };
-   if (!aisprint(c) || aisspace(c))
-      return 1;
-   return (uint)c < sizeof(tab) && tab[c];
+   return (uint)c < countof(tab) && tab[c];
 }
+
 
 enum typetag
 parsenumlit(u64int *outi, double *outf, const Token *tk, bool ispp)
@@ -253,7 +249,7 @@ readstrchrlit(Lexer *lx, Token *tk, char delim, int wide)
 
    while ((c = next(lx)) != delim) {
       static uint wmax[] = {0xFF, 0xFFFF, 0xFFFFFFFFu};
-      if (c == '\n' || c == TKEOF) {
+      if (c == '\n' || lx->eof) {
       Noterm:
          span.sl = (Span0) { idx, lx->chridx - idx, lx->fileid };
          error(&span, "missing terminating %c character", delim);
