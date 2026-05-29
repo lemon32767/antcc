@@ -1089,6 +1089,7 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
             uchar c = *linep++;
             if (c == '\t') {
                if (begintabs) {
+                  --ntabs;
                   iowrite(&out, spaces, NTABWIDTH);
                   continue;
                }
