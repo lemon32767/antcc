@@ -840,8 +840,6 @@ emitbranch(uchar **pcode, Block *blk)
       Xbcc(pcode, CCAL, blk->s2);
 }
 
-static Instr *lastcmp;
-
 static void
 emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins)
 {
@@ -976,14 +974,10 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins)
          break;
    case Olth: case Ogth: case Olte: case Ogte:
    case Oulth: case Ougth: case Oulte: case Ougte:
-      if (lastcmp && lastcmp->cls == cls
-      && lastcmp->l.bits == ins->l.bits && lastcmp->r.bits == ins->r.bits)
-         /* reuse flags from previous identical cmp */ ;
-      else if (kisflt(cls))
+      if (kisflt(cls))
          Xfcmp(pcode, cls, ref2oper(ins->l), ref2oper(ins->r));
       else /* CMP ... ==> SUBS zr, ... */
          Xsubs(pcode, cls, REGZR, ref2oper(ins->l), ref2oper(ins->r));
-      lastcmp = ins;
       if (ins->reg) {
          enum cc cc = (kisflt(cls) ? fcmpop2cc : icmpop2cc)[ins->op];
          dst = reg2oper(ins->reg-1);
@@ -1207,7 +1201,6 @@ emitbin(Function *fn)
       bb->resolved = 1;
       bb->addr = bbaddr;
 
-      lastcmp = NULL;
       for (int i = 0; i < blk->ins.n; ++i)
          emitinstr(pcode, fn, blk, i, &instrtab[blk->ins.p[i]]);
       if (blk->jmp.t == Jret) {
