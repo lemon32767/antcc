@@ -319,6 +319,7 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper o[3])
       break;
    case EN_MEMAREG:
       assert(o[1].m.shamt <= 1);
+      assert(o[1].m.ext >= 2);
       ins |= o[1].m.index<<16 | o[1].m.ext<<13 | o[1].m.shamt<<12 | o[1].m.base<<5 | (o[0].reg&31);
       break;
    case EN_MEMPREPOSTXP:
@@ -530,8 +531,8 @@ DEFINSTR2(Xstr,
 DEFINSTR2(Xfstr,
    {4, {PFPR, PMEMAIMMW}, 0xBD000000, EN_MEMAIMMW}, /* STR (immediate) */
    {8, {PFPR, PMEMAIMMX}, 0xFD000000, EN_MEMAIMMX},
-   {4, {PFPR, PMEMAREG},  0xBC206800, EN_MEMAREG}, /* STR (register) */
-   {8, {PFPR, PMEMAREG},  0xFC206800, EN_MEMAREG},
+   {4, {PFPR, PMEMAREG},  0xBC200800, EN_MEMAREG}, /* STR (register) */
+   {8, {PFPR, PMEMAREG},  0xFC200800, EN_MEMAREG},
    {4, {PFPR, PMEMPREPOST}, 0xBC000000, EN_MEMAPREPOST}, /* STR (immediate, (pre/postinc)) */
    {8, {PFPR, PMEMPREPOST}, 0xFC000000, EN_MEMAPREPOST},
 )
@@ -697,7 +698,8 @@ genmemoper(uchar **pcode,  enum irclass k, uint msiz, Ref r)
       assert(in_range(xpat, PMEMAIMM, PMEMAIMMX));
       if (!opermatch(PMEMPREPOST, k, oper) && !opermatch(xpat, k, oper)) {
          genmovimm(pcode, KI32, mkoper(OREG, .reg = RMEMSCRATCH), (s64int)oper.m.disp);
-         oper = mkoper(OMEM, .m.mode = AREGIDX, .m.base = FP, .m.index = RMEMSCRATCH);
+         oper = mkoper(OMEM, .m.mode = AREGIDX, .m.base = FP,
+                             .m.index = RMEMSCRATCH, .m.ext = XLSL);
       }
    }
    return oper;
