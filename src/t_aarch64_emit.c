@@ -796,7 +796,7 @@ cmpzero2branchok(Block *blk, Instr *ins)
     * only if cmp instr is last in block; regalloc could have clobbered reg otherwise
     * when inserting moves for phis. overly conservative but it's ok */
    return in_range(ins->op, Oequ, Oneq) && kisint(ins->cls) && ins->r.bits == ZEROREF.bits
-      && (ins - instrtab) == blk->ins.p[blk->ins.n-1];
+      && blk->ins.n > 0 && (ins - instrtab) == blk->ins.p[blk->ins.n-1];
 }
 
 static void

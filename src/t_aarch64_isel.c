@@ -74,9 +74,14 @@ static void fixarg(Ref *r, Instr *ins, Block *blk, int *curi);
 static void
 regarg(Ref *r, enum irclass k, Block *blk, int *curi)
 {
+   if (!r->t) {
+      assert(r->bits == UNDREF.bits);
+      r->t = RREG;
+      r->i = kisint(k) ? R(0) : V(0);
+   }
    if (r->t != RTMP && r->t != RREG) {
       *r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, k, *r));
-      if (kisflt(k)) {
+      if (kisflt(k) || instrtab[r->i].l.t == RSTACK) {
          int iprev = *curi-1;
          fixarg(&instrtab[r->i].l, &instrtab[r->i], blk, &iprev);
          *curi = iprev+1;
@@ -423,7 +428,6 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
       break;
    case Oextu32:
       regarg(&ins->l, ins->cls, blk, curi);
-      ins->op = Ocopy;
       break;
    case Obswap32: case Obswap64:
       regarg(&ins->l, ins->cls, blk, curi);
