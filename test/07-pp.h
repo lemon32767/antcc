@@ -1,6 +1,12 @@
 #ifndef GUARD
 #define GUARD
 
+#define THIS "07-pp.h"
+#if !( __has_include(THIS) & !__has_include_next(THIS))
+#error "has include next"
+#endif
+
+
 extern int printf(const char *, ...);
 extern warnhere();
 #define Foo 9

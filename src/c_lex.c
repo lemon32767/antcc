@@ -1792,10 +1792,17 @@ ppelse(Lexer *lx, const Span *span)
 
 enum { MAXINCLUDE = 200 };
 static bool
-tryincludepath(Lexer *lx, const Span *span, char *path, int src_incdiridx)
+tryincludepath(Lexer *lx, const Span *span, char *path, int src_incdiridx, bool chkonly)
 {
-   Lexer new;
    const char *err;
+   if (chkonly) {
+      MemFile *f;
+      int fid = openfile(&err, &f, path);
+      if (fid >= 0 && path != getfilename(fid, 0))
+         xbfree(path);
+      return fid >= 0;
+   }
+   Lexer new;
    switch (initlexer(&new, &err, path)) {
    default: assert(0);
    case LXERR: return 0;
@@ -1820,13 +1827,22 @@ tryincludepath(Lexer *lx, const Span *span, char *path, int src_incdiridx)
    return 1;
 }
 
+enum incopt {
+   INC_QUOTE  = 1,
+   INC_NEXT   = 2,
+   INC_DRYRUN = 4,
+};
+
 static bool
-doinclude(Lexer *lx, const Span *span, bool quote, const char *str, size_t slen, bool incnext)
+doinclude(Lexer *lx, const Span *span, const char *str, size_t slen, enum incopt opt)
 {
    char *path = NULL;
    const char *base, *end;
+   assert(lx && (lx || (opt & INC_DRYRUN)));
    int incdiridx = 0,
-       req_incdiridx = incnext ? lx->src_incdiridx+1 : 0;
+       req_incdiridx = (opt & INC_NEXT) ? lx->src_incdiridx+1 : 0;
+   bool quote = opt & INC_QUOTE,
+        dryrun = opt & INC_DRYRUN;
    if (quote && req_incdiridx <= 2) {
       if (req_incdiridx <= 1 && str[0] == '/') {
          /* try absolute path */
@@ -1834,7 +1850,7 @@ doinclude(Lexer *lx, const Span *span, bool quote, const char *str, size_t slen,
          memcpy(path, str, slen);
          path[slen] = 0;
          incdiridx = 1;
-         if (tryincludepath(lx, span, path, incdiridx)) return 1;
+         if (tryincludepath(lx, span, path, incdiridx, dryrun)) return 1;
          goto NotFound;
       }
 
@@ -1848,7 +1864,7 @@ doinclude(Lexer *lx, const Span *span, bool quote, const char *str, size_t slen,
       memcpy(path + (end - base), str, slen);
       path[end - base + slen] = 0;
       incdiridx = 2;
-      if (tryincludepath(lx, span, path, incdiridx)) return 1;
+      if (tryincludepath(lx, span, path, incdiridx, dryrun)) return 1;
    }
    /* try system paths. order:
     * 1. -iquote
@@ -1870,7 +1886,7 @@ doinclude(Lexer *lx, const Span *span, bool quote, const char *str, size_t slen,
                path[0] = '@', path[1] = ':';
                memcpy(path+2, str, slen);
                path[slen+2] = 0;
-               if (tryincludepath(lx, span, path, incdiridx)) return 1;
+               if (tryincludepath(lx, span, path, incdiridx, dryrun)) return 1;
             }
             ++incdiridx;
          }
@@ -1881,29 +1897,60 @@ doinclude(Lexer *lx, const Span *span, bool quote, const char *str, size_t slen,
             path[ndir++] = '/';
             memcpy(path + ndir, str, slen);
             path[ndir + slen] = 0;
-            if (tryincludepath(lx, span, path, incdiridx)) return 1;
+            if (tryincludepath(lx, span, path, incdiridx, dryrun)) return 1;
          }
          ++incdiridx;
       }
    }
 NotFound:
-   error(span, "file not found: %'S", str, slen);
+   if (!dryrun)
+      error(span, "file not found: %c%S%c", "<\""[quote], str, slen, ">\""[quote]);
    xbfree(path);
    return 0;
+}
+
+static const char *
+mkinclpath(uint *pathlen, WriteBuf *wbuf, const Token *tok, int ntk)
+{
+   assert(ntk > 0);
+   Span span = tok->span;
+   joinspan(&span.ex, tok[ntk - 1].span.ex);
+   if (ntk == 1 && tok[0].t == TKSTRLIT) { /* "header.h" */
+      joinspan(&span.ex, tok[0].span.ex);
+      *pathlen = tok[0].len;
+      return tok[0].s;
+   } else if (ntk > 2 && tok[0].t == '<' && tok[ntk-1].t == '>') { /* <header.h> */
+      /* this is actually multiple tokens, concatenate them together */
+      for (int i = 1; i < ntk-1; ++i) {
+         bfmt(wbuf, &" %tk"[!tok[i].space], &tok[i]);
+      }
+      if (wbuf->err) {
+         error(&span, "path too long");
+         return NULL;
+      }
+      *pathlen = wbuf->len;
+      return wbuf->buf;
+   }
+   error(&span, "expected \"header\" or <header>");
+   return NULL;
 }
 
 static bool
 ppinclude(Lexer *lx, const Span *span0, bool incnext)
 {
    Token tk;
+   char buf[4096];
+   WriteBuf wbuf = MEMBUF(buf, sizeof buf);
    Span span = *span0;
 
+   enum incopt incopt = INC_NEXT &- incnext;
    if (in_range(lex0(lx, &tk, 1), TKPPHDRH, TKPPHDRQ)) {
       expecteol(lx, "include");
       joinspan(&span.ex, tk.span.ex);
-      return doinclude(lx, &span, tk.t == TKPPHDRQ, tk.s, tk.len, incnext);
+      if (tk.t == TKPPHDRQ) incopt |= INC_QUOTE;
+      return doinclude(lx, &span, tk.s, tk.len, incopt);
    } else if (tk.t == '\n' || tk.t == TKEOF) {
-      goto BadSyntax;
+      error(&tk.span, "expected \"header\" or <header>");
    } else {
       /* '#include pp-tokens'
        * gather and expand pp-tokens */
@@ -1919,32 +1966,19 @@ ppinclude(Lexer *lx, const Span *span0, bool incnext)
          }
          if (lex0(lx, &tk, 0) == '\n' || tk.t == TKEOF) break;
       }
-      if (tks.n >= 1 && tks.p[0].t == TKSTRLIT) { /* "header.h" */
-         if (tks.n > 1)
-            (ccopt.pedant ? error : warn)(&tks.p[1].span, "extra tokens after #include directive");
-         joinspan(&span.ex, tks.p[0].span.ex);
-         return doinclude(lx, &span, 1, tks.p[0].s, tks.p[0].len, incnext);
-      } else if (tks.n > 2 && tks.p[0].t == '<' && tks.p[tks.n-1].t == '>') { /* <header.h> */
-         /* this is multiple tokens, concatenate them together */
-         char buf[4096];
-         WriteBuf wbuf = MEMBUF(buf, sizeof buf);
-         for (int i = 1; i < tks.n-1; ++i) {
-            Token *tk = &tks.p[i];
-            bfmt(&wbuf, &" %tk"[!tk->space], tk);
-         }
-         joinspan(&span.ex, tks.p[tks.n-1].span.ex);
-         if (wbuf.err) error(&span, "path too long");
-         else {
-            return doinclude(lx, &span, 0, buf, wbuf.len, incnext);
-         }
-      } else {
-      BadSyntax:
-         error(&tk.span, "expected \"header\" or <header>");
-         ppskipline(lx);
+      if (tks.n > 1 && tks.p[0].t == TKSTRLIT) {
+         (ccopt.pedant ? error : warn)(&tks.p[1].span, "extra tokens after #include directive");
+         tks.n = 1;
       }
+      joinspan(&span.ex, tks.p[tks.n-1].span.ex);
+      uint len;
+      const char *hdr = mkinclpath(&len, &wbuf, tks.p, tks.n);
+      if (tks.p[0].t == TKSTRLIT) incopt |= INC_QUOTE;
       vfree(&tks);
+      if (hdr)
+         return doinclude(lx, &span, hdr, len, incopt);
    }
-   return 1;
+   return 0;
 }
 
 static void
@@ -2274,8 +2308,7 @@ Begin:
    }
    assert(inclerror);
    efmt("Aborting due to previous error(s).\n");
-   exit(1);
-   assert(0);
+   return exit(1),0;
 }
 
 int
@@ -2463,6 +2496,36 @@ mac__has_attribute(Lexer *lx, Token *tk, const Token *args, int narg)
    tk->s = &"01"[has];
 }
 
+static bool
+hasinclude(Lexer *lx, const Span *span, const Token *args, int narg, bool incnext)
+{
+   if (narg < 1) {
+      error(span, "'__has_include%s' requires an argument", incnext ? "_next" : "");
+      return 0;
+   }
+   char buf[4096];
+   WriteBuf wbuf = MEMBUF(buf, sizeof buf);
+   uint len;
+   const char *hdr = mkinclpath(&len, &wbuf, args, narg);
+   if (!hdr) return 0;
+   return doinclude(lx, NULL, hdr, len,
+         (INC_QUOTE &- (args->t == TKSTRLIT)) |(INC_NEXT &- incnext) | INC_DRYRUN);
+}
+
+static void
+mac__has_include(Lexer *lx, Token *tk, const Token *args, int narg)
+{
+   tk->t = TKNUMLIT, tk->len = 1;
+   tk->s = &"01"[hasinclude(lx, &tk->span, args, narg, /*next*/0)];
+}
+
+static void
+mac__has_include_next(Lexer *lx, Token *tk, const Token *args, int narg)
+{
+   tk->t = TKNUMLIT, tk->len = 1;
+   tk->s = &"01"[hasinclude(lx, &tk->span, args, narg, /*next*/1)];
+}
+
 static void
 putdefs1(const char *s)
 {
@@ -2487,6 +2550,8 @@ addpredefmacros(Arena **tmparena)
       { "__COUNTER__", { .predef = 1, .special = 1, .handler = mac__counter__ }},
       { "__has_builtin", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_builtin }},
       { "__has_attribute", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_attribute }},
+      { "__has_include", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_include }},
+      { "__has_include_next", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_include_next }},
       { "__STDC_VERSION__", { .predef = 1, .single = &tok_stdc }},
       { "__antcc_major__", { .predef = 1, .single = &tok_major }},
       { "__antcc_minor__", { .predef = 1, .single = &tok_minor }},

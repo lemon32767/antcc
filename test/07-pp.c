@@ -17,9 +17,14 @@ sum = 1 + 2 +3;$
 x=7 7
 */
 
+#if !__has_include("07-pp.h")
+#error "hasinclude?"
+#endif
 #include "07-pp.h"
 #include "07-pp.h"
+#if __has_include(<stddef.h>)
 #include <stddef.h>
+#endif
 #include <stdio.h>
 #include <wchar.h>
 #include <locale.h>
