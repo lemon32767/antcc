@@ -1115,7 +1115,6 @@ epilogue(uchar **pcode, Function *fn, Frame *frame)
       adr.m.disp = 16;
       for (int i = 0; i < frame->ngpairs; ++i, --p)
          Xldp(pcode, KPTR, reg2oper(p->a), reg2oper(p->b), adr);
-      adr.m.disp = 8;
       adr.m.disp = 16;
       for (int i = 0; i < frame->nfpairs; ++i, --p)
          Xfldp(pcode, KF64, reg2oper(p->a), reg2oper(p->b), adr);
