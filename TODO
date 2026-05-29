@@ -1,4 +1,5 @@
-- aarch64 backend
+- aarch64 backend, needs a lot more testing
+  - glibc/aarch64 needs __uint128_t
 - STDC: thread local, VLAs, long double, atomics
 - get working on the other BSDs
     - implement more GNU extensions: __attribute__, __builtin_*, ...

@@ -42,10 +42,17 @@ Install with `(sudo) make install`.
 Supported targets
 -----------------
 
-For now just x86-64 POSIX (Sys-V + ELF). aarch64 backend is in the works.  Tested and known to work:
+x86-64, aarch64 (experimental); only POSIX targets (Sys-V ABI, ELF objects) are
+supported at the moment. Support for other OSes, architectures is planned.
+
+Tested and known to work:
+
  - `x86_64-linux-gnu`
  - `x86_64-linux-musl`
  - `x86_64-unknown-openbsd`
+
+Semi-working (can self-host, but not passing the external test suites/exhaustively tested)
+ - `aarch64-linux-gnu` (tested on QEMU)
 
 Usage
 -----
