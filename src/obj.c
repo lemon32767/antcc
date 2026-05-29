@@ -64,15 +64,19 @@ objnewdat(internstr name, enum section sec, bool globl, uint siz, uint align)
       if (align > o->rodataalign) o->rodataalign = align;
       while (o->rodata.n & (align - 1)) vpush(&o->rodata, 0);
       off = o->rodata.n;
-      vresize(&o->rodata, o->rodata.n + siz);
-      memset(o->rodata.p+off, 0, siz);
+      if (siz) {
+         vresize(&o->rodata, o->rodata.n + siz);
+         memset(o->rodata.p+off, 0, siz);
+      }
       break;
    case Sdata:
       if (align > o->dataalign) o->dataalign = align;
       while (o->data.n & (align - 1)) vpush(&o->data, 0);
       off = o->data.n;
-      vresize(&o->data, o->data.n + siz);
-      memset(o->data.p+off, 0, siz);
+      if (siz) {
+         vresize(&o->data, o->data.n + siz);
+         memset(o->data.p+off, 0, siz);
+      }
       break;
    case Sbss:
       if (align > o->bssalign) o->bssalign = align;
