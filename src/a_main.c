@@ -485,7 +485,7 @@ compileobjs(void)
       enum inft ft = task.inf.p[i].ft;
       if (ft == IFTc) {
          if ((p = fork()) < 0) {
-            error(NULL, "fork(): %s\n", strerror(errno));
+            error(NULL, "fork(): %s", strerror(errno));
             exit(1);
          } else if (p == 0) {
             exit(cc1(task.inf.p[i].temp, task.inf.p[i].path));
@@ -635,11 +635,11 @@ dolink(void)
    }
    vpush(&cmd, NULL);
    if ((p = fork()) < 0) {
-      error(NULL, "fork: %s\n", strerror(errno));
+      error(NULL, "fork: %s", strerror(errno));
       exit(1);
    } else if (p == 0) {
       if (execvp(cmd.p[0], (char **)cmd.p)) {
-         error(NULL, "execvp: %s\n", strerror(errno));
+         error(NULL, "execvp: %s", strerror(errno));
          exit(1);
       }
    }
@@ -666,21 +666,36 @@ dorun(void)
          efmt(" %s", *s);
       efmt("\n");
    }
-   int fexecve(int fd, char *const argv[], char *const envp[]);
+#if (defined __linux__ && !defined __ANDROID__) || defined __FreeBSD__ // fexecve availability
    int fd = open(task.out, O_RDONLY);
    if (fd < 0) {
-      error(NULL, "open: %s\n", strerror(errno));
+      error(NULL, "open: %s", strerror(errno));
       return 1;
    }
    if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0) {
-      error(NULL, "fcntl: %s\n", strerror(errno));
+      error(NULL, "fcntl: %s", strerror(errno));
       return 1;
    }
    cleantemps();
    extern char **environ;
    fexecve(fd, task.runargs - 1, environ);
-   error(NULL, "fexecv: %s\n", strerror(errno));
+   error(NULL, "fexecv: %s", strerror(errno));
    return 1;
+#else // !FEXECVE
+   pid_t p;
+   if ((p = fork()) < 0) {
+      error(NULL, "fork(): %s", strerror(errno));
+      exit(1);
+   } else if (p == 0) {
+      if (!execv(task.out, task.runargs - 1)) {
+         error(NULL, "execv(): %s", strerror(errno));
+         exit(1);
+      }
+   }
+   int wstat;
+   waitpid(p, &wstat, 0);
+   return checkwstat(wstat, task.out);
+#endif
 }
 
 static int
@@ -716,7 +731,7 @@ driver(void)
             cpp(buf, task.inf.p[i].path);
             exit(0);
          } else if (p < 0) {
-            error(NULL, "fork(): %s\n", strerror(errno));
+            error(NULL, "fork(): %s", strerror(errno));
             ok = 0;
          }
          int wstat;
