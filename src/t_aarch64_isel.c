@@ -76,7 +76,7 @@ regarg(Ref *r, enum irclass k, Block *blk, int *curi)
 {
    if (r->t != RTMP && r->t != RREG) {
       *r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, k, *r));
-      if (kisflt(k) || instrtab[r->i].l.t == RSTACK) {
+      if (kisflt(k)) {
          int iprev = *curi-1;
          fixarg(&instrtab[r->i].l, &instrtab[r->i], blk, &iprev);
          *curi = iprev+1;
