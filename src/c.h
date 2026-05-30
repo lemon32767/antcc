@@ -108,24 +108,26 @@ enum storageclass {
    _(nothrow,            1, 0, 0)   \
    _(constructor,        1, 0, 0)   \
    _(destructor,         1, 0, 0)   \
-   _(used,               1, 1, 1)   \
-   _(unused,             1, 1, 1)   \
-   _(deprecated,         1, 1, 1)   \
-   _(weak,               1, 1, 0)   \
-   _(weakref,            1, 1, 0)   \
+   _(format,             1, 0, 0)   \
+   _(nonnull,            1, 0, 0)   \
    _(malloc,             1, 0, 0)   \
    _(alias,              1, 0, 0)   \
    _(warn_unused_result, 1, 0, 0)   \
    _(gnu_inline,         1, 0, 0)   \
    _(externally_visible, 1, 1, 0)   \
+   _(weak,               1, 1, 0)   \
+   _(weakref,            1, 1, 0)   \
+   _(section,            1, 1, 0)   \
+   _(used,               1, 1, 1)   \
+   _(unused,             1, 1, 1)   \
+   _(deprecated,         1, 1, 1)   \
    _(common,             0, 1, 0)   \
    _(nocommon,           0, 1, 0)   \
+   _(mode,               0, 1, 0)   \
    _(packed,             0, 1, 1)   \
+   _(aligned,            0, 1, 1)   \
    _(transparent_union,  0, 0, 1)   \
    _(may_alias,          0, 0, 1)   \
-   _(aligned,            0, 1, 1)   \
-   _(format,             1, 0, 0)   \
-   _(nonnull,            1, 1, 0)   \
 
 enum attr {
    ATTRxxx,

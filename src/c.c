@@ -2041,7 +2041,7 @@ dumpexpr(const Expr *ex, bool prity)
 /*****************/
 
 static Type
-buildagg(CComp *cm, enum typetag tt, internstr name, int id)
+buildagg(CComp *cm, enum typetag tt, internstr name, int id, const Attrs *tyattr)
 {
    Token tk;
    Type t;
@@ -2078,7 +2078,7 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id)
             error(&decl.span, "field has function type '%ty'", decl.ty);
          }
          bitsiz = 0;
-         if (st.bitf) {
+         if (st.bitf) { /* handle bit-field */
             Expr ex = constantexpr(cm);
             const char *name = decl.name ? &decl.name->c : "<anonymous>";
             if (!isint(decl.ty)) {
@@ -2105,6 +2105,7 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id)
                   bitfbyteoff += bitftypesiz;
                } else if (!bitftypesiz) {
                   bitoff = 0;
+                  // XXX what to do with packed here
                   bitfbyteoff = alignup(td.siz, typealign(decl.ty));
                } else if (bitoff + bitsiz > 8*bitftypesiz) {
                   /* no straddling boundaries */
@@ -2114,11 +2115,13 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id)
                if (tysize > bitftypesiz) bitftypesiz = tysize;
             }
             pdecl(&st, cm);
-         } else {
+         } else { /* reset bit-field */
             bitftypesiz = bitoff = bitsiz = 0;
          }
          if (decl.ty.t) {
-            uint align = typealign(decl.ty);
+            uint align = hasattr(tyattr, ATTRpacked) || hasattr(&decl.attr, ATTRpacked)
+                           ? 1
+                           : typealign(decl.ty);
             uint siz = tysize;
             uint off = isunion ? 0 : (bitftypesiz ? bitfbyteoff : alignup(td.siz, align));
             NamedField f = { decl.name, { decl.ty, off, bitsiz, bitoff, .qual = decl.qual }};
@@ -2198,7 +2201,7 @@ inttyminmax(s64int *min, u64int *max, enum typetag tt)
  * prefers to use unsigned types when possible). should add support for -fshort-enums
  */
 static Type
-buildenum(CComp *cm, internstr name, const Span *span, int id)
+buildenum(CComp *cm, internstr name, const Span *span, int id, const Attrs *tyattr)
 {
    Token tk;
    s64int tymin, minv = 0;
@@ -2272,15 +2275,21 @@ buildenum(CComp *cm, internstr name, const Span *span, int id)
    return ty;
 }
 
+static bool attrspec(CComp *, Attrs *);
+
 static Type
 tagtype(CComp *cm, enum toktag kind)
 {
    Token tk;
    Type t;
    Span span;
-   enum typetag tt = kind == TKWenum ? TYENUM : kind == TKWstruct ? TYSTRUCT : TYUNION;
+   enum typetag tt = kind == TKWenum ? TYENUM
+                   : kind == TKWstruct ? TYSTRUCT
+                   : TYUNION;
    internstr tag = NULL;
 
+   Attrs attr = {0};
+   attrspec(cm, &attr);
    peek(cm, &tk);
    if (match(cm, &tk, TKIDENT))
       tag = tk.name;
@@ -2305,9 +2314,9 @@ tagtype(CComp *cm, enum toktag kind)
          }
       }
       if (tt == TYENUM)
-         t = buildenum(cm, tag, &span, tag ? typedata[t.dat].id : -1);
+         t = buildenum(cm, tag, &span, tag ? typedata[t.dat].id : -1, &attr);
       else
-         t = buildagg(cm, tt, tag, tag ? typedata[t.dat].id : -1);
+         t = buildagg(cm, tt, tag, tag ? typedata[t.dat].id : -1, &attr);
    }
 
    if (t.t != tt) {
@@ -2381,15 +2390,17 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk)
       joinspan(&span.ex, tk->span.ex);
    }
 
-   int nmaxparam = 0;
+   int nminparam = 0, nmaxparam = 0;
    switch (a) {
    case ATTRxxx: break;
    case ATTRdeprecated: nmaxparam = 1; goto Ignore;
    case ATTRformat: nmaxparam = 3; goto Ignore;
    case ATTRweakref: nmaxparam = 1; goto Ignore;
+   case ATTRmode: nminparam = nmaxparam = 1; goto Ignore;
+   case ATTRsection: nminparam = nmaxparam = 1; goto Ignore;
    case ATTRnonnull: break;
    default: Ignore:
-      if (nparam > nmaxparam)
+      if (nparam > nmaxparam || nparam < nminparam)
       BadArgs:
          warn(&span, "wrong number of arguments for attribute '%s'", aname);
       break;
