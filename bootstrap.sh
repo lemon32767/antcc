@@ -1,6 +1,6 @@
 #!/bin/sh
 
-set -eo pipefail
+set -e
 
 cc="$CC"
 test -n "$cc" || cc=cc
@@ -15,10 +15,10 @@ fi
 src=$(find src/ -name '*.c')
 X() {
     echo "> $@" | (test -n "$V" && cat || sed 's/\([^ ]\+\.c \?\)\{10\}$/.../')
-    $@
+    "$@"
 }
 md5=md5sum
-if ! $(command -v md5sum > /dev/null); then
+if ! command -v md5sum > /dev/null; then
     md5=md5
 fi
 
@@ -33,4 +33,9 @@ echo "== Stage 2 (compiling with stage 1 output) =="
 X ./antcc1 $opt $cflags -o antcc2 $src
 X $md5 antcc2
 
-(X cmp antcc1 antcc2) && echo ok. || (echo 'bootstrap FAIL!'; exit 1)
+if X cmp antcc1 antcc2; then
+    echo ok.
+else
+    echo 'bootstrap FAIL!'
+    exit 1
+fi
