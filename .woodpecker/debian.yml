@@ -1,0 +1,38 @@
+when:
+  - event: push
+    branch: trunk
+
+steps:
+  - name: build
+    image: debian
+    commands:
+      - apt-get update && apt-get install -y gcc make
+      - ./configure && make
+      - ./antcc -v
+
+  - name: test-bootstrap
+    image: debian
+    commands:
+      - apt-get update && apt-get install -y gcc
+      - ./test/bootstrap.sh
+
+  - name: test-run
+    image: debian
+    commands:
+      - ./test/run.sh
+    depends_on: [build]
+
+  - name: test-external-metalang99
+    image: debian
+    commands:
+      - apt-get update && apt-get install -y cmake make
+      - ./test/metalang99.sh
+    depends_on: [build]
+
+  - name: test-external-lua
+    image: debian
+    commands:
+      - apt-get update && apt-get install -y make
+      - ./test/lua.sh
+    depends_on: [build]
+
