@@ -1,6 +1,7 @@
 #!/bin/sh
 
 set -e
+cd $(dirname "$0")/..
 
 cc="$CC"
 test -n "$cc" || cc=cc
@@ -17,23 +18,26 @@ X() {
     echo "> $@" | (test -n "$V" && cat || sed 's/\([^ ]\+\.c \?\)\{10\}$/.../')
     "$@"
 }
-md5=md5sum
-if ! command -v md5sum > /dev/null; then
-    md5=md5
+chk="wc -c"
+if which md5sum > /dev/null; then
+    chk=md5sum
+elif which md5 > /dev/null; then
+    chk=md5
 fi
 
+mkdir -p build/
 echo "== Stage 0 (compiling with $cc) =="
-X $cc $cflags -o antcc0 $src
+X $cc -w -o build/antcc0 $src
 echo
 echo "== Stage 1 (compiling with stage 0 output) =="
-X ./antcc0 $opt $cflags -o antcc1 $src
-X $md5 antcc1
+X build/antcc0 $opt $cflags -o build/antcc1 $src
+X $chk build/antcc1
 echo
 echo "== Stage 2 (compiling with stage 1 output) =="
-X ./antcc1 $opt $cflags -o antcc2 $src
-X $md5 antcc2
+X build/antcc1 $opt $cflags -o build/antcc2 $src
+X $chk build/antcc2
 
-if X cmp antcc1 antcc2; then
+if X cmp build/antcc1 build/antcc2; then
     echo ok.
 else
     echo 'bootstrap FAIL!'
