@@ -2970,6 +2970,49 @@ declarator(DeclState *st, CComp *cm, Span span0) {
    return decl;
 }
 
+/* declaration-list for K&R style def. 'f(a) int a; { ... }' */
+static void
+poldstyleparams(CComp *cm, Decl *fndecl, internstr *pnames, Span *pspans)
+{
+   assert(fndecl->ty.t == TYFUNC);
+   const TypeData *td = &typedata[fndecl->ty.dat];
+   int nparam = td->nmemb;
+   Type *params = alloccopy(&cm->fnarena, td->param, nparam * sizeof *params, 0);
+
+   /* scope setup */
+   Env env = {0};
+   envdown(cm, &env);
+   for (int i = 0; i < nparam; ++i)
+      envadddecl(&env, &(Decl){params[i], .span = pspans[i], .name = pnames[i],
+                               .id = i});
+
+   do {
+      DeclState st = { DFUNCVAR };
+      do {
+         Decl decl = pdecl(&st, cm),
+              *par = NULL;
+         while (enviterdecl(&par, &env))
+            if (decl.name == par->name)
+               break;
+         if (par) {
+            if (par->id >= 0) {
+               (void)decl.qual; /* it's "old style" C, who cares about const */
+               params[par->id] = decl.ty = typedecay(decl.ty);
+               pspans[par->id] = decl.span;
+               *par = decl;
+               par->id = -1; /* mark defined */
+            } else if (!typescompat(NULL, decl.ty, par->ty)) {
+               error(&decl.span, "redefinition of parameter '%s'", decl.name);
+            }
+         } else {
+            error(&decl.span, "declaration for '%s' but no such parameter", decl.name);
+         }
+      } while (st.more);
+   } while (isdecltok(cm));
+   envup(cm);
+   fndecl->ty = mkfntype(td->ret, nparam, params, /*kandr*/1, 0);
+}
+
 static void
 pstaticassert(CComp *cm, Span *span)
 {
@@ -3070,9 +3113,20 @@ pdecl(DeclState *st, CComp *cm) {
    if (properdecl && match(cm, &tk, '=')) {
       st->varini = 1;
       return decl;
-   } else if (first && decl.ty.t == TYFUNC && match(cm, &tk, '{')) {
-      st->funcdef = 1;
-      return decl;
+   } else if (first && decl.ty.t == TYFUNC) {
+      if (match(cm, &tk, '{')) {
+         st->funcdef = 1;
+         return decl;
+      } else if (typedata[decl.ty.dat].kandr && isdecltok(cm)) {
+         poldstyleparams(cm, &decl, st->pnames, st->pspans);
+         if (match(cm, &tk, '{')) {
+            st->funcdef = 1;
+         } else {
+            peek(cm, &tk);
+            error(&tk.span, "expected '{' for function body after parameter list");
+         }
+         return decl;
+      }
    } else if (st->kind == DFIELD && match(cm, &tk, ':')) {
       st->bitf = 1;
       return decl;
@@ -5033,7 +5087,7 @@ block(CComp *cm, Ref *stexval, Type *stexty)
 }
 
 static void
-function(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uchar *pquals)
+functionbody(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uchar *pquals)
 {
    const TypeData *td = &typedata[fn->fnty.dat];
    const bool doemit = fn->curblk;
@@ -5147,7 +5201,7 @@ tldecl(CComp *cm)
          Function fn = { &cm->fnarena, .name = decl->sym, .globl = decl->scls != SCSTATIC,
                          .fnty = decl->ty, .retty = td->ret, .inlin = decl->inlin };
          irinit(&fn);
-         function(cm, &fn, st.pnames, st.pspans, st.pqual);
+         functionbody(cm, &fn, st.pnames, st.pspans, st.pqual);
          decl = &declsbuf.p[idecl];
          if (!nerror && ccopt.dbg.p)
             irdump(&fn);

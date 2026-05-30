@@ -1,12 +1,23 @@
 /* CFLAGS: -std=c89 -trigraphs */
 /* EXPECT:
+1 2.5 qwer.
 */
+
+kandr(a,b,x,y)
+int a;
+float b;
+char y,x[sizeof a];
+{
+   extern printf();
+   printf("%d %g %s%c\n", a, b, x,y);
+}
 
 ??=include<stdio.h>
 
 foo;
 main(t) ??<
    foo = t-1;
+   kandr(1, 2.5, "qwer",'.');
    return foo;
 ??>
 

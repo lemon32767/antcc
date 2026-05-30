@@ -1,8 +1,5 @@
 A list of **missing** standard C features:
 
-## ANSI/C89
-  - K&R style function definitions with type declarations: `h(a, b) int a; double b; { ... }`
-
 ## C99
   - Variable-length arrays (VLAs)
   - Proper `long double` support in platforms with extended floats (currently equivalent to `double`)
