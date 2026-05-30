@@ -152,10 +152,24 @@ void cpp0undef(const char *name);
 /* Target */
 /**********/
 
+enum mcarch {
+   ISxxx,
+   ISx86_64,
+   ISaarch64
+};
+enum mcos {
+   OSunknown,
+   OSlinux,
+   OSopenbsd,
+   OSandroid,
+   NUM_MC_OS,
+};
+enum mcabi { ABInone, ABIgnu, ABImusl };
+
 typedef struct TargTriple {
-   enum mcarch { ISxxx, ISx86_64, ISaarch64 } arch;
-   enum mcos { OSunknown, OSlinux, OSopenbsd } os;
-   enum mcabi { ABInone, ABIgnu, ABImusl } abi;
+   enum mcarch arch;
+   enum mcos   os;
+   enum mcabi  abi;
 } TargTriple;
 extern TargTriple target;
 enum objkind { OBJELF };

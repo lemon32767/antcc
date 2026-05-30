@@ -53,6 +53,8 @@ parsetriple(TargTriple *trg, const char *str)
       trg->os = OSlinux;
    } else if (matchstr(&str, "openbsd")) {
       trg->os = OSopenbsd;
+   } else if (matchstr(&str, "android")) {
+      trg->os = OSandroid;
    } else return 0;
 
    if (trg->os == OSlinux && matchstr(&str, "-gnu")) {
@@ -66,13 +68,16 @@ parsetriple(TargTriple *trg, const char *str)
    return 1;
 }
 
+#define UNIXPREDEFS "unix\0__unix\0__unix__\0__ELF__\0"
 static const char *const ospredefs[] = {
-   [OSlinux] = "__linux\0__linux__\0linux\0unix\0__unix\0__unix__\0__ELF__\0",
-   [OSopenbsd] = "__OpenBSD__\0unix\0__unix\0__unix__\0__ELF__\0"
+   [OSlinux] = "__linux\0__linux__\0linux\0" UNIXPREDEFS,
+   [OSopenbsd] = "__OpenBSD__\0" UNIXPREDEFS,
+   [OSandroid] = "__ANDROID__\0" UNIXPREDEFS,
 }, *archpredefs[] = {
    [ISx86_64] = "__x86_64__\0__x86_64\0__amd64__\0__amd64\0",
    [ISaarch64] = "__aarch64__\0__aarch64\0",
 };
+_Static_assert(countof(ospredefs) == NUM_MC_OS, "missing os");
 
 /* https://gcc.gnu.org/onlinedocs/cpp/Common-Predefined-Macros.html */
 static void

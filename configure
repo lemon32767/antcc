@@ -130,6 +130,22 @@ case "$host" in
     "_ANSI_LIBRARY", /* works around __only_inline functions in libc headers */
     '
     ;;
+*-android*)
+    host_os=android
+    android_sdk_version=24 # works on my machine (TM)
+    host_predefs='
+    /* bionic uses many clang extensions */
+    "_Nonnull=",
+    "_Nullable=",
+    "_Null_unspecified=",
+    "__ANDROID_MIN_SDK_VERSION__='$android_sdk_version'",
+    "__ANDROID_API__=__ANDROID_MIN_SDK_VERSION__",
+    "BIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD",
+    "__availability__(...)=",
+    "__uint128_t=struct{long a,b;}", /* temp hack */
+    '
+    link_with_cc=1
+    ;;
 *)
     link_with_cc=1
     echo "warning: unknown/unsupported target '$host'" >&2
