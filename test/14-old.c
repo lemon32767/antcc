@@ -5,7 +5,7 @@
 
 kandr(a,b,x,y)
 int a;
-float b;
+register float b;
 char y,x[sizeof a];
 {
    extern printf();

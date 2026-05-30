@@ -84,6 +84,7 @@ expect(CComp *cm, enum toktag t, const char *s)
 enum declkind {
    DTOPLEVEL,
    DFUNCPARAM,
+   DFUNCPARAMOLD,
    DFUNCVAR,
    DFIELD,
    DCASTEXPR,
@@ -2605,10 +2606,13 @@ declspec(DeclState *st, CComp *cm, Span *pspan)
          arith = arith ? arith : KINT;
       }
 
-      if ((!properdecl && scls && !(st->kind == DFUNCPARAM && scls == SCREGISTER)) || (scls == SCAUTO && st->kind == DTOPLEVEL))
+      bool paramp = st->kind == DFUNCPARAM || st->kind == DFUNCPARAMOLD;
+      if ((!properdecl && scls && !(paramp && scls == SCREGISTER))
+       || (scls == SCAUTO && st->kind == DTOPLEVEL)) {
          error(&tk.span, "storage class specifier %'tk is not allowed here", &tk);
-      else
+      } else {
          st->scls |= scls;
+      }
 
       joinspan(&span.ex, tk.span.ex);
       lex(cm, &tk);
@@ -2987,7 +2991,7 @@ poldstyleparams(CComp *cm, Decl *fndecl, internstr *pnames, Span *pspans)
                                .id = i});
 
    do {
-      DeclState st = { DFUNCVAR };
+      DeclState st = { DFUNCPARAMOLD };
       do {
          Decl decl = pdecl(&st, cm),
               *par = NULL;
