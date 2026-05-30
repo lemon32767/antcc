@@ -1064,7 +1064,6 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
          const uchar *linep = &f->p[i];
          bool begintabs = 1;
          int ntabs = 0;
-         int ltrim = 0;
          for (end = 0; f->p[i] != '\n' && i < f->n; ++i, ++end) {
             uchar c = f->p[i];
             if (c == '\t') {
@@ -1077,7 +1076,6 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
             } else {
                begintabs = 0;
             }
-            if (!aisspace(c) && !ltrim) ltrim = end;
             ioputc(&out, c);
          }
          ioputc(&out, '\n');
@@ -1107,7 +1105,7 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
                --ntabs;
                continue;
             }
-            ioputc(&out, j < ltrim ? ' ' : mark);
+            ioputc(&out, mark);
             mark = '~';
          } while (--nmark > 0 && ++j < end);
          col = 1;
