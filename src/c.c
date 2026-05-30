@@ -286,32 +286,46 @@ static int
 putdecl(CComp *cm, Decl *decl)
 {
    for (Env *env = cm->env; env; env = env->up) {
-      Decl *l;
+      Decl *old;
       if (!env->up) {
          ushort *pi = pmap_get(&tldeclmap, decl->name);
          if (pi) {
-            l = &declsbuf.p[*pi];
+            old = &declsbuf.p[*pi];
             goto Match;
          }
-      } else for (l = NULL; enviterdecl(&l, env);) {
-         if (decl->name == l->name) {
+      } else for (old = NULL; enviterdecl(&old, env);) {
+         if (decl->name == old->name) {
          Match:
-            if ((cm->env->up != NULL && decl->scls == SCSTATIC) || (l->isdef && decl->isdef)) {
+            if ((cm->env->up != NULL && decl->scls == SCSTATIC) || (old->isdef && decl->isdef)) {
                error(&decl->span, "redefinition of '%s'", decl->name);
-               note(&l->span, "previously defined here");
+               note(&old->span, "previously defined here");
                break;
-            } else if (!redeclarationok(l, decl)) {
+            } else if (!redeclarationok(old, decl)) {
                error(&decl->span, "incompatible redeclaration of '%s'", decl->name);
-               note(&l->span, "previously declared here");
+               note(&old->span, "previously declared here");
                break;
-            } else if (decl->sym != l->sym && (decl->sym != decl->name)) {
-               /* conflicting __asm__ names */
-               if (warn(&decl->span, "'asm' declaration conflicts with previous rename, ignored")) {
-                  note(&l->span, "previously defined here");
-               }
             }
-            if (l->sym) decl->sym = l->sym;
-            if (l->isdef && !decl->isdef) return l - declsbuf.p;
+            if (old->sym) {
+               assert(!!decl->sym);
+               if (old->sym != decl->sym) {
+                  bool oldisrename = old->sym != decl->name,
+                       newisrename = decl->sym != decl->name;
+                  if (oldisrename && newisrename) {
+                     /* conflicting __asm__ names */
+                     if (error(&decl->span, "'asm' declaration conflicts with previous rename")) {
+                        note(&old->span, "previously defined here");
+                     }
+                     decl->sym = old->sym;
+                  } else if (oldisrename) {
+                     decl->sym = old->sym;
+                  } else if (newisrename) {
+                     old->sym = decl->sym;
+                  }
+               }
+            } else {
+               assert(!decl->sym);
+            }
+            if (old->isdef && !decl->isdef) return old - declsbuf.p;
             break;
          }
       }
@@ -2372,11 +2386,12 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk)
    case ATTRxxx: break;
    case ATTRdeprecated: nmaxparam = 1; goto Ignore;
    case ATTRformat: nmaxparam = 3; goto Ignore;
-   case ATTRnonnull: nmaxparam = 2; goto Ignore;
+   case ATTRweakref: nmaxparam = 1; goto Ignore;
+   case ATTRnonnull: break;
    default: Ignore:
       if (nparam > nmaxparam)
       BadArgs:
-         error(&span, "wrong number of arguments for attribute '%s'", aname);
+         warn(&span, "wrong number of arguments for attribute '%s'", aname);
       break;
    case ATTRaligned:
       if (nparam > 1) goto BadArgs;

@@ -112,6 +112,7 @@ enum storageclass {
    _(unused,             1, 1, 1)   \
    _(deprecated,         1, 1, 1)   \
    _(weak,               1, 1, 0)   \
+   _(weakref,            1, 1, 0)   \
    _(malloc,             1, 0, 0)   \
    _(alias,              1, 0, 0)   \
    _(warn_unused_result, 1, 0, 0)   \
