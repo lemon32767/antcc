@@ -20,7 +20,8 @@ steps:
     image: debian
     commands:
       - apt-get update && apt-get install -y gcc
-      - ./test/run.sh
+      - ./test/run.sh --print
+
     depends_on: [build]
 
   - name: test-external-metalang99

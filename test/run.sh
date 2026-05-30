@@ -7,7 +7,7 @@ npass=0
 rc=0
 
 x() {
-    echo X "$@">>log.txt
+    echo + "$@">>log.txt
     "$@" 2>> log.txt
 }
 run() {
@@ -19,9 +19,8 @@ run() {
     args=$(awk '/\/\* ARGS:.*$/ {ORS=" ";for (i=3;i<NF;++i)print $i;ORS="\n";print""}' "$f")
     cflags=$(awk '/\/\* CFLAGS:.*$/ {ORS=" ";for (i=3;i<NF;++i)print $i;ORS="\n";print""}' "$f")
     if awk '/\/\* EXPECT:$/ {x=k=any=1} x && /\*\// {x=0} x {if (!k)print $0;k=0} END{if(x||!any)exit 1;}' "$f" > "$expected"; then
-        obj=build/"$(echo "$f" | sed 's/\.c$/.o/')"
         exe=build/"$(echo "$f" | sed 's/\.c$//')"
-        if ! ( x $ANTCC $cflags "$f" -c -o "$obj" && x $ANTCC $cflags "$obj" -o "$exe" ); then
+        if ! ( x $ANTCC $cflags "$f" -o "$exe" ); then
             echo !TEST ERROR "$f"
             echo !FAILED TO COMPILE
             echo '-------'
@@ -49,6 +48,11 @@ for test in $tests; do
     run $test
 done
 
+for arg ; do
+	case "$arg" in
+    --print) cat log.txt
+    esac
+done
 echo TESTS PASSED: $npass/$ntest
 printf 'wc log.txt;'
 wc log.txt
