@@ -4827,7 +4827,8 @@ stmt(CComp *cm, Ref *stmtexprval, Type *stmtexprty)
             } else {
                r = structreturn(fn, &ex);
             }
-            putreturn(fn, r, NOREF);
+            if (fn->curblk) /* ret expr could e.g. call a no return function */
+               putreturn(fn, r, NOREF);
          }
       } else {
          if (fn->retty.t != TYVOID)
