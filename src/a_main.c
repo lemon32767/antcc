@@ -37,11 +37,11 @@ addinclpath(int ord, const char *path)
 }
 
 /* parse an argument of the form 'opt=abcd'
- * e.g.  arg="foo=bar123"; opt="foo"; returns "bar123" */
+ * e.g.  optval("foo=bar123", "foo"); returns "bar123" */
 static const char *
 optval(const char *arg, const char *opt)
 {
-   uint n1 = strlen(arg), n2 = strlen(opt);
+   size_t n1 = strlen(arg), n2 = strlen(opt);
    if (n1 < n2+1 || memcmp(arg, opt, n2) != 0 || arg[n2] != '=')
       return NULL;
    return arg + n2 + 1;
@@ -51,12 +51,7 @@ optval(const char *arg, const char *opt)
 static const char *
 fileext(const char *path)
 {
-   const char *dot = NULL;
-   assert(path && *path && "empty");
-
-   for (++path; *path; ++path) {
-      if (*path == '.') dot = path;
-   }
+   const char *dot = strrchr(path, '.');
    return dot ? dot+1 : "";
 }
 
@@ -122,7 +117,8 @@ typedef struct {
    enum inft ft;
    const char *path, *temp;
 } InFile;
-typedef struct Task {
+static InFile infilebuf[16];
+static struct Task {
    enum outft { OFTexe, OFTdll, OFTobj, OFTasm, OFTc } outft;
    const char *out;
    const char *targ;
@@ -131,9 +127,7 @@ typedef struct Task {
    vec_of(const char *) linkargs;
    bool link_with_cc;
    bool verbose, run, syntaxonly;
-} Task;
-static InFile infilebuf[16];
-static Task task = { .inf = VINIT(infilebuf, countof(infilebuf)) };
+} task = { .inf = VINIT(infilebuf, countof(infilebuf)) };
 
 static void prihelp(void);
 
@@ -174,6 +168,43 @@ stroneof(const char *needle, const char *haystack)
 static bool keeptemps;
 
 static void
+prilist(WriteBuf *b, const char *fmt, const char *sep, const char *const *a, size_t n)
+{
+   for (size_t i = 0; i < n && a[i]; ++i) {
+      bfmt(b, fmt, a[i]);
+      if (i < n-1 && a[i+1]) bfmt(b, "%s", sep);
+   }
+}
+
+static void
+priinfo(bool extra)
+{
+   WriteBuf *out = extra ? &bstderr : &bstdout;
+   bfmt(out, "antcc version "ANTCC_VERSION_STR"\n"
+             "target: "HOST_TRIPLE"\n"
+   );
+   if (!extra) return;
+   bfmt(out,
+        "include paths: "XSTR(HOST_INCLUDE_DIRS)"\n"
+        "host ld for linking: " HOST_LD "\n"
+        "host cc: " HOST_CC "\n"
+        "link with cc? %c\n",
+        "ny"[HOST_LINK_WITH_CC]
+   );
+#define LISTITEM(x,n)                                      \
+   bfmt(out, "host "#x": ["),                              \
+   prilist(out, "%'s", ", "n, host_##x, countof(host_##x)), \
+   bfmt(out, "]\n")
+
+   LISTITEM(predefs,"\n\t");
+   LISTITEM(linkcmd,);
+   LISTITEM(ldstartfiles,);
+   LISTITEM(ldendfiles,);
+   LISTITEM(ldstartfiles_pie,);
+   LISTITEM(ldendfiles_pie,);
+}
+
+static void
 optparse(char **args)
 {
    const char *arg, *x;
@@ -202,12 +233,7 @@ optparse(char **args)
          pfmt("%s\n", HOST_TRIPLE);
          exit(0);
       } else if (!strcmp(arg, "-version")) {
-         pfmt("antcc version "ANTCC_VERSION_STR"\n"
-              "target: "HOST_TRIPLE"\n"
-              "include paths: "XSTR(HOST_INCLUDE_DIRS)"\n"
-              "host ld for linking: " HOST_LD "\n"
-              "host cc: " HOST_CC "\n"
-         );
+         priinfo(0);
          exit(0);
       } else if (!strcmp(arg, "dumpversion")) {
          pfmt("%s\n", ANTCC_VERSION_STR);
@@ -343,8 +369,6 @@ optparse(char **args)
          const char *def = arg[1] ? arg+1 : *++args;
          if (!def) fatal(NULL, "macro name missing after `-%c`", *arg);
          predef(*arg == 'U', def);
-      } else if (*arg == 'O') {
-         /* TODO optimization level */
       } else if (*arg == 'I' || !strcmp(arg, "-include-directory")) {
          cinclord = CINCL_I;
          if (*arg == 'I' && arg[1]) incpath = arg+1;
@@ -380,11 +404,16 @@ optparse(char **args)
          /* TODO warning switches */
       } else if (*arg == 'w') {
          ccopt.wnone = 1;
-         /* TODO warning switches */
       } else UnkOption: error(NULL, "unrecognized command-line option: %'s", arg-1);
    }
 
-   if (task.inf.n == 0) fatal(NULL, "no input files");
+   if (task.inf.n == 0) {
+      if (task.verbose) {
+         priinfo(1);
+         exit(0);
+      }
+      fatal(NULL, "no input files");
+   }
 
    if (!task.out && !task.syntaxonly) {
       switch (task.outft) {
@@ -397,6 +426,16 @@ optparse(char **args)
    }
    if (!in_range(task.outft, OFTexe, OFTdll) && task.outft != OFTc && task.inf.n > 1)
       fatal(NULL, "too many input files");
+}
+
+#define vrbfmt(...) if (task.verbose) efmt(__VA_ARGS__)
+static void
+vrbpriargs(const char **a, size_t n)
+{
+   if (task.verbose) {
+      prilist(&bstderr, "%s", " ", a, n);
+      efmt("\n");
+   }
 }
 
 static const char *
@@ -633,11 +672,7 @@ dolink(void)
             vpushn(&cmd, host_ldendfiles, countof(host_ldendfiles));
       }
    }
-   if (task.verbose) {
-      for (int i = 0; i < cmd.n; ++i)
-         efmt("%s ", cmd.p[i]);
-      efmt("\n");
-   }
+   vrbpriargs(cmd.p, cmd.n);
    vpush(&cmd, NULL);
    if ((p = fork()) < 0) {
       error(NULL, "fork: %s", strerror(errno));
@@ -665,12 +700,9 @@ dorun(void)
    if (target.arch != HOST_ARCH || target.os != HOST_OS) {
       warn(NULL, "'-run' with cross-compiled binary");
    }
-   if (task.verbose) {
-      efmt("exec %s", task.out);
-      for (char **s = task.runargs; *s; ++s)
-         efmt(" %s", *s);
-      efmt("\n");
-   }
+
+   vrbfmt("exec %s ", task.out);
+   vrbpriargs((const char **)task.runargs, -1u);
 #if (defined __linux__ && !defined __ANDROID__) || defined __FreeBSD__ // fexecve availability
    int fd = open(task.out, O_RDONLY);
    if (fd < 0) {
@@ -707,8 +739,7 @@ static int
 driver(void)
 {
    void cpp(WriteBuf *, const char *);
-   if (task.verbose)
-      efmt("# Target: %s\n", task.targ ? task.targ : HOST_TRIPLE);
+   vrbfmt("# Target: %s\n", task.targ ? task.targ : HOST_TRIPLE);
    if (task.syntaxonly)
       task.out = "/dev/null"; // HACK
    if (task.outft == OFTobj) {
@@ -765,7 +796,7 @@ cc1(const char *out, const char *in)
    void ccomp(const char *);
    extern int nerror;
 
-   if (task.verbose) efmt("cc1(/*out*/ %'s, /*in*/ %'s)\n", out, in);
+   vrbfmt("cc1(in: %'s, out: %'s)\n", in, out);
    if (!ccopt.dbg.any && !task.syntaxonly) objini(in, out);
    ccomp(in);
    if (!task.syntaxonly && !nerror) objfini(!ccopt.dbg.any);
@@ -838,7 +869,9 @@ main(int argc, char **argv)
    ccopt.cstd = STDC11;
    ccopt.pie = 1;
    ccopt.dbgout = &bstdout;
-   if (getenv("ANTCC_VERBOSE")) {
+   
+   const char *s;
+   if ((s = getenv("ANTCC_VERBOSE")) && *s && strchr("1yYtT", *s)) {
       task.verbose = 1;
    }
    task.link_with_cc = HOST_LINK_WITH_CC;
@@ -850,6 +883,10 @@ main(int argc, char **argv)
    }
    int nincl0 = nsysinclpaths;
    optparse(argv);
+
+   if (task.verbose) {
+      priinfo(1);
+   }
 
    /* global init */
    if (!targ_init(task.targ, &host_targ) || !target.arch) {
