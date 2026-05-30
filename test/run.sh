@@ -4,6 +4,7 @@ cd $(dirname "$0")
 ANTCC="../antcc $CFLAGS"
 ntest=0
 npass=0
+rc=0
 
 x() {
     echo X "$@">>log.txt
@@ -24,6 +25,7 @@ run() {
             echo !TEST ERROR "$f"
             echo !FAILED TO COMPILE
             echo '-------'
+            rc=1
         else
             actual=build/"$(echo "$f" | sed 's/\.c$/.actual/')"
             x $QEMU "$exe" $args > "$actual"
@@ -31,6 +33,7 @@ run() {
                 echo --- !TEST ERROR "$f"
                 diff --unified=0 "$expected" "$actual"
                 echo '-------'
+                rc=1
             else
                 npass=$(( npass + 1 ))
             fi
@@ -49,3 +52,4 @@ done
 echo TESTS PASSED: $npass/$ntest
 printf 'wc log.txt;'
 wc log.txt
+exit $rc

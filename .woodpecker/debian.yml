@@ -19,6 +19,7 @@ steps:
   - name: test-run
     image: debian
     commands:
+      - apt-get update && apt-get install -y gcc
       - ./test/run.sh
     depends_on: [build]
 
@@ -32,6 +33,7 @@ steps:
   - name: test-external-lua
     image: debian
     commands:
+      - apt-get update && apt-get install -y gcc
       - apt-get update && apt-get install -y make
       - ./test/lua.sh
     depends_on: [build]

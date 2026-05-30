@@ -1,10 +1,9 @@
-#!/bin/sh
+#!/bin/bash
+
+set -e
 
 cd $(dirname "$0")/external/metalang99/
-
 cc=$(realpath ../../../antcc)
-
-
 echo '  -- examples --'
 mkdir -p examples/build
 cd examples/build
@@ -19,7 +18,7 @@ cd tests/build
 cmake --fresh ..  -DCMAKE_C_COMPILER="$cc" 
 cmake --build .
 
-if [[ "$OSTYPE" == "linux-gnu" ]]; then
+if [ "$OSTYPE" = "linux-gnu" ]; then
     echo " Testing ./gen ..."
     ./gen
 
