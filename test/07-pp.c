@@ -98,8 +98,7 @@ main(V)
          "%s %g\n", str(Foo,5), xstr(Foo), CAT(1.5,e3f) + CAT(7,)-CAT(,1));
    printf("join: \"%s\"\n", p);
 
-   setlocale(LC_ALL, "en_US.utf8");
-
+   setlocale(LC_ALL, "C.UTF-8");
    printf("wide   L\"%ls\",  U+%x\n", L"abc123 猫,€á💫", L'🦋');
 
    PUT\
