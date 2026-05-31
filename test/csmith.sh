@@ -29,7 +29,7 @@ run_test() {
     out2="$WORKDIR/$pid-$num-ref.out"
     src="$WORKDIR/$pid-$num.c"
     
-    csmith --no-packed-struct > "$src" 2>/dev/null || return 1
+    csmith > "$src" 2>/dev/null || return 1
     
     if ! ../antcc $CFLAGS -I"$csmith_path" -w "$src" -o "$tmp1" -lm; then
         ncomperr=$((ncomperr+1))
