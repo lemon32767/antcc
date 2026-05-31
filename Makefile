@@ -1,7 +1,7 @@
 OUT?=antcc
 BUILDDIR?=build
 SRC=$(wildcard src/*.c)
-OBJ=$(patsubst src/%.c,build/%.o,$(SRC))
+OBJ=$(patsubst src/%.c,$(BUILDDIR)/%.o,$(SRC))
 DEP=$(OBJ:.o=.d)
 
 include config.mk
@@ -44,15 +44,18 @@ clean:
 	$(RM) -r -- $(BUILDDIR)/ test/build/ $(OUT) *.o a.out
 
 clean-tool:
-	$(RM) -r tool/depgen
+	$(RM) tool/depgen
 
 clean-config: clean
-	$(RM) -r config.mk src/hostconfig.h
+	$(RM) config.mk src/hostconfig.h
 
 install: all
 	@mkdir -p "$(DESTDIR)$(BINDIR)"
 	install -m755 $(OUT) -T "$(DESTDIR)$(BINDIR)/antcc"
 
-.PHONY: clean clean-config install
+uninstall:
+	$(RM) "$(DESTDIR)$(BINDIR)/antcc"
+
+.PHONY: clean clean-config install uninstall
 
 -include $(DEP)
