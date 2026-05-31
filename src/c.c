@@ -1017,13 +1017,15 @@ tkprec(int tt)
    return ((uint)tt < countof(bintab)) ?  bintab[tt].prec : 0;
 }
 
-static Expr initializer(CComp *, Type *ty, enum evalmode ev,
+static Expr initializer(CComp *, Type *ty, uint align, enum evalmode ev,
                         bool globl, enum qualifier qual, internstr name);
 static void block(CComp *, Ref *stmtexprval, Type *stmtexprty);
 
 static internstr istr__func__, istr_main, istr_memset;
 
 static internstr mkhiddensym(const char *fnname, const char *name, int id);
+
+static uint declalign(const Decl *d);
 
 /* parse an expression with the given operator precedence */
 /* param ident is a kludge to support block labels without backtracking or extra lookahead
@@ -1117,8 +1119,9 @@ Unary:
          if (peek(cm, NULL) == '{') {
             if (ccopt.cstd < STDC99)
                warn(&tk.span, "compound literals are a c99 feature");
-            ex = initializer(cm, &decl.ty, (decl.scls & SCSTATIC) ? EVSTATICINI : EVFOLD,
-                                 /* globl */ 0, decl.qual, NULL);
+            ex = initializer(cm, &decl.ty, declalign(&decl),
+                             (decl.scls & SCSTATIC) ? EVSTATICINI : EVFOLD,
+                             /*globl*/ 0, decl.qual, NULL);
             break;
          }
          unops[nunop].span = span;
@@ -1833,7 +1836,7 @@ designators(InitParser *ip, CComp *cm)
 }
 
 static Expr
-initializer(CComp *cm, Type *ty, enum evalmode ev, bool globl,
+initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, bool globl,
             enum qualifier qual, internstr sym)
 {
    Token tk;
@@ -1853,7 +1856,7 @@ initializer(CComp *cm, Type *ty, enum evalmode ev, bool globl,
       } else {
          ip->sec = qual & QCONST ? Srodata : Sdata;
          if (!nerror)
-            ip->off = objnewdat(sym, ip->sec, globl, typesize(*ty), typealign(*ty));
+            ip->off = objnewdat(sym, ip->sec, globl, typesize(*ty), align);
       }
    } else {
       ip->init = &res;
@@ -1928,7 +1931,7 @@ initializer(CComp *cm, Type *ty, enum evalmode ev, bool globl,
    }
    if (ip->dyn) {
       enum section sec;
-      uint off, siz, align;
+      uint off, siz;
       uchar *p;
 
       if (isincomplete(*ty)) {
@@ -1942,8 +1945,9 @@ initializer(CComp *cm, Type *ty, enum evalmode ev, bool globl,
          sec = Srodata;
       else
          sec = Sdata;
+      assert(align >= typealign(*ty));
       if (!nerror) {
-         off = objnewdat(sym, sec, globl, siz = typesize(*ty), align = typealign(*ty));
+         off = objnewdat(sym, sec, globl, siz = typesize(*ty), align);
          if (siz > 0) {
             p = sec == Srodata ? objout.rodata.p : objout.data.p;
             assert(ip->ddat.n <= siz);
@@ -2041,6 +2045,166 @@ dumpexpr(const Expr *ex, bool prity)
 /* Decls Parsing */
 /*****************/
 
+static const struct {
+   const char *s;
+   uint slen;
+   uchar f:1, v:1, t:1;
+} cattrs[] = {
+#define DEF_ATTR(a,...) [ATTR##a] = {#a, sizeof#a - 1, .f=__VA_ARGS__},
+   LIST_ATTRS(DEF_ATTR)
+#undef DEF_ATTR
+};
+
+bool
+hasattribute(const char *s, uint len)
+{
+   for (int i = 0; i < countof(cattrs); ++i) {
+      if (cattrs[i].slen == len && !memcmp(cattrs[i].s, s, len))
+         return 1;
+   }
+   return 0;
+}
+
+static bool
+parse1attr(CComp *cm, Attrs *attr, Token *tk)
+{ /* attribute ::= name | name ( params ) */
+   Span span = tk->span;
+   assert(tk->t == TKIDENT || in_range(tk->t, TKWBEGIN_, TKWEND_));
+   enum attr a = ATTRxxx;
+   const char *aname = NULL;
+   for (int i = 0; i < countof(cattrs); ++i) {
+      const char *s = tk->s;
+      uint n = tk->len;
+
+      /* strip __xyz__ -> xyz */
+      if (n > 5 && s[0] == '_' && s[1] == '_' && s[n-2] == '_' && s[n-1] == '_') {
+         s += 2;
+         n -= 4;
+      }
+      if (n == cattrs[i].slen && !memcmp(s, aname = cattrs[i].s, n)) {
+         setattr(attr, a = i);
+         break;
+      }
+   }
+
+   if (a == ATTRxxx)
+      warn(&tk->span, "unknown/unsupported attribute ignored (%'tk)", tk);
+
+   Expr params[4];
+   int nparam = 0;
+   if (match(cm, tk, '(')) {
+      /* params ::= (pseudo-expr1, ...) */
+      while (!match(cm, tk, ')')) {
+         if (nparam == countof(params)) return 0;
+         Expr ex = exprparse(cm, bintab['='].prec, NULL, EATTRARG);
+         if (nparam < countof(params)) params[nparam] = ex;
+         ++nparam;
+         if (!match(cm, NULL, ',')) {
+            peek(cm, tk);
+            if (expect(cm, ')', NULL)) break;
+            else return 0;
+         }
+      }
+      joinspan(&span.ex, tk->span.ex);
+   }
+
+   int nminparam = 0, nmaxparam = 0;
+   switch (a) {
+   case ATTRxxx: break;
+   case ATTRused: case ATTRunused: case ATTRwarn_unused_result: case ATTRdeprecated:
+      nmaxparam = 1;
+      goto Arity;
+   case ATTRformat: nmaxparam = 3; goto Arity;
+   case ATTRnonnull: /*variadic*/ break;
+
+   /* these take no args */
+   case ATTRnoreturn: case ATTRreturns_twice: case ATTRnoinline:
+   case ATTRalways_inline: case ATTRflatten: case ATTRpure:
+   case ATTRconst: case ATTRnothrow: case ATTRmalloc:
+   case ATTRmay_alias: case ATTRexternally_visible:
+   case ATTRpacked:
+   Arity:
+      if (nparam > nmaxparam || nparam < nminparam)
+      BadArgs:
+         warn(&span, "wrong number of arguments for attribute '%s'", aname);
+      break;
+   case ATTRaligned:
+      if (nparam > 1) goto BadArgs;
+      else if (nparam == 1) {
+         if (isint(params[0].ty) && eval2xintcon(&params[0])) {
+            if (!ispo2(params[0].u))
+               error(&params[0].span, "alignment is not a power of 2");
+            else
+               attr->align = params[0].i;
+         } else {
+            error(&params[0].span, "'aligned' requires integer constant");
+         }
+      }
+      break;
+   /* these can't be safely ignored */
+   //case ATTRmode:
+   case ATTRsection:
+   case ATTRconstructor:
+   case ATTRdestructor:
+   case ATTRalias:
+   case ATTRweak: case ATTRweakref:
+   case ATTRcommon: case ATTRnocommon:
+   case ATTRtransparent_union:
+   //Stub:
+      stub(&span, "attribute '%s'", aname);
+      break;
+   }
+   return 1;
+}
+
+static bool
+attrspec(CComp *cm, Attrs *attr)
+{ /* __attribute__ (( attribute-list )) */
+   if (!match(cm, NULL, TKW__attribute__)) return 0;
+   do {
+      if (!expect(cm, '(', "after __attribute__")
+       || !expect(cm, '(', "after __attribute__(")) {
+      Bad:
+         fatal(NULL, NULL);
+      }
+      while (!match(cm, NULL, ')')) {
+         Token tk;
+         lex(cm, &tk);
+         if (tk.t != TKIDENT && !in_range(tk.t, TKWBEGIN_, TKWEND_)) {
+            fatal(&tk.span, "expected attribute name");
+         }
+         if (!parse1attr(cm, attr, &tk)) goto Bad;
+         if (!match(cm, NULL, ',')) {
+            if (expect(cm, ')', NULL)) break;
+            else goto Bad;
+         }
+      }
+      if (!expect(cm, ')', NULL))
+         goto Bad;
+   } while (match(cm, NULL, TKW__attribute__));
+   return 1;
+}
+
+static void
+attrcheckctx(const Span *span, const Attrs *attr, char c /*f/v/t*/)
+{
+   bs_each(a, attr->set, countof(attr->set)) {
+      if ((c == 'f' && !cattrs[a].f)
+       || (c == 'v' && !cattrs[a].v)
+       || (c == 't' && !cattrs[a].t))
+      {
+         warn(span, "'%s' attribute has no effect here", cattrs[a].s);
+      }
+   }
+}
+
+static uint
+declalign(const Decl *d)
+{
+   int talign = typealign(d->ty);
+   return d->attr.align > talign ? d->attr.align : talign;
+}
+
 static Type
 buildagg(CComp *cm, enum typetag tt, internstr name, int id, const Attrs *tyattr)
 {
@@ -2120,11 +2284,16 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id, const Attrs *tyattr
             bitftypesiz = bitoff = bitsiz = 0;
          }
          if (decl.ty.t) {
-            uint align = hasattr(tyattr, ATTRpacked) || hasattr(&decl.attr, ATTRpacked)
-                           ? 1
-                           : typealign(decl.ty);
+            uint align;
+            if ((hasattr(tyattr, ATTRpacked) || hasattr(&decl.attr, ATTRpacked))
+             && !hasattr(&decl.attr, ATTRaligned))
+               align = 1;
+            else
+               align = declalign(&decl);
             uint siz = tysize;
-            uint off = isunion ? 0 : (bitftypesiz ? bitfbyteoff : alignup(td.siz, align));
+            uint off = isunion ? 0
+                     : bitftypesiz ? bitfbyteoff
+                     : alignup(td.siz, align);
             NamedField f = { decl.name, { decl.ty, off, bitsiz, bitoff, .qual = decl.qual }};
             if (bitftypesiz && siz != bitftypesiz) while (f.f.bitoff + f.f.bitsiz > 8*siz) {
                /* adjust bitfields narrower than container type */
@@ -2173,6 +2342,8 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id, const Attrs *tyattr
       td.siz = 0;
       td.align = 1;
    }
+   if (tyattr->align && tyattr->align > td.align)
+      td.align = tyattr->align;
    td.siz = alignup(td.siz, td.align);
    td.fld = fld.p;
    td.nmemb = fld.n;
@@ -2276,8 +2447,6 @@ buildenum(CComp *cm, internstr name, const Span *span, int id, const Attrs *tyat
    return ty;
 }
 
-static bool attrspec(CComp *, Attrs *);
-
 static Type
 tagtype(CComp *cm, enum toktag kind)
 {
@@ -2295,6 +2464,7 @@ tagtype(CComp *cm, enum toktag kind)
    if (match(cm, &tk, TKIDENT))
       tag = tk.name;
    span = tk.span;
+   attrcheckctx(&span, &attr, 't');
    if (!match(cm, NULL, '{')) {
       if (!tag) {
          error(&tk.span, "expected %tt name or '{'", kind);
@@ -2319,151 +2489,27 @@ tagtype(CComp *cm, enum toktag kind)
       else
          t = buildagg(cm, tt, tag, tag ? typedata[t.dat].id : -1, &attr);
    }
+   peek(cm, &tk);
+   if (attrspec(cm, &attr)) {
+      error(&tk.span, "NYI: type attribute at the end of its definition");
+      attrcheckctx(&span, &attr, 't');
+   }
 
    if (t.t != tt) {
-      error(&tk.span, "declaring tagged type %'tk as %tt clashes with previous definition",
-            &tk, kind);
+      error(&tk.span, "declaring tagged type %'s as %tt clashes with previous definition",
+            tag, kind);
       note(&span, "previous definition:");
    }
    return t;
 }
 
-static const struct {
-   const char *s;
-   uint slen;
-   uint attr;
-} cattrs[] = {
-#define DEF_ATTR(a,...) {#a, sizeof#a - 1, ATTR##a},
-   LIST_ATTRS(DEF_ATTR)
-#undef DEF_ATTR
-};
-
-bool
-hasattribute(const char *s, uint len)
+static void
+declcheckattr(const Decl *decl)
 {
-   for (int i = 0; i < countof(cattrs); ++i) {
-      if (cattrs[i].slen == len && !memcmp(cattrs[i].s, s, len))
-         return 1;
-   }
-   return 0;
-}
-
-static bool
-parse1attr(CComp *cm, Attrs *attr, Token *tk)
-{ /* attribute ::= name | name ( params ) */
-   Span span = tk->span;
-   assert(tk->t == TKIDENT || in_range(tk->t, TKWBEGIN_, TKWEND_));
-   enum attr a = ATTRxxx;
-   const char *aname = NULL;
-   for (int i = 0; i < countof(cattrs); ++i) {
-      const char *s = tk->s;
-      uint n = tk->len;
-
-      /* strip __xyz__ -> xyz */
-      if (n > 5 && s[0] == '_' && s[1] == '_' && s[n-2] == '_' && s[n-1] == '_') {
-         s += 2;
-         n -= 4;
-      }
-      if (n == cattrs[i].slen && !memcmp(s, aname = cattrs[i].s, n)) {
-         setattr(attr, a = cattrs[i].attr);
-         break;
-      }
-   }
-
-   if (a == ATTRxxx)
-      warn(&tk->span, "unknown/unsupported attribute ignored (%'tk)", tk);
-
-   Expr params[4];
-   int nparam = 0;
-   if (match(cm, tk, '(')) {
-      /* params ::= (pseudo-expr1, ...) */
-      while (!match(cm, tk, ')')) {
-         if (nparam == countof(params)) return 0;
-         Expr ex = exprparse(cm, bintab['='].prec, NULL, EATTRARG);
-         if (nparam < countof(params)) params[nparam] = ex;
-         ++nparam;
-         if (!match(cm, NULL, ',')) {
-            peek(cm, tk);
-            if (expect(cm, ')', NULL)) break;
-            else return 0;
-         }
-      }
-      joinspan(&span.ex, tk->span.ex);
-   }
-
-   int nminparam = 0, nmaxparam = 0;
-   switch (a) {
-   case ATTRxxx: break;
-   case ATTRused: case ATTRunused: case ATTRwarn_unused_result: case ATTRdeprecated:
-      nmaxparam = 1;
-      goto Arity;
-   case ATTRformat: nmaxparam = 3; goto Arity;
-   case ATTRnonnull: /*variadic*/ break;
-
-   /* these take no args */
-   case ATTRnoreturn: case ATTRreturns_twice: case ATTRnoinline:
-   case ATTRalways_inline: case ATTRflatten: case ATTRpure:
-   case ATTRconst: case ATTRnothrow: case ATTRmalloc:
-   case ATTRmay_alias: case ATTRexternally_visible:
-   case ATTRpacked:
-   Arity:
-      if (nparam > nmaxparam || nparam < nminparam)
-      BadArgs:
-         warn(&span, "wrong number of arguments for attribute '%s'", aname);
-      break;
-   case ATTRaligned:
-      if (nparam > 1) goto BadArgs;
-      else if (nparam == 1) {
-         if (isint(params[0].ty) && eval2xintcon(&params[0])) {
-            if (!ispo2(params[0].u))
-               error(&params[0].span, "alignment is not a power of 2");
-            else
-               attr->align = params[0].i;
-         } else {
-            error(&params[0].span, "'aligned' requires integer constant");
-         }
-         goto Stub;
-      }
-      break;
-   /* these can't be safely ignored */
-   //case ATTRmode:
-   case ATTRsection:
-   case ATTRconstructor:
-   case ATTRdestructor:
-   case ATTRalias:
-   case ATTRweak: case ATTRweakref:
-   case ATTRcommon: case ATTRnocommon:
-   case ATTRtransparent_union:
-   Stub:
-      stub(&span, "attribute '%s'", aname);
-      break;
-   }
-   return 1;
-}
-
-static bool
-attrspec(CComp *cm, Attrs *attr)
-{ /* __attribute__ (( attribute-list )) */
-   if (!match(cm, NULL, TKW__attribute__)) return 0;
-   if (!expect(cm, '(', "after __attribute__") || !expect(cm, '(', "after __attribute__(")) {
-   Bad:
-      fatal(NULL, NULL);
-   }
-   while (!match(cm, NULL, ')')) {
-      Token tk;
-      lex(cm, &tk);
-      if (tk.t != TKIDENT && !in_range(tk.t, TKWBEGIN_, TKWEND_)) {
-         fatal(&tk.span, "expected attribute name");
-      }
-      if (!parse1attr(cm, attr, &tk)) goto Bad;
-      if (!match(cm, NULL, ',')) {
-         if (expect(cm, ')', NULL)) break;
-         else goto Bad;
-      }
-   }
-   if (!expect(cm, ')', NULL))
-      goto Bad;
-   return 1;
+   char c = decl->scls == SCTYPEDEF ? 't'
+          : decl->ty.t == TYFUNC ? 'f'
+          : 'v';
+   attrcheckctx(&decl->span, &decl->attr, c);
 }
 
 static Type
@@ -2911,8 +2957,8 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
 }
 
 static Decl
-declarator(DeclState *st, CComp *cm, Span span0) {
-   Decl decl = { st->base, st->scls, .qual = st->qual, .span = span0 };
+declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0) {
+   Decl decl = { st->base, st->scls, .qual = st->qual, .span = span0, .attr = attr0 };
    DeclList list = { &list, &list }, *l;
    Span namespan = {0};
    static bool inidecltmp;
@@ -3099,33 +3145,36 @@ pdecl(DeclState *st, CComp *cm) {
 
    DeclSpec:
       st->base0 = 0;
-      while (attrspec(cm, &st->attr)) ;
+      attrspec(cm, &st->attr);
       declspec(st, cm, &decl.span);
    } else {
       peek(cm, &tk);
       decl.span = tk.span;
    }
-   /* XXX check attrs */
    if (st->scls == SCTYPEDEF) properdecl = 0;
 
    if (first && st->tagdecl && match(cm, &tk, ';')) {
+      /* struct/union/enum ... ; */
+      attrcheckctx(&decl.span, &st->attr, 't');
       decl = (Decl) { st->base, st->scls, st->qual, .span = decl.span, .attr = st->attr };
       return decl;
    } else if (st->kind == DFIELD && match(cm, &tk, ':')) {
+      /* indicate bitfield */
       decl = (Decl) { st->base, st->scls, st->qual, .span = decl.span, .attr = st->attr };
       st->bitf = 1;
       return decl;
    }
-   decl = declarator(st, cm, decl.span);
    decl.attr = st->attr;
-   while (attrspec(cm, &decl.attr)) ;
+   attrspec(cm, &decl.attr);
+   decl = declarator(st, cm, decl.span, decl.attr);
+   attrspec(cm, &decl.attr);
    if (decl.ty.t != TYFUNC && st->fninline)
       error(&decl.span, "`inline' used on non-function declaration");
    /*if (decl.ty.t != TYFUNC && st->fnnoreturn)
       error(&decl.span, "`_Noreturn' used on non-function declaration");*/
    /* trailing attributes */
    if (st->kind == DTOPLEVEL || st->kind == DFUNCVAR) {
-      while (attrspec(cm, &decl.attr)) ;
+      attrspec(cm, &decl.attr);
       if (match(cm, NULL, TKW__asm__) && expect(cm, '(', NULL)) {
          if (peek(cm, NULL) == TKSTRLIT) {
             lex(cm, &tk);
@@ -3133,9 +3182,10 @@ pdecl(DeclState *st, CComp *cm) {
          } else expect(cm, TKSTRLIT, "asm symbol name");
          expect(cm, ')', NULL);
       }
-      while (attrspec(cm, &decl.attr)) ;
+      attrspec(cm, &decl.attr);
    }
 
+   declcheckattr(&decl);
    if (properdecl && match(cm, &tk, '=')) {
       st->varini = 1;
       return decl;
@@ -5011,7 +5061,7 @@ localdecl(CComp *cm, bool forini)
             }
             decl.id = -1;
             if (!nerror) {
-               Instr alloc = mkalloca(typesize(decl.ty), typealign(decl.ty));
+               Instr alloc = mkalloca(typesize(decl.ty), declalign(&decl));
                if (fn->curblk) decl.id = addinstr(fn, alloc).i;
                else decl.id = insertinstr(fn->entry, fn->entry->ins.n, alloc).i;
             }
@@ -5020,7 +5070,7 @@ localdecl(CComp *cm, bool forini)
                int d = putdecl(cm, &decl);
                Type ty = decl.ty;
                bool statik = decl.scls & (SCSTATIC | SCEXTERN);
-               ini = initializer(cm, &ty, statik ? EVSTATICINI : EVFOLD,
+               ini = initializer(cm, &ty, declalign(&decl), statik ? EVSTATICINI : EVFOLD,
                                  /* globl? */ decl.scls == SCEXTERN, decl.qual, statik ? decl.sym : NULL);
                declsbuf.p[d].ty = ty;
                put = 1;
@@ -5028,7 +5078,7 @@ localdecl(CComp *cm, bool forini)
                if (!statik) {
                   /* fix alloca for actual size, for implicitly sized arrays */
                   assert(!isincomplete(ty));
-                  EMITS instrtab[decl.id] = mkalloca(typesize(ty), typealign(ty));
+                  EMITS instrtab[decl.id] = mkalloca(typesize(ty), declalign(&decl));
 
                   if (!initcheck(ty, &ini)) {
                      Span span = decl.span;
@@ -5062,7 +5112,7 @@ localdecl(CComp *cm, bool forini)
                else if (isincomplete(decl.ty))
                   error(&decl.span, "definition of static variable with incomplete type");
                else
-                  objnewdat(decl.sym, Sbss, 0, typesize(decl.ty), typealign(decl.ty));
+                  objnewdat(decl.sym, Sbss, 0, typesize(decl.ty), declalign(&decl));
             }
             break;
          case SCTYPEDEF:
@@ -5222,13 +5272,22 @@ tldecl(CComp *cm)
                error(&st.pspans[i], "parameter has incomplete type '%ty'", td->param[i]);
          }
          decl->isdef = 1;
-         int idecl = putdecl(cm, decl);
-         decl = &declsbuf.p[idecl];
+         int idecl = -1;
+         if (decl->name) {
+            idecl = putdecl(cm, decl);
+            decl = &declsbuf.p[idecl];
+         } else {
+            /* had e.g. 'int () {...}' */
+            extern int nerror;
+            assert(nerror > 0);
+            decl->name = decl->sym = intern("?");
+         }
          Function fn = { &cm->fnarena, .name = decl->sym, .globl = decl->scls != SCSTATIC,
                          .fnty = decl->ty, .retty = td->ret, .inlin = decl->inlin };
          irinit(&fn);
          functionbody(cm, &fn, st.pnames, st.pspans, st.pqual);
-         decl = &declsbuf.p[idecl];
+         if (idecl >= 0)
+            decl = &declsbuf.p[idecl];
          if (!nerror && ccopt.dbg.p)
             irdump(&fn);
          irfini(&fn);
@@ -5238,7 +5297,8 @@ tldecl(CComp *cm)
          if (st.varini) {
             if (isagg(decl->ty) && isincomplete(decl->ty))
                error(&decl->span, "initialization of variable with incomplete type '%ty'", decl->ty);
-            Expr ini = initializer(cm, &decl->ty, EVSTATICINI, decl->scls != SCSTATIC, decl->qual, decl->sym);
+            Expr ini = initializer(cm, &decl->ty, declalign(decl), EVSTATICINI,
+                                   decl->scls != SCSTATIC, decl->qual, decl->sym);
             decl = &declsbuf.p[idecl];
             decl->ty = decl->ty;
             if (decl->scls == SCEXTERN && !noscls) {
@@ -5261,7 +5321,8 @@ tldecl(CComp *cm)
                      assert(size == 0);
                   } else assert(0);
                }
-               if (size) objnewdat(decl->sym, Sbss, decl->scls == SCEXTERN, size, typealign(decl->ty));
+               if (size)
+                  objnewdat(decl->sym, Sbss, decl->scls == SCEXTERN, size, declalign(decl));
             }
          }
          decl = &declsbuf.p[idecl];

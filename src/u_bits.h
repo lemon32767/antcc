@@ -39,7 +39,7 @@ bsunion(BitSet dst[/*siz*/], const BitSet src[/*siz*/], uint siz)
 }
 
 static inline uint
-bscount(BitSet bs[/*siz*/], uint siz)
+bscount(const BitSet bs[/*siz*/], uint siz)
 {
    uint n = 0;
    while (siz--) n += popcnt(bs++->u);
@@ -47,7 +47,7 @@ bscount(BitSet bs[/*siz*/], uint siz)
 }
 
 static inline bool
-bsiter(uint *i, BitSet bs[/*siz*/], uint siz)
+bsiter(uint *i, const BitSet bs[/*siz*/], uint siz)
 {
    uint k = *i/BSNBIT, j = *i%BSNBIT;
    if (k >= siz) return 0;
@@ -59,10 +59,10 @@ bsiter(uint *i, BitSet bs[/*siz*/], uint siz)
    *i = k*BSNBIT + lowestsetbit(t);
    return 1;
 }
-#define bs_each(T, var, bs, siz) for (T (var) = 0; bsiter(&(var), (bs), (siz)); ++(var))
+#define bs_each(var, bs, siz) for (uint (var) = 0; bsiter(&(var), (bs), (siz)); ++(var))
 
 static inline bool
-bsiterzr(uint *i, BitSet bs[/*siz*/], uint siz)
+bsiterzr(uint *i, const BitSet bs[/*siz*/], uint siz)
 {
    uint k = *i/BSNBIT, j = *i%BSNBIT;
    if (k >= siz) return 0;

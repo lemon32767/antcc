@@ -137,10 +137,10 @@ enum attr {
 };
 typedef struct Attrs {
    int align;
-   uint bset;
+   BitSet set[1];
 } Attrs;
-#define setattr(attrs,A) ((attrs)->bset |= 1<<(A))
-#define hasattr(attrs,A) ((attrs)->bset & 1<<(A))
+#define setattr(attrs,A) bsset((attrs)->set, (A))
+#define hasattr(attrs,A) bstest((attrs)->set, (A))
 
 typedef struct Decl {
    Type ty;
