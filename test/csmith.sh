@@ -21,6 +21,8 @@ echo "Using REFCC=$REFCC"
 echo "antcc CFLAGS=$CFLAGS"
 echo "timeout=$TIMEOUT"s
 
+rc=0
+
 run_test() {
     num=$1
     tmp1="$WORKDIR/$pid-$num-antcc"
@@ -42,7 +44,7 @@ run_test() {
     if ! $REFCC -I"$csmith_path" -w "$src" -o "$tmp2" -lm ; then
         echo "FAIL (ref compile)"
         rm -f "$tmp1" "$tmp2" "$out1" "$out2" "$src"
-        exit 1
+        return 1
     fi
     
     timeout $TIMEOUT "$tmp1" > "$out1" 2>&1
@@ -61,6 +63,7 @@ run_test() {
         echo "  antcc: $st1, gcc: $st2"
         mv "$src" "$WORKDIR/$pid-fail_exit_$num.c"
         nfail=$((nfail+1))
+        rc=1
     elif ! diff -q -w "$out1" "$out2" >/dev/null 2>&1; then
         # Different output
         echo ""
@@ -68,6 +71,7 @@ run_test() {
         diff "$out1" "$out2"
         mv "$src" "$WORKDIR/$pid-fail_output_$num.c"
         nfail=$((nfail+1))
+        rc=1
     else
         npass=$((npass+1))
         printf "."
@@ -88,3 +92,5 @@ done
 echo ""
 echo "Results: $npass passed, $nfail failed, $ntimeout timeouts, $ncomperr compile errors"
 find "$WORKDIR"/ | grep "$pid" && echo
+
+exit $rc
