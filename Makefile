@@ -1,12 +1,20 @@
 OUT?=antcc
 BUILDDIR?=build
-SRC=$(wildcard src/*.c)
-OBJ=$(patsubst src/%.c,$(BUILDDIR)/%.o,$(SRC))
-DEP=$(OBJ:.o=.d)
+srcs=a_main.c           a_targ.c          a_embedfilesdir.c                            \
+     c_builtin.c        c.c               c_eval.c           c_lex.c      c_type.c     \
+     ir_abi0.c          ir_builder.c      ir.c               ir_cfg.c     ir_cse.c     \
+     ir_dump.c          ir_fold.c         ir_inliner.c       ir_intrin.c  ir_mem2reg.c \
+     ir_regalloc.c      ir_simpl.c        ir_ssa.c           ir_stack.c                \
+     obj.c              o_elf.c                                                        \
+     t_aarch64_aapcs.c  t_aarch64_emit.c  t_aarch64_isel.c                             \
+     t_x86-64_emit.c    t_x86-64_isel.c   t_x86-64_sysv.c                              \
+     u_io.c             u_mem.c                                                   
+src=$(addprefix src/, $(srcs))
+obj=$(patsubst src/%.c,$(BUILDDIR)/%.o,$(src))
+dep=$(obj:.o=.d)
 
 include config.mk
 BINDIR=$(PREFIX)/bin
-
 
 TOOLCC ?= cc
 
@@ -29,11 +37,13 @@ dbg: $(OUT)
 tool/depgen: tool/depgen.c
 	$(TOOLCC) -Wall -g -o $@ $<
 
-$(OUT): tool/depgen $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $(OBJ)
+$(OUT): tool/depgen $(obj)
+	$(CC) $(CFLAGS) -o $@ $(obj)
 
 src/a_embedfilesdir.c: src/a_embedfilesdir.sh
-	src/a_embedfilesdir.sh > src/a_embedfilesdir.c
+	src/a_embedfilesdir.sh > $@
+	$(TOOLCC) -DEMBEDFILESDIR_CHECKSIZES $@ -o $(BUILDDIR)/a_embedfilesdir_checksizes
+	$(BUILDDIR)/a_embedfilesdir_checksizes
 
 $(BUILDDIR)/%.o: src/%.c
 	$Vmkdir -p `dirname $@`
@@ -41,7 +51,7 @@ $(BUILDDIR)/%.o: src/%.c
 	$Vtool/depgen -MP -MF $(BUILDDIR)/$*.d -MT $@ $<
 
 clean:
-	$(RM) -r -- $(BUILDDIR)/ test/build/ $(OUT) *.o a.out
+	$(RM) -r -- $(BUILDDIR)/ test/build/ $(OUT) *.o a.OUT
 
 clean-tool:
 	$(RM) tool/depgen
@@ -58,4 +68,4 @@ uninstall:
 
 .PHONY: clean clean-config install uninstall
 
--include $(DEP)
+-include $(dep)

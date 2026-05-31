@@ -22,6 +22,7 @@
 !/tool/*.c
 !/tool/*.h
 src/hostconfig.h
+src/a_embedfilesdir.c
 
 !/test/
 !/test/external/**
