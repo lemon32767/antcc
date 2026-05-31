@@ -285,6 +285,38 @@ putdouble(WriteBuf *buf, double x)
    return n;
 }
 
+static int
+putstr(WriteBuf *buf, const char *s, int len, bool quote, bool lower)
+{
+   int n = 0;
+   if (len < 0) { /* nullterminated */
+      if (quote) {
+         if (!s) return bwriteS(buf, "(null)");
+         n += bputc(buf, '"');
+         for (; *s; ++s)
+            n += putquoted(buf, lower && aisalpha(*s) ? *s|32 : *s, '"', s[1]);
+         n += bputc(buf, '"');
+      } else {
+         assert(s && "%s null!");
+         for (; *s; ++s)
+            n += bputc(buf, lower && aisalpha(*s) ? *s|32 : *s);
+      }
+   } else {
+      if (quote) {
+         if (!s) return bwriteS(buf, "(null)");
+         n += bputc(buf, '"');
+         for (; len-->0; ++s)
+            n += putquoted(buf, lower && aisalpha(*s) ? *s|32 : *s, '"', len ? s[1] : -1);
+         n += bputc(buf, '"');
+      } else {
+         for (; len-->0; ++s)
+            ioputc(buf, lower && aisalpha(*s) ? *s|32 : *s);
+         n += len;
+      }
+   }
+   return n;
+}
+
 int
 vbfmt(WriteBuf *out, const char *fmt, va_list ap)
 {
@@ -356,50 +388,24 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap)
          break;
       case 's': /* nullterminated string */
          s = va_arg(ap, const char *);
-         if (quote) {
-            if (!s) {
-               n += bwriteS(buf, "(null)");
-               break;
-            }
-         QuotedStr:
-            n += bputc(buf, '"');
-            if (lmod) /* lower */
-               for (; *s; ++s) n += putquoted(buf, aisalpha(*s) ? *s|32 : *s, '"', s[1]);
-            else
-               for (; *s; ++s) n += putquoted(buf, *s, '"', s[1]);
-            n += bputc(buf, '"');
-         } else {
-            assert(s && "%s null!");
-            if (lmod) /* lower */
-               for (; *s; ++s) n += bputc(buf, aisalpha(*s) ? *s|32 : *s);
-            else
-               while (*s) n += bputc(buf, *s++);
-         }
+         n += putstr(buf, s, -1, quote, lmod);
          break;
       case 'S':  /* string ptr + len */
          s = va_arg(ap, const char *);
-         i = va_arg(ap, uint);
-      PriS:
-         assert(s && "%S null");
-         if (quote) {
-            n += bputc(buf, '"');
-            for (; i--; ++s) n += putquoted(buf, *s, '"', i ? s[1] : -1);
-            n += bputc(buf, '"');
-         } else {
-            iowrite(buf, s, i);
-            n += i;
-         }
+         i = va_arg(ap, int);
+         assert(i >= 0);
+         n += putstr(buf, s, i, quote, lmod);
          break;
       case 'y': /* symbol: print string literally if valid identifier, or quote it */
          s = va_arg(ap, const char *);
          assert(s && "%y null");
          for (i = 0; s[i]; ++i) {
-            if (aisalpha(s[i]) || s[i] == '_' || (i > 0 && aisdigit(s[i])))
-               continue;
-            goto QuotedStr;
+            if (!(aisalpha(s[i]) || s[i] == '_' || (i > 0 && aisdigit(s[i])))) {
+               quote = 1;
+               break;
+            }
          }
-         /* valid identifier */
-         while (*s) n += bputc(buf, *s++);
+         n += putstr(buf, s, -1, quote, lmod);
          break;
       case 'd': /* decimal */
          base = 10;
@@ -475,9 +481,7 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap)
                   n += tok->len;
                   n += bputc(buf, '\'');
                } else {
-                  s = tok->s;
-                  i = tok->len;
-                  goto PriS;
+                  n += putstr(buf, tok->s, tok->len, 0, 0);
                }
                break;
             case TKCHRLIT:
@@ -499,10 +503,7 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap)
                break;
             case TKSTRLIT:
                if (tok->wide == 0) {
-                  s = tok->s;
-                  i = tok->len;
-                  quote = 1;
-                  goto PriS;
+                  n += putstr(buf, tok->s, tok->len, /*quote*/1, 0);
                } else {
                   n += bputc(buf, tok->wideuni ? tok->wide == 1 ? 'u' : 'U' : 'L');
                   n += bputc(buf, '\"');
