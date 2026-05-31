@@ -2394,13 +2394,19 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk)
    int nminparam = 0, nmaxparam = 0;
    switch (a) {
    case ATTRxxx: break;
-   case ATTRdeprecated: nmaxparam = 1; goto Ignore;
-   case ATTRformat: nmaxparam = 3; goto Ignore;
-   case ATTRweakref: nmaxparam = 1; goto Ignore;
-   case ATTRmode: nminparam = nmaxparam = 1; goto Ignore;
-   case ATTRsection: nminparam = nmaxparam = 1; goto Ignore;
-   case ATTRnonnull: break;
-   default: Ignore:
+   case ATTRused: case ATTRunused: case ATTRwarn_unused_result: case ATTRdeprecated:
+      nmaxparam = 1;
+      goto Arity;
+   case ATTRformat: nmaxparam = 3; goto Arity;
+   case ATTRnonnull: /*variadic*/ break;
+
+   /* these take no args */
+   case ATTRnoreturn: case ATTRreturns_twice: case ATTRnoinline:
+   case ATTRalways_inline: case ATTRflatten: case ATTRpure:
+   case ATTRconst: case ATTRnothrow: case ATTRmalloc:
+   case ATTRmay_alias: case ATTRexternally_visible:
+   case ATTRpacked:
+   Arity:
       if (nparam > nmaxparam || nparam < nminparam)
       BadArgs:
          warn(&span, "wrong number of arguments for attribute '%s'", aname);
@@ -2409,11 +2415,27 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk)
       if (nparam > 1) goto BadArgs;
       else if (nparam == 1) {
          if (isint(params[0].ty) && eval2xintcon(&params[0])) {
-            attr->align = params[0].i;
+            if (!ispo2(params[0].u))
+               error(&params[0].span, "alignment is not a power of 2");
+            else
+               attr->align = params[0].i;
          } else {
             error(&params[0].span, "'aligned' requires integer constant");
          }
+         goto Stub;
       }
+      break;
+   /* these can't be safely ignored */
+   //case ATTRmode:
+   case ATTRsection:
+   case ATTRconstructor:
+   case ATTRdestructor:
+   case ATTRalias:
+   case ATTRweak: case ATTRweakref:
+   case ATTRcommon: case ATTRnocommon:
+   case ATTRtransparent_union:
+   Stub:
+      stub(&span, "attribute '%s'", aname);
       break;
    }
    return 1;

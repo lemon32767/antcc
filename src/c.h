@@ -113,7 +113,7 @@ enum storageclass {
    _(malloc,             1, 0, 0)   \
    _(alias,              1, 0, 0)   \
    _(warn_unused_result, 1, 0, 0)   \
-   _(gnu_inline,         1, 0, 0)   \
+ /*_(gnu_inline,         1, 0, 0)*/ \
    _(externally_visible, 1, 1, 0)   \
    _(weak,               1, 1, 0)   \
    _(weakref,            1, 1, 0)   \
@@ -123,7 +123,7 @@ enum storageclass {
    _(deprecated,         1, 1, 1)   \
    _(common,             0, 1, 0)   \
    _(nocommon,           0, 1, 0)   \
-   _(mode,               0, 1, 0)   \
+ /*_(mode,               0, 1, 0)*/ \
    _(packed,             0, 1, 1)   \
    _(aligned,            0, 1, 1)   \
    _(transparent_union,  0, 0, 1)   \

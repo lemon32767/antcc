@@ -1031,6 +1031,9 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
    MemFile *f;
    const Span0 *loc;
 
+   bool stub = kind == DGSTUB;
+   if (stub) kind = DGERROR;
+
    ++depth;
    if (span) {
       loc = span->ex.len ? &span->ex : &span->sl;
@@ -1044,6 +1047,7 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
    }
    bfmt(&out, color[kind]);
    bfmt(&out, "%s: %g.", label[kind]);
+   if (stub) bfmt(&out, "STUB: ");
    vbfmt(&out, fmt, ap);
    bfmt(&out, "\n");
    if (span) {
@@ -1139,19 +1143,24 @@ fatal(const Span *span, const char *fmt, ...)
 int nerror, nwarn;
 enum { MAXERROR = 20 };
 
+static void
+counterror(void)
+{
+   if (++nerror > MAXERROR) {
+      efmt("Too many errors emitted, stopping now.\n");
+      exit(1);
+   }
+}
+
 bool
 error(const Span *span, const char *fmt, ...)
 {
    va_list ap;
 
-   ++nerror;
    va_start(ap, fmt);
    vdiag(span, DGERROR, fmt, ap);
    va_end(ap);
-   if (nerror > MAXERROR) {
-      efmt("Too many errors emitted, stopping now.\n");
-      exit(1);
-   }
+   counterror();
    return 1;
 }
 
@@ -1161,15 +1170,11 @@ warn(const Span *span, const char *fmt, ...)
    va_list ap;
 
    if (ccopt.wnone) return 0;
-   if (ccopt.werror) ++nerror;
-   else ++nwarn;
    va_start(ap, fmt);
    vdiag(span, ccopt.werror ? DGERROR : DGWARN, fmt, ap);
    va_end(ap);
-   if (nerror > MAXERROR) {
-      efmt("Too many errors emitted, stopping now.\n");
-      exit(1);
-   }
+   if (ccopt.werror) counterror();
+   else ++nwarn;
    return 1;
 }
 
@@ -1181,6 +1186,17 @@ note(const Span *span, const char *fmt, ...)
    va_start(ap, fmt);
    vdiag(span, DGNOTE, fmt, ap);
    va_end(ap);
+}
+
+void
+stub(const Span *span, const char *fmt, ...)
+{
+   va_list ap;
+
+   va_start(ap, fmt);
+   vdiag(span, DGSTUB, fmt, ap);
+   va_end(ap);
+   counterror();
 }
 
 /*** UTF util ***/

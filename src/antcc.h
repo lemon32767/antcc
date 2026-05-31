@@ -346,12 +346,13 @@ typedef struct {
          ex; /* the location after #include/macro expansion */
 } Span;
 
-enum diagkind { DGERROR, DGWARN, DGNOTE, };
+enum diagkind { DGERROR, DGWARN, DGNOTE, DGSTUB };
 void vdiag(const Span *, enum diagkind, const char *, va_list);
 NORETURN void fatal(const Span *, const char *, ...);
 bool error(const Span *, const char *, ...);
 bool warn(const Span *, const char *, ...);
 void note(const Span *, const char *, ...);
+void stub(const Span *, const char *, ...);
 ushort *utf8to16(uint *ulen, Arena **, const uchar *s, size_t len);
 uint *utf8to32(uint *ulen, Arena **, const uchar *s, size_t len);
 int utf8enc(char out[4], uint cp);
