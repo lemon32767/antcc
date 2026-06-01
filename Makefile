@@ -42,6 +42,7 @@ $(OUT): tool/depgen $(obj)
 
 src/a_embedfilesdir.c: src/a_embedfilesdir.sh
 	src/a_embedfilesdir.sh > $@
+	@mkdir -p $(BUILDDIR)
 	$(TOOLCC) -DEMBEDFILESDIR_CHECKSIZES $@ -o $(BUILDDIR)/a_embedfilesdir_checksizes
 	$(BUILDDIR)/a_embedfilesdir_checksizes
 
