@@ -29,7 +29,7 @@ Other GNU C language extensions
   - applying `_Alignof` to an expression
   - some constant-foldable expressions in contexts where integer constant expressions are required
   - `'\e'` escape sequence
-  - Various alternate keywords: `__const`, `__inline`, [etc](/src/keywords.def)
+  - Various alternate keywords: `__const`, `__inline`, [etc](../src/c_keywords.def)
 
 Preprocessor extensions
 -----------------------
