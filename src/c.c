@@ -2198,6 +2198,13 @@ attrcheckctx(const Span *span, const Attrs *attr, char c /*f/v/t*/)
    }
 }
 
+static void
+mergeattr(Attrs *to, const Attrs *src)
+{
+   bsunion(to->set, src->set, countof(to->set));
+   if (src->align > to->align) to->align = src->align;
+}
+
 static uint
 declalign(const Decl *d)
 {
@@ -2660,6 +2667,7 @@ declspec(DeclState *st, CComp *cm, Span *pspan)
              && decl->scls == SCTYPEDEF) {
             lex(cm, &tk);
             st->base = decl->ty;
+            mergeattr(&st->attr, &decl->attr);
             continue;
          }
          /* fallthru */
