@@ -2330,6 +2330,14 @@ Begin:
          if (lastcmd == PPPRAGMA) {
             assert(!tk->t || tk->t == TKPPPRAGMA);
             if (tk->t) return tk->t;
+         } else if (preprocessonly && (lastcmd == PPINCLUDE || lastcmd == PPINCLUDENEXT)) {
+            /* return a dummy token just so '-E' cpp output can include a
+             * #line directive for every #include, even if the header only
+             * has #defines and no 'real' tokens. some autoconf scripts rely
+             * on this to work. yes, really
+             */
+            tk->span.ex = tk->span.sl = (Span0){0,1,.file = lx->fileid};
+            return tk->t = 0;
          }
       } else {
          lx->firstdirective = 0;
@@ -2771,7 +2779,8 @@ lexerdump(Lexer *lx, WriteBuf *out)
          for (; col < tkcol; ++col)
             ioputc(out, ' ');
       line = tkline;
-      bfmt(out, "%tk", &tok);
+      if (tok.t)
+         bfmt(out, "%tk", &tok);
       col += tok.span.ex.len;
       prev = tok;
    }
