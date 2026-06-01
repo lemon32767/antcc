@@ -80,6 +80,8 @@ static void f(void) {
 #define xcountertest(f) int f; f = 11; printf("%d\n", f);
 #define countertest(v) xcountertest(uniq(v))
 
+_Pragma("once");
+
 #ifdef CMD_WORKING
 int
 main(V)

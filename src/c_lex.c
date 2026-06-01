@@ -1163,7 +1163,7 @@ advancemacstk(Lexer *lx, Token *tk)
    return tryexpand(lx, tk) != EXPSTACK;
 }
 
-static int ppdirective(Lexer *lx, bool *skip, bool *inclerror);
+static int ppdirective(Lexer *lx, Token *tkout, bool *skip, bool *inclerror);
 
 static void
 expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac)
@@ -1195,8 +1195,9 @@ expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac)
          tk.space |= nl;
          if (nl && tk.t == '#') {
             /* extension: embedding directive within a macro argument */
-            ppdirective(lx, &cndskip, NULL);
-            goto Linebegin;
+            ppdirective(lx, &tk, &cndskip, NULL);
+            if (!tk.t)
+               goto Linebegin;
          }
       } else {
          tk = s->idx < s->rl.n ? stkgetrl(s)[s->idx++] : (Token){TKEOF};
@@ -2039,20 +2040,80 @@ ppline(Lexer *lx, Token *tk0)
    }
 }
 
-static void
-pppragma(Lexer *lx, const Span *span0)
+static bool
+prgstrmatch(const char **str, uint *len, const char *what)
 {
-   Token tk;
-   Span span = *span0;
-   if (lex0(lx, &tk, 0) == TKIDENT && !strcmp(tk.s, "once")) {
+   if (*len == 0) return !*what;
+   while (aisspace(**str)) ++*str, --*len;
+   int nwhat = strlen(what);
+   if (nwhat <= *len && !memcmp(*str, what, nwhat)) {
+      if (nwhat == *len || aissep((*str)[nwhat])) {
+         *str += nwhat;
+         *len -= nwhat;
+         while (aisspace(**str)) ++*str, --*len;
+         return 1;
+      }
+   }
+   return 0;
+}
+
+static void
+handlepragma(Lexer *lx, const Span *span, const char *str, uint len)
+{
+   if (prgstrmatch(&str, &len, "once")) {
+      /* #pragma once */
       markfileonce(lx->fileid, NULL);
    } else {
-      joinspan(&span.ex, tk.span.ex);
-      warn(&span, "unknown pragma ignored");
-      ppskipline(lx);
+      warn(span, "unknown pragma ignored");
       return;
    }
-   expecteol(lx, "pragma");
+   while (aisspace(*str)) ++str, --len;
+   if (len > 0) {
+      warn(span, "extra tokens after #pragma");
+   }
+}
+
+static bool preprocessonly = 0;
+
+static void
+pppragma(Lexer *lx, Token *tk)
+{
+   char buf[999];
+   uint len = 0;
+   uint linebeginoff = tk->span.sl.off;
+   uint beginoff = lx->chridx;
+   int c;
+   while (aisspace((c = next(lx))) && c != '\n' && !lx->eof) /*ltrim*/
+      beginoff = lx->chridx;
+   uint endoff = beginoff;
+   if (c != '\n' && !lx->eof) do {
+      if (len < countof(buf))
+         buf[len++] = c;
+      endoff = lx->chridx;
+   } while ((c = next(lx)) != '\n' && !lx->eof);
+   Span span = tk->span;
+   span.sl.len = lx->chridx - linebeginoff;
+   span.ex = span.sl;
+   if (len == countof(buf))
+      warn(&span, "#pragma truncated from %d to %d bytes", span.sl.len, len);
+
+   const char *s1 = buf;
+   uint len1 = len;
+   if (!preprocessonly || prgstrmatch(&s1, &len1, "once")) {
+      tk->t = 0;
+      handlepragma(lx, &span, buf, len);
+   } else {
+      tk->t = TKPPPRAGMA;
+      tk->pragmakind = 0;
+      tk->len = len;
+      if (endoff - beginoff == tk->len) {
+         tk->litlit = 1;
+         tk->s = (char *)&lx->dat[beginoff];
+      } else {
+         tk->litlit = 0;
+         tk->s = alloccopy(lx->tmparena, buf, len, 1);
+      }
+   }
 }
 
 static void
@@ -2169,11 +2230,12 @@ identkeyword(Token *tk)
 }
 
 static int
-ppdirective(Lexer *lx, bool *skip, bool *inclerror)
+ppdirective(Lexer *lx, Token *tkout, bool *skip, bool *inclerror)
 {
    Token tk[1];
    enum directive lastcmd = 0;
 
+   tkout->t = 0;
    if (lex0(lx, tk, 0) == '\n') { }
    else if (tk->t == TKNUMLIT || tk->t == TKIDENT) {
       lastcmd = tk->t == TKNUMLIT ? PPLINE : findppcmd(tk);
@@ -2192,7 +2254,7 @@ ppdirective(Lexer *lx, bool *skip, bool *inclerror)
          case PPELSE:     ppelse(lx, &tk->span); break;
          case PPENDIF:    ppendif(lx, &tk->span); break;
          case PPLINE:     ppline(lx, tk); break;
-         case PPPRAGMA:   pppragma(lx, &tk->span); break;
+         case PPPRAGMA:   pppragma(lx, tkout); break;
          case PPWARNING:  ppdiag(lx, &tk->span, 0); break;
          case PPERROR:    ppdiag(lx, &tk->span, 1); break;
          case PPINCLUDE:
@@ -2236,15 +2298,13 @@ ppdirective(Lexer *lx, bool *skip, bool *inclerror)
    return lastcmd;
 }
 
-int
-lex(Lexer *lx, Token *tk_)
+static int
+lex_nopragma(Lexer *lx, Token *tk)
 {
-   Token tkx[1], *tk;
    int t;
 
 Begin:
-   assert(tk_ != &lx->peektok);
-   tk = tk_ ? tk_ : tkx;
+   assert(tk && tk != &lx->peektok);
    if (lx->peektok.t) {
       *tk = lx->peektok;
       memset(&lx->peektok, 0, sizeof lx->peektok);
@@ -2265,7 +2325,11 @@ Begin:
       while ((t = lex0(lx, tk, 0)) == '\n') linebegin = 1;
       if (t == '#' && linebegin) {
          linebegin = 1;
-         lastcmd = ppdirective(lx, &skip, &inclerror);
+         lastcmd = ppdirective(lx, tk, &skip, &inclerror);
+         if (lastcmd == PPPRAGMA) {
+            assert(!tk->t || tk->t == TKPPPRAGMA);
+            if (tk->t) return tk->t;
+         }
       } else {
          lx->firstdirective = 0;
          linebegin = 0;
@@ -2305,6 +2369,39 @@ Begin:
    assert(inclerror);
    efmt("Aborting due to previous error(s).\n");
    return exit(1),0;
+}
+
+int
+lex(Lexer *lx, Token *tk_)
+{
+   Token tkx[1], *tk;
+   tk = tk_ ? tk_ : tkx;
+   int t;
+Again:
+   t = lex_nopragma(lx, tk);
+   if (t == TKW_Pragma) {
+      static const char e[] = "'_Pragma' takes a parenthesized string literal";
+      if (lex_nopragma(lx, tk) != '(') {
+         error(&tk->span, e);
+      } else if (lex_nopragma(lx, tk) != TKSTRLIT) {
+         error(&tk->span, e);
+         if (lex_nopragma(lx, tk) != ')') return tk->t;
+      } else {
+         const char *s1 = tk->s;
+         uint len1 = tk->len;
+         bool handled = 0;
+         if (!preprocessonly || prgstrmatch(&s1, &len1, "once")) {
+            handlepragma(lx, &tk->span, tk->s, tk->len);
+            handled = 1;
+         }
+         if (lex_nopragma(lx, tk) != ')') error(&tk->span, e);
+         if (!handled) {
+            return tk->t = TKPPPRAGMA, tk->pragmakind = 1;
+         }
+      }
+      goto Again;
+   }
+   return t;
 }
 
 int
@@ -2643,6 +2740,7 @@ lexerdump(Lexer *lx, WriteBuf *out)
    Token prev = {0}, tok;
    int file = lx->fileid, line = 1, col = 1;
    const char *lastfile = getfilename(file, 0);
+   preprocessonly = 1;
    bfmt(out, "# %d %'s\n", 1, lastfile);
    while (lex(lx, &tok) != TKEOF) {
       int tkline, tkcol;

@@ -22,6 +22,7 @@ enum toktag { /* single-character tokens' tag value is the character itself */
    TKPPHDRQ, /* "hdr" (for #include) */
    TKPPMACARG, /* macro param, in repl list */
    TKPPMACSTR, /* stringify macro param, in repl list */
+   TKPPPRAGMA, /* #pragma ... / _Pragma("...") : contains string as in TKSTRLIT */
    TKEQU = '@', /* == */
    TKNEQ, /* != */
    TKLTE, /* <= */
@@ -55,12 +56,13 @@ static_assert(NTOKTAG < 256);
 
 typedef struct Token {
    uchar t; /* toktag */
-   bool litlit : 1,
+   uchar litlit : 1,
         blue : 1, /* preprocessor token painted blue */
-        extwarn : 1; /* warn this keyword token is an extension */
-   uchar wide : 2, /* for CHRLIT & STRLIT; 1 -> 16bit, 2 -> 32bit */
-         wideuni : 1, /* ditto, 0 -> 'L', 1 -> 'u'/'U' (C11) */
-         space : 1; /* preceded by whitespace? */
+        extwarn : 1, /* warn this keyword token is an extension */
+        wide : 2, /* for CHRLIT & STRLIT; 1 -> 16bit, 2 -> 32bit */
+        wideuni : 1, /* ditto, 0 -> 'L', 1 -> 'u'/'U' (C11) */
+        space : 1, /* preceded by whitespace? */
+        pragmakind : 1; /* 0-> #pragma, 1-> _Pragma */
    union {
       uint len;
       ushort argidx;

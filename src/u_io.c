@@ -530,6 +530,16 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap)
                n += bfmt(buf, "%s", tok->name);
                if (quote) n += bputc(buf, '\'');
                break;
+            case TKPPPRAGMA:
+               if (tok->pragmakind == 0) {
+                  n += bwriteS(buf, "#pragma ");
+                  n += putstr(buf, tok->s, tok->len, 0, 0);
+               } else {
+                  n += bwriteS(buf, "_Pragma(");
+                  n += putstr(buf, tok->s, tok->len, 1, 0);
+                  n += bputc(buf, ')');
+               }
+               break;
             case TKEOF:
                n += bwriteS(buf, "<end-of-file>");
                break;
