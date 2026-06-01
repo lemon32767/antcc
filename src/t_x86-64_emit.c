@@ -714,7 +714,7 @@ DEFINSTR2(Xcmp,
    {  8, PFPR, PMEM, O("\x66\x0F\x2E"), EN_RM},   /* UCOMISD xmm, m64 */
 )
 DEFINSTR2(Xtest,
-   {4|8, PRAX, PI8,  O("\xA8"), EN_I8, .norexw=1},  /* TEST AL, imm8 */
+   {4|8, PRAX, PU8,  O("\xA8"), EN_I8, .norexw=1},  /* TEST AL, imm8 */
    {4,   PRAX, PI32, O("\xA9"), EN_I32}, /* TEST EAX, imm32 */
    {  8, PRAX, PU32, O("\xA9"), EN_I32, .norexw=1}, /* TEST EAX, imm32 */
    {  8, PRAX, PI32, O("\xA9"), EN_I32}, /* TEST RAX, imm32 */
