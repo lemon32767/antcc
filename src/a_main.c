@@ -615,7 +615,12 @@ findlinkcmd(CmdArgs *cmd)
          fatal(NULL, "cannot link to cross-compilation target: no appropiate toolchain installed");
       }
    } else if (task.link_with_cc) {
-      vpush(cmd, HOST_CC);
+      if (strstr(HOST_CC, "antcc")) {
+         warn(NULL, "falling back to linking with cc, but HOST_CC is self? using `cc'");
+         vpush(cmd, "cc");
+      } else {
+         vpush(cmd, HOST_CC);
+      }
    } else {
       vpush(cmd, HOST_LD);
       if (*host_linkcmd) vpushn(cmd, host_linkcmd, countof(host_linkcmd));
