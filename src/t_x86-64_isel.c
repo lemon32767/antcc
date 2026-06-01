@@ -537,11 +537,9 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
      } else assert(!"nyi flt -> u64");
       break;
    case Oextu32:
-      if (ins->l.t == RTMP && insrescls(instrtab[ins->l.i]) == KI32 && instrtab[ins->l.i].op != Ocopy) {
-         /* no need to explicitly zero extend 32 -> 64bit regs in x86-64 */
-         /* this copy can be optimized away in regalloc */
+      if (ins->l.t == RTMP && insrescls(instrtab[ins->l.i]) == KI32 && ins->cls == KI32) {
+         /* no-op */
          ins->op = op = Ocopy;
-         ins->cls = KI32;
       }
       /* fallthru */
    case Ocvtf32f64: case Ocvtf64f32: case Ocvtf32s: case Ocvtf64s: case Ocvts32f: case Ocvts64f:

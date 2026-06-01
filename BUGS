@@ -2,5 +2,3 @@ C frontend does not check uniqueness of fields in aggregate type definitions, du
 are silently ignored instead of raising a compilation error.
 bitfield packing differs from GCC in some cases
 
-Need to debug miscompilations in:
-  - bzip2, assert fail 1007
