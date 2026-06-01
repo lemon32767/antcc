@@ -13,7 +13,7 @@ src=$(addprefix src/, $(srcs))
 obj=$(patsubst src/%.c,$(BUILDDIR)/%.o,$(src))
 dep=$(obj:.o=.d)
 
-include config.mk
+-include config.mk
 BINDIR=$(PREFIX)/bin
 
 TOOLCC ?= cc
