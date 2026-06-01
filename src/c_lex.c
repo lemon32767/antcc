@@ -328,20 +328,6 @@ readstrchrlit(Lexer *lx, Token *tk, char delim, int wide)
    if (delim == '"') {
       tk->t = TKSTRLIT;
       tk->len = b.n;
-      if ((tk->wide = wide)) {
-         tk->litlit = 0;
-         if (wide == 1)
-            tk->ws16 = utf8to16(&tk->len, lx->tmparena, b.p, b.n);
-         else
-            tk->ws32 = utf8to32(&tk->len, lx->tmparena, b.p, b.n);
-      } else if (lx->chridx - beginoff == tk->len + 1) {
-         tk->litlit = 1;
-         tk->s = (char *)&lx->dat[beginoff];
-      } else {
-         tk->litlit = 0;
-         vpush(&b, 0);
-         tk->s = alloccopy(lx->tmparena, b.p, b.n, 1);
-      }
    } else {
       if (b.n == 0) {
          span.sl = (Span0) { idx, lx->chridx - idx, lx->fileid };
@@ -352,19 +338,20 @@ readstrchrlit(Lexer *lx, Token *tk, char delim, int wide)
       }
       tk->t = TKCHRLIT;
       tk->len = b.n;
-      if ((tk->wide = wide)) {
-         tk->litlit = 0;
-         if (wide == 1)
-            tk->ws16 = utf8to16(&tk->len, lx->tmparena, b.p, b.n);
-         else
-            tk->ws32 = utf8to32(&tk->len, lx->tmparena, b.p, b.n);
-      } else if (lx->chridx - beginoff == tk->len + 1) {
-         tk->litlit = 1;
-         tk->s = (char *)&lx->dat[beginoff];
-      } else {
-         tk->litlit = 0;
-         tk->s = alloccopy(lx->tmparena, b.p, tk->len, 1);
-      }
+   }
+   if ((tk->wide = wide)) {
+      tk->litlit = 0;
+      if (wide == 1)
+         tk->ws16 = utf8to16(&tk->len, lx->tmparena, b.p, b.n);
+      else
+         tk->ws32 = utf8to32(&tk->len, lx->tmparena, b.p, b.n);
+   } else if (lx->chridx - beginoff == tk->len + 1) {
+      tk->litlit = 1;
+      tk->s = (char *)&lx->dat[beginoff];
+   } else {
+      tk->litlit = 0;
+      vpush(&b, 0);
+      tk->s = alloccopy(lx->tmparena, b.p, b.n, 1);
    }
    vfree(&b);
 }
@@ -412,6 +399,8 @@ isppnum(char prev, char c)
      return (prev|0x20) == 'e' || (prev|0x20) == 'p';
    return 0;
 }
+
+#define strchrLwidth() (targ_primsizes[targ_wchartype] == 2 ? 1 : 2)
 
 enum { MAXLITLEN = 256 }; /* maximum length of num literals and identifiers */
 static int
@@ -552,7 +541,7 @@ Begin:
    case 'L':
       if (match(lx, (q = '\'')) || match(lx, (q = '"'))) {
          tk->wideuni = 0;
-         readstrchrlit(lx, tk, q, /* wide */ targ_primsizes[targ_wchartype] == 2 ? 1 : 2);
+         readstrchrlit(lx, tk, q, strchrLwidth());
          goto End;
       }
       /* fallthru */
@@ -831,6 +820,17 @@ tokpaste(Lexer *lx, Token *dst, const Token *l, const Token *r)
    } else if (l->t == TKNUMLIT && r->t == '.') {
       /* 123 ## . */
       t = TKNUMLIT;
+   } else if (l->t == TKIDENT && l->len == 1 && l->name->c == 'L' && (r->t == TKCHRLIT || r->t == TKSTRLIT)) {
+      /* L ## 'a'/"a" */
+      dst->t = r->t;
+      dst->wideuni = 0;
+      if ((dst->wide = strchrLwidth()) == 1) {
+         dst->ws16 = utf8to16(&dst->len, lx->tmparena, (uchar *)r->s, r->len);
+      } else {
+         assert(dst->wide == 2);
+         dst->ws32 = utf8to32(&dst->len, lx->tmparena, (uchar *)r->s, r->len);
+      }
+      return 1;
    } else if (l->t && !r->t) {
       if (dst) *dst = *l;
       return 1;

@@ -1226,7 +1226,11 @@ utf8to32(uint *ulen, Arena **arena, const uchar *s, size_t len)
    size_t n = 0;
    bool istrunc;
 
-   if (!len) return NULL;
+   assert(ulen && s);
+   if (!len) {
+      *ulen = 0;
+      return NULL;
+   }
 
    for (p = end = s; p < s + len; ++n) {
       end = p;
