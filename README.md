@@ -3,7 +3,7 @@ antcc
 
 A small C compiler using its own independent backend.
 
-Supports [most of C11 and some C23 features](doc/cstd.md), as well as some GNU extensions.
+Supports [most of C11 and some C23 features](doc/cstd.md), as well as [some common extensions](doc/cext.md).
 
 Currently still in an alpha stage, but can successfully build some
 real-world C codebases such as Lua, SQLite,
