@@ -100,19 +100,19 @@ enum declkind {
 typedef struct DeclState {
    enum declkind kind;
    Type base;
-   uchar scls;
+   uchar scls; /* enum storageclass bitset */
    uchar qual;
    bool fninline : 1;
-   bool base0, /* caller set initial base type, but there may be declspecs to parse */
-        more, /* caller should keep calling pdecl to get next decl */
-        varini, /* caller should parse an initializer ('=' <ini>) and
-                   call pdecl() to advance state before checking .more */
-        funcdef, /* caller should parse an func definition ('{' <body> '}').
-                    the declaration list is finished. */
-        bitf, /* caller should parse a bitfield size and
-                 call pdecl() to advance state before checking .more */
-        tagdecl, /* declarator is a tagged type */
-        empty; /* nothing decl (';') */
+   bool base0  : 1, /* caller set initial base type, but there may be declspecs to parse */
+        more   : 1, /* caller should keep calling pdecl to get next decl */
+        varini : 1, /* caller should parse an initializer ('=' <ini>) and
+                       call pdecl() to advance state before checking .more */
+        funcdef : 1, /* caller should parse an func definition ('{' <body> '}').
+                        the declaration list is finished. */
+        bitf    : 1, /* caller should parse a bitfield size and
+                        call pdecl() to advance state before checking .more */
+        tagdecl : 1, /* declarator is a tagged type */
+        empty   : 1; /* nothing decl (';') */
    internstr *pnames; /* param names for function definition */
    Span *pspans; /* param spans ditto */
    uchar *pqual; /* param quals ditto */
@@ -3032,6 +3032,7 @@ declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0) {
                st->pspans = alloccopy(&cm->fnarena, l->pspans, l->npar * sizeof(Span), 0);
                st->pqual = l->pqual ? alloccopy(&cm->fnarena, l->pqual, l->npar, 1) : NULL;
             }
+            st->funcdef = 1;
             decl.inlin = st->fninline;
          }
          if (l->pqual != declpqualtmp) free(l->pqual);
@@ -3132,7 +3133,6 @@ pdecl(DeclState *st, CComp *cm) {
    bool first = 0;
 
    assert(!st->funcdef);
-
    if (st->varini || st->bitf) {
       memset(&decl, 0, sizeof decl);
       goto AfterIniBitf;
@@ -3175,14 +3175,14 @@ pdecl(DeclState *st, CComp *cm) {
    decl.attr = st->attr;
    attrspec(cm, &decl.attr);
    decl = declarator(st, cm, decl.span, decl.attr);
-   attrspec(cm, &decl.attr);
+   bool funcdefok = st->funcdef && first;
+   st->funcdef = 0;
+   if (attrspec(cm, &decl.attr)) funcdefok = 0;
    if (decl.ty.t != TYFUNC && st->fninline)
       error(&decl.span, "`inline' used on non-function declaration");
    /*if (decl.ty.t != TYFUNC && st->fnnoreturn)
       error(&decl.span, "`_Noreturn' used on non-function declaration");*/
-   /* trailing attributes */
    if (st->kind == DTOPLEVEL || st->kind == DFUNCVAR) {
-      attrspec(cm, &decl.attr);
       if (match(cm, NULL, TKW__asm__) && expect(cm, '(', NULL)) {
          if (peek(cm, NULL) == TKSTRLIT) {
             lex(cm, &tk);
@@ -3197,7 +3197,7 @@ pdecl(DeclState *st, CComp *cm) {
    if (properdecl && match(cm, &tk, '=')) {
       st->varini = 1;
       return decl;
-   } else if (first && decl.ty.t == TYFUNC) {
+   } else if (funcdefok) {
       if (match(cm, &tk, '{')) {
          st->funcdef = 1;
          return decl;
