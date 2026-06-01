@@ -2050,7 +2050,8 @@ prgstrmatch(const char **str, uint *len, const char *what)
       if (nwhat == *len || aissep((*str)[nwhat])) {
          *str += nwhat;
          *len -= nwhat;
-         while (aisspace(**str)) ++*str, --*len;
+         while (*len > 0 && aisspace(**str))
+            ++*str, --*len;
          return 1;
       }
    }
@@ -2067,7 +2068,7 @@ handlepragma(Lexer *lx, const Span *span, const char *str, uint len)
       warn(span, "unknown pragma ignored");
       return;
    }
-   while (aisspace(*str)) ++str, --len;
+   while (len > 0 && aisspace(*str)) ++str, --len;
    if (len > 0) {
       warn(span, "extra tokens after #pragma");
    }
