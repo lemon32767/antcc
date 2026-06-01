@@ -820,7 +820,8 @@ tokpaste(Lexer *lx, Token *dst, const Token *l, const Token *r)
    } else if (l->t == TKNUMLIT && r->t == '.') {
       /* 123 ## . */
       t = TKNUMLIT;
-   } else if (l->t == TKIDENT && l->len == 1 && l->name->c == 'L' && (r->t == TKCHRLIT || r->t == TKSTRLIT)) {
+   } else if (l->t == TKIDENT && l->len == 1 && l->name->c == 'L'
+         && (r->t == TKCHRLIT || r->t == TKSTRLIT) && !r->wide) {
       /* L ## 'a'/"a" */
       dst->t = r->t;
       dst->wideuni = 0;
@@ -856,6 +857,7 @@ tokpaste(Lexer *lx, Token *dst, const Token *l, const Token *r)
       if (dst) {
          error(&l->span, "pasting %'tk and %'tk does not form a valid preprocessing token", l, r);
          note(&r->span, "right-hand side");
+         *dst = *l; /* just need something here */
       }
       return 0;
    }
