@@ -18,13 +18,17 @@ X() {
     "$@"
 }
 chk="wc -c"
-if which md5sum > /dev/null; then
+if which md5sum > /dev/null 2>&1; then
     chk=md5sum
-elif which md5 > /dev/null; then
+elif which md5 > /dev/null 2>&1; then
     chk=md5
 fi
 
-make src/a_embedfilesdir.c || exit 1
+for make in make gmake; do
+    if $make src/a_embedfilesdir.c 2>/dev/null; then
+        break;
+    fi
+done
 
 src=$(find src/ -name '*.c')
 

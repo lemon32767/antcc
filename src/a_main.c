@@ -298,6 +298,10 @@ optparse(char **args)
             else if (!stroneof(arg+1, okcgflags))
                warn(NULL, "unsupported command-line option: `%s`", arg-1);
          }
+      } else if (!strcmp(arg, "pie")) {
+         ccopt.pie = 1;
+      } else if (!strcmp(arg, "no-pie")) {
+         ccopt.pie = 0;
       } else if (!strcmp(arg, "march=native") || !memcmp(arg, "mtune=", 6)) {
          /* ignore */
       } else if (stroneof(arg, "target\0-target\0")) {
@@ -307,7 +311,7 @@ optparse(char **args)
       } else if (!strcmp(arg, "pthread")) {
          cpp0define("_REENTRANT", NULL);
          vpush(&task.linkargs, "-lpthread");
-      } else if (stroneof(arg, "shared\0static\0pie\0no-pie\0static-pie\0")) {
+      } else if (stroneof(arg, "shared\0static")) {
          /* XXX having some issues with linker commands for -shared */
          if (!strcmp(arg, "shared"))
             task.link_with_cc = 1;
