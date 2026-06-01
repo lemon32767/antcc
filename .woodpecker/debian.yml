@@ -13,7 +13,7 @@ steps:
   - name: test-bootstrap
     image: debian
     commands:
-      - apt-get update && apt-get install -y gcc
+      - apt-get update && apt-get install -y make gcc
       - ./test/bootstrap.sh
 
   - name: test-run
