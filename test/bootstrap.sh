@@ -13,7 +13,6 @@ test -n "$cflags" || : ${cflags:="-std=c11"}
 if test -n "$V"; then
     opt="$opt -v"
 fi
-src=$(find src/ -name '*.c')
 X() {
     echo "> $@" | (test -n "$V" && cat || sed 's/\([^ ]\+\.c \?\)\{10\}$/.../')
     "$@"
@@ -24,6 +23,10 @@ if which md5sum > /dev/null; then
 elif which md5 > /dev/null; then
     chk=md5
 fi
+
+make src/a_embedfilesdir.c || exit 1
+
+src=$(find src/ -name '*.c')
 
 mkdir -p build/
 echo "== Stage 0 (compiling with $cc) =="
