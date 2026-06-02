@@ -435,7 +435,7 @@ Begin:
       break;
    case '(': case ')': case ',': case ':':
    case ';': case '?': case '[': case ']':
-   case '{': case '}': case '~': case '$':
+   case '{': case '}': case '~':
    case '@': case '`': case '\\': case '\n':
       RET(c);
    case '!':
@@ -570,7 +570,7 @@ Begin:
             tk->s = alloccopy(lx->tmparena, p, n, 1);
          }
          RET(TKNUMLIT);
-      } else if (c == '_' || aisalpha(c)) {
+      } else if (c == '_' || aisalpha(c) || c == '$' || c > 127) {
          --lx->chrbuf0;
          if (lx->chrbuf0 + MAXLITLEN >= countof(lx->chrbuf))
             fillchrbuf(lx);
@@ -593,7 +593,7 @@ Begin:
 #undef TK2
    }
    fatal(&(Span) {{ idx, lx->chridx - idx, lx->fileid }},
-         "unexpected character %'c at %d (%d)", c, idx, lx->idx);
+         "unexpected character %'c at offset %d", c, idx);
 End:
    tk->space = space;
    tk->span.sl.file = lx->fileid;
