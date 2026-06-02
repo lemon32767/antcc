@@ -119,7 +119,7 @@ typedef struct {
 } InFile;
 static InFile infilebuf[16];
 static struct Task {
-   enum outft { OFTexe, OFTdll, OFTobj, OFTasm, OFTc } outft;
+   enum outft { OFTexe, OFTstatic, OFTdll, OFTobj, OFTasm, OFTc } outft;
    const char *out;
    const char *targ;
    vec_of(InFile) inf;
@@ -177,13 +177,13 @@ prilist(WriteBuf *b, const char *fmt, const char *sep, const char *const *a, siz
 }
 
 static void
-priinfo(bool extra)
+priinfo(int extra)
 {
    WriteBuf *out = extra ? &bstderr : &bstdout;
    bfmt(out, "antcc version "ANTCC_VERSION_STR"\n"
              "target: "HOST_TRIPLE"\n"
    );
-   if (!extra) return;
+   if (extra < 1) return;
    bfmt(out,
         "include paths: "XSTR(HOST_INCLUDE_DIRS)"\n"
         "host ld for linking: " HOST_LD "\n"
@@ -191,24 +191,29 @@ priinfo(bool extra)
         "link with cc? %c\n",
         "ny"[HOST_LINK_WITH_CC]
    );
+   if (extra < 2) return;
 #define LISTITEM(x,n)                                      \
    bfmt(out, "host "#x": ["),                              \
    prilist(out, "%'s", ", "n, host_##x, countof(host_##x)), \
    bfmt(out, "]\n")
 
    LISTITEM(predefs,"\n\t");
-   LISTITEM(linkcmd,);
+   LISTITEM(linkargs,);
    LISTITEM(ldstartfiles,);
    LISTITEM(ldendfiles,);
    LISTITEM(ldstartfiles_pie,);
    LISTITEM(ldendfiles_pie,);
+   LISTITEM(ldstartfiles_shared,);
+   LISTITEM(ldendfiles_shared,);
 }
 
 static void
 optparse(char **args)
 {
-   const char *arg, *x;
+   char *arg;
+   const char *x;
    enum inft ft = IFTauto;
+   static bool setpie = 0;
 
    while ((arg = *++args)) {
       if (*arg++ != '-' || !*arg) {
@@ -283,9 +288,12 @@ optparse(char **args)
             set = 0;
             flag += 3;
          }
-         if (stroneof(flag, "pie\0PIE\0")) ccopt.pie = set;
-         else if (stroneof(flag, "pic\0PIC\0")) ccopt.pic = set;
-         else {
+         if (stroneof(flag, "pie\0PIE\0")) {
+            ccopt.pie = set;
+            setpie = 1;
+         } else if (stroneof(flag, "pic\0PIC\0")) {
+            ccopt.pic = set;
+         } else {
             /* codegen flags unsupported */
             static const char badcgflags[] = "lto\0lto=full\0lto=thin\0";
 
@@ -300,8 +308,10 @@ optparse(char **args)
          }
       } else if (!strcmp(arg, "pie")) {
          ccopt.pie = 1;
+         setpie = 1;
       } else if (!strcmp(arg, "no-pie")) {
          ccopt.pie = 0;
+         setpie = 1;
       } else if (!strcmp(arg, "march=native") || !memcmp(arg, "mtune=", 6)) {
          /* ignore */
       } else if (stroneof(arg, "target\0-target\0")) {
@@ -311,11 +321,13 @@ optparse(char **args)
       } else if (!strcmp(arg, "pthread")) {
          cpp0define("_REENTRANT", NULL);
          vpush(&task.linkargs, "-lpthread");
-      } else if (stroneof(arg, "shared\0static")) {
-         /* XXX having some issues with linker commands for -shared */
-         if (!strcmp(arg, "shared"))
-            task.link_with_cc = 1;
-         vpush(&task.linkargs, arg-1);
+      } else if (!strcmp(arg, "shared")) {
+         task.outft = OFTdll;
+      } else if (!strcmp(arg, "static")) {
+         task.outft = OFTstatic;
+      } else if (!strcmp(arg, "static-pie")) {
+         task.outft = OFTstatic;
+         ccopt.pie = setpie = 1;
       } else if (!memcmp(arg, "Wl,", 3)) {
          if (task.link_with_cc) {
             vpush(&task.linkargs, arg-1);
@@ -358,7 +370,7 @@ optparse(char **args)
          task.run = 1;
          if (task.inf.n > 0) {
             task.runargs = args+1;
-            return;
+            goto breakbreak;
          }
       } else if (*arg == 'g') {
          /* TODO debug info */
@@ -396,11 +408,16 @@ optparse(char **args)
          cinclpaths[CINCLsys] = NULL;
       } else if (*arg == 'M') {
          ++arg;
+      Deps:
          if (*arg == 'F' || *arg == 'T' || *arg == 'Q') {
             const char *p = arg[1] ? arg+1 : *++args;
             if (!p) fatal(NULL, "missing path after `-M%c`", *arg);
          }
          /* TODO depfiles */
+      } else if (!memcmp(arg, "-dependency-file", 16)) { /* -MF synonym */
+         arg += 15;
+         *arg = 'F';
+         goto Deps;
       } else if (*arg == 'W') {
          if (!strcmp(arg+1, "error")) {
             ccopt.werror = 1;
@@ -410,10 +427,11 @@ optparse(char **args)
          ccopt.wnone = 1;
       } else UnkOption: error(NULL, "unrecognized command-line option: %'s", arg-1);
    }
+breakbreak:
 
    if (task.inf.n == 0) {
       if (task.verbose) {
-         priinfo(1);
+         priinfo(2);
          exit(0);
       }
       fatal(NULL, "no input files");
@@ -422,11 +440,21 @@ optparse(char **args)
    if (!task.out && !task.syntaxonly) {
       switch (task.outft) {
       case OFTdll:
-      case OFTexe: if (!task.run) task.out = "a.out"; break;
-      case OFTasm: task.out = withext(task.inf.p[0].path, "s"); break;
-      case OFTobj: task.out = withext(task.inf.p[0].path, "o"); break;
+      case OFTexe: case OFTstatic:
+         if (!task.run)
+            task.out = "a.out";
+         break;
+      case OFTasm:
+         task.out = withext(task.inf.p[0].path, "s");
+         break;
+      case OFTobj:
+         task.out = withext(task.inf.p[0].path, "o");
+         break;
       case OFTc: break;
       }
+   }
+   if (!setpie && task.outft != OFTstatic) {
+      ccopt.pie = 1;
    }
    if (!in_range(task.outft, OFTexe, OFTdll) && task.outft != OFTc && task.inf.n > 1)
       fatal(NULL, "too many input files");
@@ -592,7 +620,7 @@ iscrosscc(void)
 typedef vec_of(const char *) CmdArgs;
 
 static void
-findlinkcmd(CmdArgs *cmd)
+findlinkargs(CmdArgs *cmd)
 {
    if (task.targ && iscrosscc()) {
       task.link_with_cc = 1;
@@ -627,16 +655,10 @@ findlinkcmd(CmdArgs *cmd)
       }
    } else {
       vpush(cmd, HOST_LD);
-      if (*host_linkcmd) vpushn(cmd, host_linkcmd, countof(host_linkcmd));
-      if (ccopt.pie) {
-         if (*host_ldstartfiles_pie)
-            vpushn(cmd, host_ldstartfiles_pie, countof(host_ldstartfiles_pie));
-      } else {
-         if (*host_ldstartfiles)
-            vpushn(cmd, host_ldstartfiles, countof(host_ldstartfiles));
-      }
    }
 }
+
+#define ADDCMDARGS(args) if (*args) vpushn(&cmd, args, countof(args))
 
 static int
 dolink(void)
@@ -646,14 +668,36 @@ dolink(void)
    int wstat;
    CmdArgs cmd = VINIT(cmdbuf, countof(cmdbuf));
 
-   findlinkcmd(&cmd);
+   findlinkargs(&cmd);
    if (!strcmp(cmd.p[0], "zig")) {
       note(NULL, "using 'zig cc' as a cross-compiler");
    }
    if (task.outft == OFTdll) {
       vpush(&cmd, "-shared");
-   } else if (task.outft == OFTexe) {
+   } else {
+      if (task.outft == OFTstatic)
+         vpush(&cmd,  "-static");
       vpush(&cmd, ccopt.pie ? "-pie" : "-no-pie");
+   }
+   if (!task.link_with_cc) {
+      if (task.outft == OFTstatic) {
+         vpush(&cmd, "--no-dynamic-linker");
+      } else {
+         if (!HOST_DYNAMIC_LINKER) {
+            fatal(NULL, "cannot link: configured with no dynamic linker!");
+         }
+         vpush(&cmd, "-dynamic-linker");
+         vpush(&cmd, HOST_DYNAMIC_LINKER);
+      }
+      ADDCMDARGS(host_linkargs);
+
+      if (task.outft == OFTdll) {
+         ADDCMDARGS(host_ldstartfiles_shared);
+      } else if (ccopt.pie) {
+         ADDCMDARGS(host_ldstartfiles_pie);
+      } else {
+         ADDCMDARGS(host_ldstartfiles);
+      }
    }
    vpush(&cmd, "-o");
    vpush(&cmd, task.out);
@@ -673,12 +717,12 @@ dolink(void)
       vpush(&cmd, a);
    }
    if (!task.link_with_cc) {
-      if (ccopt.pie) {
-         if (*host_ldstartfiles_pie)
-            vpushn(&cmd, host_ldendfiles_pie, countof(host_ldendfiles_pie));
+      if (task.outft == OFTdll) {
+         ADDCMDARGS(host_ldendfiles_shared);
+      } else if (ccopt.pie) {
+         ADDCMDARGS(host_ldendfiles_pie);
       } else {
-         if (*host_ldendfiles)
-            vpushn(&cmd, host_ldendfiles, countof(host_ldendfiles));
+         ADDCMDARGS(host_ldendfiles);
       }
    }
    vrbpriargs(cmd.p, cmd.n);
@@ -788,7 +832,7 @@ driver(void)
       if (task.out)
          close(buf->fd);
       return ok ? 0 : 1;
-   } else if (task.outft == OFTexe || task.outft == OFTdll) {
+   } else if (task.outft == OFTexe || task.outft == OFTstatic || task.outft == OFTdll) {
       compileobjs();
       if (ccopt.dbg.any || task.syntaxonly) return 0;
       if (!task.run) return dolink();
@@ -876,9 +920,8 @@ main(int argc, char **argv)
    detectcolor();
    sysinclpaths();
    ccopt.cstd = STDC11;
-   ccopt.pie = 1;
    ccopt.dbgout = &bstdout;
-   
+
    const char *s;
    if ((s = getenv("ANTCC_VERBOSE")) && *s && strchr("1yYtT", *s)) {
       task.verbose = 1;
