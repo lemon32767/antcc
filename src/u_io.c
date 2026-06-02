@@ -1026,6 +1026,20 @@ closefile(int id)
    mapclose(&fileht[id]->f);
 }
 
+static int
+safeputnonascii(WriteBuf *buf, const uchar *p)
+{
+   if (aisspace(*p)) { /* don't print the silly whitespaces (carriage return, formfeed etc) */
+      return 1;
+   } else if (*p > 127) { /* pass utf-8, assume valid. it's fine if not, won't mangle term */
+      ioputc(buf, *p);
+      return 1;
+   } else { /* control characters, avoid printing these */
+      bfmt(buf, "%g7.^%c%g.", ('@' + *p) & 0x7F); /* background inverted ^x */
+      return 1;
+   }
+}
+
 void
 vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
 {
@@ -1047,6 +1061,7 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
 
    ++depth;
    if (span) {
+      /* print "file:line:col " */
       loc = span->ex.len ? &span->ex : &span->sl;
       f = getfile(loc->file);
       const char *file = getfilepos(&line, &col, loc->file, loc->off);
@@ -1071,6 +1086,7 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
       if (i || f->p[i] == '\n') ++i;
 
       nmark = loc->len;
+      bool noprintmark = 0;
       while (i < loc->off + loc->len) {
          static const char spaces[8] = "        ";
          enum { NTABWIDTH = 8 };
@@ -1090,12 +1106,21 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
                c = ' ';
             } else {
                begintabs = 0;
+               if (!aisprint(c)) {
+                  i += safeputnonascii(&out, &f->p[i]) - 1;
+                  /* now we can't assume 1 cell per byte, and calculating
+                   * cell-width of arbitrary unicode to correctly position
+                   * the underline markers is a pain */
+                  noprintmark = 1;
+                  continue;
+               }
             }
             ioputc(&out, c);
          }
          ioputc(&out, '\n');
          ++i;
 
+         if (noprintmark) continue;
          for (j = -curoff; j < 0; ++j)
             ioputc(&out, j == -2 ? '|' : ' ');
          for (begintabs = 1; j < col-1; ++j) {
