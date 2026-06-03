@@ -1164,7 +1164,8 @@ Unary:
             ex = mkexpr(ESYM, tk.span, mktype(IMPLICITSYMTY), .implicitsym = tk.name);
          } else {
             error(&tk.span, "undeclared identifier %'tk", &tk);
-            ex = mkexpr(ESYM, tk.span, mktype(TYINT), .implicitsym = NULL);
+            /* XXX really need a special ERROR type.. */
+            ex = mkexpr(ENUMLIT, tk.span, mktype(TYINT), .i = 0);
          }
       } else if (decl->scls == SCTYPEDEF) {
          error(&tk.span, "unexpected typename %'tk (expected expression)", &tk);
