@@ -28,9 +28,10 @@ fillchrbuf(Lexer *lx)
             if (p[1] == '\n') {
                idx += 2;
                p += 2;
-            } else if (p[1] == '\r' && p[2] == '\n') {
-               idx += 3;
-               p += 3;
+            } else if (p[1] == '\r') {
+               bool crlf = p[2] == '\n';
+               idx += 2 + crlf;
+               p += 2 + crlf;
             } else break;
          } else if (ccopt.trigraph && !memcmp(p, "\?\?/\n", 4)) {
             idx += 4;
@@ -62,8 +63,13 @@ fillchrbuf(Lexer *lx)
       } else {
       NoTrigraph:
          ++idx;
-         if ((c = *p++) == '\n')
+         if ((c = *p++) == '\n') {
             addfileline(lx->fileid, idx);
+         } else if (c == '\r') {
+            c = '\n';
+            if (*p == '\n') ++p, ++idx;
+            addfileline(lx->fileid, idx);
+         }
       }
       lx->chrbuf[i] = c;
       lx->chridxbuf[i] = idx;

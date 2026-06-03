@@ -620,7 +620,7 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap)
             n += fmttype(buf, ty, q);
             break;
          default:
-            if (fmt[-1] == ' ' || !aisprint(fmt[-1])) 
+            if (fmt[-1] == ' ' || !aisprint(fmt[-1]))
                fmterr("expected format specifier");
             else
                fmterr("unknown format specifier 't%c'", fmt[-1]);
@@ -645,7 +645,7 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap)
             base = 10;
             goto Int;
          }
-         if (fmt[-1] == ' ' || !aisprint(fmt[-1])) 
+         if (fmt[-1] == ' ' || !aisprint(fmt[-1]))
             fmterr("expected format specifier");
          else
             fmterr("unknown format specifier '%c'", fmt[-1]);
@@ -703,7 +703,7 @@ mapopen(const char **err, const char *path)
    uint mapsiz;
 
    assert("nullp" && err && path);
- 
+
    if (!pagesiz) pagesiz = sysconf(_SC_PAGESIZE);
    *err = NULL;
 
@@ -1040,6 +1040,8 @@ safeputnonascii(WriteBuf *buf, const uchar *p)
    }
 }
 
+#define isnewline(c) ((c) == '\n' || (c) == '\r')
+
 void
 vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
 {
@@ -1082,11 +1084,11 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
       char mark = '^';
 
       /* find start of line */
-      for (i = loc->off - 1; i + 1 > 0 && f->p[i] != '\n'; --i) ;
-      if (i || f->p[i] == '\n') ++i;
+      for (i = loc->off - 1; i + 1 > 0 && !isnewline(f->p[i]); --i) ;
+      if (i || isnewline(f->p[i])) ++i;
 
       nmark = loc->len;
-      bool noprintmark = 0;
+      uint nsafechar = ~0u;
       while (i < loc->off + loc->len) {
          static const char spaces[8] = "        ";
          enum { NTABWIDTH = 8 };
@@ -1095,7 +1097,7 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
          const uchar *linep = &f->p[i];
          bool begintabs = 1;
          int ntabs = 0;
-         for (end = 0; f->p[i] != '\n' && i < f->n; ++i, ++end) {
+         for (end = 0; !isnewline(f->p[i]) && i < f->n; ++i, ++end) {
             uchar c = f->p[i];
             if (c == '\t') {
                if (begintabs) {
@@ -1107,11 +1109,10 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
             } else {
                begintabs = 0;
                if (!aisprint(c)) {
+                  /* can't assume 1 cell per byte (cell-width of arbitrary unicode is non trivial) */
+                  nsafechar = i;
+                  /* also might be control characters needing spacing */
                   i += safeputnonascii(&out, &f->p[i]) - 1;
-                  /* now we can't assume 1 cell per byte, and calculating
-                   * cell-width of arbitrary unicode to correctly position
-                   * the underline markers is a pain */
-                  noprintmark = 1;
                   continue;
                }
             }
@@ -1120,7 +1121,7 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
          ioputc(&out, '\n');
          ++i;
 
-         if (noprintmark) continue;
+         if (col >= nsafechar) continue;
          for (j = -curoff; j < 0; ++j)
             ioputc(&out, j == -2 ? '|' : ' ');
          for (begintabs = 1; j < col-1; ++j) {
