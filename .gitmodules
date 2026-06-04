@@ -1,3 +1,4 @@
 [submodule "test/external/sqlite"]
 	path = test/external/sqlite
 	url = https://github.com/sqlite/sqlite
+    shallow = true
