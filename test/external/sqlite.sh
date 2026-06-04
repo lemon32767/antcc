@@ -5,9 +5,8 @@ if ! test -f ./configure; then
     echo 'sqlite submodule not pulled in!'
     exit 1
 fi
-export CCACHE=none CC="$(realpath ../../../antcc)"
-##export CC_FOR_BUILD=$CC ##miscompilation in sqlite's fuzzer?
-./configure
+##export CC_FOR_BUILD=$CC ##miscompilation in sqlite's fuzzer and some of its build tools?
+CCACHE=none CC="$(realpath ../../../antcc)" ./configure
 make clean ##clean-tool-zip clean-sanity-check
 V=1 make
 
