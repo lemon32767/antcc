@@ -1,10 +1,10 @@
 #!/bin/sh
 
-cd $(dirname "$0")/sqlite
-if ! test -f ./configure; then
-    echo 'sqlite submodule not pulled in!'
-    exit 1
-fi
+cd "$(dirname "$0")"
+. ./t.sh
+ver=3530200
+get "https://sqlite.org/2026/sqlite-src-$ver.zip" sqlite-src-$ver
+cd sqlite-src-$ver
 ##export CC_FOR_BUILD=$CC ##miscompilation in sqlite's fuzzer and some of its build tools?
 CCACHE=none CC="$(realpath ../../../antcc)" ./configure
 make clean ##clean-tool-zip clean-sanity-check
