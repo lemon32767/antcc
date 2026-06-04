@@ -22,5 +22,6 @@ struct {
 foo_t empty[] = {}; /* EXTENSION */
 
 int main() {
+   int q = ((struct{_Static_assert(sizeof q>0,"q");} *)0, 1);
 }
 

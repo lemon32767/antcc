@@ -309,9 +309,9 @@ putstr(WriteBuf *buf, const char *s, int len, bool quote, bool lower)
             n += putquoted(buf, lower && aisalpha(*s) ? *s|32 : *s, '"', len ? s[1] : -1);
          n += bputc(buf, '"');
       } else {
+         n += len;
          for (; len-->0; ++s)
             ioputc(buf, lower && aisalpha(*s) ? *s|32 : *s);
-         n += len;
       }
    }
    return n;

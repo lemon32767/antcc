@@ -1417,13 +1417,13 @@ expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac)
          } else { /* PPMACSTR */
             char tmp[200];
             WriteBuf buf = MEMBUF(tmp, sizeof tmp);
-            int n = 0;
-
+            int n;
             arg = &args[tki->argidx];
             // XXX this is wrong bc the string literal produced should be re-parsed later
             // i.e. stringifying the token sequence '\n' should ultimately produce a
             // string with an actual newline, not {'\\','n'}
          Redo:
+            n = 0;
             for (int i = 0; i < arg->n; ++i) {
                Token *tk = &argsbuf.p[arg->idx + i];
                if (i > 0 && tk->space)
@@ -1432,7 +1432,7 @@ expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac)
             }
             ioputc(&buf, 0);
             if (buf.err) {
-               WriteBuf new = MEMBUF(alloc(lx->tmparena, n+1, 1), n+1);
+               WriteBuf new = MEMBUF(alloc(lx->tmparena, n+2, 1), n+2);
                assert(buf.buf == tmp);
                memcpy(&buf, &new, sizeof buf);
                goto Redo;

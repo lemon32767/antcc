@@ -2237,6 +2237,9 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id, const Attrs *tyattr
                warn(&decl.span, "extra semicolon in aggregate");
             continue;
          }
+         if (!decl.name && !decl.ty.t) { /* static assert */
+            continue;
+         }
          tysize = typesize(decl.ty);
          if (fld.n && td.flexi) {
             td.flexi = 0;
@@ -3140,9 +3143,9 @@ pdecl(DeclState *st, CComp *cm) {
    }
    decl.sym = NULL;
 
-   if (st->base0) goto DeclSpec;
+   if (st->base0 || st->kind == DCASTEXPR) goto DeclSpec;
    if (!st->base.t) {
-      if (properdecl && (match(cm, &tk, TKW_Static_assert) || match(cm, &tk, TKWstatic_assert))) {
+      if (match(cm, &tk, TKW_Static_assert) || match(cm, &tk, TKWstatic_assert)) {
          pstaticassert(cm, &tk.span);
          return (Decl){0};
       }

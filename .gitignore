@@ -24,6 +24,10 @@
 src/hostconfig.h
 src/a_embedfilesdir.c
 
+!/test/
+test/csmith
 !/test/*.c
 !/test/*.sh
-!/test/external/**
+!/test/external/
+test/external/*
+!/test/external/*.sh

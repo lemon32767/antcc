@@ -52,7 +52,7 @@ $(BUILDDIR)/%.o: src/%.c
 	$Vtool/depgen -MP -MF $(BUILDDIR)/$*.d -MT $@ $<
 
 clean:
-	$(RM) -r -- $(BUILDDIR)/ test/build/ $(OUT) *.o a.OUT
+	$(RM) -r -- $(BUILDDIR)/ test/build/ $(OUT) *.o a.out
 
 clean-tool:
 	$(RM) tool/depgen
