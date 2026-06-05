@@ -13,5 +13,5 @@ export CC=$antcc
 export V=1
 make clean
 make
-cd ../lua-tests/
-../lua/src/lua -e"_U=true" all.lua
+cd ../lua-$ver-tests/
+../lua-$ver/src/lua -e"_U=true" all.lua
