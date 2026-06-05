@@ -13,18 +13,14 @@ enum irclass {
 #define kisflt(k) in_range((k), KF32, KF64)
 
 typedef struct IRDat {
-   uchar align : 6, globl : 1;
-   uchar section;
+   uchar align;
+   uchar flags : 4; /* enum symflags */
+   uchar section : 4; /* enum section */
    Type ctype;
    uint siz;
    uint off;
    internstr name;
 } IRDat;
-
-enum symflags {
-   SLOCAL = 1,
-   SFUNC  = 2,
-};
 typedef struct IRCon {
    bool issym, isdat, deref;
    uchar cls;
@@ -195,7 +191,7 @@ typedef struct Function {
    uint nblk;
    int stksiz;
    ushort nabiarg, nabiret;
-   bool globl;
+   uchar symflags;
    bool isleaf;
    bool inlin;
    regset regusage;

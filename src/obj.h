@@ -32,10 +32,10 @@ enum section { Snone, Stext, Srodata, Sdata, Sbss };
 
 extern ObjFile objout;
 void objini(const char *infile, const char *outfile);
-void objdeffunc(internstr nam, bool globl, uint off, uint siz);
+void objdeffunc(internstr nam, enum symflags, uint off, uint siz);
 enum section objhassym(internstr name, uint *off);
-uint objnewdat(internstr name, enum section, bool globl, uint siz, uint align);
-void objreloc(internstr sym, /*enum symflags*/int, enum relockind, enum section, uint off, s64int addend);
+uint objnewdat(internstr name, enum symflags, enum section, uint siz, uint align);
+void objreloc(internstr sym, enum symflags, enum relockind, enum section, uint off, s64int addend);
 void objfini(bool emit);
 void markfnneeded(internstr);
 bool fnisneeded(internstr);

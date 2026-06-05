@@ -1214,7 +1214,7 @@ emitbin(Function *fn)
          W32(0xD4200020); /* BRK #0x1 */
       } else emitbranch(pcode, blk);
    } while ((blk = blk->lnext) != fn->entry);
-   objdeffunc(fn->name, fn->globl, fnstart - objout.textbegin, *pcode - fnstart);
+   objdeffunc(fn->name, fn->symflags, fnstart - objout.textbegin, *pcode - fnstart);
 }
 
 void

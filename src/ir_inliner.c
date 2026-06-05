@@ -2,7 +2,9 @@
 #include "obj.h"
 
 typedef struct SavedFunc {
-   bool emitted, globl, inlin;
+   bool emitted;
+   uchar symflags;
+   bool inlin;
    uint ninstrtab, ncontab, ncalltab, nphitab;
    Instr *instrtab;
    IRCon *contab;
@@ -26,7 +28,7 @@ maybeinlinee(Function *fn)
 {
    extern int ninstrtab, nfreeinstr;
 
-   if (!(fn->inlin && fn->globl)) {
+   if (!(fn->inlin && !(fn->symflags & SLOCAL))) {
       // TODO better heuristics
       if (ccopt.o < OPT1) return 0;
       if (!(fn->inlin || (ccopt.o >= OPT2))) return 0;
@@ -46,7 +48,7 @@ maybeinlinee(Function *fn)
       bfmt(ccopt.dbgout, "> stashing '%s' for inlining\n", fn->name);
    }
    SavedFunc *sv = allocz(&savearena, sizeof *sv, 0);
-   sv->globl = fn->globl;
+   sv->symflags = fn->symflags;
    sv->inlin = fn->inlin;
    sv->fnty = fn->fnty, sv->retty = fn->retty;
    if (fn->abiarg)
@@ -319,7 +321,7 @@ doinline(Function *fn)
 static Function
 rematerialize(Arena **arena, internstr name, SavedFunc *sv)
 {
-   Function fn = { arena, .name = name, .globl = sv->globl, .fnty = sv->fnty,
+   Function fn = { arena, .name = name, .symflags = sv->symflags, .fnty = sv->fnty,
       .retty = sv->retty, .abiarg = sv->abiarg, .nabiarg = sv->nabiarg,
       .abiret = {sv->abiret[0], sv->abiret[1]}, .nabiret = sv->nabiret,
    };
@@ -374,7 +376,7 @@ emitxinlfns(bool all)
       internstr name;
       pmap_each(&savedfns, name, psv) {
          sv = *psv;
-         if (!sv->emitted && (fnisneeded(name) || (sv->globl && !sv->inlin) || all)) {
+         if (!sv->emitted && (fnisneeded(name) || (!(sv->symflags & SLOCAL) && !sv->inlin) || all)) {
             sv->emitted = 1;
             Function fn = rematerialize(&arena, name, sv);
             fn.passarena = &passarena;

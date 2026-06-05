@@ -7,7 +7,7 @@
 
 void elfinit(void);
 enum section elfhassym(internstr , uint *value);
-void elfaddsym(internstr , int info, enum section, u64int value, u64int size);
+void elfaddsym(internstr, enum symflags, enum section, u64int value, u64int size);
 void elfreloc(internstr sym, enum relockind, enum section, uint off, s64int addend);
 void elffini(WriteBuf *);
 
@@ -30,11 +30,11 @@ objini(const char *infile, const char *outfile)
 }
 
 void
-objdeffunc(internstr nam, bool globl, uint off, uint siz)
+objdeffunc(internstr nam, enum symflags s, uint off, uint siz)
 {
    switch (mctarg->objkind) {
    case OBJELF:
-      elfaddsym(nam, /*STT_LOCAL/GLOBAL*/globl << 4 | /*STT_FUNC*/2, Stext, off, siz);
+      elfaddsym(nam, s | SFUNC, Stext, off, siz);
       break;
    }
 }
@@ -46,7 +46,7 @@ objhassym(internstr name, uint *off)
 }
 
 uint
-objnewdat(internstr name, enum section sec, bool globl, uint siz, uint align)
+objnewdat(internstr name, enum symflags sf, enum section sec, uint siz, uint align)
 {
    ObjFile *o = &objout;
    uint off;
@@ -87,7 +87,7 @@ objnewdat(internstr name, enum section sec, bool globl, uint siz, uint align)
 
    switch (mctarg->objkind) {
    case OBJELF:
-      elfaddsym(name, /*STT_LOCAL/GLOBAL*/globl<<4 | /*STT_OBJECT*/1, sec, off, siz);
+      elfaddsym(name, sf, sec, off, siz);
       break;
    }
    return off;
@@ -96,9 +96,9 @@ objnewdat(internstr name, enum section sec, bool globl, uint siz, uint align)
 static pmap_of(uchar) needed_fns;
 
 void
-objreloc(internstr sym, int symflags, enum relockind reloc, enum section section, uint off, s64int addend)
+objreloc(internstr sym, enum symflags f, enum relockind reloc, enum section section, uint off, s64int addend)
 {
-   if ((symflags & (SLOCAL|SFUNC)) == (SLOCAL|SFUNC))
+   if ((f & (SLOCAL|SFUNC)) == (SLOCAL|SFUNC))
       pmap_set(&needed_fns, sym, 1);
    switch (mctarg->objkind) {
    case OBJELF:

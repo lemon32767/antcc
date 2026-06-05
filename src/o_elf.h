@@ -146,7 +146,7 @@ _Static_assert(sizeof(Elf32Shdr) == 40, "");
 enum {
    STB_LOCAL,
    STB_GLOBAL,
-   STB_WEAK
+   STB_WEAK,
 };
 
 enum {
@@ -155,6 +155,13 @@ enum {
    STT_FUNC,
    STT_SECTION,
    STT_FILE,
+};
+
+enum {
+   STV_DEFAULT,
+   STV_INTERNAL,
+   STV_HIDDEN,
+   STV_PROTECTED,
 };
 
 enum {

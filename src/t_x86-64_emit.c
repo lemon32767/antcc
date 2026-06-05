@@ -1456,7 +1456,7 @@ emitbin(Function *fn)
          DS("\x0F\x0B"); /* UD2 */
       } else emitbranch(pcode, blk);
    } while ((blk = blk->lnext) != fn->entry);
-   objdeffunc(fn->name, fn->globl, fnstart - objout.textbegin, *pcode - fnstart);
+   objdeffunc(fn->name, fn->symflags, fnstart - objout.textbegin, *pcode - fnstart);
 }
 
 void

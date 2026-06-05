@@ -176,6 +176,15 @@ enum objkind { OBJELF };
 extern const struct MCTarg *mctarg;
 bool targ_init(const char *, const TargTriple *dfault);
 
+/** shared by IR and OBJ */
+enum symflags {
+   SLOCAL     = 1<<0,
+   SFUNC      = 1<<1,
+   SWEAK      = 1<<2,
+   SHIDDEN    = 1<<3,
+   SPROTECTED = 1<<4,
+};
+
 /*********/
 /** MEM **/
 /*********/

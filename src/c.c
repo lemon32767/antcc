@@ -1857,7 +1857,7 @@ initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, bool globl,
       } else {
          ip->sec = qual & QCONST ? Srodata : Sdata;
          if (!nerror)
-            ip->off = objnewdat(sym, ip->sec, globl, typesize(*ty), align);
+            ip->off = objnewdat(sym, SLOCAL &- !globl, ip->sec, typesize(*ty), align);
       }
    } else {
       ip->init = &res;
@@ -1948,7 +1948,7 @@ initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, bool globl,
          sec = Sdata;
       assert(align >= typealign(*ty));
       if (!nerror) {
-         off = objnewdat(sym, sec, globl, siz = typesize(*ty), align);
+         off = objnewdat(sym, SLOCAL &- !globl, sec, siz = typesize(*ty), align);
          if (siz > 0) {
             p = sec == Srodata ? objout.rodata.p : objout.data.p;
             assert(ip->ddat.n <= siz);
@@ -3344,7 +3344,7 @@ expraddr(Function *fn, const Expr *ex)
          ip->sec = Sdata; /* TODO put in rodata if possible */
          ip->ev = EVSTATICINI;
          assert(!isincomplete(ty));
-         ip->off = objnewdat(sym, ip->sec, 0, typesize(ty), typealign(ty));
+         ip->off = objnewdat(sym, SLOCAL, ip->sec, typesize(ty), typealign(ty));
          if (!iniwriterec(NULL, ip, 0, (Expr *)ex))
             error(&ex->span, "cannot not evaluate expression statically");
          return mksymref(sym, 0);
@@ -5124,7 +5124,7 @@ localdecl(CComp *cm, bool forini)
                else if (isincomplete(decl.ty))
                   error(&decl.span, "definition of static variable with incomplete type");
                else
-                  objnewdat(decl.sym, Sbss, 0, typesize(decl.ty), declalign(&decl));
+                  objnewdat(decl.sym, SLOCAL, Sbss, typesize(decl.ty), declalign(&decl));
             }
             break;
          case SCTYPEDEF:
@@ -5294,7 +5294,8 @@ tldecl(CComp *cm)
             assert(nerror > 0);
             decl->name = decl->sym = intern("?");
          }
-         Function fn = { &cm->fnarena, .name = decl->sym, .globl = decl->scls != SCSTATIC,
+         enum symflags sf = SLOCAL &- (decl->scls == SCSTATIC);
+         Function fn = { &cm->fnarena, .name = decl->sym, .symflags = sf,
                          .fnty = decl->ty, .retty = td->ret, .inlin = decl->inlin };
          irinit(&fn);
          functionbody(cm, &fn, st.pnames, st.pspans, st.pqual);
@@ -5333,8 +5334,10 @@ tldecl(CComp *cm)
                      assert(size == 0);
                   } else assert(0);
                }
-               if (size)
-                  objnewdat(decl->sym, Sbss, decl->scls == SCEXTERN, size, declalign(decl));
+               if (size) {
+                  objnewdat(decl->sym, SLOCAL &- (decl->scls != SCEXTERN), Sbss,
+                            size, declalign(decl));
+               }
             }
          }
          decl = &declsbuf.p[idecl];

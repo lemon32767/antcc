@@ -14,7 +14,8 @@ static vec_of(uchar) strs;
 typedef struct {
    uint   name;
    uchar  bind : 4,
-          type : 4;
+          type : 4,
+          other : 4;
    ushort shndx;
    u64int value,
           size;
@@ -115,15 +116,21 @@ elfhassym(internstr nam, uint *value)
 }
 
 void
-elfaddsym(internstr nam, int info, enum section sect, u64int value, u64int size)
+elfaddsym(internstr nam, enum symflags symflags, enum section sect, u64int value, u64int size)
 {
    Sym *sym = findsym(nam), sym0;
    if (!sym) {
       sym = &sym0;
+      memset(sym, 0, sizeof *sym);
       sym->name = str2idx(&nam->c);
    }
-   sym->bind = info >> 4;
-   sym->type = info & 0xF;
+   if (symflags & SLOCAL) sym->bind = STB_LOCAL;
+   else if (symflags & SWEAK) sym->bind = STB_WEAK;
+   else sym->bind = STB_GLOBAL;
+   if (symflags & SFUNC) sym->type = STT_FUNC;
+   else sym->type = STT_OBJECT;
+   if (symflags & SHIDDEN) sym->other = STV_HIDDEN;
+   else if (symflags & SPROTECTED) sym->other = STV_PROTECTED;
    sym->shndx = sect2ndx[sect];
    sym->value = value;
    sym->size = size;
@@ -280,11 +287,11 @@ putsym(WriteBuf *out, const Sym *sym)
 {
    if (targ_64bit) {
       elf64putsym(out, &(Elf64Sym) {
-            sym->name, .info = ELF_S_INFO(sym->bind, sym->type),
+            sym->name, .info = ELF_S_INFO(sym->bind, sym->type), .other = sym->other,
             .shndx = sym->shndx, .value = sym->value, .size = sym->size });
    } else {
       elf32putsym(out, &(Elf32Sym) {
-            sym->name, .info = ELF_S_INFO(sym->bind, sym->type),
+            sym->name, .info = ELF_S_INFO(sym->bind, sym->type), .other = sym->other,
             .shndx = sym->shndx, .value = sym->value, .size = sym->size });
    }
 }

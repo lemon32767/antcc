@@ -190,7 +190,7 @@ mkdatref(internstr name, Type ctype, uint siz, uint align,
       assert(!wbuf.err);
       dat.name = name = intern(buf);
    }
-   dat.off = objnewdat(name, dat.section, 0, siz, align);
+   dat.off = objnewdat(name, SLOCAL, dat.section, siz, align);
    uchar *p = (dat.section == Stext ? objout.textbegin : objout.rodata.p) + dat.off;
    if (n) memcpy(p, bytes, n);
    if (dat.section != Stext) memset(p+n, 0, siz - n);
@@ -697,7 +697,7 @@ irfini(Function *fn)
       freearena(fn->passarena);
       return;
    }
-   assert(!(fn->globl && fn->inlin /* extern inline */));
+   assert(!(!(fn->symflags & SLOCAL) && fn->inlin /* extern inline */));
 
    irfini_end(fn);
 }
