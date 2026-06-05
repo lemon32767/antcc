@@ -829,13 +829,15 @@ tokpaste(Lexer *lx, Token *dst, const Token *l, const Token *r)
    } else if (l->t == TKIDENT && l->len == 1 && l->name->c == 'L'
          && (r->t == TKCHRLIT || r->t == TKSTRLIT) && !r->wide) {
       /* L ## 'a'/"a" */
-      dst->t = r->t;
-      dst->wideuni = 0;
-      if ((dst->wide = strchrLwidth()) == 1) {
-         dst->ws16 = utf8to16(&dst->len, lx->tmparena, (uchar *)r->s, r->len);
-      } else {
-         assert(dst->wide == 2);
-         dst->ws32 = utf8to32(&dst->len, lx->tmparena, (uchar *)r->s, r->len);
+      if (dst) {
+         dst->t = r->t;
+         dst->wideuni = 0;
+         if ((dst->wide = strchrLwidth()) == 1) {
+            dst->ws16 = utf8to16(&dst->len, lx->tmparena, (uchar *)r->s, r->len);
+         } else {
+            assert(dst->wide == 2);
+            dst->ws32 = utf8to32(&dst->len, lx->tmparena, (uchar *)r->s, r->len);
+         }
       }
       return 1;
    } else if (l->t && !r->t) {
