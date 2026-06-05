@@ -2275,7 +2275,6 @@ ppdirective(Lexer *lx, Token *tkout, bool *skip, bool *inclerror)
             else
                *inclerror |= !ppinclude(lx, &tk->span, lastcmd == PPINCLUDENEXT);
             break;
-         default: assert(0&&"nyi");
          }
       } else {
          switch (lastcmd) {
