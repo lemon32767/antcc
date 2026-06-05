@@ -11,6 +11,7 @@
 !LICENSE
 !BUGS
 !TODO
+!VERSION
 !/doc/
 !/.woodpecker/
 
@@ -19,8 +20,12 @@
 
 !/src/
 !/src/*
+!/tool/
+tool/*
 !/tool/*.c
 !/tool/*.h
+!/tool/*.sh
+src/version.h
 src/hostconfig.h
 src/a_embedfilesdir.c
 

@@ -2646,12 +2646,12 @@ static void
 addpredefmacros(Arena **tmparena)
 {
    static Token tok_stdc = {TKNUMLIT},
-                       tok_major = {TKNUMLIT, .s = XSTR(ANTCC_VERSION_MAJOR),
-                                              .len = sizeof XSTR(ANTCC_VERSION_MAJOR) - 1},
-                       tok_minor = {TKNUMLIT, .s = XSTR(ANTCC_VERSION_MINOR),
-                                              .len = sizeof XSTR(ANTCC_VERSION_MINOR) - 1},
-                       tok_patch = {TKNUMLIT, .s = XSTR(ANTCC_VERSION_PATCH),
-                                              .len = sizeof XSTR(ANTCC_VERSION_PATCH) - 1};
+                       tok_major = {TKNUMLIT, .s = ANTCC_VERSION_MAJOR,
+                                              .len = sizeof ANTCC_VERSION_MAJOR - 1},
+                       tok_minor = {TKNUMLIT, .s = ANTCC_VERSION_MINOR,
+                                              .len = sizeof ANTCC_VERSION_MINOR - 1},
+                       tok_patch = {TKNUMLIT, .s = ANTCC_VERSION_PATCH,
+                                              .len = sizeof ANTCC_VERSION_PATCH - 1};
    static struct { const char *name; Macro m; } macs[] = {
       { "__FILE__", { .predef = 1, .special = 1, .handler = mac__file__ }},
       { "__LINE__", { .predef = 1, .special = 1, .handler = mac__line__ }},

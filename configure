@@ -289,7 +289,7 @@ set -e
 echo using arch: "$host_arch"
 echo using os: "$host_os"
 echo using abi: "$host_abi"
-echo host include paths: "$host_include_dirs"
+echo host include paths: {"$host_include_dirs"}
 echo preprocessor predefs: {"$host_predefs"}
 
 echo "/** GENERATED WITH $0 $* **/
@@ -297,11 +297,10 @@ echo "/** GENERATED WITH $0 $* **/
 #define HOST_ARCH   IS$host_arch
 #define HOST_OS     OS$host_os
 #define HOST_ABI    ABI$host_abi
-#define HOST_INCLUDE_DIRS $host_include_dirs
+static const char *const host_incldirs[] ={$host_include_dirs 0};
 #define HOST_LD \"$linker\"
 #define HOST_CC \"$CC\"
-static const char *const host_predefs[] = {$host_predefs 0
-};
+static const char *const host_predefs[] = {$host_predefs 0};
 #define HOST_LINK_WITH_CC $link_with_cc
 #define HOST_DYNAMIC_LINKER ${DYNAMIC_LINKER:=NULL}
 static const char *const host_linkargs[] = {${linkargs:=0}};

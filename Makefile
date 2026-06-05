@@ -37,8 +37,11 @@ dbg: $(OUT)
 tool/depgen: tool/depgen.c
 	$(TOOLCC) -Wall -g -o $@ $<
 
-$(OUT): tool/depgen $(obj)
+$(OUT): tool/depgen src/version.h $(obj)
 	$(CC) $(CFLAGS) -o $@ $(obj)
+
+src/version.h: VERSION
+	tool/gen-version.sh > src/version.h
 
 src/a_embedfilesdir.c: src/a_embedfilesdir.sh
 	src/a_embedfilesdir.sh > $@

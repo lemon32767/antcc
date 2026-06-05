@@ -185,18 +185,19 @@ priinfo(int extra)
    );
    if (extra < 1) return;
    bfmt(out,
-        "include paths: "XSTR(HOST_INCLUDE_DIRS)"\n"
         "host ld for linking: " HOST_LD "\n"
         "host cc: " HOST_CC "\n"
         "link with cc? %c\n",
         "ny"[HOST_LINK_WITH_CC]
    );
-   if (extra < 2) return;
 #define LISTITEM(x,n)                                      \
    bfmt(out, "host "#x": ["),                              \
    prilist(out, "%'s", ", "n, host_##x, countof(host_##x)), \
    bfmt(out, "]\n")
 
+   LISTITEM(incldirs,"\n\t");
+
+   if (extra < 2) return;
    LISTITEM(predefs,"\n\t");
    LISTITEM(linkargs,);
    LISTITEM(ldstartfiles,);
@@ -869,11 +870,8 @@ detectcolor(void)
 static void
 sysinclpaths(void)
 {
-   static const char *paths[] = {
-      HOST_INCLUDE_DIRS
-   };
-   for (int i = 0; i < countof(paths); ++i)
-      addinclpath(CINCLsys, paths[i]);
+   for (int i = 0; i < countof(host_incldirs) && host_incldirs[i]; ++i)
+      addinclpath(CINCLsys, host_incldirs[i]);
 }
 
 static void
