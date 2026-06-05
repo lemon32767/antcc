@@ -28,7 +28,7 @@ steps:
     image: debian
     commands:
       - apt-get update && apt-get install -y cmake make
-      - ./test/metalang99.sh
+      - ./test/external/metalang99.sh
     depends_on: [build]
 
   - name: test-external-lua
@@ -36,6 +36,6 @@ steps:
     commands:
       - apt-get update && apt-get install -y gcc
       - apt-get update && apt-get install -y make
-      - ./test/lua.sh
+      - ./test/external/lua.sh
     depends_on: [build]
 
