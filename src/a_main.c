@@ -195,7 +195,7 @@ priinfo(int extra)
    prilist(out, "%'s", ", "n, host_##x, countof(host_##x)), \
    bfmt(out, "]\n")
 
-   LISTITEM(incldirs,"\n\t");
+   LISTITEM(incldirs,"");
 
    if (extra < 2) return;
    LISTITEM(predefs,"\n\t");
