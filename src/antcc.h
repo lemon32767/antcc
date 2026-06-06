@@ -181,8 +181,11 @@ enum symflags {
    SLOCAL     = 1<<0,
    SFUNC      = 1<<1,
    SWEAK      = 1<<2,
-   SHIDDEN    = 1<<3,
-   SPROTECTED = 1<<4,
+   SVISOFFST  = 3,
+   SVISMASK   = 3<<SVISOFFST,
+   SVINTERNAL,
+   SVHIDDEN,
+   SVPROTECTED,
 };
 
 /*********/

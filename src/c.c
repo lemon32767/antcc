@@ -283,6 +283,14 @@ redeclarationok(const Decl *old, Decl *new)
    return 0;
 }
 
+
+static void
+mergeattr(Attrs *to, const Attrs *src)
+{
+   bsunion(to->set, src->set, countof(to->set));
+   if (src->align > to->align) to->align = src->align;
+}
+
 static int
 putdecl(CComp *cm, Decl *decl)
 {
@@ -327,6 +335,7 @@ putdecl(CComp *cm, Decl *decl)
                assert(!decl->sym);
             }
             if (old->isdef && !decl->isdef) return old - declsbuf.p;
+            else mergeattr(&decl->attr, &old->attr);
             break;
          }
       }
@@ -2123,7 +2132,8 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk)
    case ATTRalways_inline: case ATTRflatten: case ATTRpure:
    case ATTRconst: case ATTRnothrow: case ATTRmalloc:
    case ATTRmay_alias: case ATTRexternally_visible:
-   case ATTRpacked:
+   case ATTRpacked: case ATTRweak:
+
    Arity:
       if (nparam > nmaxparam || nparam < nminparam)
       BadArgs:
@@ -2148,7 +2158,7 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk)
    case ATTRconstructor:
    case ATTRdestructor:
    case ATTRalias:
-   case ATTRweak: case ATTRweakref:
+   case ATTRweakref:
    case ATTRcommon: case ATTRnocommon:
    case ATTRtransparent_union:
    //Stub:
@@ -2197,13 +2207,6 @@ attrcheckctx(const Span *span, const Attrs *attr, char c /*f/v/t*/)
          warn(span, "'%s' attribute has no effect here", cattrs[a].s);
       }
    }
-}
-
-static void
-mergeattr(Attrs *to, const Attrs *src)
-{
-   bsunion(to->set, src->set, countof(to->set));
-   if (src->align > to->align) to->align = src->align;
 }
 
 static uint
@@ -3232,6 +3235,16 @@ AfterIniBitf:
    return decl;
 }
 
+static inline enum symflags
+declsymflags(const Decl *decl)
+{
+   enum symflags sf = 0;
+   if (decl->scls == SCSTATIC) sf |= SLOCAL;
+   if (decl->ty.t == TYFUNC) sf |= SFUNC;
+   if (hasattr(&decl->attr, ATTRweak)) sf |= SWEAK;
+   return sf;
+}
+
 /*****************/
 /* IR Generation */
 /*****************/
@@ -3288,7 +3301,7 @@ expraddr(Function *fn, const Expr *ex)
 {
    Decl *decl;
    Ref r;
-   bool local;
+   enum symflags sf;
 
    switch (ex->t) {
    case ESYM:
@@ -3299,8 +3312,9 @@ expraddr(Function *fn, const Expr *ex)
          assert(decl->id >= 0);
          return mkref(RTMP, decl->id);
       case SCEXTERN: case SCNONE: case SCSTATIC:
-         local = decl->scls == SCSTATIC || (decl->isdef && !decl->inlin);
-         return mksymref(decl->sym, (SFUNC & -(decl->ty.t == TYFUNC)) | (SLOCAL & -local));
+         sf = declsymflags(decl);
+         if (decl->isdef && !decl->inlin) sf |= SLOCAL;
+         return mksymref(decl->sym, sf);
       default:
          assert(0);
       }
@@ -5294,8 +5308,7 @@ tldecl(CComp *cm)
             assert(nerror > 0);
             decl->name = decl->sym = intern("?");
          }
-         enum symflags sf = SLOCAL &- (decl->scls == SCSTATIC);
-         Function fn = { &cm->fnarena, .name = decl->sym, .symflags = sf,
+         Function fn = { &cm->fnarena, .name = decl->sym, .symflags = declsymflags(decl),
                          .fnty = decl->ty, .retty = td->ret, .inlin = decl->inlin };
          irinit(&fn);
          functionbody(cm, &fn, st.pnames, st.pspans, st.pqual);
@@ -5335,7 +5348,7 @@ tldecl(CComp *cm)
                   } else assert(0);
                }
                if (size) {
-                  objnewdat(decl->sym, SLOCAL &- (decl->scls != SCEXTERN), Sbss,
+                  objnewdat(decl->sym, declsymflags(decl), Sbss,
                             size, declalign(decl));
                }
             }

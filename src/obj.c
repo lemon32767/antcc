@@ -8,7 +8,7 @@
 void elfinit(void);
 enum section elfhassym(internstr , uint *value);
 void elfaddsym(internstr, enum symflags, enum section, u64int value, u64int size);
-void elfreloc(internstr sym, enum relockind, enum section, uint off, s64int addend);
+void elfreloc(internstr sym, enum symflags, enum relockind, enum section, uint off, s64int addend);
 void elffini(WriteBuf *);
 
 ObjFile objout;
@@ -102,7 +102,7 @@ objreloc(internstr sym, enum symflags f, enum relockind reloc, enum section sect
       pmap_set(&needed_fns, sym, 1);
    switch (mctarg->objkind) {
    case OBJELF:
-      elfreloc(sym, reloc, section, off, addend);
+      elfreloc(sym, f, reloc, section, off, addend);
       break;
    }
 }

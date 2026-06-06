@@ -24,7 +24,8 @@ static vec_of(Sym) symtab;
 static pmap_of(ushort) symht;
 static uint ntextrel, nrodatarel, ndatarel;
 typedef struct {
-   uchar section;
+   uchar section : 3;
+   uchar symflags : 5;
    ushort kind;
    uint off;
    s64int addend;
@@ -129,8 +130,7 @@ elfaddsym(internstr nam, enum symflags symflags, enum section sect, u64int value
    else sym->bind = STB_GLOBAL;
    if (symflags & SFUNC) sym->type = STT_FUNC;
    else sym->type = STT_OBJECT;
-   if (symflags & SHIDDEN) sym->other = STV_HIDDEN;
-   else if (symflags & SPROTECTED) sym->other = STV_PROTECTED;
+   sym->other = symflags >> SVISOFFST; /*default/internal/hidden/protected*/
    sym->shndx = sect2ndx[sect];
    sym->value = value;
    sym->size = size;
@@ -168,16 +168,17 @@ static const ushort relktab[][NRELOCKIND] = {
 };
 
 void
-elfreloc(internstr sym, enum relockind kind, enum section section, uint off, s64int addend)
+elfreloc(internstr sym, enum symflags sf, enum relockind kind, enum section sec, uint off, s64int addend)
 {
-   switch (section) {
+   switch (sec) {
    default: assert(0);
    case Stext:   ++ntextrel; break;
    case Srodata: ++nrodatarel; break;
    case Sdata:   ++ndatarel; break;
    }
    assert(kind < NRELOCKIND);
-   vpush(&relocs, ((Reloc) { section, relktab[target.arch][kind], off, addend, .symname = sym }));
+   assert(sec < (1<<3) && sf < (1<<5));
+   vpush(&relocs, ((Reloc) { sec, sf, relktab[target.arch][kind], off, addend, .symname = sym }));
 }
 
 static void
@@ -424,7 +425,13 @@ elffini(WriteBuf *out)
          rel->symidx = idx < ndefsym ? defsym2idx[idx] : idx;
       } else {
          assert(symtab.n < 1<<16);
-         vpush(&symtab, ((Sym) { str2idx(&rel->symname->c), .bind = STB_GLOBAL, .type = STT_NOTYPE, .shndx = SHN_UND }));
+         vpush(&symtab, ((Sym) {
+                  str2idx(&rel->symname->c),
+                  .bind = rel->symflags & SWEAK ? STB_WEAK : STB_GLOBAL,
+                  .type = STT_NOTYPE,
+                  .other = rel->symflags >> SVISOFFST,
+                  .shndx = SHN_UND
+         }));
          pmap_set(&symht, rel->symname, symtab.n-1);
          rel->symidx = symtab.n-1;
       }
