@@ -738,24 +738,26 @@ mapopen(const char **err, const char *path)
       return f;
    } else if (S_ISFIFO(stat.st_mode) || S_ISCHR(stat.st_mode)) {
       uint cap = 0;
+      enum {MAX = 1<<28};
       int ret;
 
       do {
          enum { CHUNKSIZ = 1<<10 };
-         if (f.n + CHUNKSIZ >= cap && (cap += CHUNKSIZ) < CHUNKSIZ) {
-            /* overflow */
+         if ((cap += CHUNKSIZ) > MAX) {
             free(p);
             goto Big;
          }
+         cap += CHUNKSIZ;
          if (!(f.p = p ? realloc(p, cap) : malloc(cap))) {
             free(p);
             goto Err;
          }
          p = (void *)f.p;
          ret = read(fd, (char *)p + f.n, CHUNKSIZ);
-         if (ret >= 0)
+         if (ret >= 0) {
+            assert((uint)(f.n + ret) >= f.n);
             f.n += ret;
-         else if (errno != EAGAIN && errno != EWOULDBLOCK)
+         } else if (errno != EAGAIN && errno != EWOULDBLOCK)
             goto Err;
       } while (ret != 0);
 
