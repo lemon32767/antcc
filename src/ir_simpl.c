@@ -232,7 +232,7 @@ simpl(Function *fn)
        *   ... (2)
        *   b {...}
        * */
-      if (blk != fn->entry) while (blk->s1 && !blk->s2 && blk->s1->npred == 1 && !blk->phi.n) {
+      if (blk != fn->entry) while (blk->s1 && !blk->s2 && blk->s1->npred == 1 && !blk->s1->phi.n) {
          mergeblks(fn, blk, blk->s1);
       }
    } while ((blk = blk->lnext) != fn->entry);
