@@ -1,3 +1,4 @@
+#define _DEFAULT_SOURCE
 #include "c_lex.h"
 #include "u_hash.h"
 #include <errno.h>
