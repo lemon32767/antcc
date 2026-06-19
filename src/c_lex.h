@@ -93,11 +93,18 @@ typedef struct Token {
     */
 } Token;
 
+typedef struct PragmaState {
+   bool weak;
+   struct { schar stk[21], top; } pack, visibility;
+   internstr weakalias;
+} PragmaState;
+
 extern int nerror, nwarn;
 typedef struct Lexer {
    struct Lexer *save;
    short fileid;
    const uchar *dat;
+   PragmaState *pragma;
    uint ndat;
    uint idx, chridx;
    ushort chrbuf0;

@@ -76,6 +76,7 @@ typedef struct Builtin Builtin;
 /** C compiler state **/
 typedef struct {
    struct Lexer *lx;
+   struct PragmaState *pragma;
    Env *env;
    Arena *fnarena, *exarena;
    Span fnblkspan;

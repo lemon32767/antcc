@@ -2057,7 +2057,7 @@ prgstrmatch(const char **str, uint *len, const char *what)
    while (aisspace(**str)) ++*str, --*len;
    int nwhat = strlen(what);
    if (nwhat <= *len && !memcmp(*str, what, nwhat)) {
-      if (nwhat == *len || aissep((*str)[nwhat])) {
+      if (nwhat == *len || aissep((*str)[nwhat]) || aissep((*str)[nwhat-1])) {
          *str += nwhat;
          *len -= nwhat;
          while (*len > 0 && aisspace(**str))
@@ -2068,12 +2068,75 @@ prgstrmatch(const char **str, uint *len, const char *what)
    return 0;
 }
 
+static int
+pragmapackcheck(const Span *span, int align)
+{
+   if (align && ((uint)align > 16 || !ispo2(align))) {
+      warn(span, "alignment must be a small power of two (was %d)", align);
+      return 0;
+   }
+   return align;
+}
+
+static int
+pragmaparsenum(const Span *span, const char **str, uint *len, int dfault)
+{
+   s64int n = 0;
+   do {
+      if (!aisdigit(**str)) Bad: {
+         error(span, "invalid number literal");
+         return dfault;
+      }
+      n = n*10  + **str-'0';
+      if (n != (int)n) goto Bad;
+      ++*str;
+      --*len;
+   } while (!aissep(**str));
+   return n;
+}
+
 static void
 handlepragma(Lexer *lx, const Span *span, const char *str, uint len)
 {
+   PragmaState *ps = lx->pragma;
    if (prgstrmatch(&str, &len, "once")) {
       /* #pragma once */
       markfileonce(lx->fileid, NULL);
+   } else if (prgstrmatch(&str, &len, "pack")) {
+      Token tk;
+      /* #pragma pack */
+      if (*str == '(') ++str, --len;
+      else warn(span, "missing '(' after #pragma pack");
+      int align = 0;
+      if (prgstrmatch(&str, &len, "push")) {
+         if (prgstrmatch(&str, &len, ",") && aisdigit(*str)) {
+            /* #pragma pack(push, n) */
+            align = pragmapackcheck(span, pragmaparsenum(span, &str, &len, 0));
+         } else {
+            /* #pragma pack(push) */
+            align = ps->pack.stk[ps->pack.top];
+         }
+
+         if (ps->pack.top >= countof(ps->pack.stk))
+            error(span, "too many nested pragma pack");
+         else
+            ps->pack.stk[++ps->pack.top] = align;
+      } else if (prgstrmatch(&str, &len, "pop")) {
+         if (ps->pack.top == 0)
+            error(span, "empty pragma pack stack");
+         else
+            --ps->pack.top;
+      } else if (aisdigit(*str)) {
+         /* #pragma pack(n) */
+         align = pragmaparsenum(span, &str, &len, 0);
+         ps->pack.stk[ps->pack.top] = pragmapackcheck(span, align);
+      } else {
+         /* #pragma pack()  -> reset */
+         ps->pack.stk[ps->pack.top] = 0;
+      }
+      if (!prgstrmatch(&str, &len, ")")) {
+         warn(span, "missing ')' after #pragma pack");
+      }
    } else {
       warn(span, "unknown pragma ignored");
       return;

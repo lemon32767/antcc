@@ -2302,8 +2302,11 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id, const Attrs *tyattr
             if ((hasattr(tyattr, ATTRpacked) || hasattr(&decl.attr, ATTRpacked))
              && !hasattr(&decl.attr, ATTRaligned))
                align = 1;
+            else if (cm->pragma->pack.stk[cm->pragma->pack.top])
+               align = cm->pragma->pack.stk[cm->pragma->pack.top];
             else
                align = declalign(&decl);
+            assert(ispo2(align));
             uint siz = tysize;
             uint off = isunion ? 0
                      : bitftypesiz ? bitfbyteoff
@@ -5419,6 +5422,7 @@ initcm(CComp *cm, const char *file)
    case LXERR:
       fatal(NULL, "Cannot open %'s: %s", file, err);
    case LXOK:
+      cm->lx->pragma = cm->pragma;
       cm->fnarena = (void *)amem[0].m;
       cm->fnarena->cap = N;
       cm->exarena = (void *)amem[1].m;
@@ -5429,7 +5433,7 @@ initcm(CComp *cm, const char *file)
 void
 ccomp(const char *file)
 {
-   CComp cm = {&(Lexer){0}};
+   CComp cm = {&(Lexer){0}, &(PragmaState){0}};
    initcm(&cm, file);
    docomp(&cm);
 }
@@ -5437,7 +5441,7 @@ ccomp(const char *file)
 void
 cpp(WriteBuf *out, const char *file)
 {
-   CComp cm = {&(Lexer){0}};
+   CComp cm = {&(Lexer){0}, &(PragmaState){0}};
    initcm(&cm, file);
    lexerdump(cm.lx, out);
 }
