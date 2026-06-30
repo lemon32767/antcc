@@ -230,6 +230,7 @@ mem2reg(Function *fn)
          for (IRUse *use = instruse[var]; use; use = use->next) {
             if (use->u == USERJUMP) goto Skip;
             Instr *m = &instrtab[use->u];
+            if (m->keep) /*volatile*/ goto Skip;
             if (oisload(m->op) && (!sz || sz == loadsz(m->op))) {
                ++nwrite;
                sz = loadsz(m->op);

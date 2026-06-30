@@ -3296,7 +3296,7 @@ mkhiddensym(const char *fnname, const char *name, int id)
    return intern(buf);
 }
 
-static void geninit(Function *fn, Type t, Ref dst, const Expr *src);
+static void geninit(Function *fn, Type t, Ref dst, const Expr *src, bool volatyl);
 static Ref condexprvalue(Function *fn, const Expr *ex, bool discard);
 
 Ref
@@ -3350,7 +3350,7 @@ expraddr(Function *fn, const Expr *ex)
       if (fn) {
          /* compound literal, allocate temp */
          r = addinstr(fn, mkalloca(typesize(ex->ty), typealign(ex->ty)));
-         geninit(fn, ex->ty, r, ex);
+         geninit(fn, ex->ty, r, ex, ex->qual & QVOLATILE);
          return r;
       } else {
          /* emit static dat */
@@ -3399,7 +3399,7 @@ genload(Function *fn, Type t, Ref ref, bool volatyl)
 }
 
 static Ref
-genstore(Function *fn, Type t, Ref ptr, Ref val)
+genstore(Function *fn, Type t, Ref ptr, Ref val, bool volatyl)
 {
    Instr ins = {0};
 
@@ -3413,21 +3413,22 @@ genstore(Function *fn, Type t, Ref ptr, Ref val)
    }
    ins.l = ptr;
    ins.r = val;
+   ins.keep = volatyl;
    return addinstr(fn, ins);
 }
 
 static void genbitfstore(Function *fn, const Type ty, Ref addr,
-                         const ExprGetFld *fld, Ref tmp, Ref val);
+                         const ExprGetFld *fld, Ref tmp, Ref val, bool volatyl);
 
 typedef struct { Ref a, b; } Ref2;
 static Ref complex2addr_cvt(Function *, Type, const Expr *);
 static Ref complex2scalar(Function *fn, Type to, const Expr *ex);
 static Ref2 cvt2complex(Function *fn, Type base, const Expr *ex);
 Ref2 compcomplexex(Function *, const Expr *, bool discard);
-static void complexstore(Function *fn, Type base, Ref, Ref2);
+static void complexstore(Function *fn, Type base, Ref, Ref2, bool volatyl);
 
 static void
-geninit(Function *fn, Type t, Ref dst, const Expr *src)
+geninit(Function *fn, Type t, Ref dst, const Expr *src, bool volatyl)
 {
    Ref adr;
    if (src->t == EINIT) {
@@ -3470,32 +3471,33 @@ geninit(Function *fn, Type t, Ref dst, const Expr *src)
          Expr *ex = &val->ex;
          adr = irbinop(fn, Oadd, KPTR, dst, mkref(RICON, off));
          if (ex->t == EINIT || ex->t == ESTRLIT) {
-            geninit(fn, ex->ty, adr, ex);
+            geninit(fn, ex->ty, adr, ex, volatyl);
          } else if (isagg(ex->ty)) {
             structcopy(fn, ex->ty, adr, expraddr(fn, ex));
          } else if (iscomplex(ex->ty)) {
-            complexstore(fn, typechild(ex->ty), adr, compcomplexex(fn, ex, 0));
+            complexstore(fn, typechild(ex->ty), adr, compcomplexex(fn, ex, 0), volatyl);
          } else if (!val->bitsiz) {
-            genstore(fn, ex->ty, adr, exprvalue(fn, ex));
+            genstore(fn, ex->ty, adr, exprvalue(fn, ex), volatyl);
          } else {
             Ref q = exprvalue(fn, ex);
-            genbitfstore(fn, ex->ty, adr, &(ExprGetFld){0, val->bitsiz, val->bitoff}, NOREF, q);
+            genbitfstore(fn, ex->ty, adr, &(ExprGetFld){0, val->bitsiz, val->bitoff}, NOREF, q, volatyl);
          }
       }
    } else if (src->t == ESTRLIT) {
       Type ctyp = typechild(src->ty);
       uint csiz = typesize(ctyp);
       adr = dst;
+      bool volatyl = 0;
       for (uint i = 0; i < src->s.n; ++i) {
          if (csiz == 1)
-            genstore(fn, ctyp, adr, mkref(RICON, src->s.p[i]));
+            genstore(fn, ctyp, adr, mkref(RICON, src->s.p[i]), volatyl);
          else if (csiz == 2)
-            genstore(fn, ctyp, adr, mkref(RICON, src->s.w16[i]));
+            genstore(fn, ctyp, adr, mkref(RICON, src->s.w16[i]), volatyl);
          else
-            genstore(fn, ctyp, adr, mkintcon(KI32, src->s.w32[i]));
+            genstore(fn, ctyp, adr, mkintcon(KI32, src->s.w32[i]), volatyl);
          adr = irbinop(fn, Oadd, KPTR, dst, mkref(RICON, (i+1)*csiz));
       }
-      genstore(fn, ctyp, adr, ZEROREF); /* null term */
+      genstore(fn, ctyp, adr, ZEROREF, volatyl); /* null term */
    } else assert(0);
 }
 
@@ -3848,7 +3850,7 @@ genbitfload(Function *fn, Ref *tmpval, const Type ty, Ref *addr,
 
 static void
 genbitfstore(Function *fn, const Type ty, Ref addr,
-             const ExprGetFld *fld, Ref tmp, Ref val)
+             const ExprGetFld *fld, Ref tmp, Ref val, bool volatyl)
 {
    enum irclass k = type2cls[scalartypet(ty)];
    uint off = fld->off, bitsiz = fld->bitsiz, bitoff = fld->bitoff;
@@ -3858,7 +3860,7 @@ genbitfstore(Function *fn, const Type ty, Ref addr,
    assert(k);
    if (!tmp.bits) {
       addr = irbinop(fn, Oadd, KPTR, addr, mkintcon(KPTR, off));
-      tmp = genload(fn, ty, addr, 0);
+      tmp = genload(fn, ty, addr, volatyl);
    }
    mask = (bitsiz == 64 ? -1ull : (1ull << bitsiz) - 1) << bitoff;
 
@@ -3876,7 +3878,7 @@ genbitfstore(Function *fn, const Type ty, Ref addr,
    /* combine and write */
    if (bitsiz < bittypesize)
       val = irbinop(fn, Oior, k, tmp, val);
-   genstore(fn, ty, addr, val);
+   genstore(fn, ty, addr, val, volatyl);
 }
 
 static bool
@@ -4042,17 +4044,17 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
       else
          r = isflt(ex->ty) ? mkfltcon(type2cls[ex->ty.t], 1.0) : mkref(RICON, 1);
       bitsiz = 0;
-      if (sub[0].t == EGETF && (bitsiz = sub->fld.bitsiz)) {
+      if (sub->t == EGETF && (bitsiz = sub->fld.bitsiz)) {
          Ref tmp;
-         adr = expraddr(fn, &sub[0].sub[0]);
-         l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
+         adr = expraddr(fn, &sub->sub[0]);
+         l = genbitfload(fn, &tmp, sub->ty, &adr, &sub->fld, sub->qual & QVOLATILE);
          q = irbinop(fn, op, cls, l, r);
-         genbitfstore(fn, sub[0].ty, adr, &sub[0].fld, tmp, q);
+         genbitfstore(fn, sub->ty, adr, &sub->fld, tmp, q, sub->qual & QVOLATILE);
       } else {
          adr = expraddr(fn, sub);
          l = genload(fn, sub->ty, adr, sub->qual & QVOLATILE);
          q = irbinop(fn, op, cls, l, r);
-         genstore(fn, sub->ty, adr, q);
+         genstore(fn, sub->ty, adr, q, sub->qual & QVOLATILE);
       }
       return discard ? NOREF : l;
    case EPREINC:
@@ -4069,7 +4071,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
       adr = expraddr(fn, sub);
       l = genload(fn, sub->ty, adr, sub->qual & QVOLATILE);
       q = irbinop(fn, op, cls, l, r);
-      genstore(fn, sub->ty, adr, q);
+      genstore(fn, sub->ty, adr, q, sub[0].qual & QVOLATILE);
       if (discard) return NOREF;
       return narrow(fn, cls, ex->ty, q, 0);
    case EEQU:
@@ -4118,11 +4120,11 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
       if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
          /* bit-field */
          adr = expraddr(fn, &sub[0].sub[0]);
-         genbitfstore(fn, ex->ty, adr, &sub[0].fld, NOREF, q);
+         genbitfstore(fn, ex->ty, adr, &sub[0].fld, NOREF, q, sub[0].qual & QVOLATILE);
       } else {
          bitsiz = 0;
          adr = expraddr(fn, &sub[0]);
-         genstore(fn, ex->ty, adr, q);
+         genstore(fn, ex->ty, adr, q, sub[0].qual & QVOLATILE);
       }
       if (discard) return NOREF;
       return narrow(fn, cls, sub[0].ty, q, bitsiz);
@@ -4169,11 +4171,11 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
          adr = expraddr(fn, &sub[0].sub[0]);
          l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
          q = irbinop(fn, op, cls, l, r);
-         genbitfstore(fn, sub[0].ty, adr, &sub[0].fld, tmp, q);
+         genbitfstore(fn, sub[0].ty, adr, &sub[0].fld, tmp, q, sub[0].qual & QVOLATILE);
       } else {
          bitsiz = 0;
          adr = expraddr(fn, &sub[0]);
-         l = genload(fn, ex->ty, adr, ex->qual & QVOLATILE);
+         l = genload(fn, ex->ty, adr, sub[0].qual & QVOLATILE);
          if ((op != Oadd && op != Osub) || cls != KPTR) {
             l = scalarcvt(fn, ty, sub[0].ty, l);
             r = scalarcvt(fn, ty, sub[1].ty, r);
@@ -4182,7 +4184,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
          } else {
             q = genptroff(fn, op, typesize(typechild(ex->ty)), l, sub[1].ty, r);
          }
-         genstore(fn, ex->ty, adr, q);
+         genstore(fn, ex->ty, adr, q, sub[0].qual & QVOLATILE);
       }
       if (discard) return NOREF;
       return narrow(fn, cls, ex->ty, q, bitsiz);
@@ -4275,11 +4277,11 @@ complexload(Function *fn, Type base, Ref adr, bool volatyl)
 }
 
 static void
-complexstore(Function *fn, Type base, Ref adr, Ref2 c)
+complexstore(Function *fn, Type base, Ref adr, Ref2 c, bool volatyl)
 {
    assert(isscalar(base) && isflt(base));
-   genstore(fn, base, adr, c.a);
-   genstore(fn, base, irbinop(fn, Oadd, KPTR, adr, mkref(RICON, targ_primsizes[base.t])), c.b);
+   genstore(fn, base, adr, c.a, volatyl);
+   genstore(fn, base, irbinop(fn, Oadd, KPTR, adr, mkref(RICON, targ_primsizes[base.t])), c.b, volatyl);
 }
 
 static Ref
@@ -4291,7 +4293,7 @@ complex2addr_cvt(Function *fn, Type to, const Expr *ex)
    Type base = typechild(to);
    Ref2 uv = cvt2complex(fn, base, ex);
    Ref r = addinstr(fn, mkalloca(targ_primsizes[base.t]*2, targ_primalign[base.t]));
-   complexstore(fn, base, r, uv);
+   complexstore(fn, base, r, uv, 0);
    return r;
 }
 
@@ -4421,7 +4423,7 @@ compcomplexex(Function *fn, const Expr *ex, bool discard)
       assert(sub[0].ty.bits == ex->ty.bits);
       q = cvt2complex(fn, sty, &sub[1]);
       adr = expraddr(fn, &sub[0]);
-      complexstore(fn, sty, adr, q);
+      complexstore(fn, sty, adr, q, sub[0].qual & QVOLATILE);
       return q;
    case EPREINC:
    case EPOSTINC:
@@ -4432,7 +4434,7 @@ compcomplexex(Function *fn, const Expr *ex, bool discard)
       q = complexload(fn, sty, adr, sub->qual & QVOLATILE);
       w.a = irbinop(fn, ex->t < EPREDEC ? Oadd : Osub, cls, q.a, mkfltcon(cls, 1.0));
       w.b = q.b;
-      complexstore(fn, sty, adr, w);
+      complexstore(fn, sty, adr, w, sub->qual & QVOLATILE);
       return (ex->t == EPREINC || ex->t == EPREDEC) ? w : q;
    case ESETMUL:
    case ESETDIV:
@@ -4444,12 +4446,12 @@ compcomplexex(Function *fn, const Expr *ex, bool discard)
       q = compcomplexex(fn,
             &mkexpr(ex->t - ESETADD + EADD, ex->span, ty, .sub = (Expr *)sub), 0);
       if (sub[0].ty.bits == sub[1].ty.bits) {
-         complexstore(fn, sty, adr, q);
+         complexstore(fn, sty, adr, q, sub[0].qual & QVOLATILE);
       } else {
          Type to = typechild(sub[0].ty), from = typechild(ty);
          w.a = scalarcvt(fn, to, from, q.a);
          w.b = scalarcvt(fn, to, from, q.b);
-         complexstore(fn, sty, adr, w);
+         complexstore(fn, sty, adr, w, sub[0].qual & QVOLATILE);
       }
       return q;
    case ECALL:
@@ -5117,16 +5119,16 @@ localdecl(CComp *cm, bool forini)
                   }
                   EMITS {
                      if (ini.t == EINIT || (ty.t == TYARRAY && ini.t == ESTRLIT))
-                        geninit(fn, ty, mkref(RTMP, decl.id), &ini);
+                        geninit(fn, ty, mkref(RTMP, decl.id), &ini, decl.qual & QVOLATILE);
                      else if (isagg(ty))
                         structcopy(fn, ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));
                      else if (iscomplex(ty)) {
                         Type base = typechild(ty);
                         complexstore(fn, base, mkref(RTMP, decl.id),
-                              cvt2complex(fn, base, &ini));
+                              cvt2complex(fn, base, &ini), decl.qual & QVOLATILE);
                      } else {
                         genstore(fn, ty, mkref(RTMP, decl.id),
-                              scalarcvt(fn, ty, ini.ty, exprvalue(fn, &ini)));
+                              scalarcvt(fn, ty, ini.ty, exprvalue(fn, &ini)), decl.qual & QVOLATILE);
                      }
                   }
                } else if (decl.scls == SCEXTERN) {
@@ -5219,7 +5221,7 @@ functionbody(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uch
          EMITS {
             if (isscalar(arg.ty) && !iscomplex(arg.ty)) {
                arg.id = addinstr(fn, mkalloca(typesize(arg.ty), typealign(arg.ty))).i;
-               genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RTMP, i));
+               genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RTMP, i), /*volatile*/0);
             } else {
                arg.id = addinstr(fn, mkinstr1(Ocopy, KPTR, mkref(RTMP, i))).i;
             }

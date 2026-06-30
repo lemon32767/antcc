@@ -221,6 +221,8 @@ dumpinst(const Instr *ins)
    if (oisalloca(ins->op) && ins->l.t == RICON) {
       bfmt(out, " \t; %d bytes", ins->l.i << (ins->op - Oalloca1));
    }
+   if (ins->keep)
+      bfmt(out, " !keep");
    bfmt(out, "\n");
 }
 
