@@ -306,7 +306,7 @@ void fillblkids(Function *);
 uint numberinstrs(Function *);
 bool blkreachable(Function *fn, Block *blk);
 
-/** builder.c **/
+/** ir_builder.c **/
 Ref irbinop(Function *, enum op, enum irclass, Ref lhs, Ref rhs);
 Ref irunop(Function *, enum op, enum irclass, Ref);
 Ref addinstr(Function *, Instr);
@@ -317,20 +317,20 @@ void putcondbranch(Function *, Ref arg, Block *t, Block *f);
 void putreturn(Function *, Ref r0, Ref r1);
 void puttrap(Function *);
 
-/** fold.c **/
+/** ir_fold.c **/
 bool foldbinop(Ref *to, enum op, enum irclass, Ref l, Ref r);
 bool foldunop(Ref *to, enum op, enum irclass, Ref);
 
-/** irdump.c **/
+/** ir_irdump.c **/
 void irdump(Function *);
 
-/** mem2reg.c **/
+/** mem2ir_reg.c **/
 void mem2reg(Function *);
 
-/** ssa.c **/
+/** ir_ssa.c **/
 void copyopt(Function *);
 
-/** cfg.c **/
+/** ir_cfg.c **/
 void sortrpo(Function *);
 void filldom(Function *);
 void fillloop(Function *);
@@ -339,24 +339,24 @@ void fillloop(Function *);
 void abi0(Function *);
 void abi0_call(Function *, Instr *, Block *blk, int *curi);
 
-/** simpl.c **/
+/** ir_simpl.c **/
 void simpl(Function *);
 
-/** cselim.c **/
+/** ir_cselim.c **/
 void cselim(Function *);
 
-/** inliner.c **/
+/** ir_inliner.c **/
 bool maybeinlinee(Function *);
 int doinline(Function *);
 void emitxinlfns(bool all);
 
-/** intrin.c **/
+/** ir_intrin.c **/
 void lowerintrin(Function *);
 
-/** stack.c **/
+/** ir_stack.c **/
 void lowerstack(Function *);
 
-/** regalloc.c **/
+/** ir_regalloc.c **/
 void regalloc(Function *);
 
 /* vim:set ts=3 sw=3 expandtab: */
