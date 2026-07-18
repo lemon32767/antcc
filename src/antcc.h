@@ -108,6 +108,7 @@ typedef struct CCOption {
    bool pie, pic;
    bool werror;
    bool wnone;
+   bool ircheck;
    enum optz {
       OPT0 = -1,
       OPT1 = 1,

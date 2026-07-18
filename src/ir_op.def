@@ -1,4 +1,4 @@
-/* OP     NARG */
+/* OP     NOPER */
 _(nop,       0)
 _(copy,      1)
 _(move,      2)

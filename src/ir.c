@@ -672,8 +672,12 @@ irfini(Function *fn)
       return;
    }
 
+   if (ccopt.ircheck) ircheck(fn);
+
    abi0(fn);
    lowerintrin(fn);
+   if (ccopt.ircheck) ircheck(fn);
+
    if (ccopt.o > OPT0) {
       mem2reg(fn);
       freearena(fn->passarena);
@@ -693,6 +697,9 @@ irfini(Function *fn)
       simpl(fn);
       freearena(fn->passarena);
    }
+
+   if (ccopt.ircheck) ircheck(fn);
+
    if (maybeinlinee(fn)) {
       freearena(fn->passarena);
       return;

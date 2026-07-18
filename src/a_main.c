@@ -962,9 +962,16 @@ main(int argc, char **argv)
    for (const char *const *p = host_predefs; *p; ++p)
       predef(0, *p);
    if ((s = getenv("ANTCC_GNUC")) && *s && strchr("1yYtT", *s)) {
+      vrbfmt("mocking gcc 4.2.1\n");
       predef(0, "__GNUC__=4");
       predef(0, "__GNUC_MINOR__=2");
       predef(0, "__GNUC_PATCH__=1");
+   }
+
+   if ((s = getenv("ANTCC_IRCHECK")) && *s && strchr("1yYtT", *s)) {
+      // TODO a better way to do this
+      vrbfmt("IR checking enabled\n");
+      ccopt.ircheck = 1;
    }
 
    return driver();

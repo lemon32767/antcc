@@ -247,7 +247,7 @@ vaarg(Function *fn, Block *blk, int *curi)
       {
          /* phi0: &l->reg_save_area[l->gp/fp_offset] */
          Ref sav = addinstr(fn, mkinstr1(Oloadi64, KPTR, irbinop(fn, Oadd, KPTR, ap, mkref(RICON, 16))));
-         phiargs[0] = irbinop(fn, Oadd, KPTR, sav, roff);
+         phiargs[0] = irbinop(fn, Oadd, KPTR, sav, irunop(fn, Oexts32, KI64, roff));
          /* l->gp/fp_offset += num_gp/fp * 8(16) */
          roff = irbinop(fn, Oadd, KI32, roff, mkref(RICON, ni ? ni * 8 : nf * 16));
          addinstr(fn, mkinstr2(Ostorei32, 0, irbinop(fn, Oadd, KPTR, ap, mkref(RICON, ni ? 0 : 4)), roff));

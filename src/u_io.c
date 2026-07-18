@@ -1,6 +1,7 @@
 #define _DEFAULT_SOURCE
 #include "c_lex.h"
 #include "u_hash.h"
+#include "ir.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -639,6 +640,13 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap)
          iowrite(buf, &"C89\0C99\0C11\0C23"[ccopt.cstd*4], 3);
          n += 3;
          n += bwriteS(buf, " mode");
+         break;
+      case 'k': /* enum irclass */
+         i = va_arg(ap, int);
+         n += putstr(buf, (uint)i < countof(clsname) ? clsname[i] : "?", -1, 0, 0);
+         break;
+      case 'r': /* ir ref */
+         n += dumpref(buf, 0, va_arg(ap, Ref));
          break;
       default:
          if (umod || lmod) {

@@ -322,6 +322,9 @@ bool foldbinop(Ref *to, enum op, enum irclass, Ref l, Ref r);
 bool foldunop(Ref *to, enum op, enum irclass, Ref);
 
 /** ir_irdump.c **/
+int dumpref(WriteBuf *, enum op, Ref);
+void dumpinstr(WriteBuf *, const Instr *);
+extern const char *clsname[KF64+1];
 void irdump(Function *);
 
 /** mem2ir_reg.c **/
@@ -358,5 +361,8 @@ void lowerstack(Function *);
 
 /** ir_regalloc.c **/
 void regalloc(Function *);
+
+/** ir_check.c **/
+void ircheck(Function *);
 
 /* vim:set ts=3 sw=3 expandtab: */
