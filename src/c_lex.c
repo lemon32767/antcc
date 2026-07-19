@@ -2103,7 +2103,6 @@ handlepragma(Lexer *lx, const Span *span, const char *str, uint len)
       /* #pragma once */
       markfileonce(lx->fileid, NULL);
    } else if (prgstrmatch(&str, &len, "pack")) {
-      Token tk;
       /* #pragma pack */
       if (*str == '(') ++str, --len;
       else warn(span, "missing '(' after #pragma pack");
