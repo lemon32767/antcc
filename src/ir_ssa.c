@@ -14,7 +14,7 @@ copyopt(Function *fn)
          for (int j = 1; j < blk->npred; ++j) {
             if (arg[j].bits != arg->bits) goto Next;
          }
-         replcuses(mkref(RTMP, phi), *arg);
+         replcuses(mkref(RTMP, phi), *arg, NULL);
          delphi(blk, i--);
       Next:;
       }
@@ -31,7 +31,7 @@ copyopt(Function *fn)
             else continue;
             if (ins->cls != k) continue;
 
-            replcuses(var, arg);
+            replcuses(var, arg, NULL);
             if (arg.t == RTMP)
                deluse(blk, var.i, arg);
             *ins = mkinstr0(Onop,0);

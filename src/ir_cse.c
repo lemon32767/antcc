@@ -33,16 +33,7 @@ hashins(const Instr *ins)
    return hashb(0, ins, sizeof *ins);
 }
 
-static bool
-doms(Block *blk, Block *b)
-{
-   for (;; b = b->idom) {
-      if (blk == b) return 1;
-      if (blk == b->idom) return 1;
-      if (blk->id > b->id) return 0;
-   }
-}
-
+enum { MAXBLOCKDIST = 3 };
 static int
 uniq(int t, Block *blk, int cutoff, int memno)
 {
@@ -57,7 +48,10 @@ uniq(int t, Block *blk, int cutoff, int memno)
          p->cutoff = cutoff;
          return p->t = t;
       } else if (insequ(&instrtab[p->t], ins)) {
-         if (p->cutoff == cutoff && (!oisload(ins->op) || p->memno == memno) && doms(p->b, blk))
+         if (p->cutoff == cutoff
+          && blk->id - p->b->id < MAXBLOCKDIST
+          && (!oisload(ins->op) || p->memno == memno)
+          && dominates(p->b, blk))
             return p->t;
          goto Put;
       }
@@ -78,7 +72,7 @@ cselim(Function *fn)
       for (int i = 0; i < blk->ins.n; ++i) {
          int t = blk->ins.p[i], q;
          if ((q = uniq(t, blk, cutoff, memno)) != t) {
-            replcuses(mkref(RTMP, t), mkref(RTMP, q));
+            replcuses(mkref(RTMP, t), mkref(RTMP, q), NULL);
             delinstr(blk, i--);
          } else if (oisstore(instrtab[t].op)) {
             /* assume everything alias everything */

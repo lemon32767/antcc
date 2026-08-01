@@ -65,7 +65,7 @@ deltrivialphis(SSABuilder *sb, Var *var, Block *blk, Ref phiref)
       same = UNDREF; /* the phi is unreachable or in the start block */
 
    /* replace uses */
-   replcuses(phiref, same);
+   replcuses(phiref, same, NULL);
    for (int i = blk->id; i < sb->nblk; ++i) {
       if (var->curdefs[i].bits == phiref.bits)
          var->curdefs[i] = same;

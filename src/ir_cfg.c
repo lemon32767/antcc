@@ -1,4 +1,5 @@
 #include "ir.h"
+#include "u_bits.h"
 
 static void
 porec(int *nblk, Block ***rpo, Block *b)
@@ -95,36 +96,15 @@ filldom(Function *fn)
    fn->prop |= FNBLKID | FNDOM;
 }
 
-static void
-loopmark(Block *head, Block *blk)
+/* requires dom, rpo */
+bool
+dominates(Block *B, Block *b)
 {
-   if (blk->id < head->id || blk->visit == head->id) return;
-   blk->visit = head->id;
-   ++blk->loop;
-   for (int i = 0; i < blk->npred; ++i)
-      loopmark(head, blkpred(blk, i));
-}
-
-void
-fillloop(Function *fn)
-{
-   Block *b = fn->entry;
-   int id = 0;
-   FREQUIRE(FNRPO);
-   do {
-      b->id = id++;
-      b->visit = -1u;
-      b->loop = 0;
-   } while ((b = b->lnext) != fn->entry);
-   do {
-      for (int i = 0; i < b->npred; ++i) {
-         Block *p = blkpred(b, i);
-         if (p->id > b->id) { /* b is loop header */
-            loopmark(b, p);
-         }
-      }
-   } while ((b = b->lnext) != fn->entry);
-   fn->prop |= FNBLKID;
+   for (;; b = b->idom) {
+      if (B == b) return 1;
+      if (B == b->idom) return 1;
+      if (B->id > b->id) return 0;
+   }
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

@@ -90,7 +90,7 @@ doins(Instr *ins, Block *blk, int *curi)
                         : irbinop(NULL, ins->op, ins->cls, ins->l, ins->r);
       if (r.bits) {
          *ins = mkinstr0(Onop,0);
-         replcuses(mkref(RTMP, ins - instrtab), r);
+         replcuses(mkref(RTMP, ins - instrtab), r, NULL);
          deluses(ins - instrtab);
          return 1;
       }
@@ -103,7 +103,7 @@ doins(Instr *ins, Block *blk, int *curi)
        || (kisint(k) && ins->l.t == RICON)) {
          Ref it = ins->l;
          *ins = mkinstr0(Onop,0);
-         replcuses(mkref(RTMP, ins - instrtab), it);
+         replcuses(mkref(RTMP, ins - instrtab), it, NULL);
          deluses(ins - instrtab);
          return 1;
       }
@@ -210,13 +210,14 @@ mergeblks(Function *fn, Block *p, Block *s)
    freeblk(fn, s);
 }
 
-void
+int
 simpl(Function *fn)
 {
    FREQUIRE(FNUSE);
    int blkchange = 0;
    Block **jmpfinal = allocz(fn->passarena, fn->nblk * sizeof *jmpfinal, 0);
    Block *blk = fn->entry;
+   int changed = 0;
 
    do {
       /* merge blocks:
@@ -234,11 +235,13 @@ simpl(Function *fn)
        * */
       if (blk != fn->entry) while (blk->s1 && !blk->s2 && blk->s1->npred == 1 && !blk->s1->phi.n) {
          mergeblks(fn, blk, blk->s1);
+         changed = 1;
       }
    } while ((blk = blk->lnext) != fn->entry);
 
    if (!(fn->prop & FNUSE)) filluses(fn);
 
+   bool chgins = 0;
    do {
       for (int i = 0; i < blk->phi.n; ++i) {
          int phi = blk->phi.p[i];
@@ -250,8 +253,9 @@ simpl(Function *fn)
             if (args[j].bits != same.bits) goto Next;
          }
          if (!(fn->prop & FNUSE)) filluses(fn);
-         replcuses(mkref(RTMP, phi), same);
+         replcuses(mkref(RTMP, phi), same, NULL);
          delphi(blk, i);
+         chgins = 1;
          Next:;
       }
 
@@ -261,7 +265,7 @@ simpl(Function *fn)
          Instr *ins = &instrtab[blk->ins.p[curi]];
          if (ins->op != Onop) {
             if (!(fn->prop & FNUSE)) filluses(fn);
-            doins(ins, blk, &curi);
+            chgins += doins(ins, blk, &curi);
          }
       }
 
@@ -289,6 +293,7 @@ simpl(Function *fn)
          }
       }
    } while ((blk = blk->lnext) != fn->entry);
+   changed += chgins;
 
    if (blkchange) {
       do {
@@ -301,9 +306,11 @@ simpl(Function *fn)
       } while ((blk = blk->lnext) != fn->entry);
       fillpreds(fn);
       sortrpo(fn);
+      ++changed;
    }
    if (!(fn->prop & FNUSE)) filluses(fn);
    fn->prop &= ~FNDOM;
+   return changed;
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

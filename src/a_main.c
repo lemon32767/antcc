@@ -885,7 +885,7 @@ prihelp(void)
         " -help   \tPrint this help message\n"
         " -std=<..> \tSet C standard (c89, c99, c11, c23)\n"
         " -pedantic \tWarnings for strict standards compliance\n"
-        " -d{pamyosilr} \tDebug print IR after {parse, abi, mem, inlining, opts, stack, isel, live, rega}\n"
+        " -d{pamyosilr} \tDebug print IR after {parse, abi, mem, inlining, opts, stack, isel, loop, rega}\n"
         " -o <file> \tPlace the output into <file>\n"
         " -v     \tVerbose output\n"
         " -c     \tEmit object file but do not link\n"

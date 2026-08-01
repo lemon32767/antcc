@@ -212,6 +212,16 @@ addinstr(Function *fn, Instr ins)
    return mkref(RTMP, new);
 }
 
+Ref
+foldaddinstr(Function *fn, Instr ins)
+{
+   if (oisarith(ins.op)) {
+      return ins.op < Oadd ? irunop(fn, ins.op, ins.cls, ins.l) 
+                           : irbinop(fn, ins.op, ins.cls, ins.l, ins.r);
+   }
+   return addinstr(fn, ins);
+}
+
 void
 useblk(Function *fn, Block *blk)
 {

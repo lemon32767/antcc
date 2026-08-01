@@ -129,12 +129,14 @@ static_assert(sizeof(Instr) == 4*4);
 enum jumpkind { JXXX, Jb, Jret, Jtrap, };
 
 typedef struct Block Block;
+typedef struct Loop Loop;
 struct Block {
    int id;
    int npred;
    int visit;
-   ushort loop;
    int inumstart;
+   ushort loopdepth;
+   Loop *loop;
    union {
       Block *_pred0;
       Block **_pred;
@@ -173,11 +175,25 @@ rsiter(int *i, u64int rs)
    return 1;
 }
 
+struct Loop {
+   Loop *next;
+   Loop *parent;
+   Block *head,
+         *end;
+   Block *prehead,
+         *latch;
+   struct BlkList {
+      struct BlkList *next;
+      Block *b;
+   } *exits;
+};
+
 enum fnprop {
    FNBLKID = 1<<0,
    FNUSE   = 1<<1,
    FNRPO   = 1<<2,
    FNDOM   = 1<<3,
+   FNLOOP  = 1<<4,
 };
 typedef struct Function {
    Arena **arena, **passarena;
@@ -195,6 +211,7 @@ typedef struct Function {
    bool isleaf;
    bool inlin;
    regset regusage;
+   Loop *loops;
 } Function;
 
 #define FREQUIRE(_prop) assert((fn->prop & (_prop)) == (_prop) && "preconditions not met")
@@ -291,14 +308,14 @@ void adduse(Block *ublk, int ui, Ref r);
 int newinstr(Block *at, Instr ins);
 Ref insertinstr(Block *, int idx, Instr);
 Ref insertphi(Block *, enum irclass cls);
-void replcuses(Ref from, Ref to);
+void replcuses(Ref from, Ref to, Block *at);
 bool deluse(Block *ublk, int ui, Ref r);
 void deluses(int ins);
 void filluses(Function *);
 void delinstr(Block *, int idx);
 void delphi(Block *, int idx);
 void delnops(Block *blk);
-void delpred(Block *blk, Block *p);
+int delpred(Block *blk, Block *p);
 void fillblkids(Function *);
 #define startbbvisit() (void)(++visitmark)
 #define wasvisited(blk) ((blk)->visit == visitmark)
@@ -310,6 +327,7 @@ bool blkreachable(Function *fn, Block *blk);
 Ref irbinop(Function *, enum op, enum irclass, Ref lhs, Ref rhs);
 Ref irunop(Function *, enum op, enum irclass, Ref);
 Ref addinstr(Function *, Instr);
+Ref foldaddinstr(Function *, Instr);
 Ref addphi(Function *, enum irclass, Ref []);
 void useblk(Function *, Block *);
 void putbranch(Function *, Block *);
@@ -336,14 +354,18 @@ void copyopt(Function *);
 /** ir_cfg.c **/
 void sortrpo(Function *);
 void filldom(Function *);
-void fillloop(Function *);
+bool dominates(Block *B, Block *b);
 
 /** abi0.c **/
 void abi0(Function *);
 void abi0_call(Function *, Instr *, Block *blk, int *curi);
 
+/** ir_loop.c **/
+void fillloop(Function *);
+int loopopt(Function *);
+
 /** ir_simpl.c **/
-void simpl(Function *);
+int simpl(Function *);
 
 /** ir_cselim.c **/
 void cselim(Function *);

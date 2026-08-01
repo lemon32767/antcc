@@ -248,7 +248,7 @@ addpred(Block *blk, Block *p)
    xbpush(&blk->_pred, &blk->npred, p);
 }
 
-void
+int
 delpred(Block *blk, Block *p)
 {
    for (int i = 0; i < blk->npred; ++i) {
@@ -267,10 +267,11 @@ delpred(Block *blk, Block *p)
             xbfree(blk->_pred);
             blk->_pred0 = p0;
          }
-         return;
+         return i;
       }
    }
    //assert(0&&"blk not in p");
+   return -1;
 }
 
 Block *
@@ -329,6 +330,10 @@ insertblk(Function *fn, Block *pred, Block *subst)
    *s = new;
    new->jmp.t = Jb;
    new->s1 = subst;
+   new->loop = pred->loop;
+   new->loopdepth = pred->loopdepth;
+   new->idom = pred;
+   if (subst->idom == pred) subst->idom = new;
    addpred(new, pred);
    for (int i = 0; i < subst->npred; ++i) {
       if (blkpred(subst, i) == pred) {
@@ -539,7 +544,7 @@ blkreachable(Function *fn, Block *blk)
 
 /* require use */
 void
-replcuses(Ref from, Ref to)
+replcuses(Ref from, Ref to, Block *at)
 {
    assert(from.t == RTMP);
    for (IRUse *use, *next = instruse[from.i]; (use = next);) {
@@ -547,6 +552,7 @@ replcuses(Ref from, Ref to)
       int n;
       next = use->next;
       if (use->u == from.i) continue;
+      if (at && use->blk != at) continue;
       if (use->u == USERJUMP) {
          u = &use->blk->jmp.arg[0];
          n = 2;
@@ -684,18 +690,28 @@ irfini(Function *fn)
       copyopt(fn);
    }
    if (ccopt.o >= OPT1) {
-      if (doinline(fn)) {
-         filluses(fn);
-         copyopt(fn);
-         mem2reg(fn);
-      }
-      freearena(fn->passarena);
-      filldom(fn);
-      if (!(fn->prop & FNUSE)) filluses(fn);
-      cselim(fn);
-      freearena(fn->passarena);
-      simpl(fn);
-      freearena(fn->passarena);
+      int redo, fuel = 3;
+      do {
+         redo = 0;
+         if (doinline(fn)) {
+            redo = 1;
+            filluses(fn);
+            copyopt(fn);
+            mem2reg(fn);
+         }
+         freearena(fn->passarena);
+         filldom(fn);
+         if (!(fn->prop & FNUSE)) filluses(fn);
+         redo += loopopt(fn);
+         freearena(fn->passarena);
+         if (ccopt.ircheck) ircheck(fn);
+         if (!(fn->prop & FNUSE)) filluses(fn);
+         filldom(fn);
+         cselim(fn);
+         freearena(fn->passarena);
+         redo += simpl(fn);
+         freearena(fn->passarena);
+      } while (redo > 1 && --fuel > 0);
    }
 
    if (ccopt.ircheck) ircheck(fn);

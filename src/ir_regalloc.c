@@ -391,7 +391,7 @@ static inline void
 incrcost(Interval *it, Block *blk)
 {
    /* treat each loop as executing instr 8 times */
-   it->cost += 1 << (blk->loop * 3);
+   it->cost += 1 << (blk->loopdepth * 3);
 }
 
 static bool
@@ -698,14 +698,16 @@ buildintervals(RegAlloc *ra)
       Block *loopend = NULL;
       for (int i = 0; i < blk->npred; ++i) {
          Block *pred = blkpred(blk, i);
-         if (pred->id > blk->id)
+         /* pred->id > blk->id identifies a backedge; a self-loop has
+          * pred == blk (ids equal), so use >= to catch it too */
+         if (pred->id >= blk->id)
             loopend = loopend && loopend->id > pred->id ? loopend : pred;
       }
       if (loopend) {
          if (loops) DBG("@lp @%d\n", blk->id);
          for (struct Loop *l = loops; l; l = l->next) {
             /* a nested loop might end later than loopend, which lengthens this outer loop. */
-            /* XXX is this correct? more loop analysis might be required? */
+            /* for irreducible CFGs, this is overly conservative */
             if (l->hdr->id > loopend->id) break;
             DBG("  check <@%d-@%d>\n", l->hdr->id, l->end->id);
             if (l->hdr->id > blk->id && l->hdr->id < loopend->id && l->end->id > loopend->id)
@@ -1324,6 +1326,7 @@ regalloc(Function *fn)
    fixcssa(fn);
 
    fillblkids(fn);
+   filldom(fn);
    fillloop(fn);
 
    if (ccopt.dbg.r) {
