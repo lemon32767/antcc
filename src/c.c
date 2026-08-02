@@ -1031,10 +1031,20 @@ static Expr initializer(CComp *, Type *ty, uint align, enum evalmode ev,
 static void block(CComp *, Ref *stmtexprval, Type *stmtexprty);
 
 static internstr istr__func__, istr_main, istr_memset;
-
 static internstr mkhiddensym(const char *fnname, const char *name, int id);
 
 static uint declalign(const Decl *d);
+
+static Expr
+compoundliteral(CComp *cm, Decl *decl, const Span *span)
+{
+   static bool warned = 0;
+   if (ccopt.cstd < STDC99 && !warned)
+      warn(span, "compound literals are a c99 feature"), warned = 1;
+   return initializer(cm, &decl->ty, declalign(decl),
+                     (decl->scls & SCSTATIC) ? EVSTATICINI : EVFOLD,
+                     /*globl*/ 0, decl->qual, /*name*/ NULL);
+}
 
 /* parse an expression with the given operator precedence */
 /* param ident is a kludge to support block labels without backtracking or extra lookahead
@@ -1126,11 +1136,7 @@ Unary:
          if (expect(cm, ')', NULL))
             joinspan(&span.ex, tk.span.ex);
          if (peek(cm, NULL) == '{') {
-            if (ccopt.cstd < STDC99)
-               warn(&tk.span, "compound literals are a c99 feature");
-            ex = initializer(cm, &decl.ty, declalign(&decl),
-                             (decl.scls & SCSTATIC) ? EVSTATICINI : EVFOLD,
-                             /*globl*/ 0, decl.qual, NULL);
+            ex = compoundliteral(cm, &decl, &tk.span);
             break;
          }
          unops[nunop].span = span;
@@ -1196,24 +1202,31 @@ Unary:
    case TKWsizeof: case TKW_Alignof: case TKWalignof: {
       enum toktag tt = tk.t;
       uint res;
+      Expr tmp;
       span = tk.span;
       if (!match(cm, NULL, '(')) /* sizeof/alignof expr */
          goto Unops;
       else if (isdecltok(cm)) { /* sizeof/alignof (type) */
          DeclState st = { DCASTEXPR };
-         ty = pdecl(&st, cm).ty;
+         Decl decl = pdecl(&st, cm);
          peek(cm, &tk);
          if (expect(cm, ')', NULL))
             joinspan(&span.ex, tk.span.ex);
-         res = sizeofalignofcheck(&span, tt, ty, NULL);
-      } else { /* sizeof/alignof expr */
-         Expr tmp = commaexpr(cm);
+         if (peek(cm, &tk) == '{') { /* actually sizeof (type){..} -> compound literal expr */
+            joinspan(&span.ex, tk.span.ex);
+            tmp = compoundliteral(cm, &decl, &span);
+            joinspan(&span.ex, tmp.span.ex);
+            goto SizeofExpr;
+         }
+         res = sizeofalignofcheck(&span, tt, decl.ty, NULL);
+      } else { /* sizeof/alignof (expr) */
+         tmp = commaexpr(cm);
          peek(cm, &tk);
          if (expect(cm, ')', NULL))
             joinspan(&span.ex, tk.span.ex);
+      SizeofExpr:
          ppostfixopers(cm, &tmp);
-         ty = tmp.ty;
-         res = sizeofalignofcheck(&span, tt, ty, &tmp);
+         res = sizeofalignofcheck(&span, tt, tmp.ty, &tmp);
       }
       ex = mkexpr(ENUMLIT, span, mktype(targ_sizetype), .u = res);
       break; }
