@@ -22,16 +22,19 @@ mulk(Instr *ins, Block *blk, int *curi)
       ins->op = Oadd;
       ins->r = ins->l;
       ins->l = insertinstr(blk, (*curi)++, mkinstr2(Oshl, cls, ins->l, mkref(RICON, ilog2(iv-1))));
+      adduse(blk, ins-instrtab, ins->l);
    } else if (ispo2(iv+1)) {
       /* x * 7 ==> (x << 3) - x */
       ins->op = Osub;
       ins->r = ins->l;
       ins->l = insertinstr(blk, (*curi)++, mkinstr2(Oshl, cls, ins->l, mkref(RICON, ilog2(iv+1))));
+      adduse(blk, ins-instrtab, ins->l);
    } else return 0;
    if (neg) {
       ins->l = insertinstr(blk, (*curi)++, *ins);
       ins->op = Oneg;
       ins->r = NOREF;
+      adduse(blk, ins-instrtab, ins->l);
    }
    return 1;
 }
