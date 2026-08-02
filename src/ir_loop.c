@@ -25,8 +25,7 @@ uniqedge(Function *fn, Block *head, int *ipred, Block **via, int *ipredvia0)
    } else {
       if (!(*via)->visit) {
          *via = insertblk(fn, *via, head);
-         (*via)->visit = 1;
-         (*via)->id = -fn->nblk;
+         (*via)->visit = -1;
          for (int j = 0; j < head->phi.n; ++j) {
             Instr *old = &instrtab[head->phi.p[j]];
             Ref new = insertphi(*via, old->cls);
@@ -168,7 +167,6 @@ loopinv(Function *fn, Loop *l)
 
    Block *guard = head0; /* reuse H0 for G */
    Block *head1 = insertblk(fn, guard, body); /* G -> H1 -> B */
-   head1->id = -fn->nblk;
 
    /* H1.phi move= H0.phi */
    head1->phi = head0->phi, memset(&head0->phi, 0, sizeof head0->phi);
@@ -248,9 +246,9 @@ loopopt(Function *fn)
 static int
 loopmark(Loop *l, Block *blk)
 {
-   if (blk->id < l->head->id || blk->visit == l->head->id) return 0;
+   if (blk->id < l->head->id || blk->visit == -l->head->id) return 0;
    if (dominates(l->head, blk)) {
-      blk->visit = l->head->id;
+      blk->visit = -l->head->id;
       ++blk->loopdepth;
       int irreducible = 0;
       for (int i = 0; i < blk->npred; ++i)
@@ -296,12 +294,12 @@ fillloop(Function *fn)
 
          /* mark each loop body block and gather loop exits */
          for (Block *in = l->end; in != b->lprev; in = in->lprev) {
-            if (in->visit == b->id) {
+            if (in->visit == -b->id) {
                in->loop = l;
                for (int is = 0; is < 2; ++is) {
                   Block *s = (&in->s1)[is];
-                  if (s && s->visit != b->id && s->visit != -b->id) {
-                     s->visit = -b->id;
+                  if (s && s->visit != -b->id && s->visit != 0xdeadbeef) {
+                     s->visit = 0xdeadbeef;
                      struct BlkList xs = {l->exits, s};
                      l->exits = alloccopy(fn->passarena, &xs, sizeof xs, 0);
                   }

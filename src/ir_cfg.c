@@ -56,6 +56,28 @@ sortrpo(Function *fn)
    fn->prop |= FNBLKID | FNRPO;
 }
 
+
+static void
+gcmark(Block *b)
+{
+   if (wasvisited(b)) return;
+   markvisited(b);
+   if (b->s2) gcmark(b->s2);
+   if (b->s1) gcmark(b->s1);
+}
+
+void
+deldeadblks(Function *fn)
+{
+   Block *b = fn->entry, *next;
+   startbbvisit();
+   gcmark(b);
+   do {
+      next = b->lnext;
+      if (!wasvisited(b)) freeblk(fn, b);
+   } while ((b = next) != fn->entry);
+}
+
 /* also blkid */
 void
 filldom(Function *fn)

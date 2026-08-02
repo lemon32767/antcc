@@ -353,6 +353,7 @@ void copyopt(Function *);
 
 /** ir_cfg.c **/
 void sortrpo(Function *);
+void deldeadblks(Function *);
 void filldom(Function *);
 bool dominates(Block *B, Block *b);
 

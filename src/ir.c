@@ -274,11 +274,16 @@ delpred(Block *blk, Block *p)
    return -1;
 }
 
+enum {
+   BLKUNINIT  = -(1<<30),
+   BLKDELETED = (1<<30),
+};
+
 Block *
 newblk(Function *fn)
 {
    Block *blk = allocz(fn->arena, sizeof(Block), 0);
-   blk->id = -1;
+   blk->id = BLKUNINIT;
    return blk;
 }
 
@@ -310,11 +315,11 @@ freeblk(Function *fn, Block *blk)
    if (blk->s2) delpred(blk->s2, blk);
    vfree(&blk->phi);
    vfree(&blk->ins);
-   if (blk->id != -1)
+   if (blk->id != BLKUNINIT)
       --fn->nblk;
    if (blk->lprev) blk->lprev->lnext = blk->lnext;
    if (blk->lnext) blk->lnext->lprev = blk->lprev;
-   blk->id = 1u<<31;
+   blk->id = BLKDELETED;
 }
 
 Block *
@@ -339,6 +344,7 @@ insertblk(Function *fn, Block *pred, Block *subst)
       if (blkpred(subst, i) == pred) {
          blkpred(subst, i) = new;
          ++fn->nblk;
+         new->id = -fn->nblk;
          return new;
       }
    }
@@ -373,6 +379,7 @@ blksplitafter(Function *fn, Block *blk, int idx)
       }
    }
    new->s1 = blk->s1, new->s2 = blk->s2;
+   new->id = -fn->nblk;
    blk->s1 = new, blk->s2 = NULL;
    addpred(new, blk);
    fn->prop &= ~FNUSE;

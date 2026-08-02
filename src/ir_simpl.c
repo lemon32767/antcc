@@ -221,6 +221,7 @@ simpl(Function *fn)
    Block **jmpfinal = allocz(fn->passarena, fn->nblk * sizeof *jmpfinal, 0);
    Block *blk = fn->entry;
    int changed = 0;
+   bool cleancfg = 0;
 
    do {
       /* merge blocks:
@@ -276,6 +277,7 @@ simpl(Function *fn)
          /* simplify known conditional branch */
          Block *s = intconval(blk->jmp.arg[0]) ? blk->s1 : blk->s2;
          delpred(s == blk->s1 ? blk->s2 : blk->s1, blk);
+         cleancfg = 1;
          blk->s1 = s, blk->s2 = NULL;
          blk->jmp.arg[0] = NOREF;
          if (blk->s1 && !blk->s2 && blk->s1->npred == 1 && blk->s1->phi.n == 0) {
@@ -297,6 +299,8 @@ simpl(Function *fn)
       }
    } while ((blk = blk->lnext) != fn->entry);
    changed += chgins;
+   if (cleancfg)
+      deldeadblks(fn);
 
    if (blkchange) {
       do {
