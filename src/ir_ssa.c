@@ -10,7 +10,7 @@ copyopt(Function *fn)
       for (int i = 0; i < blk->phi.n; ++i) {
          /* simplify same-arg phi */
          int phi = blk->phi.p[i];
-         Ref *arg = phitab.p[instrtab[phi].l.i];
+         Ref *arg = phiargs(phi);
          for (int j = 1; j < blk->npred; ++j) {
             if (arg[j].bits != arg->bits) goto Next;
          }

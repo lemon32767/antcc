@@ -254,9 +254,9 @@ delpred(Block *blk, Block *p)
    for (int i = 0; i < blk->npred; ++i) {
       if (blkpred(blk, i) == p) {
          for (int j = 0; j < blk->phi.n; ++j) {
-            Ref *phiargs = phitab.p[instrtab[blk->phi.p[j]].l.i];
+            Ref *args = phiargs(blk->phi.p[j]);
             for (int k = i; k < blk->npred - 1; ++k) {
-               phiargs[k] = phiargs[k + 1];
+               args[k] = args[k + 1];
             }
          }
          for (int k = i; k < blk->npred - 1; ++k) {
@@ -297,7 +297,7 @@ freeblk(Function *fn, Block *blk)
 
    for (int i = 0; i < blk->phi.n; ++i) {
       int ui = blk->phi.p[i];
-      Ref *r = phitab.p[instrtab[ui].l.i];
+      Ref *r = phiargs(ui);
       for (int j = 0; j < blk->npred; ++j) {
          deluse(blk, ui, *r);
       }
@@ -459,7 +459,7 @@ filluses(Function *fn)
    do {
       for (int i = 0; i < blk->phi.n; ++i) {
          int ins = blk->phi.p[i];
-         Ref *phi = phitab.p[instrtab[ins].l.i];
+         Ref *phi = phiargs(ins);
          for (int i = 0; i < blk->npred; ++i)
             adduse(blk, ins, phi[i]);
       }
@@ -566,7 +566,7 @@ replcuses(Ref from, Ref to, Block *at)
       } else if (!instrtab[use->u].op) { /* dead */
          continue;
       } else if (instrtab[use->u].op == Ophi) {
-         u = phitab.p[instrtab[use->u].l.i];
+         u = phiargs(use->u);
          n = use->blk->npred;
          if (use->blk->phi.n == 0) continue; /* shouldn't happen */
       } else {

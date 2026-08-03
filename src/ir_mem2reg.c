@@ -50,7 +50,7 @@ static Ref
 deltrivialphis(SSABuilder *sb, Var *var, Block *blk, Ref phiref)
 {
    assert(instrtab[phiref.i].op == Ophi);
-   Ref *args = phitab.p[instrtab[phiref.i].l.i];
+   Ref *args = phiargs(phiref.i);
    Ref same = {0};
    for (int i = 0; i < blk->npred; ++i) {
       if (args[i].bits == same.bits || args[i].bits == phiref.bits) {
@@ -93,7 +93,7 @@ deltrivialphis(SSABuilder *sb, Var *var, Block *blk, Ref phiref)
 static Ref
 addphiargs(SSABuilder *sb, Var *var, enum irclass cls, Block *blk, Ref phiref)
 {
-   Ref *args = phitab.p[instrtab[phiref.i].l.i];
+   Ref *args = phiargs(phiref.i);
    for (int i = 0; i < blk->npred; ++i) {
       Block *pred = blkpred(blk, i);
       args[i] = readvar(sb, var, cls, pred);

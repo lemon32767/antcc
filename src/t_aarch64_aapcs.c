@@ -229,7 +229,7 @@ vaarg(Function *fn, Block *blk, int *curi)
    int regwidth = nvr ? 16 : 8,
        xr_offs_off = nvr ? VL_VR_OFFS_OFF : VL_GR_OFFS_OFF,
        xr_top_off = nvr ? VL_VR_TOP_OFF : VL_GR_TOP_OFF;
-   Ref poffs, tmp, offs, phiargs[2];
+   Ref poffs, tmp, offs, args[2];
    Block *end, *on_stack, *regsave1;
    if (ret > 0) { /* uses regs. not HFA */
       assert((ngr > 0) ^ (nvr > 0)); /* either all GRs or all VRs */
@@ -253,7 +253,7 @@ vaarg(Function *fn, Block *blk, int *curi)
       tmp = irbinop(fn, Oadd, KPTR, ap, mkref(RICON, xr_top_off));
       tmp = addinstr(fn, mkinstr1(Oloadi64, KPTR, tmp));
       tmp = irbinop(fn, Oadd, KPTR, tmp, offs); /* ap->Xr_top + offs */
-      phiargs[0] = tmp;
+      args[0] = tmp;
       putbranch(fn, end);
    } else {
       assert(ty.isagg);
@@ -267,7 +267,7 @@ vaarg(Function *fn, Block *blk, int *curi)
       tmp = irbinop(fn, Oadd, KPTR, arg, mkintcon(KPTR, typsiz + 7));
       tmp = irbinop(fn, Oand, KPTR, tmp, mkintcon(KPTR, -8));
       addinstr(fn, mkinstr2(Ostorei64, 0, ap, tmp)); /* ap->stack = (arg + sizeof(type)+7) & -8 */
-      phiargs[1] = arg;
+      args[1] = arg;
       putbranch(fn, end);
    }
    assert(end->npred == 2);
@@ -275,7 +275,7 @@ vaarg(Function *fn, Block *blk, int *curi)
    memmove(end->ins.p+1, end->ins.p, (end->ins.n-1)*sizeof *end->ins.p);
    end->ins.p[0] = var;
    Ref phi = insertphi(end, KPTR);
-   memcpy(phitab.p[instrtab[phi.i].l.i], phiargs, sizeof phiargs);
+   memcpy(phiargs(phi.i), args, sizeof args);
    fn->prop &= ~FNUSE;
    if (!ty.isagg) {
       /* *(type *)arg */

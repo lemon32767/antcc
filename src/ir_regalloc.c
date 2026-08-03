@@ -332,7 +332,7 @@ fixcssa(Function *fn)
          }
          for (int i = 0; i < blk->phi.n; ++i) {
             int phi = blk->phi.p[i];
-            Ref *args = phitab.p[instrtab[phi].l.i];
+            Ref *args = phiargs(phi);
             args[p] = insertinstr(n, n->ins.n, mkinstr1(Ocopy, instrtab[phi].cls, args[p]));
          }
       }

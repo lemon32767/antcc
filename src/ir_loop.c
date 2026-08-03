@@ -30,7 +30,7 @@ uniqedge(Function *fn, Block *head, int *ipred, Block **via, int *ipredvia0)
             Instr *old = &instrtab[head->phi.p[j]];
             Ref new = insertphi(*via, old->cls);
             Ref input = phitab.p[old->l.i][*ipredvia0];
-            phitab.p[instrtab[new.i].l.i][0] = input;
+            phiargs(new.i)[0] = input;
             phitab.p[old->l.i][*ipredvia0] = new;
             fn->prop &=~ FNUSE;
          }
@@ -90,7 +90,7 @@ caninvert(Loop *l, Block **exit)
    int backinputs[16];
    int nphi = h->phi.n;
    for (int i = 0; i < nphi; ++i) {
-      Ref r = phitab.p[instrtab[h->phi.p[i]].l.i][ibkedge];
+      Ref r = phiargs(h->phi.p[i])[ibkedge];
       if (r.t == RTMP) backinputs[i] = r.i;
       else backinputs[i] = -1;
    }
@@ -206,7 +206,7 @@ loopinv(Function *fn, Loop *l)
    /* ... rewiring H0 phis to their L0 inputs */
    for (int i = 0; i < head1->phi.n; ++i) {
       int phi = head1->phi.p[i];
-      instrmap[phi] = phitab.p[instrtab[phi].l.i][l0pi1];
+      instrmap[phi] = phiargs(phi)[l0pi1];
    }
    copyins(fn, latch1, head0, instrmap);
 

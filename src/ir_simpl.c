@@ -250,7 +250,7 @@ simpl(Function *fn)
       for (int i = 0; i < blk->phi.n; ++i) {
          int phi = blk->phi.p[i];
          /* delete trivial phis */
-         Ref *args = phitab.p[instrtab[phi].l.i],
+         Ref *args = phiargs(phi),
              same = *args;
          if (same.t == RTMP && instrtab[same.i].op == Ophi) goto Next;
          if (blk->npred > 1) for (int j = 1; j < blk->npred; ++j) {
