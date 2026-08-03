@@ -654,11 +654,6 @@ x86_64_isel(Function *fn)
       seljmp(fn, blk);
    } while ((blk = blk->lnext) != fn->entry);
 
-   if (ccopt.dbg.i) {
-      bfmt(ccopt.dbgout, "<< After isel >>\n");
-      irdump(fn);
-   }
-
    fn->prop = 0;
 }
 

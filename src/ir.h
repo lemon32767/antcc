@@ -339,11 +339,14 @@ void puttrap(Function *);
 bool foldbinop(Ref *to, enum op, enum irclass, Ref l, Ref r);
 bool foldunop(Ref *to, enum op, enum irclass, Ref);
 
-/** ir_irdump.c **/
+/** ir_dump.c **/
 int dumpref(WriteBuf *, enum op, Ref);
 void dumpinstr(WriteBuf *, const Instr *);
 extern const char *clsname[KF64+1];
 void irdump(Function *);
+bool dumpbefore(const char *fn, const char *pass);
+bool dumpafter(const char *fn, const char *pass);
+bool dumpfilt(const char *fn);
 
 /** mem2ir_reg.c **/
 void mem2reg(Function *);
@@ -369,7 +372,7 @@ int loopopt(Function *);
 int simpl(Function *);
 
 /** ir_cselim.c **/
-void cselim(Function *);
+int cselim(Function *);
 
 /** ir_inliner.c **/
 bool maybeinlinee(Function *);

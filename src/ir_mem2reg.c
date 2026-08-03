@@ -296,11 +296,6 @@ mem2reg(Function *fn)
          if (instrtab[blk->phi.p[i]].op == Onop)
             delphi(blk, i--);
    } while ((blk = blk->lnext) != fn->entry);
-
-   if (ccopt.dbg.m) {
-      bfmt(ccopt.dbgout, "<< After mem2reg >>\n");
-      irdump(fn);
-   }
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

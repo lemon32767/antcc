@@ -11,7 +11,7 @@
  */
 
 #if 1
-#define DBG(...) if(ccopt.dbg.r) bfmt(ccopt.dbgout, __VA_ARGS__)
+#define DBG(...) if(ra->debug) bfmt(ccopt.dbg.out, __VA_ARGS__)
 #else
 #define DBG(...) ((void)0)
 #endif
@@ -110,6 +110,7 @@ typedef struct RegAlloc {
    BitSet freestk[BSSIZE(MAXSPILL)]; /* free stack slots */
    int maxstk, /* highest stack slot used */
        stktop;
+   bool debug;
 } RegAlloc;
 
 #define stkslotref(fn, off) mkref(RSTACK, (fn)->stksiz + (off))
@@ -723,7 +724,7 @@ buildintervals(RegAlloc *ra)
       }
    } while ((blk = blk->lprev) != last);
 
-   if (ccopt.dbg.r) {
+   if (ra->debug) {
       for (int var = 0; var < ninstrtab; ++var) {
          Interval *it = &ra->intertab[var];
          if (!it->nrange) continue;
@@ -1013,7 +1014,7 @@ linearscan(RegAlloc *ra)
       *active = current;
    }
 
-   if (ccopt.dbg.r) {
+   if (ra->debug) {
       DBG("regusage: ");
       for (int r = 0; r < MAXREGS; ++r) {
          if (rstest(ra->fn->regusage, r)) DBG(" %s", mctarg->rnames[r]);
@@ -1300,7 +1301,7 @@ fini(RegAlloc *ra)
 void
 regalloc(Function *fn)
 {
-   RegAlloc ra = {fn, .arena = fn->passarena};
+   RegAlloc ra = {fn, .arena = fn->passarena, .debug = ccopt.dbg.regalloc && dumpfilt(&fn->name->c)};
    Block *blk, *last;
 
    /* setup */
@@ -1329,8 +1330,8 @@ regalloc(Function *fn)
    filldom(fn);
    fillloop(fn);
 
-   if (ccopt.dbg.r) {
-      bfmt(ccopt.dbgout, "<< Before linear scan >>\n");
+   if (ra.debug) {
+      bfmt(ccopt.dbg.out, "<< Before linear scan >>\n");
       irdump(fn);
    }
 
@@ -1358,11 +1359,6 @@ regalloc(Function *fn)
    for (Interval *it = ra.intertab; ra.intercount > 0; ++it) {
       if (it->nrange > 2) xbfree(it->_rdyn);
       if (it->nrange > 0) --ra.intercount;
-   }
-
-   if (ccopt.dbg.r) {
-      bfmt(ccopt.dbgout, "<< After regalloc >>\n");
-      irdump(fn);
    }
 }
 

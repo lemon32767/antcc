@@ -465,11 +465,6 @@ abi0(Function *fn)
    /* vaargs might break these */
    if (!(fn->prop & FNUSE)) filluses(fn);
    fn->prop &= ~(FNBLKID | FNRPO);
-
-   if (ccopt.dbg.a) {
-      bfmt(ccopt.dbgout, "<< After abi0 >>\n");
-      irdump(fn);
-   }
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

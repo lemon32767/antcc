@@ -143,6 +143,12 @@ copyins(Function *fn, Block *dst, Block *src, Ref *instrmap)
    dst->jmp.arg[0] = mapref(instrmap, src->jmp.arg[0]);
 }
 
+static bool
+dbgp(Function *fn)
+{
+   return ccopt.dbg.loop && dumpfilt(&fn->name->c);
+}
+
 static int
 loopinv(Function *fn, Loop *l)
 {
@@ -153,8 +159,8 @@ loopinv(Function *fn, Loop *l)
 
    assert(l->head->jmp.t == Jb);
    assert(l->head->npred == 2 && "not simpl'd");
-   if (ccopt.dbg.l)
-      bfmt(ccopt.dbgout, "; doing loopinv(@%d-@%d)\n", l->head->id, l->end->id);
+   if (dbgp(fn))
+      bfmt(ccopt.dbg.out, "; doing loopinv(@%d-@%d)\n", l->head->id, l->end->id);
    /* 
     * transform
     *    while (H0) { B...; L0; } exit:
@@ -236,10 +242,6 @@ loopopt(Function *fn)
       changed += loopinv(fn, l);
    }
 
-   if (ccopt.dbg.l) {
-      bfmt(ccopt.dbgout, "<< After loopopt >>\n");
-      irdump(fn);
-   }
    return changed;
 }
 

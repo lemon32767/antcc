@@ -24,11 +24,6 @@ lowerstack(Function *fn)
          }
       }
    } while ((blk = blk->lnext) != fn->entry);
-
-   if (ccopt.dbg.s) {
-      bfmt(ccopt.dbgout, "<< After stack >>\n");
-      irdump(fn);
-   }
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

@@ -673,6 +673,66 @@ freefn(Function *fn)
    } while ((blk = blk->lnext) != fn->entry);
 }
 
+static void
+pass(Function *fn, const char *pname, void p(Function *))
+{
+   if (dumpbefore(&fn->name->c, pname)) {
+      bfmt(ccopt.dbg.out, "<< Before %s >>\n", pname);
+      irdump(fn);
+   }
+   p(fn);
+   if (dumpafter(&fn->name->c, pname)) {
+      bfmt(ccopt.dbg.out, "<< After %s >>\n", pname);
+      irdump(fn);
+   }
+}
+
+static int
+ipass(Function *fn, const char *pname, int p(Function *), int n)
+{
+   if (dumpbefore(&fn->name->c, pname)) {
+      bfmt(ccopt.dbg.out, "<< Before %s ", pname);
+      if (n) bfmt(ccopt.dbg.out, "#%d ", n+1);
+      bfmt(ccopt.dbg.out, ">>\n");
+      irdump(fn);
+   }
+   int r = p(fn);
+   if (dumpafter(&fn->name->c, pname)) {
+      bfmt(ccopt.dbg.out, "<< After %s ", pname);
+      if (n) bfmt(ccopt.dbg.out, "#%d ", n+1);
+      bfmt(ccopt.dbg.out, ">>\n");
+      irdump(fn);
+   }
+   return r;
+}
+
+static void
+optimize(Function *fn)
+{
+   int redo, fuel = ccopt.o > OPT1 ? 3 : 1, iter = 0;
+   do {
+      redo = 0;
+      if (ipass(fn, "inline", doinline, iter)) {
+         redo = 1;
+         filluses(fn);
+         copyopt(fn);
+         mem2reg(fn);
+      }
+      freearena(fn->passarena);
+      filldom(fn);
+      if (!(fn->prop & FNUSE)) filluses(fn);
+      redo += ipass(fn, "loopopt", loopopt, iter);
+      freearena(fn->passarena);
+      if (ccopt.ircheck) ircheck(fn);
+      if (!(fn->prop & FNUSE)) filluses(fn);
+      filldom(fn);
+      ipass(fn, "cselim", cselim, iter);
+      freearena(fn->passarena);
+      redo += ipass(fn, "simpl", simpl, iter);
+      freearena(fn->passarena);
+   } while (redo > 1 && ++iter < fuel);
+}
+
 void
 irfini(Function *fn)
 {
@@ -687,39 +747,18 @@ irfini(Function *fn)
 
    if (ccopt.ircheck) ircheck(fn);
 
-   abi0(fn);
-   lowerintrin(fn);
+   pass(fn, "abi", abi0);
+   pass(fn, "lowerintrin", lowerintrin);
+
    if (ccopt.ircheck) ircheck(fn);
 
    if (ccopt.o > OPT0) {
-      mem2reg(fn);
+      pass(fn, "mem2reg", mem2reg);
       freearena(fn->passarena);
-      copyopt(fn);
+      pass(fn, "copyopt", copyopt);
    }
-   if (ccopt.o >= OPT1) {
-      int redo, fuel = 3;
-      do {
-         redo = 0;
-         if (doinline(fn)) {
-            redo = 1;
-            filluses(fn);
-            copyopt(fn);
-            mem2reg(fn);
-         }
-         freearena(fn->passarena);
-         filldom(fn);
-         if (!(fn->prop & FNUSE)) filluses(fn);
-         redo += loopopt(fn);
-         freearena(fn->passarena);
-         if (ccopt.ircheck) ircheck(fn);
-         if (!(fn->prop & FNUSE)) filluses(fn);
-         filldom(fn);
-         cselim(fn);
-         freearena(fn->passarena);
-         redo += simpl(fn);
-         freearena(fn->passarena);
-      } while (redo > 1 && --fuel > 0);
-   }
+
+   if (ccopt.o >= OPT1) pass(fn, "optimize", optimize);
 
    if (ccopt.ircheck) ircheck(fn);
 
@@ -735,14 +774,10 @@ irfini(Function *fn)
 void
 irfini_end(Function *fn)
 {
-   lowerstack(fn);
+   pass(fn, "lowerstack", lowerstack);
    freearena(fn->passarena);
-   if (ccopt.dbg.o) {
-      bfmt(ccopt.dbgout, "<< Before isel >>\n");
-      irdump(fn);
-   }
-   mctarg->isel(fn);
-   regalloc(fn);
+   pass(fn, "isel", mctarg->isel);
+   pass(fn, "regalloc", regalloc);
    freearena(fn->passarena);
    if (objout.code)
       mctarg->emit(fn);

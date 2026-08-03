@@ -261,19 +261,34 @@ optparse(char **args)
          ccopt.pedant = 1;
       } else if (!strcmp(arg, "trigraphs")) {
          ccopt.trigraph = 1;
-      } else if (*arg == 'd' && arg[1]) {
-         /* see common.h§CCOption */
-         while (*++arg) switch (*arg | 32) {
-         case 'p': ccopt.dbg.p = 1; break;
-         case 'a': ccopt.dbg.a = 1; break;
-         case 'm': ccopt.dbg.m = 1; break;
-         case 'o': ccopt.dbg.o = 1; break;
-         case 's': ccopt.dbg.s = 1; break;
-         case 'i': ccopt.dbg.i = 1; break;
-         case 'y': ccopt.dbg.y = 1; break;
-         case 'l': ccopt.dbg.l = 1; break;
-         case 'r': ccopt.dbg.r = 1; break;
-         default: warn(NULL, "-d: invalid debug flag %'c", *arg);
+      } else if (*arg == 'd') {
+         /* see antcc.h§CCOption.opt */
+         ccopt.dbg.any = 1;
+         const char *x, **pd = NULL, **pd2 = NULL;
+         if ((x = optval(arg+1, "before"))) {
+            pd = &ccopt.dbg.dumpbefore;
+         } else if ((x = optval(arg+1, "after"))) {
+            pd = &ccopt.dbg.dumpafter;
+         } else if ((x = optval(arg+1, "p"))) {
+            pd = &ccopt.dbg.dumpbefore;
+            pd2 = &ccopt.dbg.dumpafter;
+         } else if ((x = optval(arg+1, "filter"))) {
+            pd = &ccopt.dbg.dumpfilt;
+         } else if (!strcmp(arg+1, "parse")) {
+            ccopt.dbg.dumpparsed = 1;
+         } else if (!strcmp(arg+1, "inliner")) {
+            ccopt.dbg.inliner = 1;
+         } else if (!strcmp(arg+1, "regalloc")) {
+            ccopt.dbg.regalloc = 1;
+         } else if (!strcmp(arg+1, "loop")) {
+            ccopt.dbg.loop = 1;
+         } else {
+            fatal(NULL, "invalid debug option: `%s'", arg-1);
+         }
+         if (pd) {
+            if (*pd || (pd2 && *pd2)) warn(NULL, "`%s' overrides previous option", arg-1);
+            *pd = x;
+            if (pd2) *pd2 = x;
          }
       } else if (*arg == 'o') {
          if (arg[1]) task.out = arg+1;
@@ -885,7 +900,6 @@ prihelp(void)
         " -help   \tPrint this help message\n"
         " -std=<..> \tSet C standard (c89, c99, c11, c23)\n"
         " -pedantic \tWarnings for strict standards compliance\n"
-        " -d{pamyosilr} \tDebug print IR after {parse, abi, mem, inlining, opts, stack, isel, loop, rega}\n"
         " -o <file> \tPlace the output into <file>\n"
         " -v     \tVerbose output\n"
         " -c     \tEmit object file but do not link\n"
@@ -903,6 +917,16 @@ prihelp(void)
         " -Werror \tTurn warnings into errors\n"
         " -w     \tSuppress warnings\n"
         " --version \tPrint version\n"
+        "Debug options:\n"
+        " -dparse \t print IR after parse\n"
+        " -dbefore=x,...\n"
+        " -dafter=x,... \t print IR before/after given passes\n"
+        "                  passes: abi,mem2reg,lowerintrin,copyopt,optimize,inline,"
+                            "loopopt,cselim,simpl,lowerstack,isel,regalloc\n"
+        " -dinliner \t inliner debug info\n"
+        " -dregalloc \t regalloc debug info\n"
+        " -dloop \t loop opt debug info\n"
+        " -dfilter=foo,... \t only print IR for given functions\n"
    );
 }
 
@@ -918,7 +942,7 @@ main(int argc, char **argv)
    detectcolor();
    sysinclpaths();
    ccopt.cstd = STDC11;
-   ccopt.dbgout = &bstdout;
+   ccopt.dbg.out = &bstdout;
 
    const char *s;
    if ((s = getenv("ANTCC_VERBOSE")) && *s && strchr("1yYtT", *s)) {

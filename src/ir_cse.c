@@ -58,10 +58,11 @@ uniq(int t, Block *blk, int cutoff, int memno)
    }
 }
 
-void
+int
 cselim(Function *fn)
 {
    FREQUIRE(FNUSE | FNRPO | FNDOM | FNBLKID);
+   bool any = 0;
    extern int ninstrtab;
    for (ninsht = 32; ninsht <= ninstrtab; ninsht *= 2) ;
    insht = allocz(fn->passarena, ninsht * sizeof *insht, 0);
@@ -74,6 +75,7 @@ cselim(Function *fn)
          if ((q = uniq(t, blk, cutoff, memno)) != t) {
             replcuses(mkref(RTMP, t), mkref(RTMP, q), NULL);
             delinstr(blk, i--);
+            any = 1;
          } else if (oisstore(instrtab[t].op)) {
             /* assume everything alias everything */
             ++memno;
@@ -82,6 +84,7 @@ cselim(Function *fn)
          }
       }
    } while ((blk = blk->lnext) != fn->entry);
+   return any;
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

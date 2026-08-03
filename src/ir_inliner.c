@@ -23,6 +23,12 @@ enum { MAX_INLINED_FN_NINS = 50,
 static pmap_of(SavedFunc *) savedfns;
 static Arena *savearena;
 
+static bool
+dbgp(Function *fn)
+{
+   return ccopt.dbg.inliner && dumpfilt(&fn->name->c);
+}
+
 bool
 maybeinlinee(Function *fn)
 {
@@ -44,8 +50,8 @@ maybeinlinee(Function *fn)
       savearena->cap = N;
    }
 
-   if (ccopt.dbg.y) {
-      bfmt(ccopt.dbgout, "> stashing '%s' for inlining\n", fn->name);
+   if (dbgp(fn)) {
+      bfmt(ccopt.dbg.out, "> stashing '%s' for inlining\n", fn->name);
    }
    SavedFunc *sv = allocz(&savearena, sizeof *sv, 0);
    sv->symflags = fn->symflags;
@@ -295,9 +301,9 @@ doinline(Function *fn)
             for (struct Stack *s = stk; s != stkend; ++s) {
                if (s->sv == sv) goto Skip; /* recursion encountered */
             }
-            if (ccopt.dbg.y) {
+            if (dbgp(fn)) {
                if (!dumpbefore) {
-                  bfmt(ccopt.dbgout, "<< Before inlining >>\n");
+                  bfmt(ccopt.dbg.out, "<< Before inlining >>\n");
                   irdump(fn);
                   dumpbefore = 1;
                }
@@ -306,8 +312,8 @@ doinline(Function *fn)
             ++any;
             (--stk)->b = inlcall(fn, b, i, *pcallee);
             stk->sv = sv;
-            if (ccopt.dbg.y) {
-               bfmt(ccopt.dbgout, "<< After inlining '%s' (@%d-@%d) >>\n", fname, b->lnext->id, stk->b->id);
+            if (dbgp(fn)) {
+               bfmt(ccopt.dbg.out, "<< After inlining '%s' (@%d-@%d) >>\n", fname, b->lnext->id, stk->b->id);
                irdump(fn);
             }
             break;
@@ -380,8 +386,8 @@ emitxinlfns(bool all)
             sv->emitted = 1;
             Function fn = rematerialize(&arena, name, sv);
             fn.passarena = &passarena;
-            if (ccopt.dbg.y) {
-               bfmt(ccopt.dbgout, "<< Rematerialize inlinee >>\n");
+            if (dbgp(&fn)) {
+               bfmt(ccopt.dbg.out, "<< Rematerialize inlinee >>\n");
                irdump(&fn);
             }
             irfini_end(&fn);

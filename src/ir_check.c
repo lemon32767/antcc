@@ -353,10 +353,10 @@ ircheck(Function *fn)
           "function %s: expected %d blocks, counted %d", fn->name, fn->nblk, nblk);
    if (checkstate.nfail) {
       efmt(" ... %d fails while checking %'s\n", checkstate.nfail, fn->name);
-      WriteBuf *dbgout = ccopt.dbgout;
-      ccopt.dbgout = &bstderr;
+      WriteBuf *dbgout = ccopt.dbg.out;
+      ccopt.dbg.out = &bstderr;
       irdump(fn);
-      ccopt.dbgout = dbgout;
+      ccopt.dbg.out = dbgout;
       abort();
    }
 }

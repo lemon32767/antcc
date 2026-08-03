@@ -5332,7 +5332,7 @@ tldecl(CComp *cm)
          functionbody(cm, &fn, st.pnames, st.pspans, st.pqual);
          if (idecl >= 0)
             decl = &declsbuf.p[idecl];
-         if (!nerror && ccopt.dbg.p)
+         if (!nerror && ccopt.dbg.dumpparsed)
             irdump(&fn);
          irfini(&fn);
       } else if (decl->name) {
@@ -5372,9 +5372,9 @@ tldecl(CComp *cm)
             }
          }
          decl = &declsbuf.p[idecl];
-         if (ccopt.dbg.p) bfmt(ccopt.dbgout, "decl %s : %tq\n", decl->name, decl->ty, decl->qual);
+         if (ccopt.dbg.dumpparsed) bfmt(ccopt.dbg.out, "decl %s : %tq\n", decl->name, decl->ty, decl->qual);
       } else {
-         if (ccopt.dbg.p && decl->ty.t) bfmt(ccopt.dbgout, "type %ty\n", decl->ty);
+         if (ccopt.dbg.dumpparsed && decl->ty.t) bfmt(ccopt.dbg.out, "type %ty\n", decl->ty);
       }
       if (decl->inlin && (decl->scls & SCEXTERN) && !noscls) {
          /* explicit 'extern inline' instructs definition to be emitted in this TU */

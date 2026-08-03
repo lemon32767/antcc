@@ -305,10 +305,12 @@ dumpblk(Function *fn, Block *blk)
 void
 irdump(Function *fn)
 {
-   out = ccopt.dbgout;
+   out = ccopt.dbg.out;
 
-   /* print datas that have never been printed before */
-   while (nextdat < dattab.n) pridat(&dattab.p[nextdat++]);
+   if (ccopt.dbg.dumpparsed) {
+      /* print datas that haven't been printed before */
+      while (nextdat < dattab.n) pridat(&dattab.p[nextdat++]);
+   }
 
    bfmt(out, "function %s : %ty\n", fn->name, fn->fnty);
    if (fn->abiarg || fn->nabiret) {
@@ -343,6 +345,39 @@ irdump(Function *fn)
       assert(blk->lnext != NULL);
    } while ((blk = blk->lnext) != fn->entry);
    bfmt(out, "\n");
+}
+
+static bool
+inlist(const char *list, const char *x)
+{
+   assert(list && x && *x);
+   if (!strcmp(list, "*")) return 1;
+   const char *y = strstr(list, x);
+   if (!y) return 0;
+   char e = y[strlen(x)];
+   return e == ',' || !e;
+}
+
+bool
+dumpfilt(const char *fn)
+{
+   return !ccopt.dbg.dumpfilt || inlist(ccopt.dbg.dumpfilt, fn);
+}
+
+bool
+dumpbefore(const char *fn, const char *pass)
+{
+   if (!ccopt.dbg.any) return 0;
+   if (!ccopt.dbg.dumpbefore) return 0;
+   return inlist(ccopt.dbg.dumpbefore, pass) && dumpfilt(fn);
+}
+
+bool
+dumpafter(const char *fn, const char *pass)
+{
+   if (!ccopt.dbg.any) return 0;
+   if (!ccopt.dbg.dumpafter) return 0;
+   return inlist(ccopt.dbg.dumpafter, pass) && dumpfilt(fn);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

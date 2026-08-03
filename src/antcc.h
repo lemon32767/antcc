@@ -114,21 +114,14 @@ typedef struct CCOption {
       OPT1 = 1,
       OPT2 = 2,
    } o;
-   union {
-      struct {
-         bool p : 1, /* after parsing */
-              a : 1, /* after abi0 */
-              m : 1, /* after mem */
-              y : 1, /* after inline */
-              o : 1, /* after optimizations */
-              s : 1, /* after stack */
-              i : 1, /* after isel */
-              l : 1, /* after liveness fixup */
-              r : 1; /* after regalloc */
-      };
-      uint any;
+   struct {
+      bool any;
+      struct WriteBuf *out;
+      bool dumpparsed;
+      bool inliner, regalloc, loop;
+      const char *dumpbefore, *dumpafter;
+      const char *dumpfilt;
    } dbg;
-   struct WriteBuf *dbgout;
 } CCOption;
 extern CCOption ccopt;
 
