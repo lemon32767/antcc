@@ -49,8 +49,7 @@ void
 lowerintrin(Function *fn)
 {
    Block *blk = fn->entry;
-   Arg argsbuf[32];
-   vec_of(Arg) args = VINIT(argsbuf, countof(argsbuf));
+   DEF_SVEC(Arg, 32, args);
 
    do {
       for (int i = 0; i < blk->ins.n; ++i) {
@@ -58,7 +57,7 @@ lowerintrin(Function *fn)
          if (ins->op == Oarg)
             vpush(&args, ((Arg){&ins->r, &ins->l}));
          else if (ins->op == Ocall)
-            vinit(&args, argsbuf, countof(argsbuf));
+            svec_reset(args);
          else if (ins->op == Ointrin) {
             int arg0 = i - args.n;
             assert(calltab.p[ins->r.i].narg == args.n);
@@ -67,7 +66,7 @@ lowerintrin(Function *fn)
                   delinstr(blk, arg0);
             else
                abi0_call(fn, ins, blk, &i);
-            vinit(&args, argsbuf, countof(argsbuf));
+            svec_reset(args);
          }
       }
       assert(args.n == 0);

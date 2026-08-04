@@ -14,8 +14,7 @@ lexc(CComp *cm, Token *tk)
    int t = lex(cm->lx, tk ? tk : tk_);
    if (t == TKSTRLIT && peek(cm, &tk2) == TKSTRLIT && tk2.wide == tk->wide) {
       /* 5.1.1.2 Translation phase 6: concatenate adjacent string literal tokens */
-      static char buf[200];
-      vec_of(char) rest = VINIT(buf, sizeof buf);
+      DEF_SVEC(char, 200, rest);
       do {
          lex(cm->lx, NULL);
          if (tk) {
@@ -772,8 +771,7 @@ callexpr(CComp *cm, const Span *span_, const Expr *callee)
    Span span = callee->span;
    Type ty = callee->ty;
    const TypeData *td = NULL;
-   Expr argbuf[10];
-   vec_of(Expr) args = VINIT(argbuf, countof(argbuf));
+   DEF_SVEC(Expr, 10, args);
    bool spanok = joinspan(&span.ex, span_->ex);
    bool printsig = 0;
    const Builtin *builtin = NULL;
@@ -2235,8 +2233,7 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id, const Attrs *tyattr
    Token tk;
    Type t;
    Span flexspan;
-   NamedField fbuf[32];
-   vec_of(NamedField) fld = VINIT(fbuf, countof(fbuf));
+   DEF_SVEC(NamedField, 32, fld);
    TypeData td = {tt};
    bool isunion = tt == TYUNION;
    const char *tag = isunion ? "union" : "struct";

@@ -266,6 +266,10 @@ void vresize_(struct vecbase *, uint siz, uint N);
 #define vpush(v, x) (vpush_(&(v)->_vb, sizeof *(v)->p), (v)->p[(v)->n++] = (x))
 #define vpushn(v, xs, N) vpushn_(&(v)->_vb, sizeof *(v)->p, xs, N)
 #define vresize(v, N) vresize_(&(v)->_vb, sizeof *(v)->p, N)
+#define DEF_SVEC(T, N, name) \
+   T _##name##buf[N];            \
+   vec_of(T) name = VINIT(_##name##buf, (N))
+#define svec_reset(name) vinit(&name, _##name##buf, countof(_##name##buf))
 
 /** map of non-null ptr -> T **/
 #define pmap_of(T) struct { T *v; int tmp; struct pmapbase mb; }

@@ -247,8 +247,7 @@ static void
 readstrchrlit(Lexer *lx, Token *tk, char delim, int wide)
 {
    int c, i;
-   uchar tmp[200];
-   vec_of(uchar) b = VINIT(tmp, sizeof tmp);
+   DEF_SVEC(uchar, 200, b);
    Span span = {0};
    uint n, beginoff, idx;
    beginoff = idx = lx->chridx;
@@ -367,8 +366,7 @@ static void
 readheadername(Lexer *lx, Token *tk, char delim)
 {
    int c;
-   uchar tmp[200];
-   vec_of(uchar) b = VINIT(tmp, sizeof tmp);
+   DEF_SVEC(uchar, 200, b);
    Span span = {0};
    uint beginoff, idx;
    beginoff = idx = lx->chridx;
@@ -1178,8 +1176,7 @@ static int ppdirective(Lexer *lx, Token *tkout, bool *skip, bool *inclerror);
 static void
 expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac)
 {
-   Token _argsbuf[30];
-   vec_of(Token) argsbuf = VINIT(_argsbuf, countof(_argsbuf)); /* buffer for argument tokens */
+   DEF_SVEC(Token, 30, argsbuf);
    Span excessspan;
    int cur, len, i, bal, narg;
    Token tk;
@@ -1961,8 +1958,7 @@ ppinclude(Lexer *lx, const Span *span0, bool incnext)
    } else {
       /* '#include pp-tokens'
        * gather and expand pp-tokens */
-      Token tksbuf[8];
-      vec_of(Token) tks = VINIT(tksbuf, countof(tksbuf));
+      DEF_SVEC(Token, 8, tks);
       for (;;) {
          if (!lx->macstk) {
             if (tryexpand(lx, &tk) == EXPSTACK) continue;
