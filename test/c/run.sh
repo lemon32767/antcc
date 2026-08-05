@@ -1,7 +1,7 @@
 #!/bin/sh
 
 cd $(dirname "$0")
-ANTCC="../antcc $CFLAGS"
+ANTCC="../../antcc $CFLAGS"
 ntest=0
 npass=0
 rc=0

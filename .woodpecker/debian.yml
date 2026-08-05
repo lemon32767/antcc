@@ -20,7 +20,7 @@ steps:
     image: debian
     commands:
       - apt-get update && apt-get install -y gcc
-      - ./test/run.sh --print
+      - ./test/c/run.sh --print
 
     depends_on: [build]
 
