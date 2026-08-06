@@ -1,0 +1,17 @@
+source [file dirname $argv0]/common.tcl
+
+set prog {
+   int f(int t) {
+      int a[1];
+      struct { float q; } b = {0.0};
+      b.q += 1.0;
+      a[0] = 7;
+      return t ? t : a[0] - b.q;
+   }
+}
+
+set n1 [regexp -all "alloca" [c+out -dparse $prog]]
+asserteq "allocas after parse" $n1 3
+
+set n2 [regexp -all "alloca" [c+out -dafter=mem2reg $prog]]
+asserteq "allocas after mem2reg" $n2 0
