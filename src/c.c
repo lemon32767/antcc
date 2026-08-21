@@ -5329,7 +5329,7 @@ tldecl(CComp *cm)
          functionbody(cm, &fn, st.pnames, st.pspans, st.pqual);
          if (idecl >= 0)
             decl = &declsbuf.p[idecl];
-         if (!nerror && ccopt.dbg.dumpparsed)
+         if (!nerror && ccopt.dbg.dumpparsed && dumpfilt(&fn.name->c))
             irdump(&fn);
          irfini(&fn);
       } else if (decl->name) {

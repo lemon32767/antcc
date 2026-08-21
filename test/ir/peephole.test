@@ -1,13 +1,24 @@
 source [file dirname $argv0]/common.tcl
 
-set prog { int addzero(int t) { return t+0; } }
-set nadd [regexp -all "= add " [c+out -dparse $prog]]
-asserteq "add zero" $nadd 0
-
-set prog { int mulzero(int t) { return t*(1-1); } }
-set retrn [regexp -line -inline {\mret\M.*$} [c+out -dparse $prog]]
-asserteq "return mul by zero" $retrn [list "ret 0"]
-
-set prog { int mul4(int t) { return t*4; } }
-set arith [regexp -inline -all {= \m\w{3}\M} [c+out -dparse $prog]]
-asserteq "mul -> shl" $arith [list "= shl"]
+set cflags {-dparse}
+set prog {
+    int addzero(int t) { return t+0; }
+    int mulzero(int t) { return t*(1-1); }
+    int mul4(int t) { return t*4; }
+    int andzero(int t) { return t & 0; }
+    int orzero(int t) { return t | 0; }
+    int xorzero(int t) { return t ^ 0; }
+    int shl0(int t) { return t << 0; }
+    int negneg(int t) { return -(-t); }
+    int notnot(int t) { return ~~t; }
+}
+asserteq "add 0" [findarithins addzero] ""
+asserteq "mul 0" [findret mulzero] {{ret 0}}
+asserteq "mul -> shl" [findarithins mul4] shl
+asserteq "and 0 ->0" [findret andzero] {{ret 0}}
+asserteq "or 0 noop" [findarithins orzero] ""
+asserteq "xor 0 noop" [findarithins xorzero] ""
+asserteq "shl 0 noop" [findarithins shl0] ""
+set cflags {-dafter=optimize} ;# for dce
+asserteq "negneg noop" [findarithins negneg] ""
+asserteq "notnot noop" [findarithins notnot] ""

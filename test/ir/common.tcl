@@ -70,3 +70,34 @@ proc asserteq {label actual expected} {
     }
 }
 
+proc findarithins {f {prog_ ""}} {
+    if {$prog_ eq ""} {
+        set prog_ $::prog
+    }
+    global cflags
+    set matches [regexp -inline -all {= \m(\w{3,4})\M} [c+out [concat "-dfilter=$f" $cflags] $prog_]]
+    return [lmap {x0 x1} $matches {set x1}]
+}
+
+proc findarithwithrhs {f {prog_ ""}} {
+    if {$prog_ eq ""} {
+        set prog_ $::prog
+    }
+    global cflags
+    set out [c+out [concat "-dfilter=$f" $cflags] $prog_]
+    set matches [regexp -inline -all {= (\m\w+\M)[^,]*,\s*(\S+)} $out]
+    set res {}
+    foreach {full ins rhs} $matches {
+        if {$ins eq "param"} continue
+        lappend res [list $ins $rhs]
+    }
+    return $res
+}
+
+proc findret {f {prog_ ""}} {
+    if {$prog_ eq ""} {
+        set prog_ $::prog
+    }
+    global cflags
+    return [regexp -inline -line -all {ret .*$} [c+out [concat "-dfilter=$f" $cflags] $prog_]]
+}

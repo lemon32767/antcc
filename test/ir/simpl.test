@@ -2,42 +2,89 @@ source [file dirname $argv0]/common.tcl
 
 set prog {
     int mul(int a, int b) { return a*b; }
-    int div(int a, int b) { return a/b; }
-    int udiv(unsigned a, unsigned b) { return a/b; }
-    int rem(int a, int b) { return a%b; }
-    int urem(unsigned a, unsigned b) { return a%b; }
 
     int mul1(int a) { return mul(a, 1); } //id
     int mulm1(int a) { return mul(a, -1); } //neg
     int mul4(int a) { return mul(a, 4); } //shl 2
-    int mul17(int a) { return mul(a, 17); } //shl 4 & add
-    int mulm5(int a) { return mul(a, -5); } //shl 2 & add & neg
-
-    int div1(int a) { return div(a, 1); }
-    int divm1(int a) { return div(a, -1); }
-    int udivm1(int a) { return udiv(a, -1); }
-
-    int rem1(int a) { return rem(a, 1); }
-    int remm1(int a) { return rem(a, -1); }
+    int mul17(int a) { return mul(a, 17); } //shl 4, add
+    int mulm5(int a) { return mul(a, -5); } //shl 2, add, neg
+    int mul7(int a) { return mul(a, 7); } //shl3, sub
+    int mulm4(int a) { return mul(a, -4); } //shl 2, neg
+    int mulm7(int a) { return mul(a, -7); } //shl 3, sub, neg
+    int mulm9(int a) { return mul(a, -9); } //shl 3, add, neg
+    int mul0(int a) { return mul(a, 0); }
 }
 
-proc findarithins {f} {
-    global prog
-    set matches [regexp -inline -all {= \m(\w{3,4})\M} [c+out "-dfilter=$f -dafter=optimize -O2" $prog]]
-    return [lmap {x0 x1} $matches {set x1}]
-}
-
+set cflags {-dafter=optimize -O2}
 asserteq "mul *1  -> nop" [findarithins mul1] ""
 asserteq "mul *-1 -> neg" [findarithins mulm1] neg
 asserteq "mul *4  -> shl" [findarithins mul4] shl
 asserteq "mul *17 -> shl+add" [findarithins mul17] {shl add}
 asserteq "mul *-5 -> shl+add+neg" [findarithins mulm5] {shl add neg}
+asserteq "mul *7  -> shl+sub" [findarithins mul7] {shl sub}
+asserteq "mul *-4 -> shl+neg" [findarithins mulm4] {shl neg}
+asserteq "mul *-7 -> shl+sub+neg" [findarithins mulm7] {shl sub neg}
+asserteq "mul *-9 -> shl+add+neg" [findarithins mulm9] {shl add neg}
+asserteq "mul *0 -> zero" [findret "mul0"] {{ret 0}}
+
+
+set prog {
+    int div(int a, int b) { return a/b; }
+    int udiv(unsigned a, unsigned b) { return a/b; }
+    int rem(int a, int b) { return a%b; }
+    int urem(unsigned a, unsigned b) { return a%b; }
+
+    int div1(int a) { return div(a, 1); }
+    int divm1(int a) { return div(a, -1); }
+    int udivm1(int a) { return udiv(a, -1); }
+    int rem1(int a) { return rem(a, 1); }
+    int remm1(int a) { return rem(a, -1); }
+    int udiv8(int a) { return udiv(a, 8); } // slr 3
+    int urem8(int a) { return urem(a, 8); } // and 7
+    int urem1(int a) { return urem(a, 1); } // zero
+    int div8(int a) { return div(a, 8); } // sar,slr,add,sar
+    int rem8(int a) { return rem(a, 8); } // sar,slr,add,and,sub
+    int divm4(int a) { return div(a, -4); } // sar,slr,add,sar,neg
+    int remm4(int a) { return rem(a, -4); } // sar,slr,add,and,sub
+}
 
 asserteq "div/1  -> nop" [findarithins div1] ""
 asserteq "div/-1 -> neg" [findarithins divm1] neg
-asserteq "udiv/-1 -> stays udiv" [findarithins udivm1] udiv
+asserteq "rem%1 -> zero" [findret rem1] {{ret 0}}
+asserteq "rem%-1 -> zero" [findret remm1] {{ret 0}}
+asserteq "udiv/8 -> slr" [findarithins udiv8] slr
+asserteq "urem%8 -> and" [findarithins urem8] and
+asserteq "urem%1 -> zero" [findret urem1] {{ret 0}}
+asserteq "div /8 simpl" [findarithins div8] {sar slr add sar}
+asserteq "rem %8 simpl" [findarithins rem8] {sar slr add and sub}
+asserteq "div /-4 simpl" [findarithins divm4] {sar slr add sar neg}
+asserteq "rem %-4 simpl" [findarithins remm4] {sar slr add and sub}
 
-set rets [regexp -inline -line -all {ret .*$} [c+out {-dfilter=rem1 -dafter=optimize -O2} $prog]]
-asserteq "rem%1 -> zero" $rets [list "ret 0"]
-set rets [regexp -inline -line -all {ret .*$} [c+out {-dfilter=remm1 -dafter=optimize -O2} $prog]]
-asserteq "rem%-1 -> zero" $rets [list "ret 0"]
+set prog {
+    // propagation x+K1 == K2 -> x == K2-K1 etc
+    int cmp_add(int x) { return (x+3)==8; } // x==5
+    int cmp_sub(int x) { return (x-5)==10; } // x==15
+    int cmp_xor(int x) { return (x^7)==3; } // x==4
+    int cmp_neq(int x) { return (x+3)!=8; } // x!=5
+
+    int subself(int a) { return a-a; }
+
+    int phi_triv(int a) { int x; if (a) x=5; else x=5; return x; }
+
+    // threading & merging should collapse gotos
+    int gototo(int x) { if (x) goto a; else goto b; a: goto c; b: goto c; c: return x; }
+}
+asserteq "cmp (x+3)==8 -> x==5" [findarithwithrhs cmp_add] {{equ 5}}
+asserteq "cmp (x-5)==10 -> x==15" [findarithwithrhs cmp_sub] {{equ 15}}
+asserteq "cmp (x^7)==3 -> x==4" [findarithwithrhs cmp_xor] {{equ 4}}
+asserteq "cmp (x+3)!=8 -> x!=5" [findarithwithrhs cmp_neq] {{neq 5}}
+
+asserteq "sub self -> 0" [findret subself] {{ret 0}}
+
+set phis [regexp -inline -all {= phi} [c+out {-dfilter=phi_triv -dafter=optimize -O2} $prog]]
+asserteq "trivial phi gone" $phis {}
+asserteq "trivial phi fold->5" [findret phi_triv] {{ret 5}}
+
+set out [c+out {-dfilter=gototo -dafter=optimize -O2} $prog]
+asserteq "no cond branch" [regexp -inline {b %0} $out] {}
+asserteq "final blocks" [regexp -inline -line -all {@\d+:} $out] {@0: @1:}
