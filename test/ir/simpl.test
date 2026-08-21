@@ -1,0 +1,14 @@
+source [file dirname $argv0]/common.tcl
+
+set prog {
+    int div(int a, int b) { return a/b; }
+    int div1(int a) { return div(a, 1); }
+    int rem(int a, int b) { return a%b; }
+    int rem1(int a) { return rem(a, 1); }
+}
+
+set arith [regexp -inline -all {= \m\w{3,4}\M} [c+out {-dfilter=div1 -dafter=optimize -O2} $prog]]
+asserteq "div/1 -> nop" $arith ""
+
+set rets [regexp -inline -line -all {ret .*$} [c+out {-dfilter=rem1 -dafter=optimize -O2} $prog]]
+asserteq "rem%1 -> zero" $rets [list "ret 0"]

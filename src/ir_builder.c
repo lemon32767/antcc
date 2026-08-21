@@ -34,9 +34,14 @@ irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r)
       }
       break;
    case Odiv:
+      if (kisflt(k)) break;
+      if(isintcon(r) && intconval(r) == 1) /* x/1 ==> x */
+         return l;
       break;
    case Oudiv:
       if (kisflt(k)) break;
+      if(isintcon(r) && intconval(r) == 1) /* x/1 ==> x */
+         return l;
       if (isintcon(r) && ispo2(iv = intconval(r))) {
          /* x / 2^y ==> x >> y */
          op = Oslr;
@@ -44,9 +49,12 @@ irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r)
       }
       break;
    case Orem:
+      if (r.bits == ONE.bits) /* x % 1 ==> 0 */
+         return ZEROREF;
       break;
    case Ourem:
-      if (kisflt(k)) break;
+      if (r.bits == ONE.bits) /* x % 1 ==> 0 */
+         return ZEROREF;
       if (isintcon(r) && ispo2(iv = intconval(r))) {
          /* x % 2^y ==> x & 2^y-1 */
          op = Oand;

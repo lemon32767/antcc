@@ -47,6 +47,7 @@ divmodk(Instr *ins, Block *blk, int *curi)
    s64int iv = intconval(ins->r);
    uint nbit = 8 * cls2siz[cls];
    bool neg = (op == Odiv || op == Orem) && iv < 0;
+   assert((u64int)iv > 1 && "trivial div/rem not handled by irbinop() ?");
    if (ispo2(iv) || (neg && ispo2(-iv))) { /* simple po2 cases */
       Ref temp;
       uint s = ilog2(neg ? -iv : iv);

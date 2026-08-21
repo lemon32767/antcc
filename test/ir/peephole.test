@@ -11,7 +11,3 @@ asserteq "return mul by zero" $retrn [list "ret 0"]
 set prog { int mul4(int t) { return t*4; } }
 set arith [regexp -inline -all {= \m\w{3}\M} [c+out -dparse $prog]]
 asserteq "mul -> shl" $arith [list "= shl"]
-
-set prog {int div1(int t) { return t/1; }}
-set ndiv [regexp -all {\mdiv\M} [c+out "-dafter=optimize -O2" $prog]]
-asserteq "div/1 -> nop" $ndiv 0
