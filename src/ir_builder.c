@@ -31,16 +31,24 @@ irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r)
          /* x * 2^y ==> x << y */
          op = Oshl;
          r = mkref(RICON, ilog2(iv));
+      } else if (isintcon(r) && intconval(r) == -1) {
+         /* x * -1 ==> -x */
+         op = Oneg;
+         r.bits = 0;
       }
       break;
    case Odiv:
       if (kisflt(k)) break;
-      if(isintcon(r) && intconval(r) == 1) /* x/1 ==> x */
+      if (r.bits == ONE.bits) /* x/1 ==> x */
          return l;
+      if (isintcon(r) && intconval(r) == -1) {
+         /* x / -1 ==> -x */
+         op = Oneg;
+         r.bits = 0;
+      }
       break;
    case Oudiv:
-      if (kisflt(k)) break;
-      if(isintcon(r) && intconval(r) == 1) /* x/1 ==> x */
+      if (r.bits == ONE.bits) /* x/1 ==> x */
          return l;
       if (isintcon(r) && ispo2(iv = intconval(r))) {
          /* x / 2^y ==> x >> y */
@@ -49,8 +57,10 @@ irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r)
       }
       break;
    case Orem:
-      if (r.bits == ONE.bits) /* x % 1 ==> 0 */
+      if (r.bits == ONE.bits || (isintcon(r) && intconval(r) == -1)) {
+         /* x % ±1 ==> 0 */
          return ZEROREF;
+      }
       break;
    case Ourem:
       if (r.bits == ONE.bits) /* x % 1 ==> 0 */

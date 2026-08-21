@@ -6,6 +6,11 @@ mulk(Instr *ins, Block *blk, int *curi)
    s64int iv = intconval(ins->r);
    enum irclass cls = ins->cls;
    assert((u64int)iv > 1 && "trivial mul not handled by irbinop() ?");
+   if (iv == -1) {
+      /* x * -1 ==> -x */
+      ins->op = Oneg, ins->r = NOREF;
+      return 1;
+   }
    bool neg = iv < 0;
    if (neg) iv = -iv;
    /* This can be generalized to any sequence of shifts and
@@ -48,6 +53,11 @@ divmodk(Instr *ins, Block *blk, int *curi)
    uint nbit = 8 * cls2siz[cls];
    bool neg = (op == Odiv || op == Orem) && iv < 0;
    assert((u64int)iv > 1 && "trivial div/rem not handled by irbinop() ?");
+   if (iv == -1 && op == Odiv) {
+      /* x / -1 ==> -x */
+      ins->op = Oneg, ins->r = NOREF;
+      return 1;
+   }
    if (ispo2(iv) || (neg && ispo2(-iv))) { /* simple po2 cases */
       Ref temp;
       uint s = ilog2(neg ? -iv : iv);
@@ -59,7 +69,9 @@ divmodk(Instr *ins, Block *blk, int *curi)
       case Ourem: /* x % 2^s ==> x & 2^s-1 */
          ins->op = Oand, ins->r = mkintcon(cls, iv - 1);
          return 1;
-      case Odiv: case Orem:
+      case Orem:
+         assert(iv != -1 && "trivial rem not handled by irbinop() ?");
+      case Odiv:
          /* have to adjust to round negatives toward zero */
          /* x' = (((x < 0 ? -1 : 0) >>> (Nbit - s)) + x) */
          temp = insertinstr(blk, (*curi)++, mkinstr2(Osar, cls, ins->l, mkref(RICON, nbit - 1)));

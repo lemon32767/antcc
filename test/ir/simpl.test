@@ -1,14 +1,43 @@
 source [file dirname $argv0]/common.tcl
 
 set prog {
+    int mul(int a, int b) { return a*b; }
     int div(int a, int b) { return a/b; }
-    int div1(int a) { return div(a, 1); }
+    int udiv(unsigned a, unsigned b) { return a/b; }
     int rem(int a, int b) { return a%b; }
+    int urem(unsigned a, unsigned b) { return a%b; }
+
+    int mul1(int a) { return mul(a, 1); } //id
+    int mulm1(int a) { return mul(a, -1); } //neg
+    int mul4(int a) { return mul(a, 4); } //shl 2
+    int mul17(int a) { return mul(a, 17); } //shl 4 & add
+    int mulm5(int a) { return mul(a, -5); } //shl 2 & add & neg
+
+    int div1(int a) { return div(a, 1); }
+    int divm1(int a) { return div(a, -1); }
+    int udivm1(int a) { return udiv(a, -1); }
+
     int rem1(int a) { return rem(a, 1); }
+    int remm1(int a) { return rem(a, -1); }
 }
 
-set arith [regexp -inline -all {= \m\w{3,4}\M} [c+out {-dfilter=div1 -dafter=optimize -O2} $prog]]
-asserteq "div/1 -> nop" $arith ""
+proc findarithins {f} {
+    global prog
+    set matches [regexp -inline -all {= \m(\w{3,4})\M} [c+out "-dfilter=$f -dafter=optimize -O2" $prog]]
+    return [lmap {x0 x1} $matches {set x1}]
+}
+
+asserteq "mul *1  -> nop" [findarithins mul1] ""
+asserteq "mul *-1 -> neg" [findarithins mulm1] neg
+asserteq "mul *4  -> shl" [findarithins mul4] shl
+asserteq "mul *17 -> shl+add" [findarithins mul17] {shl add}
+asserteq "mul *-5 -> shl+add+neg" [findarithins mulm5] {shl add neg}
+
+asserteq "div/1  -> nop" [findarithins div1] ""
+asserteq "div/-1 -> neg" [findarithins divm1] neg
+asserteq "udiv/-1 -> stays udiv" [findarithins udivm1] udiv
 
 set rets [regexp -inline -line -all {ret .*$} [c+out {-dfilter=rem1 -dafter=optimize -O2} $prog]]
 asserteq "rem%1 -> zero" $rets [list "ret 0"]
+set rets [regexp -inline -line -all {ret .*$} [c+out {-dfilter=remm1 -dafter=optimize -O2} $prog]]
+asserteq "rem%-1 -> zero" $rets [list "ret 0"]

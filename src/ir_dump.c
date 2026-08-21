@@ -353,7 +353,7 @@ inlist(const char *list, const char *x)
    assert(list && x && *x);
    if (!strcmp(list, "*")) return 1;
    const char *y = strstr(list, x);
-   if (!y) return 0;
+   if (y != list) return 0;
    char e = y[strlen(x)];
    return e == ',' || !e;
 }
