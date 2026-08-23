@@ -475,6 +475,17 @@ filluses(Function *fn)
    fn->prop |= FNUSE;
 }
 
+
+void
+inschoper(Block *b, Instr *ins, int i, Ref r)
+{
+   int t = ins - instrtab;
+   Ref *o = &ins->oper[i];
+   deluse(b, t, *o);
+   adduse(b, t, r);
+   *o = r;
+}
+
 int
 newinstr(Block *at, Instr ins)
 {

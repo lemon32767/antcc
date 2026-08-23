@@ -25,21 +25,19 @@ mulk(Instr *ins, Block *blk, int *curi)
    } else if (ispo2(iv-1)) {
       /* x * 5 ==> (x << 2) + x */
       ins->op = Oadd;
-      ins->r = ins->l;
-      ins->l = insertinstr(blk, (*curi)++, mkinstr2(Oshl, cls, ins->l, mkref(RICON, ilog2(iv-1))));
-      adduse(blk, ins-instrtab, ins->l);
+      inschoper(blk, ins, 1, ins->l);
+      inschoper(blk, ins, 0, insertinstr(blk, (*curi)++, mkinstr2(Oshl, cls, ins->l, mkref(RICON, ilog2(iv-1)))));
    } else if (ispo2(iv+1)) {
       /* x * 7 ==> (x << 3) - x */
       ins->op = Osub;
-      ins->r = ins->l;
-      ins->l = insertinstr(blk, (*curi)++, mkinstr2(Oshl, cls, ins->l, mkref(RICON, ilog2(iv+1))));
-      adduse(blk, ins-instrtab, ins->l);
+      inschoper(blk, ins, 1, ins->l);
+      inschoper(blk, ins, 0, insertinstr(blk, (*curi)++, mkinstr2(Oshl, cls, ins->l, mkref(RICON, ilog2(iv+1)))));
    } else return 0;
    if (neg) {
-      ins->l = insertinstr(blk, (*curi)++, *ins);
+      Ref tmp = insertinstr(blk, (*curi)++, *ins);
       ins->op = Oneg;
-      ins->r = NOREF;
-      adduse(blk, ins-instrtab, ins->l);
+      inschoper(blk, ins, 0, tmp);
+      inschoper(blk, ins, 1, NOREF);
    }
    return 1;
 }
@@ -83,12 +81,15 @@ divmodk(Instr *ins, Block *blk, int *curi)
             if (!neg) *ins = sar;
             else {
                temp = insertinstr(blk, (*curi)++, sar);
-               ins->op = Oneg, ins->l = temp, ins->r = NOREF;
+               ins->op = Oneg;
+               inschoper(blk, ins, 0, temp);
+               inschoper(blk, ins, 1, NOREF);
             }
          } else {
             /* x - (x' & -(2^s)) */
             temp = insertinstr(blk, (*curi)++, mkinstr2(Oand, cls, temp, mkintcon(cls, neg ? iv : -iv)));
-            ins->op = Osub, ins->r = temp;
+            ins->op = Osub;
+            inschoper(blk, ins, 1, temp);
          }
          break;
          return 0;
@@ -146,8 +147,8 @@ doins(Instr *ins, Block *blk, int *curi)
             case Osub: c += q; break; /* x - 3 == C ==> x == C + 3 */
             case Oxor: c ^= q; break; /* x ^ 3 == C ==> x == C ^ 3 */
             }
-            ins->l = lhs->l, ins->r = mkintcon(ins->cls, c);
-            deluse(blk, ins - instrtab, mkref(RTMP, lhs - instrtab));
+            inschoper(blk, ins, 0, lhs->l);
+            inschoper(blk, ins, 1, mkintcon(ins->cls, c));
             if (!instruse[lhs - instrtab]) *lhs = mkinstr0(Onop,0);
             return 1;
          }

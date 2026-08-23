@@ -101,6 +101,8 @@ patchparam(Function *fn, int *curi, int *param, int tydat, int nabi, ABIArg abi[
          /* aggregate in stack or scalar, just copy */
          assert(nabi < 2);
          *ins = copyparam(fn, curi, *param, abi[0]);
+         if (ins->l.t == RTMP)
+            adduse(blk, ins - instrtab, ins->l);
       } else { /* aggregate in registers, materialize */
          assert(nabi >= 1);
          Ref alloc, r[2];
@@ -415,8 +417,10 @@ abi0(Function *fn)
             break;
          }
       } while ((blk = blk->lnext) != fn->entry);
-      if (rvovar != -1)
+      if (rvovar != -1) {
          instrtab[rvovar] = mkinstr1(Ocopy, KPTR, sret);
+         adduse(fn->entry, rvovar, sret);
+      }
    }
 
    blk = fn->entry->lnext;

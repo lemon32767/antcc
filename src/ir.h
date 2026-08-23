@@ -313,6 +313,7 @@ void replcuses(Ref from, Ref to, Block *at);
 bool deluse(Block *ublk, int ui, Ref r);
 void deluses(int ins);
 void filluses(Function *);
+void inschoper(Block *, Instr *, int, Ref);
 void delinstr(Block *, int idx);
 void delphi(Block *, int idx);
 void delnops(Block *blk);
