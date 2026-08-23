@@ -1,12 +1,14 @@
 #include "c.h"
 #include "ir.h"
 
+static const Type ANYTYPE = { .bits = -1u };
+
 static bool
 callcheck(const Span *span, int nparam, const Type *param, int narg, Expr *args)
 {
    bool ok = 1;
    for (int i = 0, n = narg < nparam ? narg : nparam; i < n; ++i) {
-      if (!assigncheck(typedecay(param[i]), &args[i])) {
+      if (param[i].bits != ANYTYPE.bits && !assigncheck(typedecay(param[i]), &args[i])) {
          ok = 0;
          error(&args[i].span, "arg #%d of type '%ty' is incompatible with '%ty'",
                i, args[i].ty, param[i]);
@@ -89,6 +91,15 @@ trap_comp(Function *fn, Expr *ex, bool discard)
    return NOREF;
 }
 
+/* __builtin_unreachable */
+DEF_FNLIKE_SEMA(unreachable, mktype(TYVOID), )
+static Ref
+unreachable_comp(Function *fn, Expr *ex, bool discard)
+{
+   /* just compile to a trap, don't have poison values/control flow */
+   return trap_comp(fn, ex, discard);
+}
+
 /* __builtin_bswap16 */
 DEF_FNLIKE_SEMA(bswap16, mktype(TYUSHORT), mktype(TYUSHORT))
 static Ref
@@ -117,9 +128,29 @@ bswap64_comp(Function *fn, Expr *ex, bool discard)
             compileexpr(fn, &ex->sub[1], 0)));
 }
 
+/* __builtin_constant_p */
+DEF_FNLIKE_SEMA(constant_p, mktype(TYINT), ANYTYPE)
+static Ref
+constant_p_comp(Function *fn, Expr *ex, bool discard)
+{
+   if (discard) return NOREF;
+   ex = &ex->sub[1];
+   if (eval(ex, EVFOLD) && isarith(ex->ty)) return mkref(RICON, 1);
+   /* XXX: this only performs peephole optimizations, not backend level,
+    *      misses things that might be actually constant after -O2. */
+   Block *next = newblk(fn);
+   putbranch(fn, next);
+   useblk(fn, newblk(fn));
+   Ref r = compileexpr(fn, ex, 0);
+   puttrap(fn);
+   useblk(fn, next);
+   return mkref(RICON, isnumcon(r));
+}
+
 #define LIST_BUILTINS(_) \
    _(va_start) _(va_copy) _(va_end) \
-   _(trap) _(bswap16) _(bswap32) _(bswap64)
+   _(trap) _(bswap16) _(bswap32) _(bswap64) \
+   _(unreachable) _(constant_p) \
 
 static const struct {
    const char *name;
