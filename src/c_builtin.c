@@ -147,10 +147,18 @@ constant_p_comp(Function *fn, Expr *ex, bool discard)
    return mkref(RICON, isnumcon(r));
 }
 
+/* __builtin_expect (stub) */
+DEF_FNLIKE_SEMA(expect, mktype(TYLONG), mktype(TYLONG), mktype(TYLONG))
+static Ref
+expect_comp(Function *fn, Expr *ex, bool discard)
+{
+   return compileexpr(fn, &ex->sub[1], discard);
+}
+
 #define LIST_BUILTINS(_) \
    _(va_start) _(va_copy) _(va_end) \
    _(trap) _(bswap16) _(bswap32) _(bswap64) \
-   _(unreachable) _(constant_p) \
+   _(unreachable) _(constant_p) _(expect) \
 
 static const struct {
    const char *name;

@@ -2,6 +2,9 @@
 /* EXPECT:
 f(3) = 2
 X*10.f==2 = 1
+likely(t > 1) = 0
+unlikely(t == 1) = 1
+__builtin_expect(7, atoi("7!")) = 7
 */
 
 #include <stdio.h>
@@ -13,8 +16,10 @@ int f(int x) {
     __builtin_unreachable(); // should not warn now
 }
 
-#define prid(x) printf(#x" = %d\n", (x))
+#define prid(x) printf(#x" = %d\n", (int)(x))
 #define min(a,b) ((a)<(b) ? (a) : (b))
+#define likely(x) __builtin_expect((x), 1)
+#define unlikely(x) __builtin_expect((x), 0)
 
 int main(int t) {
     prid(f(3));
@@ -25,4 +30,8 @@ int main(int t) {
     assert(!__builtin_constant_p(y));
     assert(!__builtin_constant_p(main));
     assert(__builtin_constant_p(min(sizeof(int), sizeof(long))));
+    prid(likely(t > 1));
+    prid(unlikely(t == 1));
+    int atoi(char *);
+    prid(__builtin_expect(7, atoi("7!")));
 }
