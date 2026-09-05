@@ -21,7 +21,11 @@ struct {
 
 foo_t empty[] = {}; /* EXTENSION */
 
+enum e8 : unsigned char { t8 = 255 };
+
 int main() {
    int q = ((struct{_Static_assert(sizeof q>0,"q");} *)0, 1);
+   _Static_assert(sizeof(enum e8) == 1, "e8");
+   _Static_assert(sizeof t8 == 1, "t8");
 }
 

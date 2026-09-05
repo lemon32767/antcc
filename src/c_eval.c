@@ -5,34 +5,33 @@
 #include <limits.h>
 
 static int
-targ2hosttype(enum typetag t)
+forcenumtype(enum typetag tt)
 {
-   if (t == TYPTR) t = targ_64bit ? TYUVLONG : TYUINT;
-   if (isintt(t)) {
-      int siz = targ_primsizes[t];
-      int sgn = issignedt(t);
-#define U(Ty,Tag) if (!sgn & (siz == sizeof(unsigned Ty))) return Tag;
-#define S(Ty,Tag) if ( sgn & (siz == sizeof(signed   Ty))) return Tag;
-      U(char, TYUCHAR)
-      S(char, TYSCHAR)
-      U(short, TYUSHORT)
-      S(short, TYSHORT)
-      U(int, TYUINT)
-      S(int, TYINT)
-      U(long long, TYUVLONG)
-      S(long long, TYVLONG)
-#undef U
-#undef S
-   } else if (t == TYLDOUBLE) return TYDOUBLE;
-   else if (isfltt(t) || iscomplext(t)) return t;
-   return 0;
+   if (tt == TYLDOUBLE) return TYDOUBLE; /* NYI */
+   if (tt == TYPTR) return targ_64bit ? TYUVLONG : TYUINT;
+   return tt;
+}
+
+s64int
+intcast(enum typetag to, s64int x)
+{
+   assert(isintt(to));
+   if (to == TYBOOL) return !!x;
+   int n = 8*targ_primsizes[to];
+   if (n == 64) return x;
+   x &= BIT(n) - 1;
+   if (issignedt(to)) {
+      int s = 64 - n;
+      return (s64int)((u64int)x << s) >> s;
+   }
+   return x;
 }
 
 static bool
 numcast(Type ty, Expr *dst, const Expr *src)
 {
-   enum typetag td = targ2hosttype(scalartypet(ty)),
-                ts = targ2hosttype(scalartypet(src->ty));
+   enum typetag td = forcenumtype(scalartypet(ty)),
+                ts = forcenumtype(scalartypet(src->ty));
    s64int isrc;
    Expr tmp;
    if (src == dst) tmp = *src, src = &tmp;
@@ -56,21 +55,12 @@ numcast(Type ty, Expr *dst, const Expr *src)
       isrc = src->i;
    Narrow:
       switch (td) {
-#define I(Ty, Tag) case Tag: dst->i = (Ty) isrc; break;
-      I(bool, TYBOOL)
-      I(signed   char, TYSCHAR)
-      I(unsigned char, TYUCHAR)
-      I(signed   short, TYSHORT)
-      I(unsigned short, TYUSHORT)
-      I(signed   int, TYINT)
-      I(unsigned int, TYUINT)
-      I(signed   long long, TYVLONG)
-      I(unsigned long long, TYUVLONG)
-#undef I
       case TYINT128: case TYUINT128: /* NYI */ return 0;
       case TYFLOAT: dst->f = (float) src->f; break;
       case TYDOUBLE: dst->f = src->f; break;
-      default: assert(0 && "bad cast?");
+      default:
+         assert(isintt(td) && "bad cast?");
+         dst->i = intcast(td, isrc);
       }
    }
 #undef TT

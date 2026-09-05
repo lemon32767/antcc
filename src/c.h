@@ -192,5 +192,6 @@ enum evalmode {
 
 /** eval.c **/
 bool eval(Expr *, enum evalmode);
+s64int intcast(enum typetag, s64int);
 
 /* vim:set ts=3 sw=3 expandtab: */

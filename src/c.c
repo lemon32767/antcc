@@ -360,7 +360,7 @@ finddecl(CComp *cm, internstr name)
 }
 
 static Type
-gettagged(CComp *cm, Span *span, enum typetag tt, internstr name, bool dodef)
+gettagged(CComp *cm, Span *span, enum typetag tt, internstr name, bool dodef, enum typetag enumbasety)
 {
    assert(name);
    for (Env *e = cm->env; e; e = e->up) {
@@ -377,11 +377,11 @@ gettagged(CComp *cm, Span *span, enum typetag tt, internstr name, bool dodef)
       warn(span, "forward-declared enum is an extension");
    }
 Break2:
-   return envaddtagged(cm->env, mktagtype(name, &(TypeData){tt, TFUNKNOWN}), span)->ty;
+   return envaddtagged(cm->env, mktagtype(name, &(TypeData){tt, TFUNKNOWN, .backing = enumbasety}), span)->ty;
 }
 
 static Type
-deftagged(CComp *cm, Span *span, enum typetag tt, internstr name, Type ty)
+deftagged(CComp *cm, Span *span, enum typetag tt, internstr name, Type ty, enum typetag enumbasety)
 {
    assert(name);
    for (Tagged *l = NULL; envitertagged(&l, cm->env);) {
@@ -390,7 +390,7 @@ deftagged(CComp *cm, Span *span, enum typetag tt, internstr name, Type ty)
          return l->ty;
       }
    }
-   return envaddtagged(cm->env, ty.t ? ty : mktagtype(name, &(TypeData){tt, TFUNKNOWN}), span)->ty;
+   return envaddtagged(cm->env, ty.t ? ty : mktagtype(name, &(TypeData){tt, TFUNKNOWN, .backing = enumbasety}), span)->ty;
 }
 
 /*********************/
@@ -2400,12 +2400,12 @@ inttyminmax(s64int *min, u64int *max, enum typetag tt)
  * prefers to use unsigned types when possible). should add support for -fshort-enums
  */
 static Type
-buildenum(CComp *cm, internstr name, const Span *span, int id, const Attrs *tyattr)
+buildenum(CComp *cm, internstr name, const Span *span, int id, enum typetag basety, const Attrs *tyattr)
 {
    Token tk;
    s64int tymin, minv = 0;
    u64int tymax, maxv = 0;
-   TypeData td = {TYENUM, .backing = TYINT};
+   TypeData td = {TYENUM, .backing = basety ? basety : TYINT};
    Type ty = mktype(td.backing);
    Span maxvspan;
    s64int iota = 0;
@@ -2420,9 +2420,11 @@ buildenum(CComp *cm, internstr name, const Span *span, int id, const Attrs *tyat
          Expr ex = expr(cm);
          if (eval2xintcon(&ex)) {
             iota = ex.i;
-            if (ex.ty.t != ty.t)
-               inttyminmax(&tymin, &tymax, ex.ty.t);
-            ty = ex.ty;
+            if (!basety) {
+               if (ex.ty.t != ty.t)
+                  inttyminmax(&tymin, &tymax, ex.ty.t);
+               ty = ex.ty;
+            }
          } else {
             error(&ex.span, "enum value is not an integer constant");
          }
@@ -2430,16 +2432,20 @@ buildenum(CComp *cm, internstr name, const Span *span, int id, const Attrs *tyat
          lex(cm, NULL);
          continue;
       }
-      while (issigned(ty) ? (iota > (s64int)tymax || iota < tymin) : iota > tymax)
-         inttyminmax(&tymin, &tymax, ++ty.t);
-      somelonglong |= ty.t >= TYVLONG;
-      if ((isunsigned(ty) || iota > 0) && iota > maxv)
-         maxv = iota, maxvspan = tk.span;
-      else if (issigned(ty) && iota < minv)
-         minv = iota;
-
-      decl.name = tk.name;
+      if (!basety) {
+         while (issigned(ty) ? (iota > (s64int)tymax || iota < tymin) : iota > tymax)
+            inttyminmax(&tymin, &tymax, ++ty.t);
+         somelonglong |= ty.t >= TYVLONG;
+         if ((isunsigned(ty) || iota > 0) && iota > maxv)
+            maxv = iota, maxvspan = tk.span;
+         else if (issigned(ty) && iota < minv)
+            minv = iota;
+      } else {
+         if (iota != intcast(basety, iota))
+            error(&tk.span, "enum value outside of '%ty' range", ty);
+      }
       decl.ty = ty;
+      decl.name = tk.name;
       decl.isenumconst = 1;
       decl.value = iota++;
       putdecl(cm, &decl);
@@ -2450,14 +2456,16 @@ buildenum(CComp *cm, internstr name, const Span *span, int id, const Attrs *tyat
       }
    }
 
-   td.backing = 0;
-   if (minv >= 0 && maxv <= ~0u) {
-      td.backing = TYUINT;
-   } else for (int t = TYINT; t <= TYUVLONG; ++t) {
-      inttyminmax(&tymin, &tymax, t);
-      if (minv >= tymin && maxv <= tymax) {
-         td.backing = t;
-         break;
+   if (!basety) {
+      td.backing = 0;
+      if (minv >= 0 && maxv <= ~0u) {
+         td.backing = TYUINT;
+      } else for (int t = TYINT; t <= TYUVLONG; ++t) {
+         inttyminmax(&tymin, &tymax, t);
+         if (minv >= tymin && maxv <= tymax) {
+            td.backing = t;
+            break;
+         }
       }
    }
    if (!td.backing) {
@@ -2479,7 +2487,8 @@ tagtype(CComp *cm, enum toktag kind)
 {
    Token tk;
    Type t;
-   Span span;
+   enum typetag enumbasety = 0;
+   Span span, fullspan;
    enum typetag tt = kind == TKWenum ? TYENUM
                    : kind == TKWstruct ? TYSTRUCT
                    : TYUNION;
@@ -2492,27 +2501,44 @@ tagtype(CComp *cm, enum toktag kind)
       tag = tk.name;
    span = tk.span;
    attrcheckctx(&span, &attr, 't');
+   fullspan = span;
+   if (tt == TYENUM && match(cm, NULL, ':')) {
+      /* enum : base_type */
+      Decl decl = pdecl(&(DeclState){DCASTEXPR}, cm);
+      if (!isint(decl.ty)) {
+         error(&decl.span, "invalid enum underlying type '%ty'", decl.ty);
+      } else {
+         joinspan(&fullspan.ex, decl.span.ex);
+         enumbasety = decl.ty.t;
+      }
+   }
    if (!match(cm, NULL, '{')) {
       if (!tag) {
          error(&tk.span, "expected %tt name or '{'", kind);
          return mktype(0);
       }
-      t = gettagged(cm, &span, tt, tag, /* def? */ peek(cm, NULL) == ';');
+      bool dodef = peek(cm, NULL) == ';';
+      if (!dodef && enumbasety) {
+         error(&fullspan, "cannot specify enum backing type here");
+      }
+      t = gettagged(cm, &span, tt, tag, dodef, enumbasety);
    } else {
       if (tag) {
-         t = deftagged(cm, &span, tt, tag, mktype(0));
-         if (t.t != tt || !isincomplete(t)) {
-            if (t.t != tt)
+         t = deftagged(cm, &span, tt, tag, mktype(0), enumbasety);
+         bool err = 0;
+         if ((err = t.t != tt)) {
                error(&tk.span,
                      "defining tagged type %'tk as %tt clashes with previous definition",
                      &tk, kind);
-            else
-               error(&tk.span, "redefinition of '%tt %s'", kind, tag);
-            note(&span, "previous definition:");
+         } else if ((err = t.t == TYENUM && typedata[t.dat].backing != enumbasety)) {
+            error(&fullspan, "enum '%s' underlying type mismatch", tag);
+         } else if ((err = !isincomplete(t))) {
+            error(&fullspan, "redefinition of '%tt %s'", kind, tag);
          }
+         if (err) note(&span, "previously:");
       }
       if (tt == TYENUM)
-         t = buildenum(cm, tag, &span, tag ? typedata[t.dat].id : -1, &attr);
+         t = buildenum(cm, tag, &span, tag ? typedata[t.dat].id : -1, enumbasety, &attr);
       else
          t = buildagg(cm, tt, tag, tag ? typedata[t.dat].id : -1, &attr);
    }
@@ -2877,8 +2903,7 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
       }
       break;
    case TKIDENT:
-      if (!name)
-         error(&tk.span, "unexpected identifier in type name");
+      if (!name) break;
       else {
          *name = tk.name;
          *namespan = tk.span;
