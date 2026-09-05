@@ -141,6 +141,7 @@ putpredefmacros(void)
    TYPSIZ("FLOAT", TYFLOAT);
    TYPSIZ("DOUBLE", TYDOUBLE);
    TYPSIZ("LONG_DOUBLE", TYLDOUBLE);
+   TYPSIZ("INT128", TYINT128);
    TYPSIZ("SIZE_T", targ_sizetype);
    TYPSIZ("WCHAR_T", targ_wchartype);
    TYPSIZ("WINT_T", targ_wchartype);
@@ -184,9 +185,11 @@ targ_init(const char *starg, const TargTriple *dfault)
    memcpy(align, sizes, sizeof targ_primalign);
    sizes[TYULONG] = sizes[TYLONG] = t->longsize;
    sizes[TYUVLONG] = sizes[TYVLONG] = t->vlongsize;
+   sizes[TYINT128] = sizes[TYUINT128] = 16;
    sizes[TYPTR] = t->ptrsize;
    align[TYULONG] = align[TYLONG] = t->longalign;
    align[TYUVLONG] = align[TYVLONG] = t->vlongalign;
+   align[TYINT128] = align[TYUINT128] = t->vlongalign;
    align[TYDOUBLE] = t->doublealign;
    align[TYLDOUBLE] = t->doublealign;
    align[TYPTR] = t->ptralign;

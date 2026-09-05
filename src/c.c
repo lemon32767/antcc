@@ -138,7 +138,7 @@ isdecltok(CComp *cm)
          kw(const), kw(volatile), kw(restrict), kw(_Atomic),
          kw(void), kw(float), kw(double), kw(_Complex),
          kw(signed), kw(unsigned), kw(short), kw(long),
-         kw(int), kw(char), kw(_Bool), kw(bool),
+         kw(int), kw(char), kw(_Bool), kw(bool), kw(__int128),
          kw(struct), kw(union), kw(enum),
          kw(__typeof__), kw(typeof), kw(typeof_unqual),
          kw(__attribute__)
@@ -2571,6 +2571,7 @@ declspec(DeclState *st, CComp *cm, Span *pspan)
       KFLOAT    = 1<<8,
       KDOUBLE   = 1<<9,
       KCOMPLEX  = 1<<10,
+      KI128     = 1<<11,
    } arith = 0;
    Span span = {0};
    Type ty = st->base;
@@ -2648,6 +2649,10 @@ declspec(DeclState *st, CComp *cm, Span *pspan)
             arith |= KLONG;
          else
             error(&tk.span, "too long");
+         break;
+      case TKW__int128:
+         if (arith & KI128) goto DupArith;
+         arith |= KI128;
          break;
       case TKWint:
          if (arith & KINT) goto DupArith;
@@ -2757,6 +2762,10 @@ End:
          t = TYVLONG;
       else if ((arith & ~KINT) == (KUNSIGNED | KLONGLONG))
          t = TYUVLONG;
+      else if ((arith & ~KINT & ~KSIGNED) == KI128)
+         t = TYINT128;
+      else if ((arith & ~KINT) == (KUNSIGNED | KI128))
+         t = TYUINT128;
       else if (arith == (KCOMPLEX | KFLOAT))
          t = TYCOMPLEXF;
       else if (arith == (KCOMPLEX | KDOUBLE))
@@ -3921,6 +3930,9 @@ compileexpr(Function *fn, const Expr *ex, bool discard)
    } else if (iscomplex(ex->ty)) {
       assert(discard);
       (void)compcomplexex(fn, ex, discard);
+      return NOREF;
+   } else if (in_range(ex->ty.t, TYINT128, TYUINT128) && !discard) {
+      error(&ex->span, "%ty codegen is not yet supported", &ex->ty);
       return NOREF;
    }
 

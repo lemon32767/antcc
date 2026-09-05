@@ -11,6 +11,7 @@ enum typetag { /* ordering is important here! */
    TYXXX,
    TYENUM,
    TYBOOL, TYCHAR, TYSCHAR, TYUCHAR, TYSHORT, TYUSHORT, TYINT, TYUINT, TYLONG, TYULONG, TYVLONG, TYUVLONG,
+   TYINT128, TYUINT128,
    TYFLOAT, TYDOUBLE, TYLDOUBLE, TYCOMPLEXF, TYCOMPLEX, TYCOMPLEXL,
    TYVOID,
    TYPTR, TYARRAY, TYFUNC,
@@ -44,7 +45,7 @@ typedef union Type {
 static_assert(sizeof(Type) == 4);
 
 #define isprimt(t)     in_range((t), TYBOOL, TYVOID)
-#define isintt(t)      in_range((t), TYENUM, TYUVLONG)
+#define isintt(t)      in_range((t), TYENUM, (TYFLOAT - 1))
 #define issignedt(t)   ((TYSIGNEDSET_ | targ_charsigned << TYCHAR) >> (t) & 1)
 #define isunsignedt(t) ((TYUNSIGNEDSET_ | !targ_charsigned << TYCHAR) >> (t) & 1)
 #define isfltt(t)      in_range((t), TYFLOAT, TYLDOUBLE)

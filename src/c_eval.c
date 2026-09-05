@@ -67,6 +67,7 @@ numcast(Type ty, Expr *dst, const Expr *src)
       I(signed   long long, TYVLONG)
       I(unsigned long long, TYUVLONG)
 #undef I
+      case TYINT128: case TYUINT128: /* NYI */ return 0;
       case TYFLOAT: dst->f = (float) src->f; break;
       case TYDOUBLE: dst->f = src->f; break;
       default: assert(0 && "bad cast?");
