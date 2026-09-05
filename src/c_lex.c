@@ -180,7 +180,9 @@ parsenumlit(u64int *outi, double *outf, const Token *tk, bool ispp)
          else if ((sx[1]|32) == 'b') sx += 2, base = 2; /* 0b.. */
          else base = 8; /* 0.. */
       }
+      bool overflow = 0;
       for (; sx < tk->s + tk->len; ++sx) {
+         u64int n0 = n;
          if (base < 16) {
             if (!in_range(c = *sx, '0', '0'+base-1)) break;
             n = n*base + c - '0';
@@ -189,7 +191,9 @@ parsenumlit(u64int *outi, double *outf, const Token *tk, bool ispp)
             else if (in_range(c|32, 'a', 'f')) n = n*base + 0xa + (c|32) - 'a';
             else break;
          }
+         overflow |= n < n0;
       }
+      if (overflow) warn(&tk->span, "integer literal is too large");
       dec = base == 10;
       nsx = tk->len - (sx - tk->s);
 
