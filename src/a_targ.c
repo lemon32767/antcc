@@ -130,6 +130,8 @@ putpredefmacros(void)
    DEFTYP("UINT_LEAST64", i64t+1);
    DEFTYP("INTPTR", targ_64bit ? i64t : TYINT);
    DEFTYP("UINTPTR", targ_64bit ? i64t : TYINT);
+   DEFTYP("CHAR16", TYUSHORT);
+   DEFTYP("CHAR32", TYUINT);
 #undef DEFTYP
    static const char atoi[][3] = {[1]="1",[2]="2",[4]="4",[8]="8",[16]="16"};
 #define TYPSIZ(T,n) cpp0define("__SIZEOF_"T"__", atoi[targ_primsizes[n]])
