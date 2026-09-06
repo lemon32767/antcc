@@ -4,6 +4,12 @@
 #include <string.h>
 #include <stdlib.h>
 
+#if HAS_BUILTIN(expect)
+#define unlikely(x) __builtin_expect((x), 0)
+#else
+#define unlikely(x) (x)
+#endif
+
 static inline uchar
 next(Lexer *lx)
 {
@@ -14,9 +20,10 @@ Re:
    }
    uchar c = lx->dat[lx->idx++];
    if (c == '\n') {
-      addfileline(lx->fileid, lx->idx);
-   } else if (c == '\\' && lx->dat[lx->idx] == '\n') {
-      addfileline(lx->fileid, ++lx->idx);
+      ++lx->curline;
+   } else if (unlikely(c == '\\') && lx->dat[lx->idx] == '\n') {
+      ++lx->curline;
+      ++lx->idx;
       goto Re;
    }
    return c;
@@ -30,10 +37,10 @@ peek(Lexer *lx, int off)
 Re:;
    const uchar *p = lx->dat + lx->idx + off;
    uchar c = *p;
-   if (c == '\\' && p[1] == '\n') {
+   if (unlikely(c == '\\') && p[1] == '\n') {
       off += 2;
       goto Re;
-   } else if (off > 0 && c == '\n' && p[-1] == '\\') {
+   } else if (off > 0 && unlikely(c == '\n' && p[-1] == '\\')) {
       ++off;
       goto Re;
    }
@@ -43,7 +50,7 @@ Re:;
 static inline bool
 match(Lexer *lx, uchar c)
 {
-   if (!lx->eof && peek(lx, 0) == c) {
+   if (peek(lx, 0) == c) {
       next(lx);
       return 1;
    }
@@ -361,18 +368,20 @@ lex0(Lexer *lx, Token *tk, bool includeheader)
 Begin:
    idx = lx->idx;
    uchar c = next(lx);
-   uchar pk[3] = {c, peek(lx, 0), peek(lx, 1)};
+   uchar pk[2];
    switch (c) {
 
 #define RET(t_) do { tk->t = (t_); goto End; } while (0)
-#define TK2(c2,t) if (pk[1] == c2) {            \
-      next(lx); \
-      RET(t);                                  \
+#define PK1() pk[0] = peek(lx, 0)
+#define PK2() (PK1(), pk[1] = peek(lx, 1))
+#define TK2(c2,t) if (pk[0] == c2) { \
+      next(lx);                      \
+      RET(t);                        \
    }
-#define TK3(c2,c3,t) if (pk[1] == c2 && pk[2] == c3) { \
-      next(lx); \
-      next(lx); \
-      RET(t);                                        \
+#define TK3(c2,c3,t) if (pk[0] == c2 && pk[1] == c3) { \
+      next(lx);                                        \
+      next(lx);                                        \
+      RET(t);                                          \
    }
 
    case ' ': case '\t': case '\f': case '\v': case '\r':
@@ -384,56 +393,74 @@ Begin:
    case '{': case '}': case '~':
    case '@': case '`': case '\\': case '\n':
       RET(c);
-   case '!':
+   case '!': PK1();
       TK2('=', TKNEQ);
       RET(c);
-   case '#':
+   case '#': PK1();
       TK2('#', TKPPCAT);
       RET(c);
-   case '+':
+   case '+': PK1();
       TK2('+', TKINC);
       TK2('=', TKSETADD);
       RET(c);
-   case '-':
+   case '-': PK1();
       TK2('-', TKDEC);
       TK2('=', TKSETSUB);
       TK2('>', TKARROW);
       RET(c);
-   case '*':
+   case '*': PK1();
       TK2('=', TKSETMUL);
       RET(c);
-   case '/':
+   case '/': PK1();
       TK2('=', TKSETDIV);
       if (match(lx, '/')) {
          /* // single line comment */
-         while (next(lx) != '\n' && !lx->eof) {}
+         const uchar *p;
+         for (p = lx->dat + lx->idx; (c = *p) != '\n'; ++p) {
+            if (!c) break;
+            if (unlikely(c == '\\' && p[1] == '\n')) {
+               ++lx->curline;
+               ++p;
+            }
+         }
+         ++lx->curline;
+         lx->idx = p - lx->dat + 1;
          RET(lx->eof ? TKEOF : '\n');
       } else if (match(lx, '*')) {
          // /* multi line comment */
-         int st = 0;
-         for (;;) {
-            c = next(lx);
+         const uchar *p = lx->dat + lx->idx;
+         for (int st = 0;; ++p) {
+            c = *p;
             if (c == '*') st = 512;
             else if ((st|c) == (512|'/')) break;
-            else st = 0;
-            if (lx->eof) {
+            else if (unlikely(c == '\\' && p[1] == '\n')) {
+               ++p;
+               ++lx->curline;
+               continue;
+            } else st = 0;
+            if (c == '\n') {
+               ++lx->curline;
+            } else if (!c) {
+               lx->idx = p - lx->dat;
                Span span = {{ idx, lx->idx - idx, lx->fileid }};
                fatal(&span, "unterminated comment");
             }
          }
+         ++p;
+         lx->idx = p - lx->dat;
          goto Begin;
       }
       RET(c);
-   case '%':
+   case '%': PK1();
       TK2('=', TKSETREM);
       RET(c);
-   case '^':
+   case '^': PK1();
       TK2('=', TKSETXOR);
       RET(c);
-   case '=':
+   case '=': PK1();
       TK2('=', TKEQU);
       RET(c);
-   case '<':
+   case '<': PK2();
       if (includeheader) {
          readheadername(lx, tk, '>');
          goto End;
@@ -442,16 +469,16 @@ Begin:
       TK3('<','=', TKSETSHL)
       TK2('<', TKSHL);
       RET(c);
-   case '>':
+   case '>': PK2();
       TK2('=', TKGTE);
       TK3('>','=', TKSETSHR)
       TK2('>', TKSHR);
       RET(c);
-   case '&':
+   case '&': PK1();
       TK2('&', TKLOGAND);
       TK2('=', TKSETAND);
       RET(c);
-   case '|':
+   case '|': PK1();
       TK2('|', TKLOGIOR);
       TK2('=', TKSETIOR);
       RET(c);
@@ -464,9 +491,9 @@ Begin:
          readstrchrlit(lx, tk, c, 0);
       }
       goto End;
-   case '.':
+   case '.': PK2();
       TK3('.','.',TKDOTS)
-      if (aisdigit(pk[1])) goto Numlit;
+      if (aisdigit(pk[0])) goto Numlit;
       RET(c);
    case 'L':
       if (match(lx, (q = '\'')) || match(lx, (q = '"'))) {
@@ -1953,7 +1980,10 @@ ppline(Lexer *lx, Token *tk0)
          error(&tks[1].span, "invalid filename for #line directive");
       }
    }
-   if (lineno) setfileline(lx->fileid, lx->idx, lineno, file);
+   if (lineno) {
+      setfileline(lx->fileid, lx->idx, lineno, file);
+      lx->virtlines = 1;
+   }
    if (lx->macstk) {
       span.sl.off = span.ex.off = lx->idx;
       span.sl.len = span.ex.len = 1;
@@ -2484,9 +2514,11 @@ static void
 mac__line__(Lexer *lx, Token *tk)
 {
    char buf[20];
-   int line;
    WriteBuf wbuf = MEMBUF(buf, sizeof buf);
-   getfilepos(&line, NULL, lx->fileid, lx->idx);
+
+   int line = lx->curline;
+   if (lx->virtlines)
+      getfilepos(&line, NULL, lx->fileid, lx->idx);
    bfmt(&wbuf, "%d", line), buf[wbuf.len++] = 0;
    tk->t = TKNUMLIT;
    tk->s = alloccopy(lx->tmparena, buf, wbuf.len, 1);
@@ -2715,6 +2747,7 @@ initlexer(Lexer *lx, const char **err, const char *file)
    lx->tmparena = &tmparena;
    lx->firstdirective = 1;
    lx->nppcnd0 = nppcnd;
+   lx->curline = 1;
    return getfilename(fileid, 0) != file ? LXFILESEEN : LXOK;
 }
 

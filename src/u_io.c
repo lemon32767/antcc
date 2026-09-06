@@ -833,6 +833,7 @@ typedef struct File {
    const char *path;
    MemFile f;
    vec_of(uint) lineoffs;
+   uint nlscanidx;
    vec_of(LineMap) linemap; /* one entry per #line directive */
    bool seen;
    bool once; /* uses guard macro or #pragma once */
@@ -933,13 +934,18 @@ getfile(int id)
    return &fileht[id]->f;
 }
 
-void
-addfileline(int id, uint off)
+static bool // -> last?
+filllineoffs(File *f, uint upto)
 {
-   assert((uint)id < countof(fileht) && fileht[id]);
-   vec_of(uint) *lineoffs = (void *)&fileht[id]->lineoffs;
-   if (lineoffs->n && off > lineoffs->p[lineoffs->n-1])
-      vpush(lineoffs, off);
+   if (upto >= f->f.n) upto = f->f.n - 1;
+   if (upto < f->nlscanidx) return 0;
+   const uchar *p = f->f.p + f->nlscanidx;
+   for (uint i = f->nlscanidx; i <= upto; ++p, ++i) {
+      if (*p == '\n')
+         vpush(&f->lineoffs, i + 1);
+   }
+   f->nlscanidx = upto;
+   return 1;
 }
 
 void
@@ -949,6 +955,7 @@ setfileline(int id, uint off, int line, const char *file)
    vec_of(LineMap) *linemap = (void *)&fileht[id]->linemap;
    vec_of(uint) *lineoffs = (void *)&fileht[id]->lineoffs;
    int phys = 2;
+   filllineoffs(fileht[id], off);
    for (int i = lineoffs->n-1; i >= 0; --i) {
       if (lineoffs->p[i] < off) {
          phys = i+2;
@@ -966,23 +973,32 @@ const char *
 getfilepos(int *pline, int *pcol, int id, uint off)
 {
    assert((uint)id < countof(fileht) && fileht[id]);
-   uint *offs = fileht[id]->lineoffs.p;
-   uint n = fileht[id]->lineoffs.n;
-   /* binary search over offsets array */
-   int l = 0, h = n - 1, i = 0;
-   while (l <= h) {
-      i = (l + h) / 2;
-      if (offs[i] < off) l = i + 1;
-      else if (offs[i] > off) h = i - 1;
-      else break;
+   File *f = fileht[id];
+   int line, col;
+   if (filllineoffs(f, off)) {
+      // fast path: belongs to last scanned line
+      line = f->lineoffs.n;
+      col = off - f->lineoffs.p[line - 1];
+   } else {
+      uint *offs = f->lineoffs.p;
+      uint n = f->lineoffs.n;
+      /* binary search over offsets array */
+      int l = 0, h = n - 1, i = 0;
+      while (l <= h) {
+         i = (l + h) / 2;
+         if (offs[i] < off) l = i + 1;
+         else if (offs[i] > off) h = i - 1;
+         else break;
+      }
+      i -= offs[i] > off;
+      line = i + 1;
+      col = off - offs[i] + 1;
    }
-   i -= offs[i] > off;
-   int line = i + 1, col = off - offs[i] + 1;
-   const char *file = fileht[id]->path;
-   vec_of(LineMap) *linemap = (void *)&fileht[id]->linemap;
+   const char *file = f->path;
+   vec_of(LineMap) *linemap = (void *)&f->linemap;
    if (linemap->n) {
       /* binary search over linemap array */
-      l = 0, h = linemap->n - 1, i = 0;
+      int l = 0, h = linemap->n - 1, i = 0;
       while (l <= h) {
          i = (l + h) / 2;
          if (linemap->p[i].phys < line) l = i + 1;

@@ -334,7 +334,6 @@ int getpredeffile(MemFile **, const char *name);
 int openfile(const char **err, MemFile **, const char *path);
 const char *getfilename(int id, uint atoff);
 MemFile *getfile(int id);
-void addfileline(int id, uint off);
 void setfileline(int id, uint off, int line, const char *file);
 const char *getfilepos(int *line, int *col, int id, uint off);
 bool isoncefile(int id, internstr *guard);

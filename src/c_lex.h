@@ -107,9 +107,10 @@ typedef struct Lexer {
    PragmaState *pragma;
    uint ndat;
    uint idx;
+   uint curline;
    struct MacroStack *macstk;
    Token peektok;
-   bool eof, err;
+   bool eof, err, virtlines;
    Arena **tmparena;
    bool firstdirective;
    short nppcnd0;
