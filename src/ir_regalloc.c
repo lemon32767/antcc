@@ -377,6 +377,19 @@ intervalend(Interval *it)
 }
 
 static bool
+itcontainspos(Interval *it, int pos)
+{
+   if (it->nrange == 1)
+      return it->_rinl->from <= pos && pos < it->_rinl->to;
+   for (int i = 0; i < it->nrange; ++i) {
+      Range r = itrange(it, i);
+      if (r.from > pos) return 0;
+      if (pos < r.to) return 1;
+   }
+   return 0;
+}
+
+static bool
 intersoverlap(Interval *a, Interval *b)
 {
    for (int i = 0, j = 0; i < a->nrange && j < b->nrange; ) {
@@ -744,17 +757,6 @@ buildintervals(RegAlloc *ra)
    }
 }
 
-static bool
-itcontainspos(Interval *it, int pos)
-{
-   for (int i = 0; i < it->nrange; ++i) {
-      Range r = itrange(it, i);
-      if (r.from > pos) return 0;
-      if (pos < r.to) return 1;
-   }
-   return 0;
-}
-
 /* merge sort */
 static Interval *
 sortintervals(Interval *head, size_t n)
@@ -784,6 +786,264 @@ sortintervals(Interval *head, size_t n)
    }
    *pp = head ? head : rest;
    return p;
+}
+
+#define interval2temp(it) (int)(it - ra->intertab)
+
+typedef struct {
+   Interval *actives[2], *inactives[2]; /* gpr set and fpr set */
+   Interval **active, **inactive,
+             *spilled, **spilled_tail;
+   regset freeregs;
+   Interval *current;
+   int pos;
+   Instr *ins;
+} LinearScan;
+
+static void expire(RegAlloc *, LinearScan *);
+static regset findavailregs(RegAlloc *, LinearScan *, regset *out_fixexcl);
+static int allocfreereg(RegAlloc *, LinearScan *, regset avail);
+static Interval *spill(RegAlloc *, LinearScan *, int *out_reg, regset fixexcl);
+static void allocspillslots(RegAlloc *, LinearScan *);
+
+static void
+linearscan(RegAlloc *ra)
+{
+   if (!ra->intercount) return;
+
+   /* sort intervals */
+   Interval *unhandled = sortintervals(ra->inters, ra->intercount);
+
+   memset(ra->freestk, 0xFF, sizeof ra->freestk);
+
+   /* LINEAR SCAN */
+   LinearScan s = {
+      .freeregs = (gpregset | fpregset) &~ (mctarg->rglob | (1ull<<mctarg->gprscratch) | (1ull<<mctarg->fprscratch))
+   };
+   s.spilled_tail = &s.spilled;
+   for (Interval *current = unhandled, *unext; current; current = unext) {
+      unext = current->next;
+      s.pos = intervalbeg(s.current = current);
+      s.active = &s.actives[current->fpr];
+      s.inactive = &s.inactives[current->fpr];
+      /* Expire old intervals */
+      expire(ra, &s);
+
+      int this = interval2temp(current);
+      s.ins = &instrtab[this];
+      /** find a register for current **/
+      regset fixexcl, avail = findavailregs(ra, &s, &fixexcl);
+
+      int reg = -1;
+      if (avail) {
+         reg = allocfreereg(ra, &s, avail);
+      } else { /* no regs left, must spill */
+         Interval *tospill = spill(ra, &s, &reg, fixexcl);
+         assert(s.spilled != NULL);
+         if (tospill == current) {
+            DBG("spilled %%%d\n", this);
+            continue;
+         } else {
+            instrtab[interval2temp(tospill)].reg = 0;
+            DBG("%%%d takes %s from %%%d (spilled)\n", this, mctarg->rnames[reg],
+                  interval2temp(tospill));
+         }
+      }
+
+      assert(reg >= 0);
+      current->alloc = areg(reg);
+      s.ins->reg = reg + 1;
+      DBG("%%%d got %s\n", this, mctarg->rnames[reg]);
+      rsclr(&s.freeregs, reg);
+      rsset(&ra->fn->regusage, reg);
+
+      /* add current to active */
+      current->next = *s.active;
+      *s.active = current;
+   }
+
+   if (ra->debug) {
+      DBG("regusage: ");
+      for (int r = 0; r < MAXREGS; ++r) {
+         if (rstest(ra->fn->regusage, r)) DBG(" %s", mctarg->rnames[r]);
+      }
+      DBG("\n");
+   }
+
+   allocspillslots(ra, &s);
+}
+
+static void
+expire(RegAlloc *ra, LinearScan *s)
+{
+   Interval **lnk, *it, *next;
+   int pos = s->pos;
+   /* check for intervals in active that are handled or inactive */
+   for (lnk = s->active, it = *lnk; it; it = next) {
+      next = it->next;
+      assert(it->alloc.t == AREG);
+      /* ends before position? */
+      if (intervalend(it) <= pos) {
+         /* move from active to handled */
+         *lnk = next;
+         //DBG("   unblock %s %X\n", mctarg->rnames[it->alloc.a], ra->free);
+         rsset(&s->freeregs, it->alloc.a);
+      } else if (!itcontainspos(it, pos)) { /* it does not cover position? */
+         /* move from active to inactive */
+         *lnk = next;
+         it->next = *s->inactive;
+         *s->inactive = it;
+         rsset(&s->freeregs, it->alloc.a);
+         DBG(" >> %%%zd unblock %s\n", interval2temp(it), mctarg->rnames[it->alloc.a]);
+      } else lnk = &it->next;
+   }
+
+   /* check for intervals in inactive that are handled or active */
+   for (lnk = s->inactive, it = *lnk; it; it = next) {
+      next = it->next;
+      assert(it->alloc.t == AREG);
+      /* ends before position? */
+      if (intervalend(it) <= pos) {
+         /* move from inactive to handled */
+         *lnk = next;
+      } else if (itcontainspos(it, pos)) { /* it covers position? */
+         /* move from inactive to active */
+         *lnk = next;
+         it->next = *s->active;
+         *s->active = it;
+         assert(it->alloc.t == AREG);
+         assert(rstest(s->freeregs, it->alloc.a));
+         rsclr(&s->freeregs, it->alloc.a);
+         DBG(" << %%%zd reblock %s\n", interval2temp(it), mctarg->rnames[it->alloc.a]);
+      } else lnk = &it->next;
+   }
+}
+
+static regset
+findavailregs(RegAlloc *ra, LinearScan *s, regset *out_fixexcl)
+{
+   Interval *current = s->current;
+   regset avail = s->freeregs & (current->fpr ? fpregset : gpregset),
+          fixexcl = 0, excl = 0;
+   Instr *ins = s->ins;
+   int pos = s->pos;
+
+   /* exclude regs from overlapping fixed intervals */
+   int end = intervalend(current);
+   for (FixInterval *last = NULL, *fxit = ra->fixed; fxit;
+        last = fxit, fxit = fxit->next) {
+      if (last) assert(last->range.from <= fxit->range.from && "unsorted fixintervals");
+      if (fxit->range.to <= pos) {
+         ra->fixed = fxit->next;
+         continue;
+      } else if (fxit->range.from >= end) {
+         break;
+      }
+
+      for (int i = 0; i < current->nrange; ++i) {
+         if (rangeoverlap(fxit->range, itrange(current, i))) {
+            fixexcl |= fxit->rs;
+         }
+      }
+   }
+   /* exclude regs from overlapping inactive intervals */
+   for (Interval *it = *s->inactive; it; it = it->next) {
+      if (it->alloc.t == AREG && intersoverlap(it, current)) {
+         rsset(&excl, it->alloc.a);
+      }
+   }
+   /* for 2-address instrs, exclude reg from 2nd arg (unless arg#1 == arg#2) */
+   if (ins->inplace && opnoper[ins->op] == 2) {
+      int xreg;
+      if (ins->r.t == RREG) rsset(&excl, ins->r.i);
+      else if (ins->r.t == RTMP && (xreg = instrtab[ins->r.i].reg)) {
+         if (ins->r.bits != ins->l.bits)
+            rsset(&fixexcl, xreg-1);
+      }
+   }
+   *out_fixexcl = fixexcl;
+   excl |= fixexcl;
+   return avail & ~excl;
+}
+
+static Interval *
+spill(RegAlloc *ra, LinearScan *s, int *out_reg, regset fixexcl)
+{
+   Interval *current = s->current;
+   Interval **ptospill = NULL, *tospill = current,
+            **lnk, *it;
+   /* heuristic: look for longest-lived active interval with lower spill cost */
+   int curend = intervalend(current);
+   for (lnk = s->active; (it = *lnk);) {
+      int end = intervalend(it);
+      if (it->cost < tospill->cost && end > curend && !rstest(fixexcl, it->alloc.a)) {
+         ptospill = lnk;
+         tospill = it;
+         *out_reg = tospill->alloc.a;
+      }
+      lnk = &it->next;
+   }
+
+   /* insert in spilled, keep sorted */
+   if (ptospill) {
+      *ptospill = tospill->next; /* remove from active */
+      int from = intervalbeg(tospill);
+      lnk = &s->spilled;
+      /* XXX potentially slow linear search */
+      while (*lnk && intervalbeg(*lnk) < from)
+         lnk = &(*lnk)->next;
+      tospill->next = *lnk;
+      *lnk = tospill;
+   } else { /* tospill == current, so we can just append and keep it sorted */
+      *s->spilled_tail = tospill;
+      tospill->next = NULL;
+   }
+   if (!tospill->next) /* update spilled list tail */
+      s->spilled_tail = &tospill->next;
+   return tospill;
+}
+
+static int
+allocfreereg(RegAlloc *ra, LinearScan *s, regset avail)
+{
+   Interval *current = s->current;
+   int this = interval2temp(current);
+   Instr *ins = s->ins;
+   /* try to use hint */
+   if (current->rhint >= 0)
+      DBG("have hint %s for %%%zd\n",
+            mctarg->rnames[current->rhint], interval2temp(current));
+   if (current->rhint >= 0 && rstest(avail, current->rhint)) {
+      DBG(" (used hint)\n");
+      return current->rhint;
+   }
+   int reg;
+   /* for two-address instructions, try to use the reg of left arg */
+   if (ins->op != Ophi && (opnoper[ins->op] == 1 || (opnoper[ins->op] == 2 && ins->inplace))) {
+      DBG(" %%%d try %d,%d\n", this, ins->l.t,ins->l.i);
+      if (ins->l.t == RREG && rstest(avail, reg = ins->l.i))
+         return reg;
+      if (ins->l.t == RTMP)
+      if ((reg = instrtab[ins->l.i].reg-1) >= 0)
+      if (rstest(avail, reg))
+         return reg;
+   } else if (ins->op == Ophi) {
+      /* for phi, try to use reg of any arg */
+      Ref *arg = phitab.p[ins->l.i];
+      for (int i = 0; i < xbcap(arg); ++i) {
+         if (arg->t == RREG && rstest(avail, arg->i)) return arg->i;
+         if (arg->t == RTMP)
+         if ((reg = instrtab[arg->i].reg-1) >= 0)
+         if (rstest(avail, reg))
+            return reg;
+      }
+   }
+
+   /* no hints to use */
+   if (avail &~ mctarg->rcallee) /* prefer caller-saved regs */
+      avail &=~ mctarg->rcallee;
+   /* and pick first available reg */
+   return lowestsetbit(avail);
 }
 
 static Alloc
@@ -816,217 +1076,15 @@ allocstkend(RegAlloc *ra)
    return astack(ra->maxstk++);
 }
 
-#define interval2temp(it) (int)(it - ra->intertab)
-
 static void
-linearscan(RegAlloc *ra)
+allocspillslots(RegAlloc *ra, LinearScan *s)
 {
-   if (!ra->intercount) return;
-
-   /* sort intervals */
-   Interval *unhandled = sortintervals(ra->inters, ra->intercount);
-
-   regset freeregs = (gpregset | fpregset) &~ (mctarg->rglob | (1ull<<mctarg->gprscratch) | (1ull<<mctarg->fprscratch));
-   memset(ra->freestk, 0xFF, sizeof ra->freestk);
-
-   /* LINEAR SCAN */
-   Interval *actives[2] = {0}, /* gpr set and fpr set */
-            *inactives[2] = {0},
-            *spilled = NULL, **spilled_tail = &spilled;
-   for (Interval *current = unhandled, *unext; current; current = unext) {
-      unext = current->next;
-      int pos = intervalbeg(current);
-      Interval **active = &actives[current->fpr],
-               **inactive = &inactives[current->fpr],
-               **lnk, *it, *next;
-      /* Expire old intervals */
-      /* check for intervals in active that are handled or inactive */
-      for (lnk = active, it = *lnk; it; it = next) {
-         next = it->next;
-         assert(it->alloc.t == AREG);
-         /* ends before position? */
-         if (intervalend(it) <= pos) {
-            /* move from active to handled */
-            *lnk = next;
-            //DBG("   unblock %s %X\n", mctarg->rnames[it->alloc.a], ra->free);
-            rsset(&freeregs, it->alloc.a);
-         } else if (!itcontainspos(it, pos)) { /* it does not cover position? */
-            /* move from active to inactive */
-            *lnk = next;
-            it->next = *inactive;
-            *inactive = it;
-            rsset(&freeregs, it->alloc.a);
-            DBG(" >> %%%zd unblock %s\n", interval2temp(it), mctarg->rnames[it->alloc.a]);
-         } else lnk = &it->next;
-      }
-      /* check for intervals in inactive that are handled or active */
-      for (lnk = inactive, it = *lnk; it; it = next) {
-         next = it->next;
-         assert(it->alloc.t == AREG);
-         /* ends before position? */
-         if (intervalend(it) <= pos) {
-            /* move from inactive to handled */
-            *lnk = next;
-         } else if (itcontainspos(it, pos)) { /* it covers position? */
-            /* move from inactive to active */
-            *lnk = next;
-            it->next = *active;
-            *active = it;
-            assert(it->alloc.t == AREG);
-            assert(rstest(freeregs, it->alloc.a));
-            rsclr(&freeregs, it->alloc.a);
-            DBG(" << %%%zd reblock %s\n", interval2temp(it), mctarg->rnames[it->alloc.a]);
-         } else lnk = &it->next;
-      }
-
-      /** find a register for current **/
-
-      int this = interval2temp(current);
-      regset avail = freeregs & (current->fpr ? fpregset : gpregset),
-             fixexcl = 0, excl = 0;
-      Instr *ins = &instrtab[this];
-      int reg = 0;
-
-      /* exclude regs from overlapping fixed intervals */
-      int end = intervalend(current);
-      for (FixInterval *last = NULL, *fxit = ra->fixed; fxit;
-           last = fxit, fxit = fxit->next) {
-         if (last) assert(last->range.from <= fxit->range.from && "unsorted fixintervals");
-         if (fxit->range.to <= pos) {
-            ra->fixed = fxit->next;
-            continue;
-         } else if (fxit->range.from >= end) {
-            break;
-         }
-
-         for (int i = 0; i < current->nrange; ++i) {
-            if (rangeoverlap(fxit->range, itrange(current, i))) {
-               fixexcl |= fxit->rs;
-            }
-         }
-      }
-      /* exclude regs from overlapping inactive intervals */
-      for (Interval *it = *inactive; it; it = it->next) {
-         if (it->alloc.t == AREG && intersoverlap(it, current)) {
-            rsset(&excl, it->alloc.a);
-         }
-      }
-      /* for 2-address instrs, exclude reg from 2nd arg (unless arg#1 == arg#2) */
-      if (ins->inplace && opnoper[ins->op] == 2) {
-         int xreg;
-         if (ins->r.t == RREG) rsset(&excl, ins->r.i);
-         else if (ins->r.t == RTMP && (xreg = instrtab[ins->r.i].reg)) {
-            if (ins->r.bits != ins->l.bits)
-               rsset(&fixexcl, xreg-1);
-         }
-      }
-      excl |= fixexcl;
-      avail &= ~excl;
-
-      if (!avail) { /* no regs left, must spill */
-         Interval **ptospill = NULL, *tospill = current;
-         /* heuristic: look for longest-lived active interval with lower spill cost */
-         int curend = intervalend(current);
-         for (lnk = active; (it = *lnk);) {
-            int end = intervalend(it);
-            if (it->cost < tospill->cost && end > curend && !rstest(fixexcl, it->alloc.a)) {
-               ptospill = lnk;
-               tospill = it;
-               reg = tospill->alloc.a;
-            }
-            lnk = &it->next;
-         }
-
-         /* insert in spilled, keep sorted */
-         if (ptospill) {
-            *ptospill = tospill->next; /* remove from active */
-            int from = intervalbeg(tospill);
-            lnk = &spilled;
-            /* XXX potentially slow linear search */
-            while (*lnk && intervalbeg(*lnk) < from)
-               lnk = &(*lnk)->next;
-            tospill->next = *lnk;
-            *lnk = tospill;
-         } else { /* tospill == current, so we can just append and keep it sorted */
-            *spilled_tail = tospill;
-            tospill->next = NULL;
-         }
-         if (!tospill->next) /* update spilled list tail */
-            spilled_tail = &tospill->next;
-
-         assert(spilled != NULL);
-         if (tospill == current) {
-            DBG("spilled %%%d\n", this);
-            continue;
-         } else {
-            instrtab[interval2temp(tospill)].reg = 0;
-            DBG("%%%d takes %s from %%%d (spilled)\n", this, mctarg->rnames[reg],
-                  interval2temp(tospill));
-            goto GotReg;
-         }
-      }
-
-      /* have free regs, try to use hint */
-      if (current->rhint >= 0)
-         DBG("have hint %s for %%%zd\n",
-               mctarg->rnames[current->rhint], interval2temp(current));
-      if (current->rhint >= 0 && rstest(avail, current->rhint)) {
-         DBG(" (used hint)\n");
-         reg = current->rhint;
-         goto GotReg;
-      } else {
-         /* for two-address instructions, try to use the reg of left arg */
-         if (ins->op != Ophi && (opnoper[ins->op] == 1 || (opnoper[ins->op] == 2 && ins->inplace))) {
-            DBG(" %%%d try %d,%d\n", this, ins->l.t,ins->l.i);
-            if (ins->l.t == RREG && rstest(avail, reg = ins->l.i))
-               goto GotReg;
-            if (ins->l.t == RTMP)
-            if ((reg = instrtab[ins->l.i].reg-1) >= 0)
-            if (rstest(avail, reg))
-               goto GotReg;
-         /* for phi, try to use reg of any arg */
-         } else if (ins->op == Ophi) {
-            Ref *arg = phitab.p[ins->l.i];
-            for (int i = 0; i < xbcap(arg); ++i) {
-               if (arg->t == RREG && rstest(avail, reg = arg->i)) goto GotReg;
-               if (arg->t == RTMP)
-               if ((reg = instrtab[arg->i].reg-1) >= 0)
-               if (rstest(avail, reg))
-                  goto GotReg;
-            }
-         }
-
-         /* no hints to use */
-         if (avail &~ mctarg->rcallee) /* prefer caller-saved regs */
-            avail &=~ mctarg->rcallee;
-         /* and pick first available reg */
-         reg = lowestsetbit(avail);
-      }
-   GotReg:
-      current->alloc = areg(reg);
-      ins->reg = reg + 1;
-      DBG("%%%d got %s\n", this, mctarg->rnames[reg]);
-      rsclr(&freeregs, reg);
-      rsset(&ra->fn->regusage, reg);
-
-      /* add current to active */
-      current->next = *active;
-      *active = current;
-   }
-
-   if (ra->debug) {
-      DBG("regusage: ");
-      for (int r = 0; r < MAXREGS; ++r) {
-         if (rstest(ra->fn->regusage, r)) DBG(" %s", mctarg->rnames[r]);
-      }
-      DBG("\n");
-   }
    /* allocate stack slots for spilled intervals
     * this is like another (simplified) linear scan pass */
    Interval *active = NULL;
    int prevpos = -1;
-   if (spilled) DBG("spilled:\n");
-   for (Interval *current = spilled, *next; current; current = next) {
+   if (s->spilled) DBG("spilled:\n");
+   for (Interval *current = s->spilled, *next; current; current = next) {
       int pos = intervalbeg(current);
       DBG("  %%%zd: [%d,%d)\n", interval2temp(current), pos, intervalend(current));
       assert(pos >= prevpos && "unsorted spilled?");
