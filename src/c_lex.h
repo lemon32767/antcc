@@ -106,8 +106,7 @@ typedef struct Lexer {
    const uchar *dat;
    PragmaState *pragma;
    uint ndat;
-   uint idx, chridx;
-   ushort chrbuf0;
+   uint idx;
    struct MacroStack *macstk;
    Token peektok;
    bool eof, err;
@@ -117,8 +116,6 @@ typedef struct Lexer {
    short inclnerror, inclnwarn;
    short src_incdiridx;
    internstr inclguard;
-   uchar chrbuf[1<<10];
-   uint chridxbuf[1<<10];
 } Lexer;
 
 enum initlexer {
