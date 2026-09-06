@@ -1,5 +1,8 @@
 A list of **missing** standard C features:
 
+## C89
+  - trigraphs (deliberately left out)
+
 ## C99
   - Variable-length arrays (VLAs)
   - Proper `long double` support in platforms with extended floats (currently equivalent to `double`)
