@@ -1,4 +1,4 @@
-/* CFLAGS: -std=c89 -trigraphs */
+/* CFLAGS: -std=c89 */
 /* EXPECT:
 1 2.5 qwer.
 */
@@ -12,12 +12,12 @@ char y,x[sizeof a];
    printf("%d %g %s%c\n", a, b, x,y);
 }
 
-??=include<stdio.h>
+#include<stdio.h>
 
 foo;
-main(t) ??<
+main(t) {
    foo = t-1;
    kandr(1, 2.5, "qwer",'.');
    return foo;
-??>
+}
 

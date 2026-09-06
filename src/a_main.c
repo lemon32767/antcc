@@ -260,7 +260,7 @@ optparse(char **args)
       } else if (!strcmp(arg, "pedantic")) {
          ccopt.pedant = 1;
       } else if (!strcmp(arg, "trigraphs")) {
-         ccopt.trigraph = 1;
+         error(NULL, "trigraphs are unsupported");
       } else if (*arg == 'd') {
          /* see antcc.h§CCOption.opt */
          ccopt.dbg.any = 1;

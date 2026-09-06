@@ -103,7 +103,6 @@ enum cstd {
 typedef struct CCOption {
    enum cstd cstd;
    bool pedant;
-   bool trigraph;
    bool nocolor;
    bool pie, pic;
    bool werror;

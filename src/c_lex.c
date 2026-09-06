@@ -5,7 +5,7 @@
 #include <stdlib.h>
 
 /* fill internal circular character buffer with input after translation phase 1 & 2
- * (trigraph substitution and backslash-newline deletion */
+ * (backslash-newline deletion) */
 static void
 fillchrbuf(Lexer *lx)
 {
@@ -33,35 +33,13 @@ fillchrbuf(Lexer *lx)
                idx += 2 + crlf;
                p += 2 + crlf;
             } else break;
-         } else if (ccopt.trigraph && !memcmp(p, "\?\?/\n", 4)) {
-            idx += 4;
-            p += 4;
-         } else if (ccopt.trigraph && !memcmp(p, "\?\?/\r\n", 5)) {
-            idx += 5;
-            p += 5;
          } else break;
          addfileline(lx->fileid, idx);
       }
 
       if (idx >= lx->ndat) {
          c = 0;
-      } else if (ccopt.trigraph && ((p[0] == '?') & (p[1] == '?'))) {
-         switch (p[2]) {
-         case '=':  c = '#'; break;
-         case '(':  c = '['; break;
-         case ')':  c = ']'; break;
-         case '!':  c = '|'; break;
-         case '<':  c = '{'; break;
-         case '>':  c = '}'; break;
-         case '-':  c = '~'; break;
-         case '/':  c = '\\'; break;
-         case '\'': c = '^'; break;
-         default: goto NoTrigraph;
-         }
-         p += 3;
-         idx += 3;
       } else {
-      NoTrigraph:
          ++idx;
          if ((c = *p++) == '\n') {
             addfileline(lx->fileid, idx);
