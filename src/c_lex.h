@@ -75,8 +75,7 @@ typedef struct Token {
       const uint   *ws32;
    };
    /* for (multi-)character tokens s & len are unused
-    * for keywords, s is constant cstring, len = strlen(s)
-    * for idents, s is interned cstring, len = strlen(s)
+    * for idents/keywords, s is interned cstring, len = strlen(s)
     * for strlit and chrlit:
     *  when litlit : s points to start of string within file buffer (after the ")
     *                len == span.sl.len - 2 (string data appears literally in source code)
@@ -107,6 +106,7 @@ typedef struct Lexer {
    PragmaState *pragma;
    uint ndat;
    uint idx;
+   uint curlineoff;
    uint curline;
    struct MacroStack *macstk;
    Token peektok;

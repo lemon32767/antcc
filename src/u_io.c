@@ -938,7 +938,7 @@ static bool // -> last?
 filllineoffs(File *f, uint upto)
 {
    if (upto >= f->f.n) upto = f->f.n - 1;
-   if (upto < f->nlscanidx) return 0;
+   if (upto <= f->nlscanidx) return 0;
    const uchar *p = f->f.p + f->nlscanidx;
    for (uint i = f->nlscanidx; i <= upto; ++p, ++i) {
       if (*p == '\n')
@@ -978,7 +978,7 @@ getfilepos(int *pline, int *pcol, int id, uint off)
    if (filllineoffs(f, off)) {
       // fast path: belongs to last scanned line
       line = f->lineoffs.n;
-      col = off - f->lineoffs.p[line - 1];
+      col = off - f->lineoffs.p[line - 1] + 1;
    } else {
       uint *offs = f->lineoffs.p;
       uint n = f->lineoffs.n;

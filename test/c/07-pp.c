@@ -15,6 +15,9 @@ sum = 1 + 2 +3;$
 [ baz] ;$
 +. *$
 x=7 7
+l 1
+linedif -1
+linedif2 0
 */
 
 #if !__has_include("07-pp.h")
@@ -145,6 +148,15 @@ qx2(*) ) "$\n"
 #endif
       );
    printf("x=%d %g\n",x, CAT(7,.));
+
+   // test __LINE__ across macro expansions
+#define rdiff(a,b) b-a
+   printf("l %d\n", rdiff(__LINE__,
+               __LINE__));
+   printf("linedif %d\n", qx1(__LINE__
+                             - __LINE__));
+#define XLINE __LINE__
+   printf("linedif2 %d\n", __LINE__ - XLINE);
 
    CAT(ret,urn) 0;
 }

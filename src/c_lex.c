@@ -21,9 +21,11 @@ Re:
    uchar c = lx->dat[lx->idx++];
    if (c == '\n') {
       ++lx->curline;
+      lx->curlineoff = lx->idx;
    } else if (unlikely(c == '\\') && lx->dat[lx->idx] == '\n') {
       ++lx->curline;
       ++lx->idx;
+      lx->curlineoff = lx->idx;
       goto Re;
    }
    return c;
@@ -425,6 +427,7 @@ Begin:
          }
          ++lx->curline;
          lx->idx = p - lx->dat + 1;
+         lx->curlineoff = lx->idx;
          RET(lx->eof ? TKEOF : '\n');
       } else if (match(lx, '*')) {
          // /* multi line comment */
@@ -448,6 +451,7 @@ Begin:
          }
          ++p;
          lx->idx = p - lx->dat;
+         lx->curlineoff = lx->idx;
          goto Begin;
       }
       RET(c);
@@ -984,7 +988,10 @@ pushmacstk(Lexer *lx, const Span *span, const MacroStack *m)
    else if ((++l == mstk+countof(mstk))) lxfatal(lx, span, "macro expansion depth limit reached");
    *l = *m;
    l->idx = 0;
-   l->exspan = span->ex;
+   if (span)
+      l->exspan = span->ex;
+   else
+      l->exspan.len = 0;
    lx->macstk = l;
 }
 
@@ -1114,7 +1121,8 @@ advancemacstk(Lexer *lx, Token *tk)
    }
    ++s->idx;
    assert(tk->t && tk->t != TKEOF);
-   tk->span.ex = s->exspan;
+   if (s->exspan.len)
+      tk->span.ex = s->exspan;
    return tryexpand(lx, tk) != EXPSTACK;
 }
 
@@ -1202,7 +1210,7 @@ expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac)
          memset(arg, 0, sizeof *arg);
       } else if (!mac->param || (mac->param[i] && arg->n > 0)) {
          /* expand args used in the macro body */
-         pushmacstk(lx, &tk.span, &(MacroStack) {
+         pushmacstk(lx, NULL, &(MacroStack) {
             .rl = { .p = argsbuf.p + arg->idx, .n = arg->n },
             .macid = -1,
             .stop = 1,
@@ -2516,9 +2524,11 @@ mac__line__(Lexer *lx, Token *tk)
    char buf[20];
    WriteBuf wbuf = MEMBUF(buf, sizeof buf);
 
-   int line = lx->curline;
-   if (lx->virtlines)
-      getfilepos(&line, NULL, lx->fileid, lx->idx);
+   int line;
+   if (!lx->virtlines && lx->curlineoff <= tk->span.ex.off)
+      line = lx->curline;
+   else
+      getfilepos(&line, NULL, lx->fileid, tk->span.ex.off);
    bfmt(&wbuf, "%d", line), buf[wbuf.len++] = 0;
    tk->t = TKNUMLIT;
    tk->s = alloccopy(lx->tmparena, buf, wbuf.len, 1);
