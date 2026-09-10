@@ -748,8 +748,9 @@ void
 irfini(Function *fn)
 {
    extern int nerror;
-   static union { char m[sizeof(Arena) + (4<<10)]; Arena *_align; } amem;
+   static union { char m[sizeof(Arena) + (1<<14)]; Arena *_align; } amem;
    Arena *passarena = (void *)&amem.m;
+   passarena->cap = sizeof amem.m - sizeof(Arena);
    fn->passarena = &passarena;
    if (nerror) {
       freefn(fn);

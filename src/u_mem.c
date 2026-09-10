@@ -180,7 +180,9 @@ alloc(Arena **par, uint siz, uint align)
       (*par)->n = idx + siz;
       return (*par)->mem + idx;
    }
-   new = newarena((*par)->cap);
+   uint newcap = (*par)->cap;
+   if (newcap < 1<<26) newcap *= 2;
+   new = newarena(newcap);
    new->prev = *par;
    *par = new;
    new->n = siz;
