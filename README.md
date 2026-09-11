@@ -53,6 +53,8 @@ Tested and known to work:
 
 Semi-working (can self-host, but not passing the external test suites/exhaustively tested)
  - `aarch64-linux-gnu` (tested on QEMU)
+ - `aarch64-unknown-linux-android24` (termux)
+
 
 Usage
 -----
