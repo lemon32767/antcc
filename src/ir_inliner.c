@@ -4,21 +4,25 @@
 typedef struct SavedFunc {
    bool emitted;
    uchar symflags;
-   bool inlin;
+   uchar inlhint;
    uint ninstrtab, ncontab, ncalltab, nphitab;
    Instr *instrtab;
    IRCon *contab;
    IRCall *calltab;
    Ref **phitab;
    Block *entry;
+   int nblk;
    Type fnty, retty;
    ABIArg *abiarg, abiret[2];
    ushort nabiarg, nabiret;
    ushort nretpoints;
+   int cost;
 } SavedFunc;
 
-enum { MAX_INLINED_FN_NINS = 50,
-       MAX_INLINED_FN_NBLK = 16, };
+enum { MAXINLFNNINS = 50,
+       MAXINLFNNBLK = 16,
+       MAXINLFNRETS = 16,
+       MAXINLFNARGS = 16,};
 
 static pmap_of(SavedFunc *) savedfns;
 static Arena *savearena;
@@ -29,20 +33,53 @@ dbgp(Function *fn)
    return ccopt.dbg.inliner && dumpfilt(&fn->name->c);
 }
 
+static int
+inscost(const Instr *ins)
+{
+   static char inscost[NOPER];
+   if (!inscost[Oadd]) for (int o = Onop+1; o < NOPER; ++o) {
+      if (in_range(o, Odiv, Ourem)) inscost[o] = 2;
+      else if (oisalloca(o)) inscost[o] = 4;
+      else if (oisloadstore(o)) inscost[o] = 2;
+      else if (o == Ocall) inscost[o] = 20;
+      else if (o == Ointrin) inscost[o] = 10;
+      else if (o == Oxvaprologue) inscost[o] = 50;
+      else if (o == Ovastart || o == Ovaarg) inscost[o] = 15;
+      else inscost[o] = 1;
+   }
+   return inscost[ins->op];
+}
+
+static int
+blkcost(Block *b)
+{
+   int cost = 0;
+   if (b->s2 || b->s1 != b->lnext)
+      ++cost;
+   for (int i = 0; i < b->ins.n; ++i)
+      cost += inscost(&instrtab[b->ins.p[i]]);
+   cost += b->phi.n * (b->npred - 1);
+   cost += b->loopdepth*8;
+   return cost;
+}
+
+#define isinlinedef(fn) (((fn)->symflags & (SLOCAL|SC99INLFN)) == SC99INLFN)
+
 bool
 maybeinlinee(Function *fn)
 {
    extern int ninstrtab, nfreeinstr;
 
-   if (!(fn->inlin && !(fn->symflags & SLOCAL))) {
-      // TODO better heuristics
-      if (ccopt.o < OPT1) return 0;
-      if (!(fn->inlin || (ccopt.o >= OPT2))) return 0;
-      if (ninstrtab - nfreeinstr > MAX_INLINED_FN_NINS) return 0;
-      if (fn->nblk > MAX_INLINED_FN_NBLK) return 0;
-      if (fn->nabiret > 1) return 0; /* TODO 2reg scalar return */
-   }
+   if (isinlinedef(fn))
+      goto Save;
 
+   if (fn->inlhint & FNINLNEVER) return 0;
+   if (!(fn->inlhint & (FNINLC|FNINLALWAYS)) && ccopt.o < OPT1) return 0;
+   if (fn->nabiret > 1) return 0; /* TODO 2reg scalar return */
+   if (ninstrtab - nfreeinstr > MAXINLFNNINS || fn->nblk > MAXINLFNNBLK)
+      return 0;
+
+Save:
    if (!savearena) {
       enum { N = 1<<12 };
       static union { char m[sizeof(Arena) + N]; Arena *_align; } amem;
@@ -55,17 +92,18 @@ maybeinlinee(Function *fn)
    }
    SavedFunc *sv = allocz(&savearena, sizeof *sv, 0);
    sv->symflags = fn->symflags;
-   sv->inlin = fn->inlin;
+   sv->inlhint = fn->inlhint;
    sv->fnty = fn->fnty, sv->retty = fn->retty;
    if (fn->abiarg)
       sv->abiarg = alloccopy(&savearena, fn->abiarg, sizeof *sv->abiarg * fn->nabiarg, 0);
    sv->nabiarg = fn->nabiarg;
    sv->nabiret = fn->nabiret;
    memcpy(sv->abiret, fn->abiret, sizeof sv->abiret);
-   Block *_bmap[MAX_INLINED_FN_NBLK],
-         **bmap = fn->nblk < MAX_INLINED_FN_NBLK
-                     ? _bmap : alloc(&savearena, fn->nblk * sizeof *bmap, 0);
+   Block *_bmap[MAXINLFNNBLK],
+         **bmap = fn->nblk < MAXINLFNNBLK ? _bmap
+                                          : alloc(fn->passarena, fn->nblk * sizeof *bmap, 0);
    Block *b = fn->entry;
+   sv->nblk = fn->nblk;
    int id = 0;
    do {
       b->id = id++;
@@ -74,6 +112,8 @@ maybeinlinee(Function *fn)
       q->idom = NULL;
       bmap[b->id] = q;
       sv->nretpoints += b->jmp.t == Jret;
+
+      sv->cost += blkcost(b);
    } while ((b = b->lnext) != fn->entry);
    b = sv->entry = bmap[0];
    do {
@@ -101,7 +141,42 @@ maybeinlinee(Function *fn)
       phitab.n = 0;
    }
    pmap_set(&savedfns, fn->name, sv);
+
+   if (dbgp(fn))
+      bfmt(ccopt.dbg.out, "  cost = %d\n", sv->cost);
+
    return 1;
+}
+
+static bool
+shouldinline(SavedFunc *sv, Block *blk, IRCall *call, int curi)
+{
+   if (sv->nabiarg != call->narg || call->vararg != -1) return 0;
+   if (call->narg > 0 && memcmp(sv->abiarg, call->abiarg, sizeof *sv->abiarg * sv->nabiarg) != 0)
+      return 0;
+   if (memcmp(sv->abiret, call->abiret, sizeof sv->abiret) != 0)
+      return 0;
+   if (sv->nblk > MAXINLFNNBLK) return 0;
+   if (sv->nretpoints > MAXINLFNRETS) return 0;
+   if (call->narg > MAXINLFNARGS) return 0;
+
+   if (sv->inlhint & FNINLNEVER) return 0;
+   if (sv->inlhint & FNINLALWAYS) return 1;
+   int cost = sv->cost;
+   for (int n = call->narg, i = curi-1; n > 0; --i) {
+      assert(i >= 0);
+      Instr *ins = &instrtab[blk->ins.p[i]];
+      if (ins->op == Oarg) {
+         if (isnumcon(ins->r)) cost -= 10;
+         --n;
+      }
+   }
+   bool ih = sv->inlhint & FNINLC;
+   int thresh = 20;
+   if (ccopt.o == OPT1) thresh = 30 + ih*30;
+   if (ccopt.o == OPT2) thresh = 120;
+
+   return cost <= thresh + 5;
 }
 
 static Ref
@@ -121,9 +196,10 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv)
    int res = blk->ins.p[curi], res2;
    Instr *ins = &instrtab[res];
    IRCall *call = &calltab.p[ins->r.i];
-   Ref retvals[64];
-   Ref args[64];
-   assert(sv->nabiret < 2 && sv->nretpoints < countof(retvals));
+   Ref retvals[MAXINLFNRETS];
+   Ref args[MAXINLFNARGS];
+   assert(call->narg <= countof(args));
+   assert(sv->nabiret < 2 && sv->nretpoints <= countof(retvals));
    for (int n = call->narg, i = curi-1; n > 0; --i) {
       assert(i >= 0);
       Instr *ins = &instrtab[blk->ins.p[i]];
@@ -165,7 +241,7 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv)
       }
    }
 
-   Block *bmap[MAX_INLINED_FN_NBLK];
+   Block *bmap[MAXINLFNNBLK];
    short *instrmap = alloc(fn->passarena, sv->ninstrtab * sizeof *instrmap, 0);
    for (Block *b = sv->entry; b; b = b->lnext) {
       bmap[b->id] = newblk(fn);
@@ -274,7 +350,7 @@ enum { MAX_REC_INLINE = 16 };
 int
 doinline(Function *fn)
 {
-   if (calltab.n == 0) return 0;
+   if (calltab.n == 0 || savedfns.mb.n == 0) return 0;
    Block *b = fn->entry;
    struct Stack { /* stack of callees being inline expanded */
       Block *b; /* block after the end of expansion */
@@ -295,9 +371,7 @@ doinline(Function *fn)
          internstr fname = xcon2sym(ins->l.i);
          SavedFunc **pcallee, *sv;
          if ((pcallee = pmap_get(&savedfns, fname))
-           && (sv = *pcallee)->nabiarg == call->narg && call->vararg == -1
-           && (!call->narg || !memcmp(sv->abiarg, call->abiarg, sizeof *sv->abiarg * sv->nabiarg))
-           && !memcmp(sv->abiret, call->abiret, sizeof sv->abiret)) {
+           && shouldinline(sv = *pcallee, b, call, i)) {
             for (struct Stack *s = stk; s != stkend; ++s) {
                if (s->sv == sv) goto Skip; /* recursion encountered */
             }
@@ -382,7 +456,7 @@ emitxinlfns(bool all)
       internstr name;
       pmap_each(&savedfns, name, psv) {
          sv = *psv;
-         if (!sv->emitted && (fnisneeded(name) || (!(sv->symflags & SLOCAL) && !sv->inlin) || all)) {
+         if (!sv->emitted && (fnisneeded(name) || !(sv->symflags & (SLOCAL|SC99INLFN)) || all)) {
             sv->emitted = 1;
             Function fn = rematerialize(&arena, name, sv);
             fn.passarena = &passarena;

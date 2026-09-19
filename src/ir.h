@@ -195,6 +195,13 @@ enum fnprop {
    FNDOM   = 1<<3,
    FNLOOP  = 1<<4,
 };
+
+enum inlinehint {
+   FNINLNEVER  = 1<<0, /* __attribute__((noinline)) */
+   FNINLC      = 1<<1, /* C 'inline' */
+   FNINLALWAYS = 1<<2, /* __attribute__((always_inline)) */
+};
+
 typedef struct Function {
    Arena **arena, **passarena;
    internstr name;
@@ -209,7 +216,7 @@ typedef struct Function {
    ushort nabiarg, nabiret;
    uchar symflags;
    bool isleaf;
-   bool inlin;
+   uchar inlhint; /* enum inlinehint */
    regset regusage;
    Loop *loops;
 } Function;

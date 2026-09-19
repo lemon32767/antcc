@@ -778,7 +778,8 @@ irfini(Function *fn)
       freearena(fn->passarena);
       return;
    }
-   assert(!(!(fn->symflags & SLOCAL) && fn->inlin /* extern inline */));
+   /* extern inline def must have been stashed */
+   assert((fn->symflags & (SLOCAL | SC99INLFN)) != SC99INLFN);
 
    irfini_end(fn);
 }

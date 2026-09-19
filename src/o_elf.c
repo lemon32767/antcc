@@ -24,8 +24,8 @@ static vec_of(Sym) symtab;
 static pmap_of(ushort) symht;
 static uint ntextrel, nrodatarel, ndatarel;
 typedef struct {
-   uchar section : 3;
-   uchar symflags : 5;
+   uchar section;
+   uchar symflags;
    ushort kind;
    uint off;
    s64int addend;

@@ -3289,6 +3289,7 @@ declsymflags(const Decl *decl)
    if (decl->scls == SCSTATIC) sf |= SLOCAL;
    if (decl->ty.t == TYFUNC) sf |= SFUNC;
    if (hasattr(&decl->attr, ATTRweak)) sf |= SWEAK;
+   if (decl->inlin) sf |= SC99INLFN;
    return sf;
 }
 
@@ -5361,7 +5362,14 @@ tldecl(CComp *cm)
             decl->name = decl->sym = intern("?");
          }
          Function fn = { &cm->fnarena, .name = decl->sym, .symflags = declsymflags(decl),
-                         .fnty = decl->ty, .retty = td->ret, .inlin = decl->inlin };
+                         .fnty = decl->ty, .retty = td->ret };
+         if (decl->inlin) fn.inlhint |= FNINLC;
+         if (hasattr(&decl->attr, ATTRalways_inline)) fn.inlhint |= FNINLALWAYS;
+         if (hasattr(&decl->attr, ATTRnoinline)) {
+            if (fn.inlhint & FNINLALWAYS)
+               error(&decl->span, "'noinline' and 'always_inline' in one function");
+            fn.inlhint |= FNINLNEVER;
+         }
          irinit(&fn);
          functionbody(cm, &fn, st.pnames, st.pspans, st.pqual);
          if (idecl >= 0)
