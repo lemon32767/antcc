@@ -166,6 +166,8 @@ The backend performs the following main passes:
       + common-subexpression elimination (`ir_cse.c`),
       + general arithmetic simplifications, branch simplification
           (`ir_simpl.c`)
+      + loop optimizations (`ir_loop.c`)
+        * currently basic loop inversion, loop invariant code motion
 
   - Stack lowering (`ir_stack.c`): `alloca` instructions are deleted and
     corresponding stack slots replaced with calculated stack offsets.
