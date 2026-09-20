@@ -50,6 +50,7 @@ divmodk(Instr *ins, Block *blk, int *curi)
    s64int iv = intconval(ins->r);
    uint nbit = 8 * cls2siz[cls];
    bool neg = (op == Odiv || op == Orem) && iv < 0;
+   if (iv == 0) return 0;
    assert((u64int)iv > 1 && "trivial div/rem not handled by irbinop() ?");
    if (iv == -1 && op == Odiv) {
       /* x / -1 ==> -x */
@@ -302,7 +303,7 @@ simpl(Function *fn)
 
       if (blk != fn->entry && blk->npred == 0) {
          freeblk(fn, blk);
-      } else if (!blk->phi.n && !blk->ins.n) { /* thread jumps.. */ 
+      } else if (!blk->phi.n && !blk->ins.n) { /* thread jumps.. */
          if (blk->jmp.t == Jb && !blk->s2) {
             jmpfind(jmpfinal, &blk->s1);
             if (blk->s1 != blk) {
