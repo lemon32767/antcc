@@ -290,7 +290,7 @@ static int
 licm(Function *fn, Loop *l)
 {
    extern int ninstrtab;
-   BitSet *loopdefs = allocz(fn->passarena, BSSIZE(ninstrtab) * sizeof *loopdefs, 0);
+   BitSet *loopdefs = anewbitset(fn->passarena, ninstrtab);
    int chg = 0;
    for (Block *b = l->head; b != l->end->lnext; b = b->lnext) {
       if (!inloop(l, b)) continue;

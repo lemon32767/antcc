@@ -208,8 +208,8 @@ mem2reg(Function *fn)
 
    FREQUIRE(FNUSE);
 
-   sb.sealed = allocz(sb.arena, BSSIZE(fn->nblk) * sizeof *sb.sealed, 0);
-   sb.marked = allocz(sb.arena, BSSIZE(fn->nblk) * sizeof *sb.sealed, 0);
+   sb.sealed = anewbitset(sb.arena, fn->nblk);
+   sb.marked = anewbitset(sb.arena, fn->nblk);
    extern int ninstrtab;
    sb.vars = allocz(sb.arena, ninstrtab * sizeof *sb.vars, 0);
    sortrpo(fn);

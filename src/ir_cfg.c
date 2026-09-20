@@ -1,5 +1,4 @@
 #include "ir.h"
-#include "u_bits.h"
 
 static void
 porec(int *nblk, Block ***rpo, Block *b)

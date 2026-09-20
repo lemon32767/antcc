@@ -35,7 +35,7 @@ checklive(Function *fn)
    BitSet definedbuf[4] = {0}, *defined = definedbuf;
 
    if (BSSIZE(ninstrtab) >= countof(definedbuf))
-      defined = allocz(fn->passarena, BSSIZE(ninstrtab)*sizeof *defined, 0);
+      defined = anewbitset(fn->passarena, ninstrtab);
 
    bool ok = 1;
    do {
@@ -535,14 +535,14 @@ buildintervals(RegAlloc *ra)
    extern int ninstrtab;
    Block *blk, *last;
    BitSet **livein = alloc(ra->arena, ra->fn->nblk * sizeof *livein, 0);
-   size_t bssize = BSSIZE(ninstrtab);
    struct Loop {
       struct Loop *next;
       Block *hdr, *end;
       /* list of loops */
    } *loops = NULL;
    for (int i = 0; i < ra->fn->nblk; ++i)
-      livein[i] = allocz(ra->arena, bssize * sizeof *livein[i], 0);
+      livein[i] = anewbitset(ra->arena, ninstrtab);
+   size_t livebssize = BSSIZE(ninstrtab);
    ra->intertab = allocz(ra->arena, ninstrtab * sizeof *ra->intertab, 0);
    ra->ninter = ninstrtab;
 
@@ -553,8 +553,8 @@ buildintervals(RegAlloc *ra)
    do {
       BitSet *live = livein[blk->id];
       /* live = union of successor.liveIn for each successor of b */
-      if (blk->s1) bsunion(live, livein[blk->s1->id], bssize);
-      if (blk->s2) bsunion(live, livein[blk->s2->id], bssize);
+      if (blk->s1) bsunion(live, livein[blk->s1->id], livebssize);
+      if (blk->s2) bsunion(live, livein[blk->s2->id], livebssize);
 
       /* for each phi function phi of successors of b do
        *    live.add(phi.inputOf(b))
@@ -575,7 +575,7 @@ buildintervals(RegAlloc *ra)
       /* for each opd in live do
        *    intervals[opd].addRange(b.from, b.to)
        */
-      for (uint i = 0; bsiter(&i, live, bssize); ++i) {
+      for (uint i = 0; bsiter(&i, live, livebssize); ++i) {
          addrange(ra, i, (Range){blk->inumstart, blk->inumstart + blk->ins.n + 2}, -1);
       }
 
@@ -730,7 +730,7 @@ buildintervals(RegAlloc *ra)
          DBG("loop header @%d (to @%d)\n", blk->id, loopend->id);
          /* append to loop list */
          loops = alloccopy(ra->arena, &(struct Loop){loops, blk, loopend}, sizeof *loops, 0);
-         for (uint opd = 0; bsiter(&opd, live, bssize); ++opd) {
+         for (uint opd = 0; bsiter(&opd, live, livebssize); ++opd) {
             // DBG("  i have live %%%d\n", opd);
             addrange(ra, opd, (Range){blk->inumstart, loopend->inumstart + loopend->ins.n+1}, -1);
          }
