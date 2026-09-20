@@ -186,6 +186,7 @@ struct Loop {
       struct BlkList *next;
       Block *b;
    } *exits;
+   int mintrips;
 };
 
 enum fnprop {

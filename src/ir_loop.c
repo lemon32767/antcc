@@ -1,4 +1,5 @@
 #include "ir.h"
+#include "u_bits.h"
 
 /* ref: https://llvm.org/docs/LoopTerminology.html */
 
@@ -161,18 +162,19 @@ loopinv(Function *fn, Loop *l)
    assert(l->head->npred == 2 && "not simpl'd");
    if (dbgp(fn))
       bfmt(ccopt.dbg.out, "; doing loopinv(@%d-@%d)\n", l->head->id, l->end->id);
-   /* 
+   /*
     * transform
     *    while (H0) { B...; L0; } exit:
     * into
-    *    if (G) { do { H1: B...; L0; } while (L1); } exit:
+    *    if (G) { P: do { H1: B...; L0; } while (L1); } exit:
     */
    Block *head0 = l->head;
    Block *body = exit == l->head->s2 ? l->head->s1 : l->head->s2;
    Block *latch0 = l->latch;
 
    Block *guard = head0; /* reuse H0 for G */
-   Block *head1 = insertblk(fn, guard, body); /* G -> H1 -> B */
+   l->prehead = insertblk(fn, guard, body); /* G -> P -> H1 */
+   Block *head1 = insertblk(fn, l->prehead, body); /* P -> H1 -> B */
 
    /* H1.phi move= H0.phi */
    head1->phi = head0->phi, memset(&head0->phi, 0, sizeof head0->phi);
@@ -211,7 +213,7 @@ loopinv(Function *fn, Loop *l)
    copyins(fn, latch1, head0, instrmap);
 
    int gpred = 0;
-   assert(blkpred(head1, gpred) == guard);
+   assert(blkpred(head1, gpred) == l->prehead);
    /* fixup H0 phis in G */
    for (int i = 0; i < head1->phi.n; ++i) {
       int t = head1->phi.p[i];
@@ -220,14 +222,92 @@ loopinv(Function *fn, Loop *l)
    }
 
    /* update loopinfo */
-   guard->loop = guard->idom->loop;
-   guard->loopdepth = guard->idom->loopdepth;
+   l->prehead->loop = guard->loop = guard->idom->loop;
+   l->prehead->loopdepth = guard->loopdepth = guard->idom->loopdepth;
    l->head = head1;
    l->latch = latch1;
+   while (inloop(l, l->end->lnext)) l->end = l->end->lnext;
+   l->mintrips = 1;
 
    fn->prop &= ~FNUSE;
    fn->prop &= ~FNBLKID;
    return 1;
+}
+
+static inline bool
+canspeculate(Instr *ins)
+{
+   /* allow arith ops that can't trap */
+   switch (ins->op) {
+   case Odiv: case Orem: /* signed div traps for INT_MIN / -1 */
+      if (ins->r.bits == mkref(RICON, -1).bits) return 0;
+      /* fallthru */
+   case Oudiv: case Ourem:
+      /* may be div zero */
+      return isintcon(ins->r) && ins->r.bits != ZEROREF.bits;
+   default:
+      return oisarith(ins->op);
+   }
+}
+
+static bool
+canhoist(Loop *l, BitSet *loopdefs, int t)
+{
+   Instr *ins = &instrtab[t];
+   if (!canspeculate(ins)) return 0;
+   for (int oi = 0; oi < opnoper[ins->op]; oi++) {
+      if (ins->oper[oi].t != RTMP) continue;
+      if (bstest(loopdefs, ins->oper[oi].i)) return 0;
+   }
+   return 1;
+}
+
+static void
+moveinstr(Function *fn, Block *srcb, int srci, Block *tob)
+{
+   int t = srcb->ins.p[srci];
+   Instr *ins = &instrtab[t];
+   vpush(&tob->ins, t);
+   for (int i = srci; i < srcb->ins.n - 1; ++i)
+      srcb->ins.p[i] = srcb->ins.p[i + 1];
+   --srcb->ins.n;
+   if (fn->prop & FNUSE) {
+      /* fixup uselist for ins' operands */
+      for (int oi = 0; oi < opnoper[ins->op]; oi++) {
+         if (ins->oper[oi].t != RTMP) continue;
+         int usee = ins->oper[oi].i;
+         for (IRUse *use = instruse[usee]; use; use = use->next) {
+            if (use->u == t) {
+               assert(use->blk == srcb || use->blk == tob);
+               use->blk = tob;
+            }
+         }
+      }
+   }
+}
+
+static int
+licm(Function *fn, Loop *l)
+{
+   extern int ninstrtab;
+   BitSet *loopdefs = allocz(fn->passarena, BSSIZE(ninstrtab) * sizeof *loopdefs, 0);
+   int chg = 0;
+   for (Block *b = l->head; b != l->end->lnext; b = b->lnext) {
+      if (!inloop(l, b)) continue;
+      for (int i = 0; i < b->phi.n; ++i) {
+         bsset(loopdefs, b->phi.p[i]);
+      }
+      for (int i = 0; i < b->ins.n; ++i) {
+         int t = b->ins.p[i];
+         if (canhoist(l, loopdefs, t)) {
+            ++chg;
+            moveinstr(fn, b, i--, l->prehead);
+         } else {
+            bsset(loopdefs, t);
+         }
+      }
+   }
+   return chg;
 }
 
 int
@@ -240,6 +320,7 @@ loopopt(Function *fn)
       loopsimpl(fn, l);
       if (!(fn->prop & FNUSE)) filluses(fn);
       changed += loopinv(fn, l);
+      changed += licm(fn, l);
    }
 
    return changed;
@@ -315,6 +396,5 @@ fillloop(Function *fn)
    fn->prop |= FNBLKID;
    fn->prop |= FNLOOP;
 }
-
 
 /*  vim:set ts=3 sw=3 expandtab:  */
