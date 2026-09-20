@@ -138,7 +138,7 @@ isdecltok(CComp *cm)
          kw(const), kw(volatile), kw(restrict), kw(_Atomic),
          kw(void), kw(float), kw(double), kw(_Complex),
          kw(signed), kw(unsigned), kw(short), kw(long),
-         kw(int), kw(char), kw(_Bool), kw(bool), kw(__int128),
+         kw(int), kw(char), kw(_Bool), kw(bool), kw(__int128), kw(__uint128_t),
          kw(struct), kw(union), kw(enum),
          kw(__typeof__), kw(typeof), kw(typeof_unqual),
          kw(__attribute__)
@@ -2680,6 +2680,10 @@ declspec(DeclState *st, CComp *cm, Span *pspan)
          if (arith & KI128) goto DupArith;
          arith |= KI128;
          break;
+      case TKW__uint128_t:
+         if (arith & (KUNSIGNED | KI128)) goto DupArith;
+         arith |= KUNSIGNED | KI128;
+         break;
       case TKWint:
          if (arith & KINT) goto DupArith;
          arith |= KINT;
@@ -2788,9 +2792,9 @@ End:
          t = TYVLONG;
       else if ((arith & ~KINT) == (KUNSIGNED | KLONGLONG))
          t = TYUVLONG;
-      else if ((arith & ~KINT & ~KSIGNED) == KI128)
+      else if ((arith & ~KSIGNED) == KI128)
          t = TYINT128;
-      else if ((arith & ~KINT) == (KUNSIGNED | KI128))
+      else if (arith == (KUNSIGNED | KI128))
          t = TYUINT128;
       else if (arith == (KCOMPLEX | KFLOAT))
          t = TYCOMPLEXF;
