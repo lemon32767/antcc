@@ -182,10 +182,6 @@ struct Loop {
          *end;
    Block *prehead,
          *latch;
-   struct BlkList {
-      struct BlkList *next;
-      Block *b;
-   } *exits;
    int mintrips;
 };
 

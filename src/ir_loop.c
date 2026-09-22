@@ -422,19 +422,10 @@ fillloop(Function *fn)
          assert(b != fn->entry);
          l = alloccopy(fn->passarena, l, sizeof *l, 0);
 
-         /* mark each loop body block and gather loop exits */
+         /* record each block in body as belonging to loop */
          for (Block *in = l->end; in != b->lprev; in = in->lprev) {
-            if (in->visit == -b->id) {
+            if (in->visit == -b->id)
                in->loop = l;
-               for (int is = 0; is < 2; ++is) {
-                  Block *s = (&in->s1)[is];
-                  if (s && s->visit != -b->id && s->visit != 0xdeadbeef) {
-                     s->visit = 0xdeadbeef;
-                     struct BlkList xs = {l->exits, s};
-                     l->exits = alloccopy(fn->passarena, &xs, sizeof xs, 0);
-                  }
-               }
-            }
          }
          *ltail = l;
          ltail = &l->next;
