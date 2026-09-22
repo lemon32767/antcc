@@ -61,22 +61,42 @@ loopsimpl(Function *fn, Loop *l)
    for (int pi = 0; pi < l->head->npred; ++pi) {
       Block *p = blkpred(l->head, pi);
       if (inloop(l, p)) {
+         Block *oldlatch = l->latch;
          uniqedge(fn, l->head, &pi, &l->latch, &latch0i);
+         if (l->end == oldlatch) l->end = l->latch;
       } else {
          uniqedge(fn, l->head, &pi, &l->prehead, &preh0i);
       }
    }
 }
 
+static bool
+singleexit(Loop *l, Block *exit)
+{
+   for (Block *b = l->head; b != l->end->lnext; b = b->lnext) {
+      if (!inloop(l, b)) continue;
+      for (int i = 0; i < 2; ++i) {
+         Block *s = (&b->s1)[i];
+         if (s && !inloop(l, s) && s != exit) return 0;
+      }
+   }
+   return 1;
+}
+
+enum { MAXINVHDRNINS = 16 };
+
 /* invert if header is small, and check
  *   phi defs in head are only used within loop
  *   and non-phi defs are only used within head
  *   and no phi backedge input is def'd in head
- * (conservatively reject any circular dependencies in header,
- *  needs tricky phis surgery; TODO implement such cases) */
+ *   and the loop exit has no phis yet
+ * (conservatively reject circular dependencies in the header,
+ *  needs tricky phis surgery; TODO implement such cases)
+*/
 static bool
-caninvert(Loop *l, Block **exit)
+caninvert(Loop *l, Block **exit, int *escapingphis, int *nescapingphis)
 {
+   *nescapingphis = 0;
    /* match `while (H) { non-empty B }` */
    if (!l->head->s2 || l->latch == l->head)
       return 0;
@@ -84,14 +104,14 @@ caninvert(Loop *l, Block **exit)
       return 0;
    if ((*exit)->phi.n > 0) return 0;
    Block *h = l->head;
-   if (h->ins.n + h->phi.n > 16) return 0;
+   if (h->ins.n + h->phi.n > MAXINVHDRNINS) return 0;
 
-   int ibkedge = blkpred(h, 0) == l->latch ? 0 : 1;
-   assert(blkpred(h, ibkedge) == l->latch);
-   int backinputs[16];
+   int ibackedge = blkpred(h, 0) == l->latch ? 0 : 1;
+   assert(blkpred(h, ibackedge) == l->latch);
+   int backinputs[MAXINVHDRNINS];
    int nphi = h->phi.n;
    for (int i = 0; i < nphi; ++i) {
-      Ref r = phiargs(h->phi.p[i])[ibkedge];
+      Ref r = phiargs(h->phi.p[i])[ibackedge];
       if (r.t == RTMP) backinputs[i] = r.i;
       else backinputs[i] = -1;
    }
@@ -100,8 +120,12 @@ caninvert(Loop *l, Block **exit)
       for (int j = 0; j < nphi; ++j) {
          if (backinputs[j] == phi) return 0;
       }
-      for (IRUse *u = instruse[phi]; u; u = u->next)
-         if (!inloop(l, u->blk)) return 0;
+      for (IRUse *u = instruse[phi]; u; u = u->next) {
+         if (!inloop(l, u->blk)) {
+            escapingphis[(*nescapingphis)++] = phi;
+            break;
+         }
+      }
    }
    for (int i = 0; i < h->ins.n; ++i) {
       int t = h->ins.p[i];
@@ -111,6 +135,9 @@ caninvert(Loop *l, Block **exit)
       for (IRUse *u = instruse[t]; u; u = u->next)
          if (u->blk != h) return 0;
    }
+   /* TODO with escaping phis rewire them for multiple exits too
+    * in the general case it needs SSA repair */
+   if (*nescapingphis > 0 && !singleexit(l, *exit)) return 0;
    return 1;
 }
 
@@ -155,19 +182,23 @@ loopinv(Function *fn, Loop *l)
 {
    FREQUIRE(FNUSE | FNLOOP | FNDOM | FNRPO);
    Block *exit;
+   struct {
+      int p[MAXINVHDRNINS];
+      int n;
+   } escapingphis;
 
-   if (!caninvert(l, &exit)) return 0;
+   if (!caninvert(l, &exit, escapingphis.p, &escapingphis.n)) return 0;
 
    assert(l->head->jmp.t == Jb);
    assert(l->head->npred == 2 && "not simpl'd");
    if (dbgp(fn))
       bfmt(ccopt.dbg.out, "; doing loopinv(@%d-@%d)\n", l->head->id, l->end->id);
    /*
-    * transform
-    *    while (H0) { B...; L0; } exit:
-    * into
-    *    if (G) { P: do { H1: B...; L0; } while (L1); } exit:
-    */
+   * transform
+   *    while (H0) { B...; L0; } exit:
+   * into
+   *    if (G) { P: do { H1: B...; L0; } while (L1); } exit:
+   */
    Block *head0 = l->head;
    Block *body = exit == l->head->s2 ? l->head->s1 : l->head->s2;
    Block *latch0 = l->latch;
@@ -214,11 +245,28 @@ loopinv(Function *fn, Loop *l)
 
    int gpred = 0;
    assert(blkpred(head1, gpred) == l->prehead);
+
+   fillblkids(fn);
+   /* fixup escaping phis */
+   for (int i = 0; i < escapingphis.n; ++i) {
+      int p = escapingphis.p[i];
+      Ref p1 = insertphi(exit, instrtab[p].cls);
+      const Ref *args = phiargs(p);
+      Ref *args1 = phiargs(p1.i);
+      for (int j = 0; j < exit->npred; ++j) {
+         Block *ep = blkpred(exit, j);
+         if (ep == guard) args1[j] = args[gpred];
+         else if (ep == latch1) args1[j] = args[l0pi1];
+         else args1[j] = mkref(RTMP, p); /* early exits get the loop phi */
+      }
+      replcuses(mkref(RTMP, p), p1, exit, REPLC_DOM);
+   }
+
    /* fixup H0 phis in G */
    for (int i = 0; i < head1->phi.n; ++i) {
       int t = head1->phi.p[i];
       Instr *phi = &instrtab[t];
-      replcuses(mkref(RTMP, t), phitab.p[phi->l.i][gpred], guard);
+      replcuses(mkref(RTMP, t), phitab.p[phi->l.i][gpred], guard, REPLC_AT);
    }
 
    /* update loopinfo */
@@ -226,11 +274,10 @@ loopinv(Function *fn, Loop *l)
    l->prehead->loopdepth = guard->loopdepth = guard->idom->loopdepth;
    l->head = head1;
    l->latch = latch1;
-   while (inloop(l, l->end->lnext)) l->end = l->end->lnext;
+   if (l->end->id < latch1->id) l->end = latch1;
    l->mintrips = 1;
 
    fn->prop &= ~FNUSE;
-   fn->prop &= ~FNBLKID;
    return 1;
 }
 
@@ -333,6 +380,7 @@ loopmark(Loop *l, Block *blk)
    if (dominates(l->head, blk)) {
       blk->visit = -l->head->id;
       ++blk->loopdepth;
+      if (blk->id > l->end->id) l->end = blk;
       int irreducible = 0;
       for (int i = 0; i < blk->npred; ++i)
          irreducible += loopmark(l, blkpred(blk, i));
@@ -366,7 +414,6 @@ fillloop(Function *fn)
          if (p->id >= b->id && dominates(b, p)) { /* b is loop header */
             assert(b->id > 0); /* entry cannot be loop header */
             iscyc = 1;
-            if (p->id > l->end->id) l->end = p;
             badloop += loopmark(l, p);
          }
       }

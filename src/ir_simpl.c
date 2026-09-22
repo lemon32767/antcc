@@ -108,7 +108,7 @@ doins(Instr *ins, Block *blk, int *curi)
                         : irbinop(NULL, ins->op, ins->cls, ins->l, ins->r);
       if (r.bits) {
          *ins = mkinstr0(Onop,0);
-         replcuses(mkref(RTMP, ins - instrtab), r, NULL);
+         replcuses(mkref(RTMP, ins - instrtab), r, NULL, REPLC_ALL);
          deluses(ins - instrtab);
          return 1;
       }
@@ -121,7 +121,7 @@ doins(Instr *ins, Block *blk, int *curi)
        || (kisint(k) && ins->l.t == RICON)) {
          Ref it = ins->l;
          *ins = mkinstr0(Onop,0);
-         replcuses(mkref(RTMP, ins - instrtab), it, NULL);
+         replcuses(mkref(RTMP, ins - instrtab), it, NULL, REPLC_ALL);
          deluses(ins - instrtab);
          return 1;
       }
@@ -272,7 +272,7 @@ simpl(Function *fn)
             if (args[j].bits != same.bits) goto Next;
          }
          if (!(fn->prop & FNUSE)) filluses(fn);
-         replcuses(mkref(RTMP, phi), same, NULL);
+         replcuses(mkref(RTMP, phi), same, NULL, REPLC_ALL);
          delphi(blk, i);
          chgins = 1;
          Next:;

@@ -73,7 +73,7 @@ cselim(Function *fn)
       for (int i = 0; i < blk->ins.n; ++i) {
          int t = blk->ins.p[i], q;
          if ((q = uniq(t, blk, cutoff, memno)) != t) {
-            replcuses(mkref(RTMP, t), mkref(RTMP, q), NULL);
+            replcuses(mkref(RTMP, t), mkref(RTMP, q), NULL, REPLC_ALL);
             delinstr(blk, i--);
             any = 1;
          } else if (oisstore(instrtab[t].op)) {

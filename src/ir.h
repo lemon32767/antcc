@@ -317,7 +317,12 @@ void adduse(Block *ublk, int ui, Ref r);
 int newinstr(Block *at, Instr ins);
 Ref insertinstr(Block *, int idx, Instr);
 Ref insertphi(Block *, enum irclass cls);
-void replcuses(Ref from, Ref to, Block *at);
+enum replcusesmode {
+   REPLC_ALL,
+   REPLC_AT, /* only replace uses in given block */
+   REPLC_DOM, /* replace uses dominated by block */
+};
+void replcuses(Ref from, Ref to, Block *, enum replcusesmode);
 bool deluse(Block *ublk, int ui, Ref r);
 void deluses(int ins);
 void filluses(Function *);

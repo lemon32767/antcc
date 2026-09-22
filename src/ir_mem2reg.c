@@ -65,7 +65,7 @@ deltrivialphis(SSABuilder *sb, Var *var, Block *blk, Ref phiref)
       same = UNDREF; /* the phi is unreachable or in the start block */
 
    /* replace uses */
-   replcuses(phiref, same, NULL);
+   replcuses(phiref, same, NULL, REPLC_ALL);
    for (int i = blk->id; i < sb->nblk; ++i) {
       if (var->curdefs[i].bits == phiref.bits)
          var->curdefs[i] = same;
@@ -224,7 +224,7 @@ mem2reg(Function *fn)
          int sz = 0;
          int var = blk->ins.p[i], nwrite = 0, nread = 0;
          Instr *ins = &instrtab[var];
-         
+
          /* find allocas only used in loads/stores of uniform size */
          if (!oisalloca(ins->op) || ins->keep/*!volatile*/) continue;
          for (IRUse *use = instruse[var]; use; use = use->next) {

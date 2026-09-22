@@ -117,13 +117,15 @@ filldom(Function *fn)
    fn->prop |= FNBLKID | FNDOM;
 }
 
-/* requires dom, rpo */
+/* requires dom, rpo, blkid */
 bool
 dominates(Block *B, Block *b)
 {
+   assert(B->id >= 0);
    for (;; b = b->idom) {
       if (B == b) return 1;
       if (B == b->idom) return 1;
+      assert(b->id >= 0);
       if (B->id > b->id) return 0;
    }
 }

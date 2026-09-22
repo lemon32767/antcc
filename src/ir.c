@@ -562,15 +562,17 @@ blkreachable(Function *fn, Block *blk)
 
 /* require use */
 void
-replcuses(Ref from, Ref to, Block *at)
+replcuses(Ref from, Ref to, Block *at, enum replcusesmode m)
 {
    assert(from.t == RTMP);
+   assert(m == REPLC_ALL || at != NULL);
    for (IRUse *use, *next = instruse[from.i]; (use = next);) {
       Ref *u;
       int n;
       next = use->next;
       if (use->u == from.i) continue;
-      if (at && use->blk != at) continue;
+      if (m == REPLC_AT && use->blk != at) continue;
+      bool isphi = 0;
       if (use->u == USERJUMP) {
          u = &use->blk->jmp.arg[0];
          n = 2;
@@ -580,17 +582,23 @@ replcuses(Ref from, Ref to, Block *at)
          u = phiargs(use->u);
          n = use->blk->npred;
          if (use->blk->phi.n == 0) continue; /* shouldn't happen */
+         isphi = 1;
       } else {
          u = instrtab[use->u].oper;
          n = opnoper[instrtab[use->u].op];
       }
+      if (m == REPLC_DOM && !isphi && !dominates(at, use->blk)) continue;
 
       for (int j = 0; j < n; ++j) {
-         if (u[j].bits == from.bits) {
-            u[j].bits = to.bits;
-            adduse(use->blk, use->u, to);
-            break;
+         if (u[j].bits != from.bits) continue;
+         if (m == REPLC_DOM && isphi && !dominates(at, blkpred(use->blk, j))) {
+            /* for phis, the corresponding predecessor is what actually consumes
+             * the value, so check that block for domtree-based replacement */
+            continue;
          }
+         u[j].bits = to.bits;
+         adduse(use->blk, use->u, to);
+         break;
       }
    }
 }
