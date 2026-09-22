@@ -220,6 +220,7 @@ unop(Expr *ex, enum evalmode mode)
          *ex = *sub;
          return 1;
       }
+      if (ex->ty.t == TYVOID) return eval(ex->sub, mode);
       break;
    case EPLUS:
       break;
