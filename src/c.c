@@ -333,8 +333,18 @@ putdecl(CComp *cm, Decl *decl)
             } else {
                assert(!decl->sym);
             }
-            if (old->isdef && !decl->isdef) return old - declsbuf.p;
-            else mergeattr(&decl->attr, &old->attr);
+            if (old->isdef && !decl->isdef) {
+               if (cm->env->up == NULL && old->inlin && !decl->inlin) {
+                  /* inline def followed by non-inline decl, must emit */
+                  markfnneeded(old->sym);
+               }
+               return old - declsbuf.p;
+            } else {
+               mergeattr(&decl->attr, &old->attr);
+               /* C99/C11 6.7.4p6: the function definition is inline only if
+                * all file scope declarations are inline */
+               decl->inlin &= old->inlin;
+            }
             break;
          }
       }
