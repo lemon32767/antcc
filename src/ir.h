@@ -174,16 +174,6 @@ rsiter(int *i, u64int rs) {
    return 1;
 }
 
-struct Loop {
-   Loop *next;
-   Loop *parent;
-   Block *head,
-         *end;
-   Block *prehead,
-         *latch;
-   int mintrips;
-};
-
 enum fnprop {
    FNBLKID = 1<<0,
    FNUSE   = 1<<1,

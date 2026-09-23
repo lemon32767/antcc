@@ -2,6 +2,20 @@
 #include "u_bits.h"
 
 /* ref: https://llvm.org/docs/LoopTerminology.html */
+struct Loop {
+   Loop *next;
+   Loop *parent;
+   Block *head,
+         *end;
+   Block *prehead,
+         *latch;
+   int mintrips;
+   BitSet *loopdefs; /* set of temps def'd in loop body */
+   struct Counted *counted; /* counted loop info */
+   /* hash table of induction variables */
+   struct IndVar **ivs;
+   int niv, ivN;
+};
 
 bool
 inloop(Loop *l, Block *b) {
@@ -49,22 +63,38 @@ uniqedge(Function *fn, Block *head, int *ipred, Block **via, int *ipredvia0) {
    }
 }
 
-/* unique preheader + latch */
+/* unique preheader + latch, ensures loop header has 2 preds {0: pre, 1: latch} */
 static void
 loopsimpl(Function *fn, Loop *l) {
    FREQUIRE(FNRPO | FNLOOP | FNDOM);
    l->prehead = l->latch = NULL;
    int preh0i = 1<<30, latch0i = 1<<30;
-   for (int pi = 0; pi < l->head->npred; ++pi) {
-      Block *p = blkpred(l->head, pi);
+   Block *hd = l->head;
+   for (int pi = 0; pi < hd->npred; ++pi) {
+      Block *p = blkpred(hd, pi);
       if (inloop(l, p)) {
          Block *oldlatch = l->latch;
-         uniqedge(fn, l->head, &pi, &l->latch, &latch0i);
+         uniqedge(fn, hd, &pi, &l->latch, &latch0i);
          if (l->end == oldlatch) l->end = l->latch;
       } else {
-         uniqedge(fn, l->head, &pi, &l->prehead, &preh0i);
+         uniqedge(fn, hd, &pi, &l->prehead, &preh0i);
       }
    }
+
+   assert(hd->npred == 2);
+   if (preh0i != 0) {
+      assert(latch0i == 0);
+      assert(blkpred(hd, 0) == l->latch && blkpred(hd, 1) == l->prehead);
+      /* swap preds and phi inputs */
+      blkpred(hd, 0) = l->prehead;
+      blkpred(hd, 1) = l->latch;
+      for (int i = 0; i < hd->phi.n; ++i) {
+         int p = hd->phi.p[i];
+         Ref *a = phiargs(p),
+              a0 = a[0];
+         a[0] = a[1], a[1] = a0;
+      }
+   } else assert(latch0i == 1);
 }
 
 static bool
@@ -168,7 +198,17 @@ static bool
 dbgp(Function *fn) {
    return ccopt.dbg.loop && dumpfilt(&fn->name->c);
 }
+#define dbgp(fn, ...) if (dbgp(fn)) bfmt(ccopt.dbg.out, __VA_ARGS__)
 
+/* inversion: transform a natural loop like
+ *    while (cond) { ... }
+ * into
+ *    if (cond0) do { ... } while (cond')
+ * cond0 often folds into a constant, for example:
+ *     for (int i = 0; i < 100; ++i) ...
+ * --> if (0 < 100) do { ...; ++i; } while (i < 100);
+ * --> do { ...; ++i; } while (i < 100);
+ */
 static int
 loopinv(Function *fn, Loop *l) {
    FREQUIRE(FNUSE | FNLOOP | FNDOM | FNRPO);
@@ -182,8 +222,7 @@ loopinv(Function *fn, Loop *l) {
 
    assert(l->head->jmp.t == Jb);
    assert(l->head->npred == 2 && "not simpl'd");
-   if (dbgp(fn))
-      bfmt(ccopt.dbg.out, "; doing loopinv(@%d-@%d)\n", l->head->id, l->end->id);
+   dbgp(fn, "; doing loopinv(@%d-@%d)\n", l->head->id, l->end->id);
    /*
    * transform
    *    while (H0) { B...; L0; } exit:
@@ -288,12 +327,12 @@ canspeculate(Instr *ins) {
 }
 
 static bool
-canhoist(Loop *l, BitSet *loopdefs, int t) {
+canhoist(Loop *l, int t) {
    Instr *ins = &instrtab[t];
    if (!canspeculate(ins)) return 0;
    for (int oi = 0; oi < opnoper[ins->op]; oi++) {
       if (ins->oper[oi].t != RTMP) continue;
-      if (bstest(loopdefs, ins->oper[oi].i)) return 0;
+      if (bstest(l->loopdefs, ins->oper[oi].i)) return 0;
    }
    return 1;
 }
@@ -324,24 +363,354 @@ moveinstr(Function *fn, Block *srcb, int srci, Block *tob) {
 static int
 licm(Function *fn, Loop *l) {
    extern int ninstrtab;
-   BitSet *loopdefs = anewbitset(fn->passarena, ninstrtab);
+   l->loopdefs = anewbitset(fn->passarena, ninstrtab);
    int chg = 0;
    for (Block *b = l->head; b != l->end->lnext; b = b->lnext) {
       if (!inloop(l, b)) continue;
       for (int i = 0; i < b->phi.n; ++i) {
-         bsset(loopdefs, b->phi.p[i]);
+         bsset(l->loopdefs, b->phi.p[i]);
       }
       for (int i = 0; i < b->ins.n; ++i) {
          int t = b->ins.p[i];
-         if (canhoist(l, loopdefs, t)) {
+         if (canhoist(l, t)) {
             ++chg;
             moveinstr(fn, b, i--, l->prehead);
          } else {
-            bsset(loopdefs, t);
+            bsset(l->loopdefs, t);
          }
       }
    }
    return chg;
+}
+
+enum ivkind { IVBASIC, IVDERIVOFFSET, IVDERIVSCALED, IVDERIVWIDEN };
+typedef struct IndVar {
+   Ref value, _init, _stride;
+   struct IndVar *base;
+   uchar kind;
+   uchar cls;
+   schar mark;
+   union {
+      Ref phinext;
+      Ref offset;
+      Ref scale;
+      enum op op;
+   };
+} IndVar;
+
+static bool
+isconstinit(IndVar *iv)
+{
+   if (iv->_init.bits) return isintcon(iv->_init);
+   if (iv->kind != IVBASIC && !isconstinit(iv->base)) return 0;
+   switch (iv->kind) {
+   case IVDERIVOFFSET: return isintcon(iv->offset);
+   case IVDERIVSCALED: return isintcon(iv->scale);
+   case IVDERIVWIDEN:  return 1;
+   }
+   return 0;
+}
+
+static bool
+isconststride(IndVar *iv)
+{
+   if (iv->_stride.bits) return isintcon(iv->_stride);
+   if (iv->kind != IVBASIC && !isconststride(iv->base)) return 0;
+   switch (iv->kind) {
+   case IVDERIVOFFSET: return 1;
+   case IVDERIVSCALED: return isintcon(iv->scale);
+   case IVDERIVWIDEN:  return 1;
+   }
+   return 0;
+}
+
+static int
+dfmtiv(WriteBuf *b, void *p)
+{
+   IndVar *iv = p;
+   static const char kinds[][10] = {"basic", "offset", "scaled", "widen"};
+   int n = bfmt(b, "[%sIV %k ", kinds[iv->kind], iv->cls);
+   n += bfmt(b, "%r(%s) {%r,+,%r}", iv->value, opnames[instrtab[iv->value.i].op],
+                                          iv->_init, iv->_stride);
+   if (iv->kind != IVBASIC) bfmt(b, " base=%r", iv->base->value);
+   switch (iv->kind) {
+   case IVBASIC: n += bfmt(b, " phinext=%r(%s)", iv->phinext, opnames[instrtab[iv->phinext.i].op]); break;
+   case IVDERIVOFFSET: n += bfmt(b, " offset=%r", iv->offset); break;
+   case IVDERIVSCALED: n += bfmt(b, " scale=%r", iv->scale); break;
+   }
+   n += bfmt(b, "]");
+   return n;
+}
+
+static Ref
+ivinitv(Function *fn, Loop *l, IndVar *iv)
+{
+   if (iv->_init.bits) return iv->_init;
+   assert(iv->kind != IVBASIC);
+   if (fn) fn->curblk = l->prehead;
+   switch (iv->kind) { default: assert(0);
+   case IVDERIVOFFSET:
+      return iv->_init = irbinop(fn, Oadd, iv->cls, ivinitv(fn, l, iv->base), iv->offset);
+   case IVDERIVSCALED:
+      return iv->_init = irbinop(fn, Omul, iv->cls, ivinitv(fn, l, iv->base), iv->scale);
+   case IVDERIVWIDEN:
+      return iv->_init = irunop(fn, iv->op, iv->cls, ivinitv(fn, l, iv->base));
+   }
+}
+
+static Ref
+ivstridev(Function *fn, Loop *l, IndVar *iv)
+{
+   if (iv->_stride.bits) return iv->_stride;
+   assert(iv->kind != IVBASIC);
+   if (fn) fn->curblk = l->prehead;
+   switch (iv->kind) { default: assert(0);
+   case IVDERIVOFFSET:
+      return iv->_stride = ivstridev(fn, l, iv->base);
+   case IVDERIVSCALED:
+      return iv->_stride = irbinop(fn, Omul, iv->cls, ivstridev(fn, l, iv->base), iv->scale);
+   case IVDERIVWIDEN:
+      return iv->_stride = irunop(fn, iv->op, iv->cls, ivstridev(fn, l, iv->base));
+   }
+}
+
+static inline bool
+invariant(Loop *l, Ref r)
+{
+   assert(l->loopdefs);
+   return iscon(r) || (r.t == RTMP && !bstest(l->loopdefs, r.i));
+}
+
+static bool
+matchbasiciv(Loop *l, IndVar *iv, int phi)
+{
+   Ref init = phiargs(phi)[0];
+   Ref phinext = phiargs(phi)[1];
+   if (!invariant(l, init) || !kisint(instrtab[phi].cls) || phinext.t != RTMP)
+      return 0;
+   Instr *ins = &instrtab[phinext.i];
+   Ref phiref = mkref(RTMP, phi);
+   /* NOTE: purposely only match RICON, small int const strides; for now */
+   if (ins->op == Oadd && ins->l.bits == phiref.bits && ins->r.t == RICON) {
+      /* i + K */
+      iv->_stride = ins->r;
+   } else if (ins->op == Osub && ins->l.bits == phiref.bits && ins->r.t == RICON) {
+      /* i - K */
+      iv->_stride = mkintcon(ins->cls, -(u64int)intconval(ins->r));
+   } else {
+      return 0;
+   }
+   iv->kind = IVBASIC;
+   iv->cls = ins->cls;
+   iv->_init = init;
+   iv->value = mkref(RTMP, phi);
+   iv->phinext = phinext;
+   return 1;
+}
+
+static IndVar *
+getiv(Loop *l, Ref r)
+{
+   if (r.t != RTMP) return NULL;
+   for (int m = l->ivN - 1, h = r.i; l->ivs[h &= m]; ++h) {
+      if (l->ivs[h]->value.bits == r.bits) return l->ivs[h];
+   }
+   return NULL;
+}
+
+static void
+putiv(Function *fn, Loop *l, const IndVar *iv)
+{
+   if (l->niv == l->ivN/2) { /* rehash */
+      IndVar **old = l->ivs;
+      l->ivs = allocz(fn->passarena, (l->ivN *= 2) * sizeof *l->ivs, 0);
+      for (int n = l->niv, m = l->ivN - 1, h; n > 0; ++old) {
+         if (!*old) continue;
+         for (h = (*old)->value.i; l->ivs[h &= m]; ++h) { }
+         l->ivs[h] = *old, --n;
+      }
+   }
+   int m = l->ivN - 1, h;
+   for (h = iv->value.i; l->ivs[h &= m]; ++h) { }
+   l->ivs[h] = alloccopy(fn->passarena, iv, sizeof *iv, 0);
+   ++l->niv;
+   l->ivs[h]->mark = 0;
+   dbgp(fn, "found %?\n", dfmtiv, l->ivs[h]);
+}
+
+static bool
+matchderivediv(Loop *l, IndVar *iv, int t)
+{
+   Instr *ins = &instrtab[t];
+   iv->cls = ins->cls;
+   iv->value = mkref(RTMP, t);
+   iv->_init = iv->_stride = NOREF;
+   IndVar *base;
+   enum op op = ins->op;
+   Ref x;
+   if (op == Oadd && ((invariant(l, x = ins->r) && (base = getiv(l, ins->l)))
+                   || (invariant(l, x = ins->l) && (base = getiv(l, ins->r))))) {
+      /* 'base + offset' | 'offset + base' */
+      iv->kind = IVDERIVOFFSET;
+      iv->_stride = base->_stride;
+      iv->offset = x;
+   } else if (op == Omul && invariant(l, ins->r) && (base = getiv(l, ins->l))) {
+      /* base * scale */
+      iv->kind = IVDERIVSCALED;
+      iv->scale = ins->r;
+   } else if (op == Oshl && (ins->r.t == RICON && ins->r.i < 8*cls2siz[iv->cls]) && (base = getiv(l, ins->l))) {
+      /* base << shift */
+      iv->kind = IVDERIVSCALED;
+      iv->scale = mkintcon(iv->cls, 1ull << intconval(ins->r));
+   } else if (in_range(op, Oexts32, Oextu32) && (base = getiv(l, ins->l))) {
+      /* e.g. (long) base */
+      iv->kind = IVDERIVWIDEN;
+      iv->op = ins->op;
+   } else {
+     return 0;
+   }
+   iv->base = base;
+   if (isconstinit(iv)) ivinitv(NULL, l, iv);
+   if (isconststride(iv)) ivstridev(NULL, l, iv);
+   return 1;
+}
+
+static void
+findindvars(Function *fn, Loop *l)
+{
+   extern int ninstrtab;
+   l->ivs = allocz(fn->passarena, (l->ivN = 32) * sizeof *l->ivs, 0);
+   Block *hd = l->head;
+   assert(hd->npred == 2 && blkpred(hd, 0) == l->prehead && blkpred(hd, 1) == l->latch);
+   for (int i = 0; i < hd->phi.n; ++i) {
+      int p = hd->phi.p[i];
+      IndVar iv;
+      if (matchbasiciv(l, &iv, p))
+         putiv(fn, l, &iv);
+   }
+   for (Block *b = l->head; b != l->end->lnext; b = b->lnext) {
+      if (!inloop(l, b)) continue;
+      for (int i = 0; i < b->ins.n; ++i) {
+         int t = b->ins.p[i];
+         IndVar iv;
+         if (matchderivediv(l, &iv, t))
+            putiv(fn, l, &iv);
+      }
+   }
+}
+
+/* counted loop info. a counted loop has an exit condition like (iv < limit) */
+typedef struct Counted {
+   Ref limitcheck;
+   IndVar *counter;
+   Ref limit;
+   Ref trips;
+   bool inverted; /* true if limitcheck is in latch */
+} Counted;
+
+static enum { IVDOWN = -1, IVUP = 1 }
+ivdir(Function *fn, Loop *l, IndVar *iv)
+{
+   if (!isintcon(ivstridev(fn, l, iv))) return 0;
+   s64int s = intconval(ivstridev(fn, l, iv));
+   return s < 0 ? IVDOWN : s > 0 ? IVUP : 0;
+}
+
+static bool
+detectcounted(Function *fn, Loop *l)
+{
+   Counted ct[1];
+   if (l->head->s2 && !inloop(l, l->head->s2)) {
+      ct->inverted = 0;
+      ct->limitcheck = l->head->jmp.arg[0];
+   } else if (l->latch->s2 && !inloop(l, l->latch->s2)) {
+      ct->inverted = 1;
+      ct->limitcheck = l->latch->jmp.arg[0];
+   } else {
+      return 0;
+   }
+   if (ct->limitcheck.t != RTMP) return 0;
+   Instr *cmp = &instrtab[ct->limitcheck.i];
+
+   IndVar *iv;
+   if (cmp->op == Olth && (iv = getiv(l, cmp->l)) && invariant(l, cmp->r) && ivdir(fn, l, iv) == IVUP) {
+      /* i < N; i += K */
+      ct->counter = iv;
+      ct->limit = cmp->r;
+      ct->trips = NOREF;
+      Ref initv = ivinitv(fn, l, iv);
+      Ref stridev = ivstridev(fn, l, iv);
+      if (isintcon(initv) && isintcon(ct->limit) && isintcon(stridev)) {
+         s64int init = intconval(initv), limit = intconval(ct->limit),
+                s = intconval(stridev);
+         dbgp(fn, "limitcheck init = %r, limit = %r\n", initv, ct->limit);
+         if (init < limit && limit < (1<<20) && init > -(1<<20)) {
+            /* ceiling division */
+            ct->trips = mkintcon(KI32, (limit - init + s - 1) / s + ct->inverted);
+         }
+      }
+   } else {
+      /* TODO */
+     return 0;
+   }
+   l->counted = alloccopy(fn->passarena, ct, sizeof ct, 0);
+   return 1;
+}
+
+/* basic IV strength reduction */
+static void
+ivsimpl(Function *fn, Loop *l)
+{
+   if (!l->niv) return;
+   filluses(fn);
+   for (IndVar **piv = l->ivs, **end = piv + l->ivN, *iv; piv != end; ++piv) {
+      if (!(iv = *piv)) continue;
+      if (l->counted && iv == l->counted->counter) iv->mark = 1;
+      else for (IRUse *use = instruse[iv->value.i]; use; use = use->next) {
+         if (use->u == USERJUMP || !getiv(l, mkref(RTMP, use->u))) {
+            iv->mark = 1;
+            break;
+         }
+      }
+   }
+
+   int gcphis = 0;
+   for (IndVar **piv = l->ivs, **end = piv + l->ivN, *iv; piv != end; ++piv) {
+      if (!(iv = *piv)) continue;
+      if (!iv->mark) {
+         dbgp(fn, "not needed iv: %r\n", iv->value);
+         if (iv->kind == IVBASIC) {
+            ++gcphis;
+            instrtab[iv->value.i].op = Onop;
+         }
+      } else if (iv->kind != IVBASIC) {
+         dbgp(fn, "needed iv: %r\n", iv->value);
+         Ref newphi = insertphi(l->head, iv->cls);
+         Ref init = phiargs(newphi.i)[0] = ivinitv(fn, l, iv);
+         Ref stride = ivstridev(fn, l, iv);
+         fn->curblk = l->latch;
+         dbgp(fn, " --> {%r,+,%r}=%r\n", init, stride, newphi);
+         Ref update = phiargs(newphi.i)[1] = irbinop(fn, Oadd, iv->cls, newphi, stride);
+         adduse(l->head, newphi.i, init);
+         adduse(l->head, newphi.i, update);
+         replcuses(iv->value, newphi, NULL, REPLC_ALL);
+         iv->kind = IVBASIC;
+         iv->phinext = update;
+         iv->value = newphi;
+      }
+   }
+   if (gcphis) {
+      for (int i = 0; i < l->head->phi.n; ++i) {
+         int p = l->head->phi.p[i];
+         if (instrtab[p].op != Onop) continue;
+         dbgp(fn, " delete iv phi %r\n", mkref(RTMP, p));
+         replcuses(mkref(RTMP, p), UNDREF, NULL, REPLC_ALL);
+         delphi(l->head, i--);
+         --gcphis;
+      }
+      assert(gcphis == 0);
+   }
+   ircheck(fn);
 }
 
 int
@@ -354,6 +723,15 @@ loopopt(Function *fn) {
       if (!(fn->prop & FNUSE)) filluses(fn);
       changed += loopinv(fn, l);
       changed += licm(fn, l);
+      findindvars(fn, l);
+      if (detectcounted(fn, l)) {
+         dbgp(fn, "counted loop with %r trips; @%d-@%d\n", l->counted->trips, l->head->id, l->end->id);
+      }
+      ivsimpl(fn, l);
+      if ((dbgp)(fn)) {
+         dbgp(fn, "<< After opt loop @%d-@%d >>\n", l->head->id, l->end->id);
+         irdump(fn);
+      }
    }
 
    return changed;

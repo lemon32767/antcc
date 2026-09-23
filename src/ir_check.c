@@ -79,6 +79,7 @@ checkhomo(enum irclass k, const Ref *r, int n) {
 static void
 checkintext(enum irclass k, Ref r) {
    enum irclass refk = refcls(r);
+   if (r.bits != UNDREF.bits)
    if (!kisint(k) || !kisint(refk) || refk > k)
       priclsfail(k, &r, 1);
 }
