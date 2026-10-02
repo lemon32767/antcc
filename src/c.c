@@ -2416,6 +2416,7 @@ buildenum(CComp *cm, internstr name, const Span *span, int id, enum typetag base
    Token tk;
    s64int tymin, minv = 0;
    u64int tymax, maxv = 0;
+   if (hasattr(tyattr, ATTRpacked) && !basety) basety = TYSCHAR;
    TypeData td = {TYENUM, .backing = basety ? basety : TYINT};
    Type ty = mktype(td.backing);
    Span maxvspan;

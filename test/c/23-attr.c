@@ -1,6 +1,7 @@
 /* EXPECT:
 sizeof packed4i1i4f=9
 sizeof packfield=7
+sizeof packenum=1
 alignof algn1=8
 alignof algn2=16
 sizeof packedwaligned=16
@@ -23,6 +24,10 @@ struct __attribute__((packed)) packed4i1i4f {
 struct packfield {
    char a;
    short y[3] __attribute__((packed));
+};
+
+enum __attribute__((packed)) packenum {
+   E123,
 };
 
 struct algn1 {
@@ -54,6 +59,7 @@ char __attribute((aligned(16))) sbar[] = "bbb";
 int main(){
    printf("sizeof packed4i1i4f=%d\n", (int)sizeof(struct packed4i1i4f));
    printf("sizeof packfield=%d\n", (int)sizeof(struct packfield));
+   printf("sizeof packenum=%d\n", (int)sizeof(enum packenum));
    printf("alignof algn1=%d\n", (int)_Alignof(struct algn1));
    printf("alignof algn2=%d\n", (int)_Alignof(union algn2));
    printf("sizeof packedwaligned=%d\n", (int)sizeof(packedwaligned));
