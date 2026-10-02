@@ -8,9 +8,13 @@ get() {
     file=${url##*/}
     case "$file" in
     *.tar.gz) dir=${file%.tar.gz}
-             ext=tar.gz
-             cmd="tar xf"
-             ;;
+              ext=tar.gz
+              cmd="tar xf"
+              ;;
+    *.tar.xz) dir=${file%.tar.xz}
+              ext=tar.xz
+              cmd="tar xf"
+              ;;
     *.zip) dir=${file%.zip}
            ext=zip
            cmd=unzip
