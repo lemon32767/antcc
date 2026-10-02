@@ -1798,6 +1798,7 @@ designators(InitParser *ip, CComp *cm)
    Span span;
    bool some = 0;
 
+   ip->sub = ip->cur;
    for (;;) {
       uint off, bitsiz, bitoff;
       u64int idx = ~0ull;
