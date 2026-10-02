@@ -73,7 +73,11 @@ typedef struct {
 
 typedef struct {
    Type t;
-   uint off;
+   union {
+      uchar align; /* before layouting */
+      uint off; /* after */
+   };
+   bool bitf;
    uchar bitsiz,
          bitoff : 6,
          qual : 2;

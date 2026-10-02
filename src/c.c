@@ -1774,7 +1774,7 @@ aggdesignator(InitParser *ip, Type ty, internstr name, const Span *span)
       NamedField *fld = &td->fld[i];
       if (fld->name == name) {
          return i;
-      } else if (!fld->name) {
+      } else if (!fld->name && isagg(fld->f.t)) {
          int save, sub;
          InitCur *next = iniadvance(ip, ip->sub, span);
          save = ip->sub->idx;
@@ -2238,19 +2238,16 @@ declalign(const Decl *d)
    return d->attr.align > talign ? d->attr.align : talign;
 }
 
+/* parse, collecting fields and creating the tagged type, but don't populate with size/layout information */
 static Type
-buildagg(CComp *cm, enum typetag tt, internstr name, int id, const Attrs *tyattr)
+parseagg(CComp *cm, enum typetag tt, internstr name, int id)
 {
-   Token tk;
-   Type t;
    Span flexspan;
    DEF_SVEC(NamedField, 32, fld);
    TypeData td = {tt};
    bool isunion = tt == TYUNION;
    const char *tag = isunion ? "union" : "struct";
-   uint bitsiz = 0, bitfbyteoff = 0,
-        bitoff = 0, bitftypesiz = 0;
-
+   Token tk;
    while (!match(cm, &tk, '}')) {
       DeclState st = { DFIELD };
       do {
@@ -2277,8 +2274,9 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id, const Attrs *tyattr
          } else if (decl.ty.t == TYFUNC)  {
             error(&decl.span, "field has function type '%ty'", decl.ty);
          }
-         bitsiz = 0;
-         if (st.bitf) { /* handle bit-field */
+         uint bitsiz = 0;
+         bool isbitf = st.bitf;
+         if (isbitf) { /* handle bit-field */
             Expr ex = constantexpr(cm);
             const char *name = decl.name ? &decl.name->c : "<anonymous>";
             if (!isint(decl.ty)) {
@@ -2296,49 +2294,14 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id, const Attrs *tyattr
                error(&ex.span, "named bit-field '%s' has zero width", name);
             } else {
                bitsiz = ex.i;
-               if (bitsiz == 0) {
-                  bitsiz = bitftypesiz - bitoff;
-                  continue;
-               } else if (bitftypesiz && bitftypesiz < tysize) {
-                  /* end of previous bitfield */
-                  bitoff = 0;
-                  bitfbyteoff += bitftypesiz;
-               } else if (!bitftypesiz) {
-                  bitoff = 0;
-                  // XXX what to do with packed here
-                  bitfbyteoff = alignup(td.siz, typealign(decl.ty));
-               } else if (bitoff + bitsiz > 8*bitftypesiz) {
-                  /* no straddling boundaries */
-                  bitoff = 0;
-                  bitfbyteoff += bitftypesiz;
-               }
-               if (tysize > bitftypesiz) bitftypesiz = tysize;
             }
             pdecl(&st, cm);
          } else { /* reset bit-field */
-            bitftypesiz = bitoff = bitsiz = 0;
+            bitsiz = 0;
          }
          if (decl.ty.t) {
-            uint align;
-            if ((hasattr(tyattr, ATTRpacked) || hasattr(&decl.attr, ATTRpacked))
-             && !hasattr(&decl.attr, ATTRaligned))
-               align = 1;
-            else if (cm->pragma->pack.stk[cm->pragma->pack.top])
-               align = cm->pragma->pack.stk[cm->pragma->pack.top];
-            else
-               align = declalign(&decl);
-            assert(ispo2(align));
-            uint siz = tysize;
-            uint off = isunion ? 0
-                     : bitftypesiz ? bitfbyteoff
-                     : alignup(td.siz, align);
-            NamedField f = { decl.name, { decl.ty, off, bitsiz, bitoff, .qual = decl.qual }};
-            if (bitftypesiz && siz != bitftypesiz) while (f.f.bitoff + f.f.bitsiz > 8*siz) {
-               /* adjust bitfields narrower than container type */
-               f.f.off += siz;
-               f.f.bitoff -= 8*siz;
-            }
-            if (!decl.name && !bitftypesiz) {
+            NamedField f = { decl.name, { decl.ty, .bitf = isbitf, .bitsiz = bitsiz, .qual = decl.qual }};
+            if (!decl.name && !isbitf) {
                if (!isagg(decl.ty) || tagtypetags[typedata[decl.ty.dat].id]) {
                   warn(&decl.span, "declaration does not declare anything");
                   continue;
@@ -2347,8 +2310,11 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id, const Attrs *tyattr
                        decl.ty.t == TYUNION ? "union" : "struct");
                }
             }
-            if (decl.name || !bitftypesiz)
-               vpush(&fld, f);
+            if (hasattr(&decl.attr, ATTRpacked) && !hasattr(&decl.attr, ATTRaligned))
+               f.f.align = 1;
+            else if (hasattr(&decl.attr, ATTRaligned))
+               f.f.align = declalign(&decl);
+            vpush(&fld, f);
             td.anyconst |= decl.qual & QCONST;
             if (isagg(decl.ty)) {
                td.anyconst |= typedata[decl.ty.dat].anyconst;
@@ -2357,14 +2323,6 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id, const Attrs *tyattr
                   flexspan = decl.span;
                }
             }
-            if (isunion) {
-               td.siz = td.siz < siz ? siz : td.siz;
-               bitsiz = bitfbyteoff = bitoff = bitftypesiz = 0;
-            } else {
-               bitoff += bitsiz;
-               td.siz = off + siz;
-            }
-            td.align = td.align < align ? align : td.align;
          }
       } while (st.more);
    }
@@ -2373,24 +2331,89 @@ buildagg(CComp *cm, enum typetag tt, internstr name, int id, const Attrs *tyattr
    if (td.flexi && ccopt.cstd < STDC99 && ccopt.pedant)
       warn(&flexspan, "flexible array member in %M is an extension");
    if (fld.n == 0) {
-      NamedField dummy = { intern(""), { mktype(TYCHAR), 0 }};
+      NamedField dummy = { intern(""), { mkarrtype(mktype(TYCHAR), 0, 0) }};
       if (ccopt.pedant)
          warn(&tk.span, "%s with zero members is an extension", tag);
       vpush(&fld, dummy);
-      td.siz = 0;
-      td.align = 1;
    }
-   if (tyattr->align && tyattr->align > td.align)
-      td.align = tyattr->align;
-   td.siz = alignup(td.siz, td.align);
    td.fld = fld.p;
    td.nmemb = fld.n;
-   if (id != -1)
-      t = completetype(name, id, &td);
-   else
-      t = mktagtype(name, &td);
+   Type t = id == -1 ? mktagtype(name, &td) : completetype(name, id, &td);
    vfree(&fld);
    return t;
+}
+
+/* compute the data layout of the aggregate type, modifying its typedata in place
+ * to fill in the size, alignment, field offsets, ... */
+static void
+layoutagg(CComp *cm, Type ty, const Attrs *tyattr)
+{
+   TypeData *td = &typedata[ty.dat];
+   bool isunion = td->t == TYUNION;
+   td->siz = 0;
+   td->align = 1;
+   uint bitfbyteoff = 0, bitftypesiz = 0, bitoff = 0;
+   for (NamedField *fld = td->fld, *end = fld + td->nmemb; fld != end; ++fld) {
+      if (fld->name && !fld->name->c) /* dummy "" empty agg */
+         break;
+      uint tysize = typesize(fld->f.t);
+      uint bitsiz = fld->f.bitsiz;
+      if (fld->f.bitf) {
+         if (bitsiz == 0) {
+            fld->f.off = td->siz;
+            bitsiz = bitftypesiz - bitoff;
+            continue;
+         } else if (bitftypesiz && bitftypesiz < tysize) {
+            /* end of previous bitfield */
+            bitoff = 0;
+            bitfbyteoff += bitftypesiz;
+         } else if (!bitftypesiz) {
+            bitoff = 0;
+            // XXX what to do with packed here
+            bitfbyteoff = alignup(td->siz, typealign(fld->f.t));
+         } else if (bitoff + bitsiz > 8*bitftypesiz) {
+            /* no straddling boundaries */
+            bitoff = 0;
+            bitfbyteoff += bitftypesiz;
+         }
+         if (tysize > bitftypesiz) bitftypesiz = tysize;
+      } else { /* reset bit-field */
+         bitftypesiz = bitoff = bitsiz = 0;
+      }
+      uint align = fld->f.align,
+           pragmapack = cm->pragma->pack.stk[cm->pragma->pack.top];
+      if (align) {
+         if (pragmapack && pragmapack < align) align = pragmapack;
+      } else if (hasattr(tyattr, ATTRpacked)) {
+         align = 1;
+      } else if (pragmapack) {
+         align = pragmapack;
+      } else {
+         align = typealign(fld->f.t);
+      }
+      assert(ispo2(align));
+      uint siz = tysize;
+      fld->f.off = isunion ? 0
+                 : bitftypesiz ? bitfbyteoff
+                 : alignup(td->siz, align);
+      fld->f.bitoff = bitoff;
+      if (bitftypesiz && siz != bitftypesiz) while (fld->f.bitoff + fld->f.bitsiz > 8*siz) {
+         /* adjust bitfields narrower than container type */
+         fld->f.off += siz;
+         fld->f.bitoff -= 8*siz;
+      }
+      if (isunion) {
+         td->siz = td->siz < siz ? siz : td->siz;
+         bitsiz = bitfbyteoff = bitoff = bitftypesiz = 0;
+      } else {
+         bitoff += bitsiz;
+         td->siz = fld->f.off + siz;
+      }
+      td->align = td->align < align ? align : td->align;
+   }
+   if (tyattr->align && tyattr->align > td->align)
+      td->align = tyattr->align;
+   td->siz = alignup(td->siz, td->align);
 }
 
 static inline void
@@ -2410,20 +2433,20 @@ inttyminmax(s64int *min, u64int *max, enum typetag tt)
  * and this is similar to existing compiler's de-facto behaviour (though gcc
  * prefers to use unsigned types when possible). should add support for -fshort-enums
  */
+
+/* parseenum initially sets the backing type to the minimum-sized one */
 static Type
-buildenum(CComp *cm, internstr name, const Span *span, int id, enum typetag basety, const Attrs *tyattr)
+parseenum(CComp *cm, internstr name, const Span *span, int id, enum typetag basety)
 {
    Token tk;
+   TypeData td = {TYENUM};
    s64int tymin, minv = 0;
    u64int tymax, maxv = 0;
-   if (hasattr(tyattr, ATTRpacked) && !basety) basety = TYSCHAR;
-   TypeData td = {TYENUM, .backing = basety ? basety : TYINT};
-   Type ty = mktype(td.backing);
+   Type constty = mktype(basety ? basety : TYINT);
+   inttyminmax(&tymin, &tymax, constty.t);
    Span maxvspan;
    s64int iota = 0;
    bool somelonglong = 0;
-
-   inttyminmax(&tymin, &tymax, td.backing);
    while (!match(cm, &tk, '}')) {
       Decl decl = {0};
       peek(cm, &tk);
@@ -2432,11 +2455,9 @@ buildenum(CComp *cm, internstr name, const Span *span, int id, enum typetag base
          Expr ex = expr(cm);
          if (eval2xintcon(&ex)) {
             iota = ex.i;
-            if (!basety) {
-               if (ex.ty.t != ty.t)
-                  inttyminmax(&tymin, &tymax, ex.ty.t);
-               ty = ex.ty;
-            }
+            if (ex.ty.t != constty.t)
+               inttyminmax(&tymin, &tymax, ex.ty.t);
+            constty = ex.ty;
          } else {
             error(&ex.span, "enum value is not an integer constant");
          }
@@ -2445,18 +2466,19 @@ buildenum(CComp *cm, internstr name, const Span *span, int id, enum typetag base
          continue;
       }
       if (!basety) {
-         while (issigned(ty) ? (iota > (s64int)tymax || iota < tymin) : iota > tymax)
-            inttyminmax(&tymin, &tymax, ++ty.t);
-         somelonglong |= ty.t >= TYVLONG;
-         if ((isunsigned(ty) || iota > 0) && iota > maxv)
+         while (issigned(constty) ? (iota > (s64int)tymax || iota < tymin) : iota > tymax)
+            inttyminmax(&tymin, &tymax, ++constty.t);
+         somelonglong |= constty.t >= TYVLONG;
+         if ((isunsigned(constty) || iota > 0) && iota > maxv)
             maxv = iota, maxvspan = tk.span;
-         else if (issigned(ty) && iota < minv)
+         else if (issigned(constty) && iota < minv)
             minv = iota;
       } else {
          if (iota != intcast(basety, iota))
-            error(&tk.span, "enum value outside of '%ty' range", ty);
+           error(&tk.span, "enum value outside of '%ty' range", constty);
+         constty = mktype(basety);
       }
-      decl.ty = ty;
+      decl.ty = constty;
       decl.name = tk.name;
       decl.isenumconst = 1;
       decl.value = iota++;
@@ -2468,18 +2490,18 @@ buildenum(CComp *cm, internstr name, const Span *span, int id, enum typetag base
       }
    }
 
-   if (!basety) {
-      td.backing = 0;
-      if (minv >= 0 && maxv <= ~0u) {
-         td.backing = TYUINT;
-      } else for (int t = TYINT; t <= TYUVLONG; ++t) {
-         inttyminmax(&tymin, &tymax, t);
-         if (minv >= tymin && maxv <= tymax) {
-            td.backing = t;
-            break;
-         }
+   for (int t = TYSCHAR; t <= TYUVLONG; ++t) {
+      inttyminmax(&tymin, &tymax, t);
+      if (minv >= tymin && maxv <= tymax) {
+         td.backing = t;
+         break;
       }
    }
+   if (issignedt(td.backing) && minv >= 0) {
+      /* unsigned when possible mimics gcc */
+      ++td.backing;
+   }
+
    if (!td.backing) {
       td.backing = !somelonglong && ccopt.cstd == STDC89 && ccopt.pedant ? TYLONG : TYVLONG;
       warn(&maxvspan, "enumerators exceed range of enum's backing type '%ty'", mktype(td.backing));
@@ -2487,11 +2509,24 @@ buildenum(CComp *cm, internstr name, const Span *span, int id, enum typetag base
    if (td.backing >= TYVLONG && !somelonglong && ccopt.cstd == STDC89 && ccopt.pedant)
       warn(span, "enum backing type is '%ty' in %M", mktype(td.backing));
 
-   if (id != -1)
-      ty = completetype(name, id, &td);
-   else
-      ty = mktagtype(name, &td);
-   return ty;
+   return id == -1 ? mktagtype(name, &td) : completetype(name, id, &td);
+}
+
+/* sets the implicit underlying type according to attributes (packed -> keep smallest possible,
+ * else -> at least int/unsigned int */
+static void
+finienum(CComp *cm, const Span *span, Type t, enum typetag basety, const Attrs *tyattr)
+{
+   TypeData *td = &typedata[t.dat];
+   bool pack = hasattr(tyattr, ATTRpacked);
+   if (basety) {
+      assert(isintt(basety));
+      td->backing = basety;
+      if (pack) warn(span, "'packed' attribute ignored");
+      return;
+   }
+   if (!pack && td->backing < TYUINT)
+      td->backing = issignedt(td->backing) ? TYINT : TYUINT;
 }
 
 static Type
@@ -2524,6 +2559,7 @@ tagtype(CComp *cm, enum toktag kind)
          enumbasety = decl.ty.t;
       }
    }
+   bool isdef;
    if (!match(cm, NULL, '{')) {
       if (!tag) {
          error(&tk.span, "expected %tt name or '{'", kind);
@@ -2534,6 +2570,7 @@ tagtype(CComp *cm, enum toktag kind)
          error(&fullspan, "cannot specify enum backing type here");
       }
       t = gettagged(cm, &span, tt, tag, dodef, enumbasety);
+      isdef = 0;
    } else {
       if (tag) {
          t = deftagged(cm, &span, tt, tag, mktype(0), enumbasety);
@@ -2550,14 +2587,19 @@ tagtype(CComp *cm, enum toktag kind)
          if (err) note(&span, "previously:");
       }
       if (tt == TYENUM)
-         t = buildenum(cm, tag, &span, tag ? typedata[t.dat].id : -1, enumbasety, &attr);
+         t = parseenum(cm, tag, &span, tag ? typedata[t.dat].id : -1, enumbasety);
       else
-         t = buildagg(cm, tt, tag, tag ? typedata[t.dat].id : -1, &attr);
+         t = parseagg(cm, tt, tag, tag ? typedata[t.dat].id : -1);
+      isdef = 1;
    }
    peek(cm, &tk);
-   if (attrspec(cm, &attr)) {
-      error(&tk.span, "NYI: type attribute at the end of its definition");
-      attrcheckctx(&span, &attr, 't');
+   if (attrspec(cm, &attr)) attrcheckctx(&span, &attr, 't');
+
+   if (isdef) {
+      if (tt == TYENUM) finienum(cm, &tk.span, t, enumbasety, &attr);
+      else layoutagg(cm, t, &attr);
+   } else if (hasattr(&attr, ATTRpacked)) {
+      warn(&tk.span, "'packed' attribute ignored");
    }
 
    if (t.t != tt) {

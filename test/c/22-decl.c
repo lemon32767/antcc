@@ -11,7 +11,7 @@ int a[];
 static unsigned local;
 extern unsigned local;
 
-typedef struct foo { char r; } foo_t;
+typedef struct attrafter { char r; } foo_t;
 static const foo_t T = ((foo_t) { 3 });
 
 static const int X = 4;

@@ -2,6 +2,8 @@
 sizeof packed4i1i4f=9
 sizeof packfield=7
 sizeof packenum=1
+sizeof packenum2=2
+sizeof attrafter=6
 alignof algn1=8
 alignof algn2=16
 sizeof packedwaligned=16
@@ -30,6 +32,10 @@ enum __attribute__((packed)) packenum {
    E123,
 };
 
+enum packenum2 {
+   E456 = -256,
+} __attribute__((packed));
+
 struct algn1 {
    int q __attribute((aligned(8)));
 };
@@ -37,12 +43,7 @@ union __attribute__((aligned(16))) algn2 {
    short t;
 };
 
-/* NYI after definition:
-   struct foo { .. } __attribute__((packed)); 
-this is annoying because we currently build the struct type and its layout on the fly
-as we parse it. Either refactor that to do it on two passes or 'rebuild' aggregate
-when we encounter attributes after the '}'
-*/
+struct attrafter { int x; short y; } __attribute__((packed));
 
 struct __attribute__((packed)) {
    int y,
@@ -60,6 +61,8 @@ int main(){
    printf("sizeof packed4i1i4f=%d\n", (int)sizeof(struct packed4i1i4f));
    printf("sizeof packfield=%d\n", (int)sizeof(struct packfield));
    printf("sizeof packenum=%d\n", (int)sizeof(enum packenum));
+   printf("sizeof packenum2=%d\n", (int)sizeof(enum packenum2));
+   printf("sizeof attrafter=%d\n", (int)sizeof(struct attrafter));
    printf("alignof algn1=%d\n", (int)_Alignof(struct algn1));
    printf("alignof algn2=%d\n", (int)_Alignof(union algn2));
    printf("sizeof packedwaligned=%d\n", (int)sizeof(packedwaligned));

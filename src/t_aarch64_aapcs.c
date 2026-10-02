@@ -34,6 +34,7 @@ cls_hfa(enum typetag *hfa_t, const TypeData *td)
    assert(isaggt(td->t));
    for (int i = 0; i < td->nmemb; ++i) {
       FieldData *fld = &td->fld[i].f;
+      if (fld->bitf && !fld->bitsiz) continue;
       if (isagg(fld->t)) {
          if (!cls_hfa(hfa_t, &typedata[fld->t.dat]))
             return 0;

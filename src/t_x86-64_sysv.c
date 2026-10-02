@@ -56,6 +56,7 @@ classify(uchar cls[2], const TypeData *td, uint off)
    for (int i = 0; i < td->nmemb; ++i) {
       FieldData *fld = &td->fld[i].f;
       uint align = typealign(fld->t);
+      if (fld->bitf && !fld->bitsiz) continue;
       if (alignup(fld->off, align) != fld->off) /* unaligned field -> MEMORY */
          return cls[0] = cls[1] = 0;
       if (isagg(fld->t)) {

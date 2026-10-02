@@ -246,9 +246,8 @@ Begin:
          *res = fld->f;
          res->off += off;
          return 1;
-      } else if (!fld->name) { /* anonymous struct/union */
+      } else if (!fld->name && isagg(fld->f.t)) { /* anonymous struct/union */
          const TypeData *ftd = &typedata[fld->f.t.dat];
-         assert(isagg(fld->f.t));
          if (i == td->nmemb - 1) { /* last field, tail recurse */
             off += fld->f.off;
             td = ftd;
