@@ -25,16 +25,11 @@ static const uchar opflags[NOPER] = {
    [Oshl]  = CLOBF,
    [Osar]  = CLOBF,
    [Oslr]  = CLOBF,
-   [Oequ]  = ZF|CLOBF,
-   [Oneq]  = ZF|CLOBF,
-   [Olth]  = ZF|CLOBF,
-   [Ogth]  = ZF|CLOBF,
-   [Olte]  = ZF|CLOBF,
-   [Ogte]  = ZF|CLOBF,
-   [Oulth] = ZF|CLOBF,
-   [Ougth] = ZF|CLOBF,
-   [Oulte] = ZF|CLOBF,
-   [Ougte] = ZF|CLOBF,
+   [Oequ]  = ZF|CLOBF, [Oneq]  = ZF|CLOBF,
+   [Olth]  = ZF|CLOBF, [Ogth]  = ZF|CLOBF,
+   [Olte]  = ZF|CLOBF, [Ogte]  = ZF|CLOBF,
+   [Oulth] = ZF|CLOBF, [Ougth] = ZF|CLOBF,
+   [Oulte] = ZF|CLOBF, [Ougte] = ZF|CLOBF,
    [Ocall] = CLOBF,
 };
 
@@ -390,6 +385,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
       break;
    case Ocall:
       selcall(fn, ins, blk, curi);
+      iflagsrc = -1;
       break;
    case Ointrin:
       break;
@@ -439,6 +435,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
       t = blk->ins.p[*curi - 1];
       blk->ins.p[*curi - 1] = blk->ins.p[*curi - 0];
       blk->ins.p[*curi - 0] = t;
+      iflagsrc = -1; /* clobbers flags */
       break;
    case Osub:
        if (isintcon(ins->l)) {

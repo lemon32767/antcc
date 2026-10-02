@@ -3,6 +3,8 @@
 
 #define isimm32(r) (iscon(r) && concls(r) == KI32)
 
+static int iflagsrc = -1;
+
 static inline uint
 clz(u64int x)
 {
@@ -506,6 +508,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
       break;
    case Ocall:
       selcall(fn, ins, blk, curi);
+      iflagsrc = -1;
       break;
    case Oloads8: case Oloadu8: case Oloads16: case Oloadu16:
    case Oloads32: case Oloadu32: case Oloadi64: case Oloadf32: case Oloadf64:
@@ -545,13 +548,13 @@ seljmp(Function *fn, Block *blk)
          c = insertinstr(blk, blk->ins.n, mkinstr1(Ocopy, cls, c));
          sel(fn, &instrtab[c.i], blk, &curi);
       }
-      if (!oiscmp(instrtab[c.i].op)) {
+      if (iflagsrc == c.i && oiscmp(instrtab[c.i].op)) {
+         instrtab[c.i].keep = 1;
+      } else {
          enum irclass k = insrescls(instrtab[c.i]);
          blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr2(Oneq, k, c, kisint(k) ? ZEROREF : mkfltcon(k, 0)));
          Instr *ins = &instrtab[blk->jmp.arg[0].i];
          ins->keep = 1;
-      } else {
-         instrtab[c.i].keep = 1;
       }
    } else if (blk->jmp.t == Jret) {
       if (blk->jmp.arg[0].bits) {
@@ -576,6 +579,7 @@ aarch64_isel(Function *fn)
 
    do {
       int i;
+      iflagsrc = -1;
       for (i = 0; i < blk->phi.n; ++i) {
          Instr *ins = &instrtab[blk->phi.p[i]];
          Ref *phi = phitab.p[ins->l.i];
@@ -587,6 +591,7 @@ aarch64_isel(Function *fn)
       for (i = 0; i < blk->ins.n; ++i) {
          Instr *ins = &instrtab[blk->ins.p[i]];
          sel(fn, ins, blk, &i);
+         if (oiscmp(ins->op)) iflagsrc = ins - instrtab;
       }
       seljmp(fn, blk);
    } while ((blk = blk->lnext) != fn->entry);
