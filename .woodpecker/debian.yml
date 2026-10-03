@@ -45,3 +45,9 @@ steps:
       - ./test/external/lua.sh
     depends_on: [build]
 
+  - name: test-external-qbe
+    image: debian
+    commands:
+      - apt-get update && apt-get install -y gcc make curl xz-utils
+      - ./test/external/qbe.sh
+    depends_on: [build]
