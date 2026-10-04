@@ -158,5 +158,9 @@ qx2(*) ) "$\n"
 #define XLINE __LINE__
    printf("linedif2 %d\n", __LINE__ - XLINE);
 
+#define TCL_UNUSED(T) T xcat(dummy, __LINE__)
+   TCL_UNUSED(int);
+   TCL_UNUSED(int);
+
    CAT(ret,urn) 0;
 }

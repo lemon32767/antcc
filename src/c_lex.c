@@ -1163,6 +1163,8 @@ expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac)
          }
       } else {
          tk = s->idx < s->rl.n ? stkgetrl(s)[s->idx++] : (Token){TKEOF};
+         if (s->exspan.len)
+            tk.span.ex = s->exspan;
       }
       if (tk.t == TKEOF) break;
       if (cndskip) continue;
