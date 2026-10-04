@@ -2,6 +2,8 @@
 #include "obj.h"
 
 typedef struct SavedFunc {
+   struct SavedFunc *next;
+   internstr name;
    bool emitted;
    uchar symflags;
    uchar inlhint;
@@ -24,7 +26,10 @@ enum { MAXINLFNNINS = 50,
        MAXINLFNRETS = 16,
        MAXINLFNARGS = 16,};
 
-static pmap_of(SavedFunc *) savedfns;
+static struct {
+   pmap_of(SavedFunc *) m;
+   SavedFunc *list, **ltail;
+} savedfns = { .ltail = &savedfns.list };
 static Arena *savearena;
 
 static bool
@@ -91,6 +96,7 @@ Save:
       bfmt(ccopt.dbg.out, "> stashing '%s' for inlining\n", fn->name);
    }
    SavedFunc *sv = allocz(&savearena, sizeof *sv, 0);
+   sv->name = fn->name;
    sv->symflags = fn->symflags;
    sv->inlhint = fn->inlhint;
    sv->fnty = fn->fnty, sv->retty = fn->retty;
@@ -140,7 +146,8 @@ Save:
       sv->phitab = alloccopy(&savearena, phitab.p, sizeof *phitab.p * phitab.n, 0);
       phitab.n = 0;
    }
-   pmap_set(&savedfns, fn->name, sv);
+   *savedfns.ltail = sv, savedfns.ltail = &sv->next;
+   pmap_set(&savedfns.m, fn->name, sv);
 
    if (dbgp(fn))
       bfmt(ccopt.dbg.out, "  cost = %d\n", sv->cost);
@@ -350,7 +357,7 @@ enum { MAX_REC_INLINE = 16 };
 int
 doinline(Function *fn)
 {
-   if (calltab.n == 0 || savedfns.mb.n == 0) return 0;
+   if (calltab.n == 0 || !savedfns.list) return 0;
    Block *b = fn->entry;
    struct Stack { /* stack of callees being inline expanded */
       Block *b; /* block after the end of expansion */
@@ -370,7 +377,7 @@ doinline(Function *fn)
          IRCall *call = &calltab.p[ins->r.i];
          internstr fname = xcon2sym(ins->l.i);
          SavedFunc **pcallee, *sv;
-         if ((pcallee = pmap_get(&savedfns, fname))
+         if ((pcallee = pmap_get(&savedfns.m, fname))
            && shouldinline(sv = *pcallee, b, call, i)) {
             for (struct Stack *s = stk; s != stkend; ++s) {
                if (s->sv == sv) goto Skip; /* recursion encountered */
@@ -452,13 +459,10 @@ emitxinlfns(bool all)
     * visited, but they need to be visited them again */
    for (bool change = 1; change;) {
       change = 0;
-      SavedFunc **psv, *sv;
-      internstr name;
-      pmap_each(&savedfns, name, psv) {
-         sv = *psv;
-         if (!sv->emitted && (fnisneeded(name) || !(sv->symflags & (SLOCAL|SC99INLFN)) || all)) {
+      for (SavedFunc *sv = savedfns.list; sv; sv = sv->next) {
+         if (!sv->emitted && (fnisneeded(sv->name) || !(sv->symflags & (SLOCAL|SC99INLFN)) || all)) {
             sv->emitted = 1;
-            Function fn = rematerialize(&arena, name, sv);
+            Function fn = rematerialize(&arena, sv->name, sv);
             fn.passarena = &passarena;
             if (dbgp(&fn)) {
                bfmt(ccopt.dbg.out, "<< Rematerialize inlinee >>\n");
