@@ -1906,7 +1906,7 @@ initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, enum symflags sym
          iniwrite(cm, ip, 0, 0, 0, *ty, &ex);
       } else if (!initcheck(*ty, &ex)) {
          error(&ex.span, "cannot initialize '%ty' with expression of type '%ty'", *ty, ex.ty);
-      } else if (ex.t == EINIT) {
+      } else if (ex.t == EINIT && !arrdecays(*ty, ex.ty)) {
          if (!iniwriterec(cm, ip, 0, &ex))
             goto CannotEval;
       } else {
@@ -5253,7 +5253,7 @@ localdecl(CComp *cm, bool forini)
                            ty, ini.ty);
                   }
                   EMITS {
-                     if (ini.t == EINIT || (ty.t == TYARRAY && ini.t == ESTRLIT))
+                     if ((ini.t == EINIT || ini.t == ESTRLIT) && !arrdecays(ty, ini.ty))
                         geninit(fn, ty, mkref(RTMP, decl.id), &ini, decl.qual & QVOLATILE);
                      else if (isagg(ty))
                         structcopy(fn, ty, mkref(RTMP, decl.id), exprvalue(fn, &ini));

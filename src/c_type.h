@@ -144,6 +144,12 @@ bool typescompat(Type *pcomposite, Type, Type);
 enum typetag intpromote(enum typetag);
 Type cvtarith(Type a, Type b);
 Type complex2struct(Type);
+
+static inline bool
+arrdecays(Type dst, Type from)
+{
+   return from.t == TYARRAY && dst.t == TYPTR;
+}
 static inline Type
 typechild(Type t)
 {
