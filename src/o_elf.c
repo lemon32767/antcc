@@ -177,7 +177,7 @@ elfreloc(internstr sym, enum symflags sf, enum relockind kind, enum section sec,
    case Sdata:   ++ndatarel; break;
    }
    assert(kind < NRELOCKIND);
-   assert(sec < (1<<3) && sf < (1<<5));
+   assert(sec < (1<<3) && sf < (1<<(SVISOFFST+2)));
    vpush(&relocs, ((Reloc) { sec, sf, relktab[target.arch][kind], off, addend, .symname = sym }));
 }
 

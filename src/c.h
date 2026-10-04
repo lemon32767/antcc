@@ -119,6 +119,7 @@ enum storageclass {
    _(weak,               1, 1, 0)   \
    _(weakref,            1, 1, 0)   \
    _(section,            1, 1, 0)   \
+   _(visibility,         1, 1, 0)   \
    _(used,               1, 1, 1)   \
    _(unused,             1, 1, 1)   \
    _(deprecated,         1, 1, 1)   \
@@ -137,7 +138,8 @@ enum attr {
 #undef DEF_ATTR
 };
 typedef struct Attrs {
-   int align;
+   ushort align,
+          visib;
    BitSet set[1];
 } Attrs;
 #define setattr(attrs,A) bsset((attrs)->set, (A))

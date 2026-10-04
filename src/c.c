@@ -262,6 +262,8 @@ static bool
 redeclarationok(const Decl *old, Decl *new)
 {
    bool takeoldscls = 0;
+   if (old->attr.visib && new->attr.visib && (old->attr.visib != new->attr.visib))
+      return 0;
    if (old->scls != new->scls) {
       if (old->scls == SCSTATIC && (new->scls &~ SCEXTERN) == SCNONE)
          takeoldscls = 1;
@@ -288,6 +290,8 @@ mergeattr(Attrs *to, const Attrs *src)
 {
    bsunion(to->set, src->set, countof(to->set));
    if (src->align > to->align) to->align = src->align;
+   if (!to->visib) to->visib = src->visib;
+   else assert(!src->visib || src->visib == to->visib);
 }
 
 static int
@@ -1035,7 +1039,7 @@ tkprec(int tt)
 }
 
 static Expr initializer(CComp *, Type *ty, uint align, enum evalmode ev,
-                        bool globl, enum qualifier qual, internstr name);
+                        enum symflags, enum qualifier qual, internstr name);
 static void block(CComp *, Ref *stmtexprval, Type *stmtexprty);
 
 static internstr istr__func__, istr_main, istr_memset;
@@ -1051,7 +1055,7 @@ compoundliteral(CComp *cm, Decl *decl, const Span *span)
       warn(span, "compound literals are a c99 feature"), warned = 1;
    return initializer(cm, &decl->ty, declalign(decl),
                      (decl->scls & SCSTATIC) ? EVSTATICINI : EVFOLD,
-                     /*globl*/ 0, decl->qual, /*name*/ NULL);
+                     /* symflags */ SLOCAL, decl->qual, /*name*/ NULL);
 }
 
 /* parse an expression with the given operator precedence */
@@ -1868,7 +1872,7 @@ designators(InitParser *ip, CComp *cm)
 }
 
 static Expr
-initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, bool globl,
+initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, enum symflags symflags,
             enum qualifier qual, internstr sym)
 {
    Token tk;
@@ -1888,7 +1892,7 @@ initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, bool globl,
       } else {
          ip->sec = qual & QCONST ? Srodata : Sdata;
          if (!nerror)
-            ip->off = objnewdat(sym, SLOCAL &- !globl, ip->sec, typesize(*ty), align);
+            ip->off = objnewdat(sym, symflags, ip->sec, typesize(*ty), align);
       }
    } else {
       ip->init = &res;
@@ -1979,7 +1983,7 @@ initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, bool globl,
          sec = Sdata;
       assert(align >= typealign(*ty));
       if (!nerror) {
-         off = objnewdat(sym, SLOCAL &- !globl, sec, siz = typesize(*ty), align);
+         off = objnewdat(sym, symflags, sec, siz = typesize(*ty), align);
          if (siz > 0) {
             p = sec == Srodata ? objout.rodata.p : objout.data.p;
             assert(ip->ddat.n <= siz);
@@ -2186,6 +2190,27 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk)
    //Stub:
       stub(&span, "attribute '%s'", aname);
       break;
+   case ATTRvisibility:
+      if (nparam != 1) goto BadArgs;
+      if (params[0].t != ESTRLIT || typesize(typechild(params[0].ty)) != 1) {
+         error(&params[0].span, "visibility argument not a string");
+         break;
+      }
+      const void *s = params[0].s.p;
+      uint n = params[0].s.n;
+      enum symflags v = 0;
+      if (n == 7 && !memcmp(s, "default", n)) {}
+      else if (n == 6 && !memcmp(s, "hidden", n)) v = SVHIDDEN;
+      else if (n == 8 && !memcmp(s, "internal", n)) v = SVINTERNAL;
+      else if (n == 9 && !memcmp(s, "protected", n)) v = SVPROTECTED;
+      else {
+         error(&params[0].span, "invalid visibility %'S", s, n);
+         break;
+      }
+      if (attr->visib && v != attr->visib)
+         error(&span, "multiple conflicting visibilities");
+      attr->visib = v;
+      break;
    }
    return 1;
 }
@@ -2219,7 +2244,7 @@ attrspec(CComp *cm, Attrs *attr)
 }
 
 static void
-attrcheckctx(const Span *span, const Attrs *attr, char c /*f/v/t*/)
+attrcheckctx(const Span *span, Attrs *attr, char c /*f/v/t*/)
 {
    bs_each(a, attr->set, countof(attr->set)) {
       if ((c == 'f' && !cattrs[a].f)
@@ -2227,6 +2252,9 @@ attrcheckctx(const Span *span, const Attrs *attr, char c /*f/v/t*/)
        || (c == 't' && !cattrs[a].t))
       {
          warn(span, "'%s' attribute has no effect here", cattrs[a].s);
+         if (a == ATTRvisibility) attr->visib = 0;
+         else if (a == ATTRaligned) attr->align = 0;
+         bsclr(attr->set, a);
       }
    }
 }
@@ -2611,7 +2639,7 @@ tagtype(CComp *cm, enum toktag kind)
 }
 
 static void
-declcheckattr(const Decl *decl)
+declcheckattr(Decl *decl)
 {
    char c = decl->scls == SCTYPEDEF ? 't'
           : decl->ty.t == TYFUNC ? 'f'
@@ -3348,6 +3376,7 @@ declsymflags(const Decl *decl)
    if (decl->ty.t == TYFUNC) sf |= SFUNC;
    if (hasattr(&decl->attr, ATTRweak)) sf |= SWEAK;
    if (decl->inlin) sf |= SC99INLFN;
+   sf |= decl->attr.visib;
    return sf;
 }
 
@@ -5208,7 +5237,7 @@ localdecl(CComp *cm, bool forini)
                Type ty = decl.ty;
                bool statik = decl.scls & (SCSTATIC | SCEXTERN);
                ini = initializer(cm, &ty, declalign(&decl), statik ? EVSTATICINI : EVFOLD,
-                                 /* globl? */ decl.scls == SCEXTERN, decl.qual, statik ? decl.sym : NULL);
+                                 declsymflags(&decl), decl.qual, statik ? decl.sym : NULL);
                declsbuf.p[d].ty = ty;
                put = 1;
                pdecl(&st, cm);
@@ -5442,7 +5471,7 @@ tldecl(CComp *cm)
             if (isagg(decl->ty) && isincomplete(decl->ty))
                error(&decl->span, "initialization of variable with incomplete type '%ty'", decl->ty);
             Expr ini = initializer(cm, &decl->ty, declalign(decl), EVSTATICINI,
-                                   decl->scls != SCSTATIC, decl->qual, decl->sym);
+                                   declsymflags(decl), decl->qual, decl->sym);
             decl = &declsbuf.p[idecl];
             decl->ty = decl->ty;
             if (decl->scls == SCEXTERN && !noscls) {

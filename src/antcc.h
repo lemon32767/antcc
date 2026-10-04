@@ -175,11 +175,10 @@ enum symflags {
    SFUNC      = 1<<1,
    SWEAK      = 1<<2,
    SC99INLFN  = 1<<3,
-   SVISOFFST  = 4,
-   SVISMASK   = 3<<SVISOFFST,
-   SVINTERNAL,
-   SVHIDDEN,
-   SVPROTECTED,
+   SVISOFFST   = 4,
+   SVINTERNAL  = 1<<SVISOFFST,
+   SVHIDDEN    = 2<<SVISOFFST,
+   SVPROTECTED = 3<<SVISOFFST,
 };
 
 /*********/
