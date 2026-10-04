@@ -14,6 +14,8 @@ steps:
     image: debian
     commands:
       - apt-get update && apt-get install -y make gcc
+      - ./configure
+      - make src/version.h
       - ./test/bootstrap.sh
 
   - name: test-c
@@ -21,7 +23,6 @@ steps:
     commands:
       - apt-get update && apt-get install -y gcc
       - ./test/c/run.sh --print
-
     depends_on: [build]
 
   - name: test-ir
