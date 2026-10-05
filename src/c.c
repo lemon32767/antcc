@@ -2381,15 +2381,20 @@ layoutagg(CComp *cm, Type ty, const Attrs *tyattr)
    td->siz = 0;
    td->align = 1;
    uint bitfbyteoff = 0, bitftypesiz = 0, bitoff = 0;
-   for (NamedField *fld = td->fld, *end = fld + td->nmemb; fld != end; ++fld) {
+   for (int i = 0; i < td->nmemb; ++i) {
+      NamedField *fld = &td->fld[i];
       if (fld->name && !fld->name->c) /* dummy "" empty agg */
          break;
       uint tysize = typesize(fld->f.t);
       uint bitsiz = fld->f.bitsiz;
       if (fld->f.bitf) {
          if (bitsiz == 0) {
-            fld->f.off = td->siz;
-            bitsiz = bitftypesiz - bitoff;
+            uint bitpos = bitftypesiz ? 8*bitfbyteoff + bitoff : 8*td->siz;
+            td->siz = alignup(bitpos, 8*typealign(fld->f.t)) / 8;
+            bitfbyteoff = bitftypesiz = bitoff = 0;
+            /* no longer need pseudo field :0 */
+            memmove(fld, fld + 1, (td->fld + td->nmemb - fld - 1) * sizeof *fld);
+            --td->nmemb, --i;
             continue;
          } else if (bitftypesiz && bitftypesiz < tysize) {
             /* end of previous bitfield */
