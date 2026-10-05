@@ -82,11 +82,14 @@ Testing
 
 There are tests in the `test` directory:
 
-  - `test/run.sh`: local tests
-  - `test/lua.sh`: compile Lua 5.4.0 and run its testsuite
+  - `test/c/run.sh`: local tests
+  - `test/ir/run.sh`: IR unit tests
   - `test/c-testsuite.sh`: run [c-testsuite](https://github.com/c-testsuite/c-testsuite)
-  - `test/sqlite.sh`: compile SQLite and run its testsuite (must pull in external sqlite submodule: `git submodule update --init --recursive`)
-  - `test/metalang99.sh`: compile and run [metalang99](https://github.com/hirrolot/metalang99) tests (preprocessor stress testing)
+  - `test/c-smith.sh`: run [csmith](https://github.com/csmith-project/csmith) (fuzzing)
+  - `test/external/lua.sh`: compile Lua 5.4.0 and run its testsuite
+  - `test/external/sqlite.sh`: compile SQLite and optionally run its testsuite
+  - `test/external/qbe.sh`: compile QBE and run its testsuite
+  - `test/external/metalang99.sh`: compile and run [metalang99](https://github.com/hirrolot/metalang99) tests (preprocessor stress testing)
 
 Contributing
 ------------
