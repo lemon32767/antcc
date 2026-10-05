@@ -52,6 +52,7 @@ Tested and known to work:
  - `x86_64-unknown-openbsd`
 
 Semi-working (can self-host, but not passing the external test suites/exhaustively tested)
+
  - `aarch64-linux-gnu` (tested on QEMU)
  - `aarch64-unknown-linux-android24` (termux)
 
@@ -73,12 +74,14 @@ Testing
 -------
 
 `bootstrap.sh` will bootstrap the compiler in 3 stages:
+
   - Stage 0 builds the compiler with the system's C compiler
   - Stage 1 builds the compiler with the stage 0 output
   - Stage 2 builds the compiler with the stage 1 output
   - Then stage 1 and 2 outputs are verified to be identical
 
 There are tests in the `test` directory:
+
   - `test/run.sh`: local tests
   - `test/lua.sh`: compile Lua 5.4.0 and run its testsuite
   - `test/c-testsuite.sh`: run [c-testsuite](https://github.com/c-testsuite/c-testsuite)
@@ -95,6 +98,7 @@ You can report bugs on the Codeberg issue tracker or by email
 (<code><span>ls</span>of<span class='plzdontscrape'>@mail</span>box.org</code>).
 
 You may also contribute patches as PRs on Codeberg or by email, keeping in mind:
+
   - You should match the style of existing code.
   - Patches should be as small as possible.
   - Large changes are unlikely to be accepted without prior discussion.
