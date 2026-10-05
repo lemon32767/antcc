@@ -1,7 +1,8 @@
 #!/bin/sh
 
-cd $(dirname "$0")
+cd "$(dirname "$0")"
 ./c/run.sh
+./ir/run.sh
 
 echo "=== Lua 5.4.0 ==="
 ./external/lua.sh
