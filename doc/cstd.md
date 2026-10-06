@@ -9,6 +9,7 @@ A list of **missing** standard C features:
   - digraphs
   - Universal character names (`\uXXXX`, `\UXXXXXXXX`)
   - IEEE 754 float support Annex F IEC 60559 (`FLT_EVAL_METHOD`, `FENV_ACCESS` pragma) (not even GCC or Clang care about this)
+
 Stack-allocated VLAs are a stub and actually compile to a fixed size array at the moment (but noone should use them anyway)
 
 ## C11
