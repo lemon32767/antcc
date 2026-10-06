@@ -1,5 +1,4 @@
 FRONTEND
-c VLA
 c thread local (reqs elf refactor)
 c atomics
 c va_arg 2reg structs

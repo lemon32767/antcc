@@ -4,12 +4,12 @@ A list of **missing** standard C features:
   - trigraphs (deliberately left out)
 
 ## C99
-  - Variable-length arrays (VLAs)
   - Proper `long double` support in platforms with extended floats (currently equivalent to `double`)
   - `<tgmath.h>` header
   - digraphs
   - Universal character names (`\uXXXX`, `\UXXXXXXXX`)
   - IEEE 754 float support Annex F IEC 60559 (`FLT_EVAL_METHOD`, `FENV_ACCESS` pragma) (not even GCC or Clang care about this)
+Stack-allocated VLAs are a stub and actually compile to a fixed size array at the moment (but noone should use them anyway)
 
 ## C11
   - `_Alignas`

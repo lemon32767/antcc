@@ -5110,10 +5110,15 @@ localdecl(CComp *cm, bool forini) {
             }
             decl.id = -1;
             if (!nerror) {
-               Instr alloc = isvla(decl.ty) ? mkinstr1(Oallocav, KPTR, typesizeref(decl.ty))
-                                            : mkalloca(typesize(decl.ty), declalign(&decl));
-               if (fn->curblk) decl.id = addinstr(fn, alloc).i;
-               else decl.id = insertinstr(fn->entry, fn->entry->ins.n, alloc).i;
+               Instr alloca;
+               if (!isvla(decl.ty)) {
+                  alloca = mkalloca(typesize(decl.ty), declalign(&decl));
+               } else {
+                  warn(&decl.span, "stack-allocated variable-length array...");
+                  alloca = mkinstr1(Oallocav, KPTR, typesizeref(decl.ty));
+               }
+               if (fn->curblk) decl.id = addinstr(fn, alloca).i;
+               else decl.id = insertinstr(fn->entry, fn->entry->ins.n, alloca).i;
             }
          Initz:
             if (st.varini) {
