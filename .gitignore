@@ -6,6 +6,7 @@
 !.editorconfig
 !.gitignore
 !.gitmodules
+!.git-blame-ignore-revs
 
 !README.md
 !LICENSE
