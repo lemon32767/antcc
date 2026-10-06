@@ -1,16 +1,78 @@
-- aarch64 backend, needs a lot more testing
-- STDC: thread local, VLAs, long double, atomics
-- get working on the other BSDs
-    - implement more GNU extensions: __attribute__, __builtin_*, ...
-- __asm__
-- windows (mingw)
-- DWARF debug information
-- compiler optimizations:
-    - dead store/load optimization, forwarding
-    - all kinds of loop optimizations
-    - switch statements (bsearch, maybe jumptables?)
-    - instruction scheduling
-    - use of memory operands in arith instrs in x86
+FRONTEND
+c VLA
+c thread local (reqs elf refactor)
+c atomics
+c va_arg 2reg structs
+c long double
+gnu ?:
+gnu cast to union
+gnu case range
+gnu designated initializers
+gnu attr
+    constructor, destructor
+    transparent union
+    weakref
+    x aligned (nulladic, check can only increase, permit >255)
+    cleanup
+    no/common
+    mode
+    section
+gnu pragma
+    weak
+    clang/GCC diagnostic ....
+    visibility
+gnu bitf layout -> ms_struct/gcc_struct -> [no]-ms-bitfields, #pragma ms_struct
+gnu builtins
+    libc https://gcc.gnu.org/onlinedocs/gcc-4.2.4/gcc/Other-Builtins.html#Other-Builtins
+        undeclared __builtin_X fallback -> X in libc fn list -> call X
+    huge_val huge_valf huge_valff
+    inf inff infl
+    nan nanf nanl, nans nansf nansl
+    ffs* clz* ctz* popcount* parity* (impl in backend new arith insns)
+    offsetof
+    powi powif powil
+    types_compatible_p
+    choose_expr
+    prefetch
+gnu __asm__, constriants, reg vars
 
-- more testing on real world codebases
+BACKEND
+opt fixup and merge loopiv
+need assembler for gnu asm
+text assembly output? for debug&nice
+opt x86 isel+codegen memory args
+opt regalloc interval splitting
+opt gcm gvn @ https://doi.org/10.1145/207110.207154
 
+COMPILE w/o patches
+git (debug assert failure in -O1 loopopt; need vla/alloca)
+tcl
+python
+SDL
+tcc (need long double, asm)
+gcc4.7?
+more BSD compat
+
+GENERAL
+ANTCC_GNUC default on
+windows
+    backend: t_x86-64_winabi.c o_coff.c/h
+    port compiler itself
+    idk about linking/crt situation will see
+mac
+    backend: o_macho.c/h
+    but i don't have one to test.
+i686
+    t_x86-64_* -> t_x86_* (much common code worth sharing esp. emit,encoding)
+    ir_softarith pass deconstruct 64-bit -> 32bit ins
+        also can be used for e.g. turning float ins to soft float, int128 in the backend..
+        or maybe do it during IR construction (related: x86-64 Ocvtf32u, Ocvtf64u,
+                                                 Ocvtu64f stubs are currently in ir_builder);
+    no i386 unless long double -> x87 codegen impl -> can extend it and use for all float
+riscv, mips
+own runtime lib, remove libgcc/libcompiler_rt dep
+debuginfo:
+    backend keep a DbgInfo{fileid, lineno, var?} per ins
+        keep mapping of temps to c vars (value address)
+            maintain thru transforms and materialized regs/stack slots
+    dwarf...
