@@ -60,6 +60,8 @@ struct Expr {
    };
 };
 
+#define mkexpr(t_,span_,ty_,...) ((Expr){.t=(t_), .ty=(ty_), .span=(span_), __VA_ARGS__})
+
 struct Init {
    BitSet zero[BSSIZE(64)]; /* bytes to zero out up to 64 */
    struct InitElem {

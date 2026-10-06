@@ -236,7 +236,9 @@ pritypeafter(WriteBuf *buf, Type ty, int qual) {
       break;
    case TYARRAY:
       n += bputc(buf, '[');
-      if (typearrlen(ty))
+      if (isvla(ty))
+         n += bputc(buf, '?');
+      else if (typearrlen(ty))
          n += bfmt(buf, "%u", typearrlen(ty));
       n += bputc(buf, ']');
       n += pritypeafter(buf, typechild(ty), ty.flag & TFCHLDQUAL);

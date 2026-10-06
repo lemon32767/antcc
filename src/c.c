@@ -481,8 +481,17 @@ subscriptcheck(const Expr *ex, const Expr *rhs, const Span *span) {
    return ty;
 }
 
-static uint /* 6.5.3.4 The sizeof and _Alignof operators */
+static Ref
+typesizeref(Type t) {
+   if (isvla(t)) return (Ref){ .bits = typedata[t.dat].vlasizeref };
+   return mkintcon(type2cls[targ_sizetype], typesize(t));
+}
+
+static Expr /* 6.5.3.4 The sizeof and _Alignof operators */
 sizeofalignofcheck(const Span *span, enum toktag tt, Type ty, const Expr *ex) {
+   Type sizet = mktype(targ_sizetype);
+   if (isvla(ty) && tt == TKWsizeof)
+      return mkexpr(EIRVALUE, *span, sizet, .irref.bits = typesizeref(ty).bits);
    uint r = (tt == TKWsizeof ? typesize : typealign)(ty);
    if (ty.t == TYVOID) {
       if (ccopt.pedant) warn(span, "applying %'tt to void type", tt);
@@ -496,7 +505,7 @@ sizeofalignofcheck(const Span *span, enum toktag tt, Type ty, const Expr *ex) {
    }
    if (tt != TKWsizeof && ex && ccopt.pedant)
       warn(span, "%'tt applied to an expression is a GNU extension", tt);
-   return r;
+   return mkexpr(ENUMLIT, *span, sizet, .u = r);
 }
 
 static bool /* 6.5.8 Relational operators */
@@ -515,6 +524,7 @@ relationalcheck(const Expr *a, const Expr *b) {
 static bool
 eval2xintcon(Expr *ex) {
    if (!isint(ex->ty)) return 0;
+   if (ex->t == ENUMLIT) return 1;
    if (eval(ex, EVINTCONST)) return 1;
    if (eval(ex, EVFOLD)) {
       warn(&ex->span, "expression is not a integer constant expression; "
@@ -724,8 +734,6 @@ bintypecheck(const Span *span, enum toktag tt, Expr *lhs, Expr *rhs) {
 /****************/
 /* Expr Parsing */
 /****************/
-
-#define mkexpr(t_,span_,ty_,...) ((Expr){.t=(t_), .ty=(ty_), .span=(span_), __VA_ARGS__})
 
 static Expr *
 exprdup(CComp *cm, const Expr *e) {
@@ -1013,6 +1021,8 @@ compoundliteral(CComp *cm, Decl *decl, const Span *span) {
    static bool warned = 0;
    if (ccopt.cstd < STDC99 && !warned)
       warn(span, "compound literals are a c99 feature"), warned = 1;
+   if (isvla(decl->ty))
+      error(span, "cannot use initializer list with VLA");
    return initializer(cm, &decl->ty, declalign(decl),
                      (decl->scls & SCSTATIC) ? EVSTATICINI : EVFOLD,
                      /* symflags */ SLOCAL, decl->qual, /*name*/ NULL);
@@ -1172,7 +1182,6 @@ Unary:
       break; }
    case TKWsizeof: case TKW_Alignof: case TKWalignof: {
       enum toktag tt = tk.t;
-      uint res;
       Expr tmp;
       span = tk.span;
       if (!match(cm, NULL, '(')) /* sizeof/alignof expr */
@@ -1189,7 +1198,7 @@ Unary:
             joinspan(&span.ex, tmp.span.ex);
             goto SizeofExpr;
          }
-         res = sizeofalignofcheck(&span, tt, decl.ty, NULL);
+         ex = sizeofalignofcheck(&span, tt, decl.ty, NULL);
       } else { /* sizeof/alignof (expr) */
          tmp = commaexpr(cm);
          peek(cm, &tk);
@@ -1197,9 +1206,8 @@ Unary:
             joinspan(&span.ex, tk.span.ex);
       SizeofExpr:
          ppostfixopers(cm, &tmp);
-         res = sizeofalignofcheck(&span, tt, tmp.ty, &tmp);
+         ex = sizeofalignofcheck(&span, tt, tmp.ty, &tmp);
       }
-      ex = mkexpr(ENUMLIT, span, mktype(targ_sizetype), .u = res);
       break; }
    case TKW__builtin_va_arg:
       span = tk.span;
@@ -1271,8 +1279,7 @@ Unary:
             ex = mkexpr(EADDROF, span, mkptrtype(ex.ty, ex.qual), .sub = exprdup(cm, &ex));
             break;
          case TKWsizeof: case TKW_Alignof: case TKWalignof:
-            ex = mkexpr(ENUMLIT, span, mktype(targ_sizetype),
-                  .u = sizeofalignofcheck(&span, unops[nunop].tt, ex.ty, &ex));
+            ex = sizeofalignofcheck(&span, unops[nunop].tt, ex.ty, &ex);
             break;
          default: assert(0);
          }
@@ -1835,6 +1842,11 @@ initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, enum symflags sym
    } else {
       ip->init = &res;
       res.tail = &res.vals;
+   }
+   if (isvla(*ty)) {
+      /* caller must have checked and errored
+       * but to proceed with parsing replace with unsized array */
+      *ty = mkunszarrtype(typechild(*ty), ty->flag & TFCHLDQUAL);
    }
 
    if (!match(cm, &tk, '{')) {
@@ -3064,23 +3076,33 @@ declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0) {
          if (l->count.t == EARRAYUNSIZED) /* unsized '[]' */
             decl.ty = mkunszarrtype(decl.ty, decl.qual);
          else {
-            uint n = 0;
             Expr *ex = &l->count;
+            bool vlaok = cm->fn != NULL && in_range(st->kind, DFUNCPARAM, DFUNCVAR)
+                        && !(st->scls & (SCSTATIC|SCEXTERN)) && ccopt.cstd > STDC89;
             if (!ex->t) { /* ['*'] */
                if (l->prev != &list) error(&l->span, "[*] array declarator is not allowed here");
-            } else if (!eval2xintcon(ex)) {
-               error(&ex->span, "array length is not an integer constant");
-            } else if (issigned(ex->ty) && ex->i < 0) {
-               error(&ex->span, "array length is negative");
-            } else if (ex->u > (1ull << (8*sizeof n)) - 1) {
-               error(&ex->span, "array too long (%ul)", ex->u);
-            } else if (ex->u == 0) {
-               if (ccopt.pedant)
-                  warn(&ex->span, "zero size array is an extension");
+               decl.ty = mkarrtype(decl.ty, decl.qual, 0);
+            } else if (vlaok && isint(ex->ty) && (!eval(ex, EVFOLD) || isvla(decl.ty))) {
+               /* VLA */
+               Ref n = scalarcvt(cm->fn, mktype(targ_sizetype), ex->ty, compileexpr(cm->fn, ex, 0));
+               Ref siz = irbinop(cm->fn, Omul, type2cls[targ_sizetype], typesizeref(decl.ty), n);
+               decl.ty = mkvlarrtype(decl.ty, decl.qual, siz.bits);
             } else {
-               n = ex->u;
+               uint n = 0;
+               if (!eval2xintcon(ex)) {
+                  error(&ex->span, "array length is not an integer constant");
+               } else if (issigned(ex->ty) && ex->i < 0) {
+                  error(&ex->span, "array length is negative");
+               } else if (ex->u > (1ull << (8*sizeof n)) - 1) {
+                  error(&ex->span, "array too long (%ul)", ex->u);
+               } else if (ex->u == 0) {
+                  if (ccopt.pedant)
+                     warn(&ex->span, "zero size array is an extension");
+               } else {
+                  n = ex->u;
+               }
+               decl.ty = mkarrtype(decl.ty, decl.qual, n);
             }
-            decl.ty = mkarrtype(decl.ty, decl.qual, n);
          }
          decl.qual = l->qual;
          break;
@@ -3312,6 +3334,7 @@ static inline Ref
 exprvalue(Function *fn, const Expr *ex) {
    return compileexpr(fn, ex, /*discard*/ 0);
 }
+
 static inline void
 expreffects(Function *fn, const Expr *ex) {
    compileexpr(fn, ex, /*discard*/ 1);
@@ -3654,34 +3677,26 @@ narrow(Function *fn, enum irclass to, Type t, Ref ref, uint bitsiz) {
 }
 
 Ref
-genptroff(Function *fn, enum op op, uint siz, Ref ptr,
-          Type t, Ref idx) {
-   uint cls = type2cls[targ_sizetype];
-   Ref off;
-   assert(siz);
-
-   idx = scalarcvt(fn, mktype(targ_sizetype), t, idx);
-   if (siz == 1) off = idx;
-   else if (idx.t == RICON) {
-      if (op == Osub) op = Oadd, idx.i = -idx.i;
-      off = mkintcon(cls, idx.i * (int)siz);
-   } else {
-      off = irbinop(fn, Omul, cls, idx, mkintcon(cls, siz));
-   }
+genptroff(Function *fn, enum op op, Ref eltsiz, Ref ptr, Type idxt, Ref idx) {
+   enum irclass cls = type2cls[targ_sizetype];
+   idx = scalarcvt(fn, mktype(targ_sizetype), idxt, idx);
+   Ref off = irbinop(fn, Omul, cls, idx, eltsiz);
    assert(in_range(op, Oadd, Osub));
    return irbinop(fn, op, KPTR, ptr, off);
 }
 
 Ref
-genptrdiff(Function *fn, uint siz, Ref a, Ref b) {
-   uint cls = type2cls[targ_ptrdifftype];
-   assert(siz > 0);
+genptrdiff(Function *fn, Ref siz, Ref a, Ref b) {
+   enum irclass cls = type2cls[targ_ptrdifftype];
    a = irbinop(fn, Osub, cls, a, b);
-   if (siz == 1) return a;
-   else if (ispo2(siz))
-      return irbinop(fn, Osar, cls, a, mkintcon(cls, ilog2(siz)));
-   else
-      return irbinop(fn, Odiv, cls, a, mkintcon(cls, siz));
+   if (siz.t == RICON && siz.i == 1) return a;
+   else if (siz.t == RICON && ispo2(siz.i)) {
+      /* NB backend can't optimize this yet because it doesn't know div must be exact,
+       * need ins flag for that */
+      return irbinop(fn, Osar, cls, a, mkintcon(cls, ilog2(siz.i)));
+   } else {
+      return irbinop(fn, Odiv, cls, a, siz);
+   }
 }
 
 /* used to emit the jumps in an in if (), while (), etc condition */
@@ -4062,7 +4077,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
       if (discard) return NOREF;
       if (op == Osub && isptrcvt(sub[0].ty) && isptrcvt(sub[1].ty)) {
          /* ptr - ptr */
-         return genptrdiff(fn, typesize(typechild(sub[0].ty)), l, r);
+         return genptrdiff(fn, typesizeref(typechild(sub[0].ty)), l, r);
       } else if ((op != Oadd && op != Osub) || cls != KPTR) {
          /* num OP num */
          l = scalarcvt(fn, ex->ty, sub[0].ty, l);
@@ -4070,14 +4085,14 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
       } else {
          assert(isptrcvt(sub[0].ty));
          /* ptr +/- num */
-         return genptroff(fn, op, typesize(typechild(sub[0].ty)), l, sub[1].ty, r);
+         return genptroff(fn, op, typesizeref(typechild(sub[0].ty)), l, sub[1].ty, r);
       }
       return irbinop(fn, op, cls, l, r);
    case EPOSTINC:
    case EPOSTDEC:
       op = ex->t == EPOSTINC ? Oadd : Osub;
       if (ex->ty.t == TYPTR)
-         r = mkintcon(type2cls[targ_sizetype], typesize(typechild(ex->ty)));
+         r = typesizeref(typechild(ex->ty));
       else
          r = isflt(ex->ty) ? mkfltcon(type2cls[ex->ty.t], 1.0) : mkref(RICON, 1);
       bitsiz = 0;
@@ -4098,7 +4113,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
    case EPREDEC:
       op = ex->t == EPREINC ? Oadd : Osub;
       if (ex->ty.t == TYPTR)
-         r = mkintcon(type2cls[targ_sizetype], typesize(typechild(ex->ty)));
+         r = typesizeref(typechild(ex->ty));
       else
          r = isflt(ex->ty) ? mkfltcon(type2cls[ex->ty.t], 1.0) : mkref(RICON, 1);
       if (sub[0].t == EGETF && (bitsiz = sub->fld.bitsiz)) {
@@ -4219,7 +4234,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
             q = irbinop(fn, op, type2cls[ty.t], l, r);
             q = scalarcvt(fn, ex->ty, ty, q);
          } else {
-            q = genptroff(fn, op, typesize(typechild(ex->ty)), l, sub[1].ty, r);
+            q = genptroff(fn, op, typesizeref(typechild(ex->ty)), l, sub[1].ty, r);
          }
          genstore(fn, ex->ty, adr, q, sub[0].qual & QVOLATILE);
       }
@@ -5114,7 +5129,8 @@ localdecl(CComp *cm, bool forini) {
             }
             decl.id = -1;
             if (!nerror) {
-               Instr alloc = mkalloca(typesize(decl.ty), declalign(&decl));
+               Instr alloc = isvla(decl.ty) ? mkinstr1(Oallocav, KPTR, typesizeref(decl.ty))
+                                            : mkalloca(typesize(decl.ty), declalign(&decl));
                if (fn->curblk) decl.id = addinstr(fn, alloc).i;
                else decl.id = insertinstr(fn->entry, fn->entry->ins.n, alloc).i;
             }
@@ -5123,6 +5139,7 @@ localdecl(CComp *cm, bool forini) {
                int d = putdecl(cm, &decl);
                Type ty = decl.ty;
                bool statik = decl.scls & (SCSTATIC | SCEXTERN);
+               if (isvla(ty)) error(&decl.span, "cannot use initializer list with VLA");
                ini = initializer(cm, &ty, declalign(&decl), statik ? EVSTATICINI : EVFOLD,
                                  declsymflags(&decl), decl.qual, statik ? decl.sym : NULL);
                declsbuf.p[d].ty = ty;

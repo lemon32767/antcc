@@ -10,6 +10,10 @@ lowerstack(Function *fn) {
       for (int i = 0; i < blk->ins.n; ++i) {
          int t = blk->ins.p[i];
          Instr *ins = &instrtab[t];
+         if (ins->op == Oallocav) {
+            /* devious trick */
+            *ins = mkalloca(/*siz*/9000, /*align*/16);
+         }
          if (oisalloca(ins->op)) {
             uint alignlog2 = ins->op - Oalloca1;
             assert(ins->l.i >= 0);

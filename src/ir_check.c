@@ -196,6 +196,10 @@ checkins(Function *fn, const Instr *ins) {
          checkfail("expected int constant (%r)\n", ins->l);
       break;
 
+   case Oallocav:
+      checkint(k, &ins->l, 1);
+      break;
+
    case Oloads8: case Oloadu8:
    case Oloads16: case Oloadu16:
    case Oloads32: case Oloadu32:

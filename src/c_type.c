@@ -33,6 +33,7 @@ hashtd(const TypeData *td) {
    bool t;
    switch (td->t) {
    case TYARRAY:
+      if (td->flag & TFVLA) goto Id;
       h = hashb(h, &td->arrlen, sizeof td->arrlen);
       /* fallthru */
    case TYPTR:
@@ -41,6 +42,7 @@ hashtd(const TypeData *td) {
    case TYSTRUCT:
    case TYUNION:
    case TYENUM:
+   Id:
       h = hashb(h, &td->id, sizeof td->id);
       break;
    case TYFUNC:
@@ -63,6 +65,8 @@ tdequ(const TypeData *a, const TypeData *b) {
    if (a->t != b->t) return 0;
    switch (a->t) {
    case TYARRAY:
+      if (a->flag & TFVLA) return (b->flag & TFVLA) && a->id == b->id;
+      if (b->flag & TFVLA) return (a->flag & TFVLA) && a->id == b->id;
       return a->arrlen == b->arrlen && a->child.bits == b->child.bits;
    case TYPTR:
       return a->child.bits == b->child.bits;
@@ -148,6 +152,7 @@ typesize(Type t) {
    case TYENUM:
       return targ_primsizes[typedata[t.dat].backing];
    case TYARRAY:
+      assert(!isvla(t));
       if (t.flag & TFCHLDPRIM)
          return targ_primsizes[t.child] * t.arrlen;
       /* fallthru */
@@ -187,6 +192,7 @@ Type
 mkarrtype(Type t, int qual, uint n) {
    if (isprim(t) && n < 256)
       return mktype(TYARRAY, .flag = TFCHLDPRIM | (qual & TFCHLDQUAL), .child = t.t, .arrlen = n);
+   assert(!isvla(t));
    return mktype(TYARRAY, .flag = qual & TFCHLDQUAL,
                  .dat = interntd(&(TypeData) { TYARRAY, .child = t, .arrlen = n, .siz = n * typesize(t) }));
 }
@@ -197,6 +203,13 @@ mkunszarrtype(Type t, int qual) {
       return mktype(TYARRAY, .flag = TFCHLDPRIM | (qual & TFCHLDQUAL) | TFUNKNOWN, .child = t.t);
    return mktype(TYARRAY, .flag = TFUNKNOWN | (qual & TFCHLDQUAL),
                  .dat = interntd(&(TypeData) { TYARRAY, TFUNKNOWN, .child = t }));
+}
+
+Type
+mkvlarrtype(Type t, int qual, uint refbits) {
+   static int id = 0;
+   return mktype(TYARRAY, .flag = (qual & TFCHLDQUAL) | TFVLA,
+                 .dat = interntd(&(TypeData) { TYARRAY, .id = id++, .child = t, .vlasizeref = refbits }));
 }
 
 Type
@@ -301,18 +314,15 @@ typescompat(Type *pcompt, Type t1, Type t2) {
       Type chld;
       if ((qual = t1.flag & TFCHLDQUAL) != (t2.flag & TFCHLDQUAL)) return 0;
       if (!typescompat(&chld, typechild(t1), typechild(t2))) return 0;
-      if (pcompt) {
-         uint len;
-         if (!(t1.flag & TFUNKNOWN)) {
-            len = typearrlen(t1);
-         Sized:
-            *pcompt = mkarrtype(chld, qual, len);
-         } else if (!(t2.flag & TFUNKNOWN)) {
-            len = typearrlen(t2);
-            goto Sized;
-         } else {
-            *pcompt = mkunszarrtype(chld, qual);
-         }
+      bool sized1 = !(t1.flag & (TFUNKNOWN | TFVLA)),
+           sized2 = !(t2.flag & (TFUNKNOWN | TFVLA));
+      if (sized1 || sized2) {
+         uint len1 = sized1 ? typearrlen(t1) : typearrlen(t2);
+         uint len2 = sized2 ? typearrlen(t2) : len1;
+         if (len1 != len2) return 0;
+         if (pcompt) *pcompt = mkarrtype(chld, qual, len1);
+      } else if (pcompt) {
+         *pcompt = mkunszarrtype(chld, qual);
       }
       return 1;
    } else if (t1.t == TYFUNC) {

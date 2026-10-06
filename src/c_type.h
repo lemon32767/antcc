@@ -22,16 +22,17 @@ enum typetag { /* ordering is important here! */
    TYSCALARSET_ = ((1u << (TYCOMPLEXL - TYENUM + 1)) - 1) << TYENUM | 1<<TYPTR
 };
 
-enum typeflagmask {
+enum typeflag {
    TFCHLDQUAL  = 3,
    TFCHLDPRIM  = 1<<2,
    TFCHLDISDAT = 1<<3,
    TFUNKNOWN   = 1<<4, /* array of unknown size, tagged type of unknown content */
+   TFVLA       = 1<<5, /* variable-length array */
 };
 typedef union Type {
    struct {
       uchar t; /* type tag */
-      uchar flag; /* enum typeflagmask */
+      uchar flag; /* enum typeflag */
       union {
          struct {
             uchar child; /* prim type tag */
@@ -64,6 +65,7 @@ static_assert(sizeof(Type) == 4);
 #define isagg(ty)      isaggt((ty).t)
 #define iscomplext(t)  in_range((t), TYCOMPLEXF, TYCOMPLEXL)
 #define iscomplex(ty)  iscomplext((ty).t)
+#define isvla(ty)      ((ty).flag & TFVLA)
 #define mktype(...)   ((Type) {{ __VA_ARGS__ }})
 
 typedef struct {
@@ -105,6 +107,7 @@ typedef struct TypeData {
    };
    union {
       uint arrlen; /* array */
+      uint vlasizeref; /* vla, Ref.bits */
       struct {
          short nmemb; /* functions, aggregates, enums */
          uchar align;
@@ -134,6 +137,7 @@ uint typealign(Type);
 Type mkptrtype(Type, int qual);
 Type mkarrtype(Type t, int qual, uint n);
 Type mkunszarrtype(Type t, int qual);
+Type mkvlarrtype(Type t, int qual, uint vsizerefbits);
 Type mkfntype(Type ret, uint n, const Type *, bool kandr, bool variadic);
 Type mktagtype(internstr name, TypeData *td);
 bool getfield(FieldData *res, Type, internstr);
