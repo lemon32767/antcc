@@ -331,6 +331,7 @@ typedef struct DeclState {
                        call pdecl() to advance state before checking .more */
         funcdef : 1, /* caller should parse an func definition ('{' <body> '}').
                         the declaration list is finished. */
+        downfnenv : 1, /* function declarator pushed env for params */
         bitf    : 1, /* caller should parse a bitfield size and
                         call pdecl() to advance state before checking .more */
         tagdecl : 1, /* declarator is a tagged type */
@@ -3021,7 +3022,15 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
    }
 }
 
+/* list of VLA types whose size computation is deferred until the function body is
+ * created, like in a VLA parameter:
+ *    int foo(int n, int a[n]) { ... }
+ * the type of 'a' stores a compiled ref for 'n*sizeof(int)' as its size, this can't
+ * be done when we first encounter the expression because there is no function codegen
+ * context there yet. Also for function prototypes (non-definitions) there is no need
+ * to compute those because they are inaccessible, so they are discarded. */
 typedef struct LazyVLA {
+   struct LazyVLA *next;
    Type ty;
    Expr *len;
 } LazyVLA;
@@ -3031,6 +3040,7 @@ declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0) {
    Decl decl = { st->base, st->scls, .qual = st->qual, .span = span0, .attr = attr0 };
    DeclList list = { &list, &list }, *l;
    Span namespan = {0};
+   st->downfnenv = 0;
    static bool inidecltmp;
    if (!inidecltmp) {
       inidecltmp = 1;
@@ -3073,8 +3083,10 @@ declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0) {
                   Ref siz = irbinop(cm->fn, Omul, type2cls[targ_sizetype], typesizeref(decl.ty), n);
                   decl.ty = mkvlarrtype(decl.ty, decl.qual, siz.bits);
                } else {
-                  decl.ty = mkvlarrtype(decl.ty, decl.qual, mkref(RXXX, cm->lazyvla.n).bits);
-                  vpush(&cm->lazyvla, ((LazyVLA){decl.ty, alloccopy(&cm->exarena, ex, sizeof *ex, 0)}));
+                  decl.ty = mkvlarrtype(decl.ty, decl.qual, UNDREF.bits);
+                  LazyVLA lz = {.ty = decl.ty, alloccopy(&cm->exarena, ex, sizeof *ex, 0)},
+                          *p = alloccopy(&cm->exarena, &lz, sizeof lz, 0);
+                  *cm->lazyvla.tail = p, cm->lazyvla.tail = &p->next;
                }
             } else {
                uint n = 0;
@@ -3106,6 +3118,7 @@ declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0) {
          if (l->param != declparamtmp) free(l->param);
          if (l->prev == &list) { /* root declaration node */
             st->funcdef = 1;
+            st->downfnenv = 1;
             decl.inlin = st->fninline;
          } else {
             envup(cm); /* discard param decls */
@@ -3197,6 +3210,7 @@ pdecl(DeclState *st, CComp *cm) {
    assert(!st->funcdef);
    if (st->varini || st->bitf) {
       memset(&decl, 0, sizeof decl);
+      st->downfnenv = 0;
       goto AfterIniBitf;
    }
    decl.sym = NULL;
@@ -3288,7 +3302,7 @@ AfterIniBitf:
    }
 
 End:
-   if (!st->funcdef &&decl.ty.t == TYFUNC)
+   if (!st->funcdef && st->downfnenv)
       envup(cm); /* discard fn params env */
 
    return decl;
@@ -5217,11 +5231,24 @@ block(CComp *cm, Ref *stexval, Type *stexty) {
    cm->fnblkspan = tk.span;
 }
 
+/* while parsing
+ *   int foo(int n, int a[n+1]) { ... }
+ * the prototype pushes n, then a to the fn env; if n is decl #i (par0decl0), then a is decl #i+1
+ * the length expr 'n + 1' points to 'n' (a ESYM with .decl=i=par0decl)
+ * but when generating function definition the decl for 'foo' has to be put in the toplevel
+ * env, so the param decls are adjusted, and 'foo' ends up at #i, 'n' at #i+1 and 'a' at #i+2
+ * thus when computing these deferred VLA sizes, these params decl references have to be adjusted
+ * by offseting the index by 1, and this has to be done by traversing the expression tree
+ * recursively. Though as an optimization, when sym expression can't have its address
+ * taken or be mutated (so all the time in practice), just generate an EIRVALUE result
+ * pointing to the corresponding Oparam instrs (instead of an ESYM to genload), this is the
+ * purpose of the conservative 'pure' parameter.
+ */
 static void
-lazyvlaexprfixup(int par0decl, Expr *ex, bool lval)
+lazyvlaexprfixup(int par0decl, Expr *ex, bool *pure)
 {
    if (ex->t == ESYM && ex->decl >= par0decl) {
-      if (lval) ++ex->decl; /* fn decl shifts param decls by one, adjust */
+      if (!*pure) ++ex->decl; /* fn decl shifts param decls by one, adjust */
       else {
          /* use Oparam result directly */
          ex->t = EIRVALUE;
@@ -5230,20 +5257,20 @@ lazyvlaexprfixup(int par0decl, Expr *ex, bool lval)
       return;
    } else if (ex->t == EINIT) {
       for (InitElem *el = ex->init->vals; el; el = el->next)
-         lazyvlaexprfixup(par0decl, &el->ex, 0);
+         lazyvlaexprfixup(par0decl, &el->ex, pure);
       return;
    }
    int n = 0;
-   lval = 0;
-   if (ex->t == EADDROF) n = 1, lval = 1;
-   else if (isunop(ex->t)) n = 1;
+   if (isunop(ex->t)) n = 1;
    else if (isbinop(ex->t)) n = 2;
-   else if (ex->t == EVAARG) n = 1;
-   else if (ex->t == EGETF) n = 1, lval = 1;
-   else if (ex->t == ECALL) n = ex->narg + 1;
+   else if (ex->t == EVAARG) n = 1, *pure = 0;
+   else if (ex->t == EGETF) n = 1, *pure = 0;
+   else if (ex->t == ECALL) n = ex->narg + 1, *pure = 0;
    else if (ex->t == ECOND) n = 3;
+   if (isassign(ex->t) || in_range(ex->t, EPREINC, EPOSTDEC) || ex->t == EADDROF)
+      *pure = 0;
    for (int i = 0; i < n; ++i)
-      lazyvlaexprfixup(par0decl, &ex->sub[i], lval);
+      lazyvlaexprfixup(par0decl, &ex->sub[i], pure);
 }
 
 static void
@@ -5297,14 +5324,13 @@ functionbody(CComp *cm, Function *fn) {
       useblk(fn, blk);
 
       /* fixup vlaparams */
-      for (int i = 0; i < cm->lazyvla.n; ++i) {
-         Type ty = cm->lazyvla.p[i].ty;
-         assert(ty.t == TYARRAY && isvla(ty));
-         Expr *len = cm->lazyvla.p[i].len;
-         lazyvlaexprfixup(cm->env->decl - 1/*account for fndecl*/, len, /*lval*/0);
-         Ref n = scalarcvt(fn, mktype(targ_sizetype), len->ty, compileexpr(cm->fn, len, 0));
-         Ref siz = irbinop(fn, Omul, type2cls[targ_sizetype], typesizeref(typechild(ty)), n);
-         typedata[ty.dat].vlasizeref = siz.bits;
+      bool pure = 1;
+      for (LazyVLA *l = cm->lazyvla.l; l; l = l->next) {
+         assert(l->ty.t == TYARRAY && isvla(l->ty));
+         lazyvlaexprfixup(cm->env->decl - 1/*account for fndecl*/, l->len, &pure);
+         Ref n = scalarcvt(fn, mktype(targ_sizetype), l->len->ty, compileexpr(cm->fn, l->len, 0));
+         Ref siz = irbinop(fn, Omul, type2cls[targ_sizetype], typesizeref(typechild(l->ty)), n);
+         typedata[l->ty.dat].vlasizeref = siz.bits;
       }
    }
 
@@ -5338,7 +5364,7 @@ functionbody(CComp *cm, Function *fn) {
 static void
 tldecl(CComp *cm) {
    DeclState st = { DTOPLEVEL };
-   vfree(&cm->lazyvla);
+   *(cm->lazyvla.tail = &cm->lazyvla.l) = NULL;
    do {
       bool noscls = 0;
       int nerr = nerror;
@@ -5369,8 +5395,9 @@ tldecl(CComp *cm) {
          }
          decl->isdef = 1;
          int idecl = -1;
+         assert(st.downfnenv);
          if (decl->name) {
-            /* lift params from fn env to put fn before it, the reinsert */
+            /* lift params from fn env to put fn in tl env first, then reinsert */
             int n = td->nmemb;
             Env *e = cm->env;
             assert(e->ndecl == n);
@@ -5455,7 +5482,7 @@ tldecl(CComp *cm) {
       freearena(&cm->fnarena);
       freearena(&cm->exarena);
       lexerfreetemps(cm->lx);
-      vfree(&cm->lazyvla);
+      *(cm->lazyvla.tail = &cm->lazyvla.l) = NULL;
    } while (st.more);
 }
 

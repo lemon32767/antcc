@@ -88,7 +88,7 @@ typedef struct {
    struct SwitchStmt *switchstmt;
    struct Label *labels;
    struct Function *fn;
-   vec_of(struct LazyVLA) lazyvla;
+   struct { struct LazyVLA *l, **tail; } lazyvla;
 } CComp;
 
 enum storageclass {

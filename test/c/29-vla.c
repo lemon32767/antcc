@@ -22,6 +22,8 @@ castvla = 1
 globvla = 1
 memvla = 1
 derefvla = 1
+mutvla = 1
+aliasvla = 1
 */
 
 #include <stdio.h>
@@ -99,6 +101,9 @@ static int castvla(int n, int (*p)[(int)(n + 1)]) { return sizeof *p == (n+1)*4;
 static int globvla(int (*p)[glob]) { return sizeof *p == glob*4; }
 static int memvla(struct S s, int (*p)[s.n]) { return sizeof *p == s.n*4; }
 static int derefvla(int *q, int (*p)[*q]) { return sizeof *p == *q*4; }
+static int incp(int *p) { return (*p += 1); }
+static int mutvla(int a, int (*p)[(a++, a)]) { return sizeof *p == a*4 && a == 5; }
+static int aliasvla(int a, int (*p)[(incp(&a), a)]) { return sizeof *p == a*4 && a == 5; }
 
 int
 main() {
@@ -120,4 +125,6 @@ main() {
    printf("globvla = %d\n", globvla((int (*)[3])a));
    printf("memvla = %d\n", memvla(s, (int (*)[4])a));
    printf("derefvla = %d\n", derefvla(&q, (int (*)[4])a));
+   printf("mutvla = %d\n", mutvla(4, (int (*)[5])a));
+   printf("aliasvla = %d\n", aliasvla(4, (int (*)[5])a));
 }
