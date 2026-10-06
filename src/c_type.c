@@ -28,8 +28,7 @@ const char *const primtypenames[] = {
 };
 
 static ushort
-hashtd(const TypeData *td)
-{
+hashtd(const TypeData *td) {
    uint h = td->t*33;
    bool t;
    switch (td->t) {
@@ -60,8 +59,7 @@ hashtd(const TypeData *td)
 }
 
 static bool
-tdequ(const TypeData *a, const TypeData *b)
-{
+tdequ(const TypeData *a, const TypeData *b) {
    if (a->t != b->t) return 0;
    switch (a->t) {
    case TYARRAY:
@@ -88,8 +86,7 @@ tdequ(const TypeData *a, const TypeData *b)
 }
 
 static ushort
-interntd(const TypeData *td)
-{
+interntd(const TypeData *td) {
    uint h, i, n = countof(typedata);
    for (i = h = hashtd(td); n--; ++i) {
       TypeData *slot = &typedata[i &= countof(typedata) - 1];
@@ -132,8 +129,7 @@ interntd(const TypeData *td)
 }
 
 bool
-isincomplete(Type t)
-{
+isincomplete(Type t) {
    switch (t.t) {
    case TYVOID: return 1;
    case TYARRAY: return t.flag & TFUNKNOWN;
@@ -146,8 +142,7 @@ isincomplete(Type t)
 }
 
 uint
-typesize(Type t)
-{
+typesize(Type t) {
    if (isprim(t) || t.t == TYPTR) return targ_primsizes[t.t];
    switch (t.t) {
    case TYENUM:
@@ -164,8 +159,7 @@ typesize(Type t)
 }
 
 uint
-typealign(Type t)
-{
+typealign(Type t) {
    if (isprim(t) || t.t == TYPTR) return targ_primalign[t.t];
    switch (t.t) {
    case TYENUM:
@@ -180,8 +174,7 @@ typealign(Type t)
 }
 
 Type
-mkptrtype(Type t, int qual)
-{
+mkptrtype(Type t, int qual) {
    if (isprim(t))
       return mktype(TYPTR, .flag = TFCHLDPRIM | (qual & TFCHLDQUAL), .child = t.t);
    else if (t.t == TYENUM || t.t == TYFUNC || isagg(t))
@@ -191,8 +184,7 @@ mkptrtype(Type t, int qual)
 }
 
 Type
-mkarrtype(Type t, int qual, uint n)
-{
+mkarrtype(Type t, int qual, uint n) {
    if (isprim(t) && n < 256)
       return mktype(TYARRAY, .flag = TFCHLDPRIM | (qual & TFCHLDQUAL), .child = t.t, .arrlen = n);
    return mktype(TYARRAY, .flag = qual & TFCHLDQUAL,
@@ -200,8 +192,7 @@ mkarrtype(Type t, int qual, uint n)
 }
 
 Type
-mkunszarrtype(Type t, int qual)
-{
+mkunszarrtype(Type t, int qual) {
    if (isprim(t))
       return mktype(TYARRAY, .flag = TFCHLDPRIM | (qual & TFCHLDQUAL) | TFUNKNOWN, .child = t.t);
    return mktype(TYARRAY, .flag = TFUNKNOWN | (qual & TFCHLDQUAL),
@@ -209,16 +200,14 @@ mkunszarrtype(Type t, int qual)
 }
 
 Type
-mkfntype(Type ret, uint n, const Type *par, bool kandr, bool variadic)
-{
+mkfntype(Type ret, uint n, const Type *par, bool kandr, bool variadic) {
    TypeData td = { TYFUNC, .ret = ret, .nmemb = n, .param = par };
    td.kandr = kandr, td.variadic = variadic;
    return mktype(TYFUNC, .dat = interntd(&td));
 }
 
 Type
-completetype(internstr name, int id, TypeData *td)
-{
+completetype(internstr name, int id, TypeData *td) {
    assert(td->t == TYENUM || td->t == TYSTRUCT || td->t == TYUNION);
    td->id = id;
    assert(id < countof(tagtypetags) && "too many tag types");
@@ -230,15 +219,13 @@ completetype(internstr name, int id, TypeData *td)
 }
 
 Type
-mktagtype(internstr name, TypeData *td)
-{
+mktagtype(internstr name, TypeData *td) {
    static int id;
    return completetype(name, id++, td);
 }
 
 static bool
-getfieldrec(FieldData *res, uint off, const TypeData *td, internstr name)
-{
+getfieldrec(FieldData *res, uint off, const TypeData *td, internstr name) {
 Begin:
    for (int i = 0; i < td->nmemb; ++i) {
       NamedField *fld = &td->fld[i];
@@ -260,15 +247,13 @@ Begin:
 }
 
 bool
-getfield(FieldData *res, Type ty, internstr name)
-{
+getfield(FieldData *res, Type ty, internstr name) {
    assert(isagg(ty));
    return getfieldrec(res, 0, &typedata[ty.dat], name);
 }
 
 Type
-typedecay(Type t)
-{
+typedecay(Type t) {
    if (t.t == TYARRAY)
       return mkptrtype(typechild(t), t.flag & TFCHLDQUAL);
    if (t.t == TYFUNC)
@@ -277,8 +262,7 @@ typedecay(Type t)
 }
 
 bool /* 6.5.16.1 Simple assignment Constraints */
-assigncompat(Type dst, Type src)
-{
+assigncompat(Type dst, Type src) {
    if (dst.bits == src.bits || typescompat(NULL, dst, src)) return 1;
    if (isarith(dst) && isarith(src)) return 1;
    if (dst.t == TYPTR && src.t == TYPTR) {
@@ -298,8 +282,7 @@ assigncompat(Type dst, Type src)
 
 
 bool /* 6.2.7 Compatible type and composite type */
-typescompat(Type *pcompt, Type t1, Type t2)
-{
+typescompat(Type *pcompt, Type t1, Type t2) {
    if (t1.bits == t2.bits) {
       if (pcompt) *pcompt = t1;
       return 1;
@@ -363,8 +346,7 @@ typescompat(Type *pcompt, Type t1, Type t2)
 }
 
 enum typetag
-intpromote(enum typetag t)
-{
+intpromote(enum typetag t) {
    static int intisshort = -1;
    if (intisshort < 0) intisshort = targ_primsizes[TYINT] == targ_primsizes[TYSHORT];
    if (intisshort && t == TYUSHORT) return TYUINT;
@@ -372,8 +354,7 @@ intpromote(enum typetag t)
 }
 
 Type /* 6.3.1.8 Usual arithmetic conversions */
-cvtarith(Type a, Type b)
-{
+cvtarith(Type a, Type b) {
    const Type none = {0};
 
    if (!isarith(a) || !isarith(b)) return none;
@@ -424,8 +405,7 @@ cvtarith(Type a, Type b)
 
 /* transform 'complex T' -> struct 'complex T' { T real, imag; } */
 Type
-complex2struct(Type t)
-{
+complex2struct(Type t) {
    assert(iscomplex(t));
    static Type cache[3];
    if (cache[t.t-TYCOMPLEXF].t) return cache[t.t-TYCOMPLEXF];

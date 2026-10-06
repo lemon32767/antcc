@@ -3,8 +3,7 @@
 static int classify(uchar cls[2], const TypeData *td, uint off);
 
 static void
-clsscalar(uchar cls[2], uint off, Type ty)
-{
+clsscalar(uchar cls[2], uint off, Type ty) {
    if (iscomplex(ty)) {
       classify(cls, &typedata[complex2struct(ty).dat], off);
       return;
@@ -24,8 +23,7 @@ clsscalar(uchar cls[2], uint off, Type ty)
 }
 
 static int
-classifyarr(uchar cls[2], Type ty, uint off)
-{
+classifyarr(uchar cls[2], Type ty, uint off) {
    Type chld = typechild(ty);
    uint n = typearrlen(ty), siz = typesize(chld);
    assert(n > 0);
@@ -47,8 +45,7 @@ classifyarr(uchar cls[2], Type ty, uint off)
 /* XXX types with alignment >= 16 */
 
 static int
-classify(uchar cls[2], const TypeData *td, uint off)
-{
+classify(uchar cls[2], const TypeData *td, uint off) {
    uint siz = alignup(td->siz, 4);
    if (siz > 16) /* MEMORY */
       return 0;
@@ -74,8 +71,7 @@ classify(uchar cls[2], const TypeData *td, uint off)
 }
 
 static int
-abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType typ)
-{
+abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType typ) {
    static const uchar intregs[] = { RDI, RSI, RDX, RCX, R8, R9 };
    enum { NINT = countof(intregs), NFLT = 8 };
 
@@ -119,8 +115,7 @@ abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType
 }
 
 static int
-abiret(short r[2], uchar cls[2], uchar *r2off, int *ni, IRType typ)
-{
+abiret(short r[2], uchar cls[2], uchar *r2off, int *ni, IRType typ) {
    if (!typ.isagg) {
       r[0] = kisflt(cls[0] = typ.cls) ? XMM0 : RAX;
       return 1;
@@ -173,8 +168,7 @@ abiret(short r[2], uchar cls[2], uchar *r2off, int *ni, IRType typ)
  */
 
 static void
-vastart(Function *fn, Block *blk, int *curi)
-{
+vastart(Function *fn, Block *blk, int *curi) {
    Ref rsave; /* register save area */
    int gpr0 = 0, fpr0 = 0, stk0 = 0;
    Instr *ins = &instrtab[blk->ins.p[*curi]];
@@ -217,8 +211,7 @@ vastart(Function *fn, Block *blk, int *curi)
 }
 
 static void
-vaarg(Function *fn, Block *blk, int *curi)
-{
+vaarg(Function *fn, Block *blk, int *curi) {
    short r[2];
    uchar cls[2];
    int ni = 0, nf = 0, ns = 0;

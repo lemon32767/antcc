@@ -1,8 +1,7 @@
 #include "ir.h"
 
 static int
-mulk(Instr *ins, Block *blk, int *curi)
-{
+mulk(Instr *ins, Block *blk, int *curi) {
    s64int iv = intconval(ins->r);
    enum irclass cls = ins->cls;
    assert((u64int)iv > 1 && "trivial mul not handled by irbinop() ?");
@@ -43,8 +42,7 @@ mulk(Instr *ins, Block *blk, int *curi)
 }
 
 static int
-divmodk(Instr *ins, Block *blk, int *curi)
-{
+divmodk(Instr *ins, Block *blk, int *curi) {
    enum op op = ins->op;
    enum irclass cls = ins->cls;
    s64int iv = intconval(ins->r);
@@ -100,8 +98,7 @@ divmodk(Instr *ins, Block *blk, int *curi)
 }
 
 static int
-doins(Instr *ins, Block *blk, int *curi)
-{
+doins(Instr *ins, Block *blk, int *curi) {
    int narg = opnoper[ins->op];
    if (oisarith(ins->op)) {
       Ref r = narg == 1 ? irunop(NULL, ins->op, ins->cls, ins->l)
@@ -159,8 +156,7 @@ doins(Instr *ins, Block *blk, int *curi)
 }
 
 static void
-jmpfind(Block **final, Block **pblk)
-{
+jmpfind(Block **final, Block **pblk) {
    Block **p2 = &final[(*pblk)->id];
    if (*p2 && !(*p2)->phi.n) {
       jmpfind(final, p2);
@@ -169,8 +165,7 @@ jmpfind(Block **final, Block **pblk)
 }
 
 static void
-fillpredsrec(Block *blk)
-{
+fillpredsrec(Block *blk) {
    while (blk && !wasvisited(blk)) {
       markvisited(blk);
       if (!blk->s1) return;
@@ -186,8 +181,7 @@ fillpredsrec(Block *blk)
 }
 
 static void
-fillpreds(Function *fn)
-{
+fillpreds(Function *fn) {
    Block *blk = fn->entry, *next;
    do {
       if (blk->phi.n) continue;
@@ -206,8 +200,7 @@ fillpreds(Function *fn)
 }
 
 static void
-mergeblks(Function *fn, Block *p, Block *s)
-{
+mergeblks(Function *fn, Block *p, Block *s) {
    assert(s->npred == 1 && !s->phi.n);
    vpushn(&p->ins, s->ins.p, s->ins.n);
    p->jmp = p->s1->jmp;
@@ -229,8 +222,7 @@ mergeblks(Function *fn, Block *p, Block *s)
 }
 
 int
-simpl(Function *fn)
-{
+simpl(Function *fn) {
    FREQUIRE(FNUSE);
    int blkchange = 0;
    Block **jmpfinal = allocz(fn->passarena, fn->nblk * sizeof *jmpfinal, 0);

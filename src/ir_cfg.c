@@ -1,8 +1,7 @@
 #include "ir.h"
 
 static void
-porec(int *nblk, Block ***rpo, Block *b)
-{
+porec(int *nblk, Block ***rpo, Block *b) {
    if (wasvisited(b)) return;
    assert(*nblk > 0 && "nblk bad");
    --*nblk;
@@ -14,8 +13,7 @@ porec(int *nblk, Block ***rpo, Block *b)
 
 /* also blkid */
 void
-sortrpo(Function *fn)
-{
+sortrpo(Function *fn) {
    static Block **rpobuf;
    Block **rpoend, **rpo, *blk, *next;
    int i, ndead;
@@ -57,8 +55,7 @@ sortrpo(Function *fn)
 
 
 static void
-gcmark(Block *b)
-{
+gcmark(Block *b) {
    if (wasvisited(b)) return;
    markvisited(b);
    if (b->s2) gcmark(b->s2);
@@ -66,8 +63,7 @@ gcmark(Block *b)
 }
 
 void
-deldeadblks(Function *fn)
-{
+deldeadblks(Function *fn) {
    Block *b = fn->entry, *next;
    startbbvisit();
    gcmark(b);
@@ -79,8 +75,7 @@ deldeadblks(Function *fn)
 
 /* also blkid */
 void
-filldom(Function *fn)
-{
+filldom(Function *fn) {
    Block *blk = fn->entry;
    int i = 0;
 
@@ -119,8 +114,7 @@ filldom(Function *fn)
 
 /* requires dom, rpo, blkid */
 bool
-dominates(Block *B, Block *b)
-{
+dominates(Block *B, Block *b) {
    assert(B->id >= 0);
    for (;; b = b->idom) {
       if (B == b) return 1;

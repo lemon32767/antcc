@@ -4,8 +4,7 @@
 /* ref: https://llvm.org/docs/LoopTerminology.html */
 
 bool
-inloop(Loop *l, Block *b)
-{
+inloop(Loop *l, Block *b) {
    for (Loop *bl = b->loop; bl; bl = bl->parent)
       if (bl == l) return 1;
    return 0;
@@ -16,8 +15,7 @@ inloop(Loop *l, Block *b)
  * doing all the surgery to fix edges and phis.
  * used to get unique loop preheader+latch */
 static void
-uniqedge(Function *fn, Block *head, int *ipred, Block **via, int *ipredvia0)
-{
+uniqedge(Function *fn, Block *head, int *ipred, Block **via, int *ipredvia0) {
    Block *p = blkpred(head, *ipred);
    if (!*via) {
       *via = p;
@@ -53,8 +51,7 @@ uniqedge(Function *fn, Block *head, int *ipred, Block **via, int *ipredvia0)
 
 /* unique preheader + latch */
 static void
-loopsimpl(Function *fn, Loop *l)
-{
+loopsimpl(Function *fn, Loop *l) {
    FREQUIRE(FNRPO | FNLOOP | FNDOM);
    l->prehead = l->latch = NULL;
    int preh0i = 1<<30, latch0i = 1<<30;
@@ -71,8 +68,7 @@ loopsimpl(Function *fn, Loop *l)
 }
 
 static bool
-singleexit(Loop *l, Block *exit)
-{
+singleexit(Loop *l, Block *exit) {
    for (Block *b = l->head; b != l->end->lnext; b = b->lnext) {
       if (!inloop(l, b)) continue;
       for (int i = 0; i < 2; ++i) {
@@ -94,8 +90,7 @@ enum { MAXINVHDRNINS = 16 };
  *  needs tricky phis surgery; TODO implement such cases)
 */
 static bool
-caninvert(Loop *l, Block **exit, int *escapingphis, int *nescapingphis)
-{
+caninvert(Loop *l, Block **exit, int *escapingphis, int *nescapingphis) {
    *nescapingphis = 0;
    /* match `while (H) { non-empty B }` */
    if (!l->head->s2 || l->latch == l->head)
@@ -142,8 +137,7 @@ caninvert(Loop *l, Block **exit, int *escapingphis, int *nescapingphis)
 }
 
 static Ref
-mapref(Ref *instrmap, Ref r)
-{
+mapref(Ref *instrmap, Ref r) {
    assert(r.bits);
    if (r.t == RTMP && instrmap[r.i].bits) return instrmap[r.i];
    assert(r.t != RADDR && r.t != RSTACK);
@@ -151,8 +145,7 @@ mapref(Ref *instrmap, Ref r)
 }
 
 static void
-copyins(Function *fn, Block *dst, Block *src, Ref *instrmap)
-{
+copyins(Function *fn, Block *dst, Block *src, Ref *instrmap) {
    fn->curblk = dst;
    for (int i = 0; i < src->ins.n; ++i) {
       int srct = src->ins.p[i];
@@ -172,14 +165,12 @@ copyins(Function *fn, Block *dst, Block *src, Ref *instrmap)
 }
 
 static bool
-dbgp(Function *fn)
-{
+dbgp(Function *fn) {
    return ccopt.dbg.loop && dumpfilt(&fn->name->c);
 }
 
 static int
-loopinv(Function *fn, Loop *l)
-{
+loopinv(Function *fn, Loop *l) {
    FREQUIRE(FNUSE | FNLOOP | FNDOM | FNRPO);
    Block *exit;
    struct {
@@ -282,8 +273,7 @@ loopinv(Function *fn, Loop *l)
 }
 
 static inline bool
-canspeculate(Instr *ins)
-{
+canspeculate(Instr *ins) {
    /* allow arith ops that can't trap */
    switch (ins->op) {
    case Odiv: case Orem: /* signed div traps for INT_MIN / -1 */
@@ -298,8 +288,7 @@ canspeculate(Instr *ins)
 }
 
 static bool
-canhoist(Loop *l, BitSet *loopdefs, int t)
-{
+canhoist(Loop *l, BitSet *loopdefs, int t) {
    Instr *ins = &instrtab[t];
    if (!canspeculate(ins)) return 0;
    for (int oi = 0; oi < opnoper[ins->op]; oi++) {
@@ -310,8 +299,7 @@ canhoist(Loop *l, BitSet *loopdefs, int t)
 }
 
 static void
-moveinstr(Function *fn, Block *srcb, int srci, Block *tob)
-{
+moveinstr(Function *fn, Block *srcb, int srci, Block *tob) {
    int t = srcb->ins.p[srci];
    Instr *ins = &instrtab[t];
    vpush(&tob->ins, t);
@@ -334,8 +322,7 @@ moveinstr(Function *fn, Block *srcb, int srci, Block *tob)
 }
 
 static int
-licm(Function *fn, Loop *l)
-{
+licm(Function *fn, Loop *l) {
    extern int ninstrtab;
    BitSet *loopdefs = anewbitset(fn->passarena, ninstrtab);
    int chg = 0;
@@ -358,8 +345,7 @@ licm(Function *fn, Loop *l)
 }
 
 int
-loopopt(Function *fn)
-{
+loopopt(Function *fn) {
    int changed = 0;
    filldom(fn);
    fillloop(fn);
@@ -374,8 +360,7 @@ loopopt(Function *fn)
 }
 
 static int
-loopmark(Loop *l, Block *blk)
-{
+loopmark(Loop *l, Block *blk) {
    if (blk->id < l->head->id || blk->visit == -l->head->id) return 0;
    if (dominates(l->head, blk)) {
       blk->visit = -l->head->id;
@@ -391,8 +376,7 @@ loopmark(Loop *l, Block *blk)
 }
 
 void
-fillloop(Function *fn)
-{
+fillloop(Function *fn) {
    Block *b = fn->entry;
    int id = 0;
    FREQUIRE(FNRPO | FNDOM);

@@ -2,14 +2,12 @@
 #include "u_hash.h"
 
 static inline bool
-pure(const Instr *ins)
-{
+pure(const Instr *ins) {
    return oisarith(ins->op) || (oisload(ins->op) && !ins->keep);
 }
 
 static inline bool
-insequ(const Instr *a, const Instr *b)
-{
+insequ(const Instr *a, const Instr *b) {
    if (a->op != b->op) return 0;
    enum op op = a->op;
    switch (opnoper[op]) {
@@ -28,15 +26,13 @@ static struct Ht {
 static uint ninsht;
 
 static inline size_t
-hashins(const Instr *ins)
-{
+hashins(const Instr *ins) {
    return hashb(0, ins, sizeof *ins);
 }
 
 enum { MAXBLOCKDIST = 3 };
 static int
-uniq(int t, Block *blk, int cutoff, int memno)
-{
+uniq(int t, Block *blk, int cutoff, int memno) {
    assert((uint)t < MAXINSTR);
    Instr *ins = &instrtab[t];
    if (!pure(ins)) return t;
@@ -59,8 +55,7 @@ uniq(int t, Block *blk, int cutoff, int memno)
 }
 
 int
-cselim(Function *fn)
-{
+cselim(Function *fn) {
    FREQUIRE(FNUSE | FNRPO | FNDOM | FNBLKID);
    bool any = 0;
    extern int ninstrtab;

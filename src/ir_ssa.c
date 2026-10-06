@@ -1,8 +1,7 @@
 #include "ir.h"
 
 void
-copyopt(Function *fn)
-{
+copyopt(Function *fn) {
    Block *blk = fn->entry;
 
    FREQUIRE(FNUSE);

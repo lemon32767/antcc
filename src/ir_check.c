@@ -8,8 +8,7 @@ static struct {
 } checkstate;
 
 static void
-checkfail(const char *fmt, ...)
-{
+checkfail(const char *fmt, ...) {
    va_list ap;
    va_start(ap, fmt);
    efmt("CHECK FAIL: ");
@@ -26,8 +25,7 @@ checkfail(const char *fmt, ...)
 } while (0)
 
 static enum irclass
-refcls(Ref r)
-{
+refcls(Ref r) {
    switch (r.t) {
    case RICON: return KI32;
    case RTMP: return insrescls(instrtab[r.i]);
@@ -44,8 +42,7 @@ refcls(Ref r)
 
 
 static void
-priclsfail(enum irclass k, const Ref *r, int n)
-{
+priclsfail(enum irclass k, const Ref *r, int n) {
    checkfail("type error: had <%s; args: ", k ? clsname[k] : "void");
    assert(n > 0);
    while (n --> 0)
@@ -53,8 +50,7 @@ priclsfail(enum irclass k, const Ref *r, int n)
 }
 
 static inline enum irclass
-clsptrfilt(enum irclass k)
-{
+clsptrfilt(enum irclass k) {
    return k == KPTR ? KI32+targ_64bit : k;
 }
 
@@ -62,8 +58,7 @@ clsptrfilt(enum irclass k)
 #define clseql0(k, q) (clsptrfilt(k) == clsptrfilt(q))
 
 static bool
-clseql(enum irclass k, Ref r)
-{
+clseql(enum irclass k, Ref r) {
    if (r.t == RICON && kisint(k)) return 1;
    if (r.bits == UNDREF.bits) return 1;
    return clseql0(k, refcls(r));
@@ -71,8 +66,7 @@ clseql(enum irclass k, Ref r)
 
 /* homogenous */
 static void
-checkhomo(enum irclass k, const Ref *r, int n)
-{
+checkhomo(enum irclass k, const Ref *r, int n) {
    bool ok = 1;
    assert(n > 0);
    for (int i = 0; i < n; ++i) {
@@ -83,8 +77,7 @@ checkhomo(enum irclass k, const Ref *r, int n)
 
 /* Oext* */
 static void
-checkintext(enum irclass k, Ref r)
-{
+checkintext(enum irclass k, Ref r) {
    enum irclass refk = refcls(r);
    if (!kisint(k) || !kisint(refk) || refk > k)
       priclsfail(k, &r, 1);
@@ -92,8 +85,7 @@ checkintext(enum irclass k, Ref r)
 
 /* int only */
 static void
-checkint(enum irclass k, const Ref *r, int n)
-{
+checkint(enum irclass k, const Ref *r, int n) {
    if (kisint(k))
       checkhomo(k, r, n);
    else
@@ -102,45 +94,39 @@ checkint(enum irclass k, const Ref *r, int n)
 
 /* Ocvtf*u/s* */
 static void
-checkf2icvt(enum irclass from, enum irclass k, Ref r)
-{
+checkf2icvt(enum irclass from, enum irclass k, Ref r) {
    if (!kisint(k) || !clseql(from, r))
       priclsfail(k, &r, 1);
 }
 
 /* Ocvtu/s*f* */
 static void
-checki2fcvt(enum irclass from, enum irclass k, Ref r)
-{
+checki2fcvt(enum irclass from, enum irclass k, Ref r) {
    if (!kisflt(k) || !clseql(from, r))
       priclsfail(k, &r, 1);
 }
 
 static void
-checkreg(Ref r)
-{
+checkreg(Ref r) {
    CHECK(r.t == RREG, "expected register (got %r)", r);
 }
 
 /* Oload* */
 static void
-checkload(enum irclass retk, enum irclass wantk, Ref oper)
-{
+checkload(enum irclass retk, enum irclass wantk, Ref oper) {
    if (wantk == KI32 ? !kisint(retk) : !clseql0(retk, wantk) || !clseql(KPTR, oper))
       priclsfail(retk, &oper, 1);
 }
 
 /* Ostore* */
 static void
-checkstore(enum irclass retk, enum irclass wantk, const Ref *oper)
-{
+checkstore(enum irclass retk, enum irclass wantk, const Ref *oper) {
    if (retk || !clseql(KPTR, oper[0]) || !clseql(wantk, oper[1]))
       priclsfail(retk, oper, 2);
 }
 
 static void
-checkcall(enum irclass k, const IRCall *call)
-{
+checkcall(enum irclass k, const IRCall *call) {
    if (!call->abiarg)  {
       enum irclass retk = call->ret.isagg ? KPTR : call->ret.cls;
       CHECK(clseql0(retk, k),
@@ -152,8 +138,7 @@ checkcall(enum irclass k, const IRCall *call)
 }
 
 static void
-checkins(Function *fn, const Instr *ins)
-{
+checkins(Function *fn, const Instr *ins) {
    enum irclass k = ins->cls;
    switch ((enum op)ins->op) {
    case Oxxx: case NOPER: assert(!"unreachable");
@@ -313,8 +298,7 @@ checkins(Function *fn, const Instr *ins)
 
 
 static void
-checkblk(Function *fn, Block *b)
-{
+checkblk(Function *fn, Block *b) {
    CHECK(b != fn->entry || b->npred == 0,
           "entry block @%d has %d predecessors", b->id, b->npred);
    CHECK(b->lnext->lprev == b && b->lprev->lnext == b,
@@ -338,8 +322,7 @@ checkblk(Function *fn, Block *b)
 }
 
 void
-ircheck(Function *fn)
-{
+ircheck(Function *fn) {
    memset(&checkstate, 0, sizeof checkstate);
    int nblk = 0;
    Block *b = fn->entry;

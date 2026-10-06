@@ -13,16 +13,14 @@ void qsort(void *, size_t nmemb, size_t size, int (const void *, const void *));
 int atoi(const char *);
 
 int
-icmp(const void *a, const void *b)
-{
+icmp(const void *a, const void *b) {
    int l = *(int *)a, r = *(int *)b;
    return (l > r) - (l < r);
 }
 
 int nswp = 0, ncmp = 0;
 void
-revsort(int *xs, long lo, long hi)
-{
+revsort(int *xs, long lo, long hi) {
    while (lo < hi) {
       long i = lo - 1, p = hi + 1;
       int pivot = xs[lo], tmp;
@@ -46,8 +44,7 @@ revsort(int *xs, long lo, long hi)
 }
 
 int
-main(int argc, char **argv)
-{
+main(int argc, char **argv) {
    int N = argc - 1;
    int *xs = calloc(N, sizeof *xs);
 

@@ -17,8 +17,7 @@
 #endif
 
 static bool
-checkliveuse(BitSet *defined, Instr *ins, Ref r, Block *blk)
-{
+checkliveuse(BitSet *defined, Instr *ins, Ref r, Block *blk) {
    if (r.t == RADDR) {
       return checkliveuse(defined, ins, addrtab.p[r.i].base, blk)
           && checkliveuse(defined, ins, addrtab.p[r.i].index, blk);
@@ -28,8 +27,7 @@ checkliveuse(BitSet *defined, Instr *ins, Ref r, Block *blk)
 
 /* ensure the definition of a temporary appears before all of its uses */
 static void
-checklive(Function *fn)
-{
+checklive(Function *fn) {
    extern int ninstrtab;
    Block *blk = fn->entry;
    BitSet definedbuf[4] = {0}, *defined = definedbuf;
@@ -130,8 +128,7 @@ typedef struct {
 } PMState;
 
 static void
-pmadd(PMState *pms, enum irclass k, Alloc dst, Alloc src)
-{
+pmadd(PMState *pms, enum irclass k, Alloc dst, Alloc src) {
    if (dst.bits == src.bits) return;
    assert(pms->npmove < MAXREGS);
    pms->pmove[pms->npmove++] = (struct PMove) { k, PMTOMOVE, dst, src };
@@ -139,8 +136,7 @@ pmadd(PMState *pms, enum irclass k, Alloc dst, Alloc src)
 
 #define mkmove(k, rd, rs) mkinstr2(Omove, k, mkref(RREG, rd), mkref(RREG, rs))
 static void
-emitmove(Function *fn, enum irclass k, Alloc dst, Alloc src, Block *blk, int curi)
-{
+emitmove(Function *fn, enum irclass k, Alloc dst, Alloc src, Block *blk, int curi) {
    Instr mv = {.keep = 1};
    int reg;
    if (dst.t == AREG && src.t == AREG) {
@@ -171,8 +167,7 @@ emitmove(Function *fn, enum irclass k, Alloc dst, Alloc src, Block *blk, int cur
 }
 
 static int
-pmrec(PMState *pms, int i, Block *blk, int curi, enum irclass *k)
-{
+pmrec(PMState *pms, int i, Block *blk, int curi, enum irclass *k) {
    struct PMove *pm = &pms->pmove[i];
    if (pm->dst.bits == pm->src.bits) {
       pm->stat = PMDONE;
@@ -243,8 +238,7 @@ pmrec(PMState *pms, int i, Block *blk, int curi, enum irclass *k)
 }
 
 static void
-emitpm(PMState *pms, Block *blk)
-{
+emitpm(PMState *pms, Block *blk) {
    int curi = blk->ins.n;
    for (int i = 0; i < pms->npmove; ++i) {
       if (pms->pmove[i].stat == PMTOMOVE) {
@@ -255,8 +249,7 @@ emitpm(PMState *pms, Block *blk)
 
 /* remove phis by inserting parallel moves */
 static void
-lowerphis(RegAlloc *ra, Block *blk, Block *suc)
-{
+lowerphis(RegAlloc *ra, Block *blk, Block *suc) {
    int predno;
    Block *n = NULL;
 
@@ -316,8 +309,7 @@ lowerphis(RegAlloc *ra, Block *blk, Block *suc)
 
 /* generate copies for phi operands to transform into conventional-SSA */
 static void
-fixcssa(Function *fn)
-{
+fixcssa(Function *fn) {
    Block *blk = fn->entry;
    do {
       if (!blk->phi.n) continue;
@@ -342,14 +334,12 @@ fixcssa(Function *fn)
 }
 
 static inline bool
-rangeoverlap(Range a, Range b)
-{
+rangeoverlap(Range a, Range b) {
    return a.from < b.to && b.from < a.to;
 }
 
 static void
-pushrange(Interval *it, Range r)
-{
+pushrange(Interval *it, Range r) {
    if (it->nrange < 2) it->_rinl[it->nrange++] = r;
    else if (it->nrange > 2) xbpush(&it->_rdyn, &it->nrange, r);
    else {
@@ -363,22 +353,19 @@ pushrange(Interval *it, Range r)
 #define itrange(it, i) ((it)->nrange <= 2 ? (it)->_rinl : (it)->_rdyn)[i]
 
 static inline int
-intervalbeg(Interval *it)
-{
+intervalbeg(Interval *it) {
    assert(it->nrange);
    return itrange(it, 0).from;
 }
 
 static inline int
-intervalend(Interval *it)
-{
+intervalend(Interval *it) {
    assert(it->nrange);
    return itrange(it, it->nrange-1).to;
 }
 
 static bool
-itcontainspos(Interval *it, int pos)
-{
+itcontainspos(Interval *it, int pos) {
    if (it->nrange == 1)
       return it->_rinl->from <= pos && pos < it->_rinl->to;
    for (int i = 0; i < it->nrange; ++i) {
@@ -390,8 +377,7 @@ itcontainspos(Interval *it, int pos)
 }
 
 static bool
-intersoverlap(Interval *a, Interval *b)
-{
+intersoverlap(Interval *a, Interval *b) {
    for (int i = 0, j = 0; i < a->nrange && j < b->nrange; ) {
       Range r1 = itrange(a, i), r2 = itrange(b, j);
       if (rangeoverlap(r1, r2)) return 1;
@@ -402,15 +388,13 @@ intersoverlap(Interval *a, Interval *b)
 }
 
 static inline void
-incrcost(Interval *it, Block *blk)
-{
+incrcost(Interval *it, Block *blk) {
    /* treat each loop as executing instr 8 times */
    it->cost += 1 << (blk->loopdepth * 3);
 }
 
 static bool
-intervaldef(RegAlloc *ra, int t, Block *blk, int pos, int reghint)
-{
+intervaldef(RegAlloc *ra, int t, Block *blk, int pos, int reghint) {
    Interval *it = &ra->intertab[t];
    if (it->nrange) {
       ushort *beg = &itrange(it, 0).from;
@@ -423,8 +407,7 @@ intervaldef(RegAlloc *ra, int t, Block *blk, int pos, int reghint)
 }
 
 static void
-addrange(RegAlloc *ra, int t, Range new, int reghint)
-{
+addrange(RegAlloc *ra, int t, Range new, int reghint) {
    Interval *it = &ra->intertab[t];
    Range *fst;
    int n;
@@ -477,8 +460,7 @@ addrange(RegAlloc *ra, int t, Range new, int reghint)
 }
 
 static void
-usereg(RegAlloc *ra, int reg, Block *blk, int pos)
-{
+usereg(RegAlloc *ra, int reg, Block *blk, int pos) {
    FixInterval *fxit;
    if (rstest(mctarg->rglob, reg)) return; /* regalloc never allocates globally live regs, so don't need intervals for those */
    for (FixInterval *prev = NULL, *fxit = ra->fixed; fxit; prev = fxit, fxit = fxit->next) {
@@ -530,8 +512,7 @@ defreg(RegAlloc *ra, int reg, int pos) {
 
 /* lifetime interval construction */
 static void
-buildintervals(RegAlloc *ra)
-{
+buildintervals(RegAlloc *ra) {
    extern int ninstrtab;
    Block *blk, *last;
    BitSet **livein = alloc(ra->arena, ra->fn->nblk * sizeof *livein, 0);
@@ -759,8 +740,7 @@ buildintervals(RegAlloc *ra)
 
 /* merge sort */
 static Interval *
-sortintervals(Interval *head, size_t n)
-{
+sortintervals(Interval *head, size_t n) {
    if (n == 1) {
       head->next = NULL;
       return head;
@@ -807,8 +787,7 @@ static Interval *spill(RegAlloc *, LinearScan *, int *out_reg, regset fixexcl);
 static void allocspillslots(RegAlloc *, LinearScan *);
 
 static void
-linearscan(RegAlloc *ra)
-{
+linearscan(RegAlloc *ra) {
    if (!ra->intercount) return;
 
    /* sort intervals */
@@ -874,8 +853,7 @@ linearscan(RegAlloc *ra)
 }
 
 static void
-expire(RegAlloc *ra, LinearScan *s)
-{
+expire(RegAlloc *ra, LinearScan *s) {
    Interval **lnk, *it, *next;
    int pos = s->pos;
    /* check for intervals in active that are handled or inactive */
@@ -920,8 +898,7 @@ expire(RegAlloc *ra, LinearScan *s)
 }
 
 static regset
-findavailregs(RegAlloc *ra, LinearScan *s, regset *out_fixexcl)
-{
+findavailregs(RegAlloc *ra, LinearScan *s, regset *out_fixexcl) {
    Interval *current = s->current;
    regset avail = s->freeregs & (current->fpr ? fpregset : gpregset),
           fixexcl = 0, excl = 0;
@@ -967,8 +944,7 @@ findavailregs(RegAlloc *ra, LinearScan *s, regset *out_fixexcl)
 }
 
 static Interval *
-spill(RegAlloc *ra, LinearScan *s, int *out_reg, regset fixexcl)
-{
+spill(RegAlloc *ra, LinearScan *s, int *out_reg, regset fixexcl) {
    Interval *current = s->current;
    Interval **ptospill = NULL, *tospill = current,
             **lnk, *it;
@@ -1004,8 +980,7 @@ spill(RegAlloc *ra, LinearScan *s, int *out_reg, regset fixexcl)
 }
 
 static int
-allocfreereg(RegAlloc *ra, LinearScan *s, regset avail)
-{
+allocfreereg(RegAlloc *ra, LinearScan *s, regset avail) {
    Interval *current = s->current;
    int this = interval2temp(current);
    Instr *ins = s->ins;
@@ -1047,8 +1022,7 @@ allocfreereg(RegAlloc *ra, LinearScan *s, regset avail)
 }
 
 static Alloc
-allocstk(RegAlloc *ra)
-{
+allocstk(RegAlloc *ra) {
    uint s = 0;
    if (bsiter(&s, ra->freestk, BSSIZE(MAXSPILL))) {
       bsclr(ra->freestk, s);
@@ -1061,8 +1035,7 @@ allocstk(RegAlloc *ra)
 }
 
 static void
-freestk(RegAlloc *ra, int slot)
-{
+freestk(RegAlloc *ra, int slot) {
    DBG("FREE stk %d\n",slot);
    if (slot < MAXSPILL)
       bsset(ra->freestk, slot);
@@ -1071,14 +1044,12 @@ freestk(RegAlloc *ra, int slot)
 }
 
 static Alloc
-allocstkend(RegAlloc *ra)
-{
+allocstkend(RegAlloc *ra) {
    return astack(ra->maxstk++);
 }
 
 static void
-allocspillslots(RegAlloc *ra, LinearScan *s)
-{
+allocspillslots(RegAlloc *ra, LinearScan *s) {
    /* allocate stack slots for spilled intervals
     * this is like another (simplified) linear scan pass */
    Interval *active = NULL;
@@ -1109,8 +1080,7 @@ allocspillslots(RegAlloc *ra, LinearScan *s)
 }
 
 static bool
-isstoreimm(Ref r)
-{
+isstoreimm(Ref r) {
    if (r.t == RTMP) return 1; /* register OK */
    if (isintcon(r)) switch (target.arch) {
    case ISxxx: assert(0);
@@ -1123,8 +1093,7 @@ isstoreimm(Ref r)
 
 /* replace temps with physical regs, add loads & stores for spilled temps */
 static bool
-devirt(RegAlloc *ra, Block *blk)
-{
+devirt(RegAlloc *ra, Block *blk) {
    bool allnops = 1;
    Function *fn = ra->fn;
    Alloc spillsave[4] = {0};
@@ -1291,8 +1260,7 @@ devirt(RegAlloc *ra, Block *blk)
 }
 
 static void
-fini(RegAlloc *ra)
-{
+fini(RegAlloc *ra) {
    int id = 0;
    Function *fn = ra->fn;
    Block *blk = fn->entry;
@@ -1357,8 +1325,7 @@ fini(RegAlloc *ra)
 }
 
 void
-regalloc(Function *fn)
-{
+regalloc(Function *fn) {
    RegAlloc ra = {fn, .arena = fn->passarena, .debug = ccopt.dbg.regalloc && dumpfilt(&fn->name->c)};
    Block *blk, *last;
 

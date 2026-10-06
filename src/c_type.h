@@ -146,13 +146,11 @@ Type cvtarith(Type a, Type b);
 Type complex2struct(Type);
 
 static inline bool
-arrdecays(Type dst, Type from)
-{
+arrdecays(Type dst, Type from) {
    return from.t == TYARRAY && dst.t == TYPTR;
 }
 static inline Type
-typechild(Type t)
-{
+typechild(Type t) {
    if (t.t == TYENUM) return mktype(typedata[t.dat].backing);
    if (iscomplex(t)) return mktype(t.t - TYCOMPLEXF + TYFLOAT);
    if (t.flag & TFCHLDPRIM) return mktype(t.child);
@@ -163,16 +161,14 @@ typechild(Type t)
    return typedata[t.dat].child;
 }
 static inline enum typetag
-scalartypet(Type t)
-{
+scalartypet(Type t) {
    if (t.t == TYENUM) return typedata[t.dat].backing;
    if (isptrcvt(t)) return TYPTR;
    assert(!iscomplex(t));
    return t.t;
 }
 static inline uint
-typearrlen(Type t)
-{
+typearrlen(Type t) {
    return (t.flag & TFCHLDPRIM) ? t.arrlen : typedata[t.dat].arrlen;
 }
 

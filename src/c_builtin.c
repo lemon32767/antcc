@@ -4,8 +4,7 @@
 static const Type ANYTYPE = { .bits = -1u };
 
 static bool
-callcheck(const Span *span, int nparam, const Type *param, int narg, Expr *args)
-{
+callcheck(const Span *span, int nparam, const Type *param, int narg, Expr *args) {
    bool ok = 1;
    for (int i = 0, n = narg < nparam ? narg : nparam; i < n; ++i) {
       if (param[i].bits != ANYTYPE.bits && !assigncheck(typedecay(param[i]), &args[i])) {
@@ -36,14 +35,12 @@ callcheck(const Span *span, int nparam, const Type *param, int narg, Expr *args)
 
 /* __builtin_va_start */
 static bool
-va_start_sema(CComp *cm, Expr *ex)
-{
+va_start_sema(CComp *cm, Expr *ex) {
    ex->ty = mktype(TYVOID);
    return callcheck(&ex->span, 1, &cvalistty, ex->narg, ex->sub+1);
 }
 static Ref
-va_start_comp(Function *fn, Expr *ex, bool discard)
-{
+va_start_comp(Function *fn, Expr *ex, bool discard) {
    assert(ex->t == ECALL && ex->narg == 1);
    assert(typedecay(ex->sub[1].ty).bits == typedecay(cvalistty).bits);
    if (!typedata[fn->fnty.dat].variadic)
@@ -54,23 +51,20 @@ va_start_comp(Function *fn, Expr *ex, bool discard)
 
 /* __builtin_va_end */
 static bool
-va_end_sema(CComp *cm, Expr *ex)
-{
+va_end_sema(CComp *cm, Expr *ex) {
    ex->ty = mktype(TYVOID);
    return callcheck(&ex->span, 1, &cvalistty, ex->narg, ex->sub+1);
 }
 
 static Ref
-va_end_comp(Function *fn, Expr *ex, bool discard)
-{
+va_end_comp(Function *fn, Expr *ex, bool discard) {
    return NOREF;
 }
 
 /* __builtin_va_copy */
 DEF_FNLIKE_SEMA(va_copy, mktype(TYVOID), cvalistty, cvalistty)
 static Ref
-va_copy_comp(Function *fn, Expr *ex, bool discard)
-{
+va_copy_comp(Function *fn, Expr *ex, bool discard) {
    IRType typ = mkirtype(cvalistty.t == TYARRAY ? typechild(cvalistty) : cvalistty);
    for (int i = 1; i <= 2; ++i)
       assert(typedecay(ex->sub[i].ty).bits == typedecay(cvalistty).bits);
@@ -84,8 +78,7 @@ va_copy_comp(Function *fn, Expr *ex, bool discard)
 /* __builtin_trap */
 DEF_FNLIKE_SEMA(trap, mktype(TYVOID), )
 static Ref
-trap_comp(Function *fn, Expr *ex, bool discard)
-{
+trap_comp(Function *fn, Expr *ex, bool discard) {
    puttrap(fn);
    useblk(fn, newblk(fn)); /* unreachable block, but simplifies expr codegen */
    return NOREF;
@@ -94,8 +87,7 @@ trap_comp(Function *fn, Expr *ex, bool discard)
 /* __builtin_unreachable */
 DEF_FNLIKE_SEMA(unreachable, mktype(TYVOID), )
 static Ref
-unreachable_comp(Function *fn, Expr *ex, bool discard)
-{
+unreachable_comp(Function *fn, Expr *ex, bool discard) {
    /* just compile to a trap, don't have poison values/control flow */
    return trap_comp(fn, ex, discard);
 }
@@ -103,8 +95,7 @@ unreachable_comp(Function *fn, Expr *ex, bool discard)
 /* __builtin_bswap16 */
 DEF_FNLIKE_SEMA(bswap16, mktype(TYUSHORT), mktype(TYUSHORT))
 static Ref
-bswap16_comp(Function *fn, Expr *ex, bool discard)
-{
+bswap16_comp(Function *fn, Expr *ex, bool discard) {
    assert(isint(ex->ty));
    return irunop(fn, Obswap16, KI32, scalarcvt(fn, ex->ty, ex->sub[1].ty,
             compileexpr(fn, &ex->sub[1], 0)));
@@ -112,8 +103,7 @@ bswap16_comp(Function *fn, Expr *ex, bool discard)
 /* __builtin_bswap32 */
 DEF_FNLIKE_SEMA(bswap32, mktype(TYUINT), mktype(TYUINT))
 static Ref
-bswap32_comp(Function *fn, Expr *ex, bool discard)
-{
+bswap32_comp(Function *fn, Expr *ex, bool discard) {
    assert(isint(ex->ty));
    return irunop(fn, Obswap32, KI32, scalarcvt(fn, ex->ty, ex->sub[1].ty,
             compileexpr(fn, &ex->sub[1], 0)));
@@ -121,8 +111,7 @@ bswap32_comp(Function *fn, Expr *ex, bool discard)
 /* __builtin_bswap64 */
 DEF_FNLIKE_SEMA(bswap64, mktype(TYUVLONG), mktype(TYUVLONG))
 static Ref
-bswap64_comp(Function *fn, Expr *ex, bool discard)
-{
+bswap64_comp(Function *fn, Expr *ex, bool discard) {
    assert(isint(ex->ty));
    return irunop(fn, Obswap64, KI64, scalarcvt(fn, ex->ty, ex->sub[1].ty,
             compileexpr(fn, &ex->sub[1], 0)));
@@ -131,8 +120,7 @@ bswap64_comp(Function *fn, Expr *ex, bool discard)
 /* __builtin_constant_p */
 DEF_FNLIKE_SEMA(constant_p, mktype(TYINT), ANYTYPE)
 static Ref
-constant_p_comp(Function *fn, Expr *ex, bool discard)
-{
+constant_p_comp(Function *fn, Expr *ex, bool discard) {
    if (discard) return NOREF;
    ex = &ex->sub[1];
    if (eval(ex, EVFOLD) && isarith(ex->ty)) return mkref(RICON, 1);
@@ -150,8 +138,7 @@ constant_p_comp(Function *fn, Expr *ex, bool discard)
 /* __builtin_expect (stub) */
 DEF_FNLIKE_SEMA(expect, mktype(TYLONG), mktype(TYLONG), mktype(TYLONG))
 static Ref
-expect_comp(Function *fn, Expr *ex, bool discard)
-{
+expect_comp(Function *fn, Expr *ex, bool discard) {
    return compileexpr(fn, &ex->sub[1], discard);
 }
 
@@ -170,8 +157,7 @@ static const struct {
 };
 
 void
-putbuiltins(Env *env)
-{
+putbuiltins(Env *env) {
    for (int i = 0; i < countof(tab); ++i) {
       envadddecl(env, &(Decl) {
          .name = intern(tab[i].name),
@@ -183,16 +169,14 @@ putbuiltins(Env *env)
 
 /* this is separate because it's a keyword */
 Ref
-builtin_va_arg_comp(Function *fn, const Expr *ex, bool discard)
-{
+builtin_va_arg_comp(Function *fn, const Expr *ex, bool discard) {
    assert(ex->t == EVAARG && ex->ty.t);
    enum irclass k = (isagg(ex->ty) || iscomplex(ex->ty)) ? KPTR : type2cls[scalartypet(ex->ty)];
    return addinstr(fn, mkinstr2(Ovaarg, k, compileexpr(fn, ex->sub, 0), mktyperef(mkirtype(ex->ty))));
 }
 
 bool
-hasbuiltin(const char *name, uint len)
-{
+hasbuiltin(const char *name, uint len) {
    for (int i = 0; i < countof(tab); ++i)
       if (!strncmp(name, tab[i].name, len))
          return 1;

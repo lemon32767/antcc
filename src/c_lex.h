@@ -4,8 +4,7 @@
 #include "c_type.h"
 
 static inline bool
-joinspan(Span0 *dst, Span0 snd)
-{
+joinspan(Span0 *dst, Span0 snd) {
    if (dst->file != snd.file) return 0;
    if (dst->off > snd.off) return 0;
    dst->len = snd.off + snd.len - dst->off;

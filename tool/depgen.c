@@ -6,8 +6,7 @@
 #include <string.h>
 
 static char *
-alloc1(size_t n)
-{
+alloc1(size_t n) {
    static char mem[64*1<<10], *pmem = mem;
    assert(mem+sizeof mem - pmem >= n && "oom");
    pmem += n;
@@ -15,14 +14,12 @@ alloc1(size_t n)
 }
 
 static char *
-sdup(const char *s, size_t n)
-{
+sdup(const char *s, size_t n) {
    return memcpy(alloc1(n+1), s, n);
 }
 
 static char *
-catpath(const char *s1, const char *s2)
-{
+catpath(const char *s1, const char *s2) {
    if (!s1) return strcpy(alloc1(strlen(s2)+1), s2);
    size_t n1 = strlen(s1), n2 = strlen(s2), n;
    char *x = alloc1(n = n1+1+n2+1);
@@ -45,8 +42,7 @@ catpath(const char *s1, const char *s2)
 }
 
 static const char *
-fileext(const char *path)
-{
+fileext(const char *path) {
    assert(path && *path && "empty");
    const char *dot = NULL;
    for (++path; *path; ++path) {
@@ -56,8 +52,7 @@ fileext(const char *path)
 }
 
 static const char *
-withext(const char *path, const char *ext)
-{
+withext(const char *path, const char *ext) {
    const char *oext, *file = path;
    assert(*file && "no filename");
    oext = fileext(file);
@@ -75,8 +70,7 @@ withext(const char *path, const char *ext)
 }
 
 static char *
-dirname(const char *path)
-{
+dirname(const char *path) {
    const char *end = path + strlen(path);
    while (end > path && *end != '/') --end;
    return end == path ? NULL : sdup(path, end - path);
@@ -88,8 +82,7 @@ enum { MAXFILES = 200, MAXLINE = 2048 };
 static const char *files[MAXFILES];
 static int nfiles;
 static int
-dofile(const char *f)
-{
+dofile(const char *f) {
    int ret = 0;
    assert(nfiles < MAXFILES);
    files[nfiles++] = f;
@@ -120,8 +113,7 @@ dofile(const char *f)
 }
 
 int
-main(int argc, char **argv)
-{
+main(int argc, char **argv) {
 #define DIE(...) return fprintf(stderr, "depgen ERR: "__VA_ARGS__), fputc('\n', stderr), 1
    const char *src = NULL, *targ = NULL, *mf = NULL;
    int mp = 0;

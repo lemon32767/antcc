@@ -33,14 +33,12 @@ static struct {
 static Arena *savearena;
 
 static bool
-dbgp(Function *fn)
-{
+dbgp(Function *fn) {
    return ccopt.dbg.inliner && dumpfilt(&fn->name->c);
 }
 
 static int
-inscost(const Instr *ins)
-{
+inscost(const Instr *ins) {
    static char inscost[NOPER];
    if (!inscost[Oadd]) for (int o = Onop+1; o < NOPER; ++o) {
       if (in_range(o, Odiv, Ourem)) inscost[o] = 2;
@@ -56,8 +54,7 @@ inscost(const Instr *ins)
 }
 
 static int
-blkcost(Block *b)
-{
+blkcost(Block *b) {
    int cost = 0;
    if (b->s2 || b->s1 != b->lnext)
       ++cost;
@@ -71,8 +68,7 @@ blkcost(Block *b)
 #define isinlinedef(fn) (((fn)->symflags & (SLOCAL|SC99INLFN)) == SC99INLFN)
 
 bool
-maybeinlinee(Function *fn)
-{
+maybeinlinee(Function *fn) {
    extern int ninstrtab, nfreeinstr;
 
    if (isinlinedef(fn))
@@ -131,7 +127,7 @@ Save:
          b->_pred[i] = bmap[b->_pred[i]->id];
       b->lnext = b->lnext == fn->entry ? NULL : bmap[b->lnext->id];
    } while ((b = b->lnext));
-   
+
    sv->instrtab = alloccopy(&savearena, instrtab, sizeof *instrtab * (sv->ninstrtab = ninstrtab), 0);
    sv->contab = alloccopy(&savearena, contab.p, sizeof *contab.p * (sv->ncontab = contab.n), 0);
    if ((sv->ncalltab = calltab.n)) {
@@ -156,8 +152,7 @@ Save:
 }
 
 static bool
-shouldinline(SavedFunc *sv, Block *blk, IRCall *call, int curi)
-{
+shouldinline(SavedFunc *sv, Block *blk, IRCall *call, int curi) {
    if (sv->nabiarg != call->narg || call->vararg != -1) return 0;
    if (call->narg > 0 && memcmp(sv->abiarg, call->abiarg, sizeof *sv->abiarg * sv->nabiarg) != 0)
       return 0;
@@ -187,8 +182,7 @@ shouldinline(SavedFunc *sv, Block *blk, IRCall *call, int curi)
 }
 
 static Ref
-mapref(short *instrmap, SavedFunc *sv, Ref r)
-{
+mapref(short *instrmap, SavedFunc *sv, Ref r) {
    assert(r.bits);
    if (r.t == RTMP) return r.i = instrmap[r.i], r;
    if (r.t == RXCON) return newxcon(&sv->contab[r.i]);
@@ -198,8 +192,7 @@ mapref(short *instrmap, SavedFunc *sv, Ref r)
 }
 
 static Block *
-inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv)
-{
+inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv) {
    int res = blk->ins.p[curi], res2;
    Instr *ins = &instrtab[res];
    IRCall *call = &calltab.p[ins->r.i];
@@ -355,8 +348,7 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv)
 
 enum { MAX_REC_INLINE = 16 };
 int
-doinline(Function *fn)
-{
+doinline(Function *fn) {
    if (calltab.n == 0 || !savedfns.list) return 0;
    Block *b = fn->entry;
    struct Stack { /* stack of callees being inline expanded */
@@ -406,8 +398,7 @@ doinline(Function *fn)
 }
 
 static Function
-rematerialize(Arena **arena, internstr name, SavedFunc *sv)
-{
+rematerialize(Arena **arena, internstr name, SavedFunc *sv) {
    Function fn = { arena, .name = name, .symflags = sv->symflags, .fnty = sv->fnty,
       .retty = sv->retty, .abiarg = sv->abiarg, .nabiarg = sv->nabiarg,
       .abiret = {sv->abiret[0], sv->abiret[1]}, .nabiret = sv->nabiret,
@@ -446,8 +437,7 @@ rematerialize(Arena **arena, internstr name, SavedFunc *sv)
 }
 
 void
-emitxinlfns(bool all)
-{
+emitxinlfns(bool all) {
    enum { N = 1 << 12 };
    static union { char m[sizeof(Arena) + N]; Arena *_align; } amem[2];
    Arena *arena = (void *)amem[0].m, *passarena = (void *)amem[1].m;

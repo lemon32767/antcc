@@ -77,12 +77,12 @@ int main() {
    complex float f = foo((struct s){a});
    printf("foo(a) = %.1f%+.1f\n", crealf(f), cimagf(f));
    printf("a==b = %d; b!=a = %d; !a = %d; a&&b = %d; !!I = %d\n", a == b, b != a, !a, a && b, !!unit);
-   
+
    double theta = 0.5;
    complex double eith = cexp(I * theta);
    complex double target = cos(theta) + I * sin(theta);
    printf("e^(i*0.5) = %.6f%+.6fi\n", creal(eith), cimag(eith));
    printf("cos(0.5)+i*sin(0.5) = %.6f%+.6fi\n", creal(target), cimag(target));
-   
+
    return a;
 }

@@ -3,8 +3,7 @@
 typedef struct { Ref *arg, *ty; } Arg;
 
 static int
-intrin(Block *blk, int *curi, enum intrin in, Arg *args, int narg, IRType ret)
-{
+intrin(Block *blk, int *curi, enum intrin in, Arg *args, int narg, IRType ret) {
    Instr *this = &instrtab[blk->ins.p[*curi]];
    const TypeData *td;
    IRType ty;
@@ -46,8 +45,7 @@ intrin(Block *blk, int *curi, enum intrin in, Arg *args, int narg, IRType ret)
 }
 
 void
-lowerintrin(Function *fn)
-{
+lowerintrin(Function *fn) {
    Block *blk = fn->entry;
    DEF_SVEC(Arg, 32, args);
 

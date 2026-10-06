@@ -4,8 +4,7 @@ x = 666
 #include <setjmp.h>
 #include <stdio.h>
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     volatile int x = 42;
     jmp_buf jb;
     if (setjmp(jb)) {

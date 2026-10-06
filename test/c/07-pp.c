@@ -95,7 +95,7 @@ main(V)
    --CATr(bar);
    CAT(foo,bar) += 3;
    foobar() /=2;
-   printf("%s %s\n",STR ( ok /1   "\n"n ;.& 
+   printf("%s %s\n",STR ( ok /1   "\n"n ;.&
             05.5), STR(ADD(1,2)));
    hi(ADD(Foo, SQR(Bar+1)));
    int foo123 = 77;
@@ -143,7 +143,7 @@ qx2(*) ) "$\n"
    A(int x,
 #if 1
          7
-#else 
+#else
          3
 #endif
       );

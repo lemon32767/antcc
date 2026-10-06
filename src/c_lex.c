@@ -11,8 +11,7 @@
 #endif
 
 static inline uchar
-next(Lexer *lx)
-{
+next(Lexer *lx) {
 Re:
    if (lx->idx >= lx->ndat) {
       lx->eof = 1;
@@ -33,8 +32,7 @@ Re:
 }
 
 static inline uchar
-peek(Lexer *lx, int off)
-{
+peek(Lexer *lx, int off) {
    assert((uint) off < 2);
 Re:;
    const uchar *p = lx->dat + lx->idx + off;
@@ -50,8 +48,7 @@ Re:;
 }
 
 static inline bool
-match(Lexer *lx, uchar c)
-{
+match(Lexer *lx, uchar c) {
    if (peek(lx, 0) == c) {
       next(lx);
       return 1;
@@ -60,8 +57,7 @@ match(Lexer *lx, uchar c)
 }
 
 static inline bool
-aissep(int c)
-{
+aissep(int c) {
    static const bool tab[] = {
       /* nonprint, spaces, punct (except $ and _) */
       1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,
@@ -73,8 +69,7 @@ aissep(int c)
 
 
 enum typetag
-parsenumlit(u64int *outi, double *outf, const Token *tk, bool ispp)
-{
+parsenumlit(u64int *outi, double *outf, const Token *tk, bool ispp) {
    if (tk->t == TKCHRLIT) {
       u64int n = 0;
       if (!tk->wide) {
@@ -199,8 +194,7 @@ parsenumlit(u64int *outi, double *outf, const Token *tk, bool ispp)
 }
 
 static void
-readstrchrlit(Lexer *lx, Token *tk, char delim, int wide)
-{
+readstrchrlit(Lexer *lx, Token *tk, char delim, int wide) {
    int c, i;
    DEF_SVEC(uchar, 200, b);
    Span span = {0};
@@ -318,8 +312,7 @@ readstrchrlit(Lexer *lx, Token *tk, char delim, int wide)
 
 /* for #include directive, read "header" or <header> */
 static void
-readheadername(Lexer *lx, Token *tk, char delim)
-{
+readheadername(Lexer *lx, Token *tk, char delim) {
    int c;
    DEF_SVEC(uchar, 200, b);
    Span span = {0};
@@ -350,8 +343,7 @@ readheadername(Lexer *lx, Token *tk, char delim)
 
 /* matches "<digit> | <identifier-nondigit> | '.' | ([eEpP][+-])" */
 static inline bool
-isppnum(char prev, char c)
-{
+isppnum(char prev, char c) {
    if (!aissep(c) || c == '.')
      return 1;
    if (c == '+' || c == '-')
@@ -363,8 +355,7 @@ isppnum(char prev, char c)
 
 enum { MAXLITLEN = 256 }; /* maximum length of num literals and identifiers */
 static int
-lex0(Lexer *lx, Token *tk, bool includeheader)
-{
+lex0(Lexer *lx, Token *tk, bool includeheader) {
    int idx,q;
    bool space = 0;
 Begin:
@@ -564,8 +555,7 @@ End:
 /****************/
 
 static bool
-tokequ(const Token *a, const Token *b)
-{
+tokequ(const Token *a, const Token *b) {
    if (a == b) return 1;
    if (!a || !b) return 0;
    if (a->t != b->t) return 0;
@@ -605,8 +595,7 @@ typedef struct Macro {
 } Macro;
 
 static bool
-macroequ(const Macro *a, const Macro *b)
-{
+macroequ(const Macro *a, const Macro *b) {
    if (a->special != b->special) return 0;
    if (a->fnlike != b->fnlike || a->variadic != b->variadic) return 0;
    if (a->fnlike) {
@@ -638,8 +627,7 @@ macroequ(const Macro *a, const Macro *b)
 }
 
 static void
-freemac(Macro *mac)
-{
+freemac(Macro *mac) {
    if (mac->special) return;
    free(mac->param);
 }
@@ -647,8 +635,7 @@ freemac(Macro *mac)
 static pmap_of(Macro) macroht;
 
 static void
-putmac(internstr name, Macro *mac)
-{
+putmac(internstr name, Macro *mac) {
    static short id;
    if (!macroht.v) pmap_init(&macroht, 1<<10);
    Macro *slot = pmap_get(&macroht, name);
@@ -672,8 +659,7 @@ putmac(internstr name, Macro *mac)
 }
 
 static void
-delmac(internstr name)
-{
+delmac(internstr name) {
    Macro *slot = pmap_get(&macroht, name);
    if (!slot) return;
    freemac(slot);
@@ -681,14 +667,12 @@ delmac(internstr name)
 }
 
 static inline internstr
-macname(Macro *mac)
-{
+macname(Macro *mac) {
    return macroht.mb.k[mac - macroht.v];
 }
 
 static inline Macro *
-findmac(internstr name)
-{
+findmac(internstr name) {
    return pmap_get(&macroht, name);
 }
 
@@ -710,8 +694,7 @@ static struct MacroStack {
 } mstk[1200];
 
 static void NORETURN
-lxfatal(Lexer *lx, const Span *span, const char *fmt, ...)
-{
+lxfatal(Lexer *lx, const Span *span, const char *fmt, ...) {
    if (fmt) {
       va_list ap;
       va_start(ap, fmt);
@@ -736,8 +719,7 @@ lxfatal(Lexer *lx, const Span *span, const char *fmt, ...)
 }
 
 static void
-ppskipline(Lexer *lx)
-{
+ppskipline(Lexer *lx) {
    while (lx->macstk) popmac(lx, 1);
    for (int c; (c = peek(lx, 0)) != '\n' && !lx->eof; next(lx)) {
       if (c == '/' && peek(lx, 1) == '*') { /* comment */
@@ -760,8 +742,7 @@ ppskipline(Lexer *lx)
 #define isppident(tk) in_range((tk).t, TKIDENT, TKWEND_)
 
 static bool
-tokpaste(Lexer *lx, Token *dst, const Token *l, const Token *r)
-{
+tokpaste(Lexer *lx, Token *dst, const Token *l, const Token *r) {
    int t;
    if (isppident(*l) && (isppident(*r) || r->t == TKNUMLIT)) {
       /* foo ## bar  ;   foo ## 123 */
@@ -852,8 +833,7 @@ tokpaste(Lexer *lx, Token *dst, const Token *l, const Token *r)
 enum { MAXMACROARGS = 128 };
 
 static void
-ppdefine(Lexer *lx)
-{
+ppdefine(Lexer *lx) {
    Token tk0, tk;
    internstr mname;
    Macro mac = {0};
@@ -956,8 +936,7 @@ ppdefine(Lexer *lx)
 }
 
 static void
-expecteol(Lexer *lx, const char *ppname)
-{
+expecteol(Lexer *lx, const char *ppname) {
    Token tk;
    assert(!lx->macstk);
    if (lex0(lx, &tk, 0) != '\n' && tk.t != TKEOF) {
@@ -966,8 +945,7 @@ expecteol(Lexer *lx, const char *ppname)
    }
 }
 static void
-ppundef(Lexer *lx)
-{
+ppundef(Lexer *lx) {
    Token tk;
 
    lex0(lx, &tk, 0);
@@ -981,8 +959,7 @@ ppundef(Lexer *lx)
 }
 
 static void
-pushmacstk(Lexer *lx, const Span *span, const MacroStack *m)
-{
+pushmacstk(Lexer *lx, const Span *span, const MacroStack *m) {
    MacroStack *l = lx->macstk;
    if (!l) l = mstk;
    else if ((++l == mstk+countof(mstk))) lxfatal(lx, span, "macro expansion depth limit reached");
@@ -996,8 +973,7 @@ pushmacstk(Lexer *lx, const Span *span, const MacroStack *m)
 }
 
 static void
-popmac(Lexer *lx, bool all)
-{
+popmac(Lexer *lx, bool all) {
    MacroStack *stk;
 
    assert(stk = lx->macstk);
@@ -1012,8 +988,7 @@ popmac(Lexer *lx, bool all)
 
 
 static inline const Token *
-stkgetrl(MacroStack *s)
-{
+stkgetrl(MacroStack *s) {
    if (s->macid < 0) return s->rl.p;
    return (s->dyn ? mdyntoksbuf.p : mtoksbuf.p) + s->rl.off;
 }
@@ -1021,8 +996,7 @@ stkgetrl(MacroStack *s)
 static void expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac);
 
 static enum expandres { EXPNONE, EXPINL, EXPSTACK }
-tryexpand(Lexer *lx, Token *tk)
-{
+tryexpand(Lexer *lx, Token *tk) {
    Span span = tk->span;
    Macro *mac = NULL;
    internstr mname = tk->name;
@@ -1101,8 +1075,7 @@ tryexpand(Lexer *lx, Token *tk)
 }
 
 static bool
-advancemacstk(Lexer *lx, Token *tk)
-{
+advancemacstk(Lexer *lx, Token *tk) {
    MacroStack *s = lx->macstk;
    assert(s != NULL);
    if (s->idx >= s->rl.n) {
@@ -1129,8 +1102,7 @@ advancemacstk(Lexer *lx, Token *tk)
 static int ppdirective(Lexer *lx, Token *tkout, bool *skip, bool *inclerror);
 
 static void
-expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac)
-{
+expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac) {
    DEF_SVEC(Token, 30, argsbuf);
    Span excessspan;
    int cur, len, i, bal, narg;
@@ -1423,8 +1395,7 @@ expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac)
 
 static Token epeektk;
 static int
-elex(Lexer *lx, Token *tk)
-{
+elex(Lexer *lx, Token *tk) {
    assert(tk);
    if (epeektk.t) {
       int tt = epeektk.t;
@@ -1443,16 +1414,14 @@ elex(Lexer *lx, Token *tk)
 }
 
 static int
-epeek(Lexer *lx, Token *tk)
-{
+epeek(Lexer *lx, Token *tk) {
    if (!epeektk.t) elex(lx, &epeektk);
    if (tk) *tk = epeektk;
    return epeektk.t;
 }
 
 static int
-tkprec(int tt)
-{
+tkprec(int tt) {
    static const char tab[] = {
       ['*']   = 12, ['/']   = 12, ['%']  = 12,
       ['+']   = 11, ['-']   = 11,
@@ -1472,8 +1441,7 @@ tkprec(int tt)
 }
 
 static s64int
-expr(Lexer *lx, bool *pu, int prec, bool ignore)
-{
+expr(Lexer *lx, bool *pu, int prec, bool ignore) {
    Token tk;
    enum typetag ty;
    char unops[16];
@@ -1639,8 +1607,7 @@ static int nppcnd;
 static int includedepth;
 
 static void
-ppif(Lexer *lx, const Span *span)
-{
+ppif(Lexer *lx, const Span *span) {
    s64int v = expr(lx, NULL, 0, 0);
    assert(nppcnd < countof(ppcndstk) && "too many nested #if");
    ppcndstk[nppcnd].ifspan = span->sl;
@@ -1650,8 +1617,7 @@ ppif(Lexer *lx, const Span *span)
 }
 
 static void
-ppifxdef(Lexer *lx, bool defp, const Span *span)
-{
+ppifxdef(Lexer *lx, bool defp, const Span *span) {
    Token tk;
 
    lex0(lx, &tk, 0);
@@ -1670,8 +1636,7 @@ ppifxdef(Lexer *lx, bool defp, const Span *span)
 }
 
 static void
-ppelif(Lexer *lx, const Span *span)
-{
+ppelif(Lexer *lx, const Span *span) {
    s64int v;
    PPCond *cnd;
 
@@ -1692,8 +1657,7 @@ ppelif(Lexer *lx, const Span *span)
    }
 }
 static void
-ppelifxdef(Lexer *lx, bool defp, const Span *span)
-{
+ppelifxdef(Lexer *lx, bool defp, const Span *span) {
    Token tk;
    PPCond *cnd;
 
@@ -1722,8 +1686,7 @@ ppelifxdef(Lexer *lx, bool defp, const Span *span)
 }
 
 static void
-ppendif(Lexer *lx, const Span *span)
-{
+ppendif(Lexer *lx, const Span *span) {
    expecteol(lx, "endif");
    if (!nppcnd) {
       error(span, "#endif without matching #if");
@@ -1733,8 +1696,7 @@ ppendif(Lexer *lx, const Span *span)
 }
 
 static void
-ppelse(Lexer *lx, const Span *span)
-{
+ppelse(Lexer *lx, const Span *span) {
    PPCond *cnd;
    expecteol(lx, "else");
    if (!nppcnd) {
@@ -1753,8 +1715,7 @@ ppelse(Lexer *lx, const Span *span)
 
 enum { MAXINCLUDE = 200 };
 static bool
-tryincludepath(Lexer *lx, const Span *span, char *path, int src_incdiridx, bool chkonly)
-{
+tryincludepath(Lexer *lx, const Span *span, char *path, int src_incdiridx, bool chkonly) {
    const char *err;
    if (chkonly) {
       MemFile *f;
@@ -1795,8 +1756,7 @@ enum incopt {
 };
 
 static bool
-doinclude(Lexer *lx, const Span *span, const char *str, size_t slen, enum incopt opt)
-{
+doinclude(Lexer *lx, const Span *span, const char *str, size_t slen, enum incopt opt) {
    char *path = NULL;
    const char *base, *end;
    assert(lx && (lx || (opt & INC_DRYRUN)));
@@ -1871,8 +1831,7 @@ NotFound:
 }
 
 static const char *
-mkinclpath(uint *pathlen, WriteBuf *wbuf, const Token *tok, int ntk)
-{
+mkinclpath(uint *pathlen, WriteBuf *wbuf, const Token *tok, int ntk) {
    assert(ntk > 0);
    Span span = tok->span;
    joinspan(&span.ex, tok[ntk - 1].span.ex);
@@ -1897,8 +1856,7 @@ mkinclpath(uint *pathlen, WriteBuf *wbuf, const Token *tok, int ntk)
 }
 
 static bool
-ppinclude(Lexer *lx, const Span *span0, bool incnext)
-{
+ppinclude(Lexer *lx, const Span *span0, bool incnext) {
    Token tk;
    char buf[4096];
    WriteBuf wbuf = MEMBUF(buf, sizeof buf);
@@ -1942,8 +1900,7 @@ ppinclude(Lexer *lx, const Span *span0, bool incnext)
 }
 
 static void
-ppline(Lexer *lx, Token *tk0)
-{
+ppline(Lexer *lx, Token *tk0) {
    Token tk, tks[2];
    int ntk = 0;
    Span span = tk0->span;
@@ -2007,8 +1964,7 @@ ppline(Lexer *lx, Token *tk0)
 }
 
 static bool
-prgstrmatch(const char **str, uint *len, const char *what)
-{
+prgstrmatch(const char **str, uint *len, const char *what) {
    if (*len == 0) return !*what;
    while (aisspace(**str)) ++*str, --*len;
    int nwhat = strlen(what);
@@ -2025,8 +1981,7 @@ prgstrmatch(const char **str, uint *len, const char *what)
 }
 
 static int
-pragmapackcheck(const Span *span, int align)
-{
+pragmapackcheck(const Span *span, int align) {
    if (align && ((uint)align > 16 || !ispo2(align))) {
       warn(span, "alignment must be a small power of two (was %d)", align);
       return 0;
@@ -2035,8 +1990,7 @@ pragmapackcheck(const Span *span, int align)
 }
 
 static int
-pragmaparsenum(const Span *span, const char **str, uint *len, int dfault)
-{
+pragmaparsenum(const Span *span, const char **str, uint *len, int dfault) {
    s64int n = 0;
    do {
       if (!aisdigit(**str)) Bad: {
@@ -2052,8 +2006,7 @@ pragmaparsenum(const Span *span, const char **str, uint *len, int dfault)
 }
 
 static void
-handlepragma(Lexer *lx, const Span *span, const char *str, uint len)
-{
+handlepragma(Lexer *lx, const Span *span, const char *str, uint len) {
    PragmaState *ps = lx->pragma;
    if (prgstrmatch(&str, &len, "once")) {
       /* #pragma once */
@@ -2105,8 +2058,7 @@ handlepragma(Lexer *lx, const Span *span, const char *str, uint len)
 static bool preprocessonly = 0;
 
 static void
-pppragma(Lexer *lx, Token *tk)
-{
+pppragma(Lexer *lx, Token *tk) {
    char buf[999];
    uint len = 0;
    uint linebeginoff = tk->span.sl.off;
@@ -2146,8 +2098,7 @@ pppragma(Lexer *lx, Token *tk)
 }
 
 static void
-ppdiag(Lexer *lx, const Span *span0, bool err)
-{
+ppdiag(Lexer *lx, const Span *span0, bool err) {
    const uchar *p = getfile(lx->fileid)->p;
    uint off = lx->idx, end;
    ppskipline(lx);
@@ -2178,8 +2129,7 @@ enum directive {
 };
 
 static enum directive
-findppcmd(const Token *tk)
-{
+findppcmd(const Token *tk) {
    static const char *tab[] = {
       /* !sorted */
       "define",
@@ -2216,8 +2166,7 @@ findppcmd(const Token *tk)
 }
 
 static void
-identkeyword(Token *tk)
-{
+identkeyword(Token *tk) {
 #ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-braces"
@@ -2259,8 +2208,7 @@ identkeyword(Token *tk)
 }
 
 static int
-ppdirective(Lexer *lx, Token *tkout, bool *skip, bool *inclerror)
-{
+ppdirective(Lexer *lx, Token *tkout, bool *skip, bool *inclerror) {
    Token tk[1];
    enum directive lastcmd = 0;
 
@@ -2327,8 +2275,7 @@ ppdirective(Lexer *lx, Token *tkout, bool *skip, bool *inclerror)
 }
 
 static int
-lex_nopragma(Lexer *lx, Token *tk)
-{
+lex_nopragma(Lexer *lx, Token *tk) {
    int t;
 
 Begin:
@@ -2408,8 +2355,7 @@ Begin:
 }
 
 int
-lex(Lexer *lx, Token *tk_)
-{
+lex(Lexer *lx, Token *tk_) {
    Token tkx[1], *tk;
    tk = tk_ ? tk_ : tkx;
    int t;
@@ -2441,8 +2387,7 @@ Again:
 }
 
 int
-lexpeek(Lexer *lx, Token *tk_)
-{
+lexpeek(Lexer *lx, Token *tk_) {
    Token tkx[1], *tk;
    uint t;
 
@@ -2462,8 +2407,7 @@ static char ppcmdlinebuf0[4000];
 static WriteBuf ppcmdline = MEMBUF(ppcmdlinebuf0, sizeof ppcmdlinebuf0);
 
 static void
-ppcmdappendf(const char *fmt, ...)
-{
+ppcmdappendf(const char *fmt, ...) {
    va_list ap;
    uint lensave = ppcmdline.len;
 Redo:
@@ -2487,8 +2431,7 @@ Redo:
 }
 
 static void
-putdef1(const char *name)
-{
+putdef1(const char *name) {
    static const Token tok_1 = { TKNUMLIT, .s = "1", .len = 1, .litlit = 1 };
    putmac(intern(name), &(Macro) {
       .predef = 1,
@@ -2497,8 +2440,7 @@ putdef1(const char *name)
 }
 
 void
-cpp0define(const char *name, const char *body)
-{
+cpp0define(const char *name, const char *body) {
    if (!body || !strcmp(body, "1"))
       putdef1(name);
    else
@@ -2506,14 +2448,12 @@ cpp0define(const char *name, const char *body)
 }
 
 void
-cpp0undef(const char *name)
-{
+cpp0undef(const char *name) {
    ppcmdappendf("#undef %s\n", name);
 }
 
 static void
-mac__file__(Lexer *lx, Token *tk)
-{
+mac__file__(Lexer *lx, Token *tk) {
    tk->t = TKSTRLIT;
    tk->s = getfilename(lx->fileid, lx->idx);
    tk->wide = 0;
@@ -2521,8 +2461,7 @@ mac__file__(Lexer *lx, Token *tk)
 }
 
 static void
-mac__line__(Lexer *lx, Token *tk)
-{
+mac__line__(Lexer *lx, Token *tk) {
    char buf[20];
    WriteBuf wbuf = MEMBUF(buf, sizeof buf);
 
@@ -2540,8 +2479,7 @@ mac__line__(Lexer *lx, Token *tk)
 #include <time.h>
 
 static void
-mac__date__(Lexer *lx, Token *tk)
-{
+mac__date__(Lexer *lx, Token *tk) {
    char buf[20];
    WriteBuf wbuf = MEMBUF(buf, sizeof buf);
    time_t tm = time(NULL);
@@ -2561,8 +2499,7 @@ mac__date__(Lexer *lx, Token *tk)
 }
 
 static void
-mac__time__(Lexer *lx, Token *tk)
-{
+mac__time__(Lexer *lx, Token *tk) {
    char buf[20];
    WriteBuf wbuf = MEMBUF(buf, sizeof buf);
    time_t tm = time(NULL);
@@ -2580,8 +2517,7 @@ mac__time__(Lexer *lx, Token *tk)
 }
 
 static void
-mac__counter__(Lexer *lx, Token *tk)
-{
+mac__counter__(Lexer *lx, Token *tk) {
    char buf[20];
    WriteBuf wbuf = MEMBUF(buf, sizeof buf);
    static int counter;
@@ -2592,8 +2528,7 @@ mac__counter__(Lexer *lx, Token *tk)
 }
 
 static void
-mac__has_builtin(Lexer *lx, Token *tk, const Token *args, int narg)
-{
+mac__has_builtin(Lexer *lx, Token *tk, const Token *args, int narg) {
    extern bool hasbuiltin(const char *, uint n);
    bool has = 0;
    tk->t = TKNUMLIT, tk->len = 1;
@@ -2612,8 +2547,7 @@ mac__has_builtin(Lexer *lx, Token *tk, const Token *args, int narg)
 }
 
 static void
-mac__has_attribute(Lexer *lx, Token *tk, const Token *args, int narg)
-{
+mac__has_attribute(Lexer *lx, Token *tk, const Token *args, int narg) {
    extern bool hasattribute(const char *, uint n);
    bool has = 0;
    tk->t = TKNUMLIT, tk->len = 1;
@@ -2630,8 +2564,7 @@ mac__has_attribute(Lexer *lx, Token *tk, const Token *args, int narg)
 }
 
 static bool
-hasinclude(Lexer *lx, const Span *span, const Token *args, int narg, bool incnext)
-{
+hasinclude(Lexer *lx, const Span *span, const Token *args, int narg, bool incnext) {
    if (narg < 1) {
       error(span, "'__has_include%s' requires an argument", incnext ? "_next" : "");
       return 0;
@@ -2646,28 +2579,24 @@ hasinclude(Lexer *lx, const Span *span, const Token *args, int narg, bool incnex
 }
 
 static void
-mac__has_include(Lexer *lx, Token *tk, const Token *args, int narg)
-{
+mac__has_include(Lexer *lx, Token *tk, const Token *args, int narg) {
    tk->t = TKNUMLIT, tk->len = 1;
    tk->s = &"01"[hasinclude(lx, &tk->span, args, narg, /*next*/0)];
 }
 
 static void
-mac__has_include_next(Lexer *lx, Token *tk, const Token *args, int narg)
-{
+mac__has_include_next(Lexer *lx, Token *tk, const Token *args, int narg) {
    tk->t = TKNUMLIT, tk->len = 1;
    tk->s = &"01"[hasinclude(lx, &tk->span, args, narg, /*next*/1)];
 }
 
 static void
-putdefs1(const char *s)
-{
+putdefs1(const char *s) {
    if (s) for (; *s; s += strlen(s) + 1) putdef1(s);
 }
 
 static void
-addpredefmacros(Arena **tmparena)
-{
+addpredefmacros(Arena **tmparena) {
    static Token tok_stdc = {TKNUMLIT},
                        tok_major = {TKNUMLIT, .s = ANTCC_VERSION_MAJOR,
                                               .len = sizeof ANTCC_VERSION_MAJOR - 1},
@@ -2726,8 +2655,7 @@ addpredefmacros(Arena **tmparena)
 }
 
 enum initlexer
-initlexer(Lexer *lx, const char **err, const char *file)
-{
+initlexer(Lexer *lx, const char **err, const char *file) {
    enum { NARENA = 1<<12 };
    static union { char m[sizeof(Arena) + NARENA]; Arena *_align; } amem;
    static Arena *tmparena = (void *)amem.m;
@@ -2765,8 +2693,7 @@ initlexer(Lexer *lx, const char **err, const char *file)
 
 /* callback to let lexer release temp memory for arena allocated token data */
 void
-lexerfreetemps(Lexer *lx)
-{
+lexerfreetemps(Lexer *lx) {
    if (!lx->macstk) {
       /* some of the tokens could be somewhere in the macro stack */
       freearena(lx->tmparena);
@@ -2774,8 +2701,7 @@ lexerfreetemps(Lexer *lx)
 }
 
 void
-lexerdump(Lexer *lx, WriteBuf *out)
-{
+lexerdump(Lexer *lx, WriteBuf *out) {
    Token prev = {0}, tok;
    int file = lx->fileid, line = 1, col = 1;
    const char *lastfile = getfilename(file, 0);

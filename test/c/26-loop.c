@@ -16,19 +16,16 @@ nested: ok
 
 static int nfail;
 
-static void chk(const char *name, int bad)
-{
+static void chk(const char *name, int bad) {
    printf("%s: %s\n", name, bad ? "FAIL" : "ok");
    nfail += bad;
 }
 
-static void wordalign(unsigned char *buf, int *np, unsigned off, unsigned align)
-{
+static void wordalign(unsigned char *buf, int *np, unsigned off, unsigned align) {
    while (off++ & (align - 1))
       buf[(*np)++] = 0;
 }
-static void t_wordalign(void)
-{
+static void t_wordalign(void) {
    int bad = 0;
    for (unsigned a = 1; a <= 64; a <<= 1) {
       for (unsigned off = 0; off < 131; ++off) {
@@ -45,12 +42,10 @@ static void t_wordalign(void)
 }
 
 typedef unsigned long long u64int;
-static void bsunion(u64int *dst, const u64int *src, unsigned siz)
-{
+static void bsunion(u64int *dst, const u64int *src, unsigned siz) {
    while (siz--) *dst++ |= *src++;
 }
-static void t_bsunion(void)
-{
+static void t_bsunion(void) {
    int bad = 0;
    for (unsigned n = 0; n <= 8; ++n) {
       u64int a[16] = {0}, b[16];
@@ -64,12 +59,10 @@ static void t_bsunion(void)
    chk("bsunion", bad);
 }
 
-static void decr_gt0(int n, int *sp)
-{
+static void decr_gt0(int n, int *sp) {
    while (n-- > 0) (*sp)++;
 }
-static void t_decr_gt0(void)
-{
+static void t_decr_gt0(void) {
    int bad = 0;
    for (int n = 0; n < 30; ++n) {
       int s = 0;
@@ -79,13 +72,11 @@ static void t_decr_gt0(void)
    chk("decr_gt0", bad);
 }
 
-static void incr_lt(int n, int *cp)
-{
+static void incr_lt(int n, int *cp) {
    int x = 0;
    while ((x = x + 1) < n) *cp += x;
 }
-static void t_incr_lt(void)
-{
+static void t_incr_lt(void) {
    int bad = 0;
    for (int n = 0; n < 30; ++n) {
       int c = 0;
@@ -96,13 +87,11 @@ static void t_incr_lt(void)
    chk("incr_lt", bad);
 }
 
-static void incr_sqr_lt(int n, int *c)
-{
+static void incr_sqr_lt(int n, int *c) {
    int x = 0;
    while ((x = x + 1), x * (x + 1) < n) (*c)++;
 }
-static void t_incr_sqr_lt(void)
-{
+static void t_incr_sqr_lt(void) {
    int bad = 0;
    for (int n = 0; n < 60; ++n) {
       int c = 0;
@@ -114,12 +103,10 @@ static void t_incr_sqr_lt(void)
    chk("incr_sqr_lt", bad);
 }
 
-static void str_loop(const unsigned char *s, int *sp)
-{
+static void str_loop(const unsigned char *s, int *sp) {
    for (; *s; ++s) *sp += *s;
 }
-static void t_str_loop(void)
-{
+static void t_str_loop(void) {
    int bad = 0;
    const unsigned char *ts[] = {
       (const unsigned char *)"",
@@ -137,12 +124,10 @@ static void t_str_loop(void)
    chk("str_loop", bad);
 }
 
-static void len_dec(int len, int *sp)
-{
+static void len_dec(int len, int *sp) {
    for (; len-- > 0;) *sp += len;
 }
-static void t_len_dec(void)
-{
+static void t_len_dec(void) {
    int bad = 0;
    for (int len = 0; len < 30; ++len) {
       int s = 0;
@@ -152,12 +137,10 @@ static void t_len_dec(void)
    chk("len_dec", bad);
 }
 
-static void plain_for(int n, int *sp)
-{
+static void plain_for(int n, int *sp) {
    for (int i = 0; i < n; ++i) *sp += i;
 }
-static void t_plain_for(void)
-{
+static void t_plain_for(void) {
    int bad = 0;
    for (int n = 0; n < 30; ++n) {
       int s = 0;
@@ -167,13 +150,11 @@ static void t_plain_for(void)
    chk("plain_for", bad);
 }
 
-static void do_while(int n, int *sp)
-{
+static void do_while(int n, int *sp) {
    int i = 0;
    do *sp += i++; while (i < n);
 }
-static void t_do_while(void)
-{
+static void t_do_while(void) {
    int bad = 0;
    for (int n = 0; n < 30; ++n) {
       int s = 0;
@@ -183,15 +164,13 @@ static void t_do_while(void)
    chk("do_while", bad);
 }
 
-static void nested(unsigned n, unsigned *totp)
-{
+static void nested(unsigned n, unsigned *totp) {
    for (unsigned i = 0; i < n; ++i) {
       unsigned off = i;
       while (off++ & 7) (*totp)++;
    }
 }
-static void t_nested(void)
-{
+static void t_nested(void) {
    int bad = 0;
    for (unsigned n = 0; n < 40; ++n) {
       unsigned t = 0;
@@ -206,8 +185,7 @@ static void t_nested(void)
    chk("nested", bad);
 }
 
-int main()
-{
+int main() {
    t_wordalign();
    t_bsunion();
    t_decr_gt0();

@@ -1,8 +1,7 @@
 #include "ir.h"
 
 void
-lowerstack(Function *fn)
-{
+lowerstack(Function *fn) {
    fn->stksiz = 0;
    FREQUIRE(FNUSE);
 

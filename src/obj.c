@@ -16,8 +16,7 @@ ObjFile objout;
 enum { NTEXT = 4<<20 /* 4MiB */ };
 
 void
-objini(const char *infile, const char *outfile)
-{
+objini(const char *infile, const char *outfile) {
    assert(!objout.outfile);
    objout.infile = infile;
    objout.outfile = outfile;
@@ -30,8 +29,7 @@ objini(const char *infile, const char *outfile)
 }
 
 void
-objdeffunc(internstr nam, enum symflags s, uint off, uint siz)
-{
+objdeffunc(internstr nam, enum symflags s, uint off, uint siz) {
    switch (mctarg->objkind) {
    case OBJELF:
       elfaddsym(nam, s | SFUNC, Stext, off, siz);
@@ -40,14 +38,12 @@ objdeffunc(internstr nam, enum symflags s, uint off, uint siz)
 }
 
 enum section
-objhassym(internstr name, uint *off)
-{
+objhassym(internstr name, uint *off) {
    return elfhassym(name, off);
 }
 
 uint
-objnewdat(internstr name, enum symflags sf, enum section sec, uint siz, uint align)
-{
+objnewdat(internstr name, enum symflags sf, enum section sec, uint siz, uint align) {
    ObjFile *o = &objout;
    uint off;
    assert(align && ispo2(align));
@@ -96,8 +92,7 @@ objnewdat(internstr name, enum symflags sf, enum section sec, uint siz, uint ali
 static pmap_of(uchar) needed_fns;
 
 void
-objreloc(internstr sym, enum symflags f, enum relockind reloc, enum section section, uint off, s64int addend)
-{
+objreloc(internstr sym, enum symflags f, enum relockind reloc, enum section section, uint off, s64int addend) {
    if ((f & (SLOCAL|SFUNC)) == (SLOCAL|SFUNC))
       pmap_set(&needed_fns, sym, 1);
    switch (mctarg->objkind) {
@@ -108,20 +103,17 @@ objreloc(internstr sym, enum symflags f, enum relockind reloc, enum section sect
 }
 
 void
-markfnneeded(internstr sym)
-{
+markfnneeded(internstr sym) {
    pmap_set(&needed_fns, sym, 1);
 }
 
 bool
-fnisneeded(internstr sym)
-{
+fnisneeded(internstr sym) {
    return pmap_get(&needed_fns, sym) != NULL;
 }
 
 void
-objfini(bool emit)
-{
+objfini(bool emit) {
    emitxinlfns(/*all*/!emit);
    if (!emit) return;
    static char buf[1<<12];

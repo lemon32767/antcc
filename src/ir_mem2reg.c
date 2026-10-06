@@ -47,8 +47,7 @@ typedef struct Var Var;
 static Ref readvar(SSABuilder *, Var *, enum irclass, Block *);
 
 static Ref
-deltrivialphis(SSABuilder *sb, Var *var, Block *blk, Ref phiref)
-{
+deltrivialphis(SSABuilder *sb, Var *var, Block *blk, Ref phiref) {
    assert(instrtab[phiref.i].op == Ophi);
    Ref *args = phiargs(phiref.i);
    Ref same = {0};
@@ -91,8 +90,7 @@ deltrivialphis(SSABuilder *sb, Var *var, Block *blk, Ref phiref)
 }
 
 static Ref
-addphiargs(SSABuilder *sb, Var *var, enum irclass cls, Block *blk, Ref phiref)
-{
+addphiargs(SSABuilder *sb, Var *var, enum irclass cls, Block *blk, Ref phiref) {
    Ref *args = phiargs(phiref.i);
    for (int i = 0; i < blk->npred; ++i) {
       Block *pred = blkpred(blk, i);
@@ -104,16 +102,14 @@ addphiargs(SSABuilder *sb, Var *var, enum irclass cls, Block *blk, Ref phiref)
 }
 
 static void
-writevar(SSABuilder *sb, Var *var, Block *blk, Ref val)
-{
+writevar(SSABuilder *sb, Var *var, Block *blk, Ref val) {
    if (val.t == RTMP) assert(instrtab[val.i].op != Onop);
    var->curdefs[blk->id] = val;
 }
 
 enum { RPENDINGPHI = 7 };
 static Ref
-readvarrec(SSABuilder *sb, Var *var, enum irclass cls, Block *blk)
-{
+readvarrec(SSABuilder *sb, Var *var, enum irclass cls, Block *blk) {
    Ref val;
    assert(blk->npred > 0);
    if (!bstest(sb->sealed, blk->id)) { /* unsealed block */
@@ -155,8 +151,7 @@ readvarrec(SSABuilder *sb, Var *var, enum irclass cls, Block *blk)
 }
 
 static Ref
-readvar(SSABuilder *sb, Var *var, enum irclass cls, Block *blk)
-{
+readvar(SSABuilder *sb, Var *var, enum irclass cls, Block *blk) {
    if (var->curdefs[blk->id].bits)
       return var->curdefs[blk->id];
    if (blk->npred == 0) /* entry block, var is read before being written to */
@@ -165,8 +160,7 @@ readvar(SSABuilder *sb, Var *var, enum irclass cls, Block *blk)
 }
 
 static bool
-trysealrec(SSABuilder *sb, Block *blk)
-{
+trysealrec(SSABuilder *sb, Block *blk) {
 Recur:
    if (bstest(sb->sealed, blk->id)) return 1;
    if (blk->id > sb->lastvisit) return 0;
@@ -195,15 +189,13 @@ Recur:
 }
 
 static void
-tryseal(SSABuilder *sb, Block *blk)
-{
+tryseal(SSABuilder *sb, Block *blk) {
    startbbvisit();
    trysealrec(sb, blk);
 }
 
 void
-mem2reg(Function *fn)
-{
+mem2reg(Function *fn) {
    SSABuilder sb = { fn->passarena, .nblk = fn->nblk };
 
    FREQUIRE(FNUSE);

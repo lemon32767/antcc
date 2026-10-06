@@ -5,11 +5,11 @@ srcs=a_main.c           a_targ.c          a_embedfilesdir.c                     
      ir_abi0.c          ir_builder.c      ir.c               ir_cfg.c     ir_cse.c     \
      ir_dump.c          ir_fold.c         ir_inliner.c       ir_intrin.c  ir_mem2reg.c \
      ir_regalloc.c      ir_simpl.c        ir_ssa.c           ir_stack.c   ir_check.c   \
-	 ir_loop.c                                                                         \
+     ir_loop.c                                                                         \
      obj.c              o_elf.c                                                        \
      t_aarch64_aapcs.c  t_aarch64_emit.c  t_aarch64_isel.c                             \
      t_x86-64_emit.c    t_x86-64_isel.c   t_x86-64_sysv.c                              \
-     u_io.c             u_mem.c                                                   
+     u_io.c             u_mem.c
 src=$(addprefix src/, $(srcs))
 obj=$(patsubst src/%.c,$(BUILDDIR)/%.o,$(src))
 dep=$(obj:.o=.d)

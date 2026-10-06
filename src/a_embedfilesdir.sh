@@ -49,7 +49,7 @@ typedef __builtin_va_list __gnuc_va_list;
 H stdbool.h << @@@@@@
 #pragma once
 #if __STDC_VERSION__ < 202311L /* in C23 they are keywords */
-#define bool _Bool 
+#define bool _Bool
 #define true 1
 #define false 0
 #endif

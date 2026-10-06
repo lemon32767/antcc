@@ -6,8 +6,7 @@
 __attribute__((no_sanitize("float-cast-overflow"))) /* silence UBsan for float->int overflow */
 #endif
 static Ref
-foldint(enum op op, enum irclass k, Ref lr, Ref rr)
-{
+foldint(enum op op, enum irclass k, Ref lr, Ref rr) {
    s64int x;
    union {
       s64int s;
@@ -72,8 +71,7 @@ foldint(enum op op, enum irclass k, Ref lr, Ref rr)
 }
 
 static Ref
-foldflt(enum op op, enum irclass k, Ref lr, Ref rr)
-{
+foldflt(enum op op, enum irclass k, Ref lr, Ref rr) {
    int xi;
    double x, l = fltconval(lr), r = fltconval(rr);
    bool w = k == KF64;
@@ -103,8 +101,7 @@ foldflt(enum op op, enum irclass k, Ref lr, Ref rr)
 }
 
 bool
-foldbinop(Ref *to, enum op op, enum irclass k, Ref l, Ref r)
-{
+foldbinop(Ref *to, enum op op, enum irclass k, Ref l, Ref r) {
    if (!oisarith(op))
       return 0;
    if (!isnumcon(l) || !isnumcon(r)) return 0;
@@ -118,8 +115,7 @@ foldbinop(Ref *to, enum op op, enum irclass k, Ref l, Ref r)
 }
 
 bool
-foldunop(Ref *to, enum op op, enum irclass k, Ref a)
-{
+foldunop(Ref *to, enum op op, enum irclass k, Ref a) {
    if (!isnumcon(a)) return 0;
    if (op != Ocopy && !oisarith(op))
       return 0;

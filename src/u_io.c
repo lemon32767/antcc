@@ -15,8 +15,7 @@
 WriteBuf bstdout, bstderr;
 
 void
-ioinit(void)
-{
+ioinit(void) {
    bstdout._fp = stdout;
    bstdout.isfp = 1;
    bstderr._fp = stderr;
@@ -26,8 +25,7 @@ ioinit(void)
 #define b_fp(b) ((FILE *)(b)->_fp)
 
 void
-iowrite(WriteBuf *buf, const void *Src, int n)
-{
+iowrite(WriteBuf *buf, const void *Src, int n) {
    const uchar *src = Src;
 
    if (buf->isfp) {
@@ -54,8 +52,7 @@ iowrite(WriteBuf *buf, const void *Src, int n)
 }
 
 void
-ioflush(WriteBuf *buf)
-{
+ioflush(WriteBuf *buf) {
    int i, ret;
 
    if (buf->isfp) {
@@ -84,8 +81,7 @@ ioflush(WriteBuf *buf)
 }
 
 void
-ioputc(WriteBuf *buf, uchar c)
-{
+ioputc(WriteBuf *buf, uchar c) {
    if (buf->isfp) {
       buf->err = fputc(c, b_fp(buf)) != EOF;
       return;
@@ -101,8 +97,7 @@ ioputc(WriteBuf *buf, uchar c)
 }
 
 static int
-putquoted(WriteBuf *buf, uchar c, uchar qchar, int next)
-{
+putquoted(WriteBuf *buf, uchar c, uchar qchar, int next) {
    if (c == qchar || c == '\\' || !aisprint(c)) {
       int n = (ioputc(buf, '\\'), 1);
       uchar cseq;
@@ -137,8 +132,7 @@ putquoted(WriteBuf *buf, uchar c, uchar qchar, int next)
 }
 
 static int
-putuint(WriteBuf *buf, u64int x, int base, bool lower)
-{
+putuint(WriteBuf *buf, u64int x, int base, bool lower) {
    uchar tmp[64];
    uchar *end = tmp + sizeof(tmp);
    uchar *s = end;
@@ -163,8 +157,7 @@ putuint(WriteBuf *buf, u64int x, int base, bool lower)
 }
 
 static void
-fmterr(const char *fmt, ...)
-{
+fmterr(const char *fmt, ...) {
    va_list ap;
 
    efmt("fmt Error: ");
@@ -181,8 +174,7 @@ fmterr(const char *fmt, ...)
 #define bputc(B, C) (ioputc(B, C), 1)
 
 static int
-priquals(WriteBuf *buf, int q)
-{
+priquals(WriteBuf *buf, int q) {
    const char s[] = " const volatile", *p = s;
    int m = sizeof s - 1;
    if (!q) return 0;
@@ -193,8 +185,7 @@ priquals(WriteBuf *buf, int q)
    return m;
 }
 static int
-pritypebefore(WriteBuf *buf, Type ty, int qual)
-{
+pritypebefore(WriteBuf *buf, Type ty, int qual) {
    const char *s, *s2;
    Type chld;
    int n;
@@ -234,8 +225,7 @@ pritypebefore(WriteBuf *buf, Type ty, int qual)
 }
 
 static int
-pritypeafter(WriteBuf *buf, Type ty, int qual)
-{
+pritypeafter(WriteBuf *buf, Type ty, int qual) {
    const TypeData *td;
    int n = 0;
    switch (ty.t) {
@@ -269,16 +259,14 @@ pritypeafter(WriteBuf *buf, Type ty, int qual)
 }
 
 static int
-fmttype(WriteBuf *buf, Type ty, int qual)
-{
+fmttype(WriteBuf *buf, Type ty, int qual) {
    int n = pritypebefore(buf, ty, qual);
    n += pritypeafter(buf, ty, qual);
    return n;
 }
 
 static int
-putdouble(WriteBuf *buf, double x)
-{
+putdouble(WriteBuf *buf, double x) {
    char tmp[200];
    int n = snprintf(tmp, sizeof tmp, "%f", x);
    if (n >= sizeof tmp-1) n = snprintf(tmp, sizeof tmp, "%g", x);
@@ -288,8 +276,7 @@ putdouble(WriteBuf *buf, double x)
 }
 
 static int
-putstr(WriteBuf *buf, const char *s, int len, bool quote, bool lower)
-{
+putstr(WriteBuf *buf, const char *s, int len, bool quote, bool lower) {
    int n = 0;
    if (len < 0) { /* nullterminated */
       if (quote) {
@@ -320,8 +307,7 @@ putstr(WriteBuf *buf, const char *s, int len, bool quote, bool lower)
 }
 
 int
-vbfmt(WriteBuf *out, const char *fmt, va_list ap)
-{
+vbfmt(WriteBuf *out, const char *fmt, va_list ap) {
    bool quote, umod, lmod, zmod, lower, possign;
    int base;
    s64int i;
@@ -675,8 +661,7 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap)
 }
 
 int
-bfmt(WriteBuf *buf, const char *fmt, ...)
-{
+bfmt(WriteBuf *buf, const char *fmt, ...) {
    va_list ap;
    int ret;
 
@@ -687,8 +672,7 @@ bfmt(WriteBuf *buf, const char *fmt, ...)
 }
 
 void
-gpritype(Type ty)
-{
+gpritype(Type ty) {
    efmt("%ty\n", ty);
    ioflush(&bstderr);
 }
@@ -703,8 +687,7 @@ typedef struct EmbedFile {
 extern EmbedFile embedfilesdir[];
 
 MemFile
-mapopen(const char **err, const char *path)
-{
+mapopen(const char **err, const char *path) {
    struct stat stat;
    int fd = -1;
    void *p = NULL;
@@ -792,8 +775,7 @@ Err:
 }
 
 void
-mapclose(MemFile *f)
-{
+mapclose(MemFile *f) {
    assert(f->p);
    if (!f->statik)
       munmap((void *)f->p, alignup(f->n, pagesiz) + pagesiz);
@@ -801,15 +783,13 @@ mapclose(MemFile *f)
 }
 
 void *
-mapzeros(uint N)
-{
+mapzeros(uint N) {
    void *p = mmap(NULL, N, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
    return p == MAP_FAILED ? NULL : p;
 }
 
 void
-_assertfmt(const char *file, int line, const char *func, const char *expr)
-{
+_assertfmt(const char *file, int line, const char *func, const char *expr) {
    ioflush(&bstdout);
    efmt("%s:%d: %s: Assertion `%s' failed.\n", file, line, func, expr);
    ioflush(&bstderr);
@@ -843,8 +823,7 @@ static File *fileht[1<<SPANFILEBITS];
 static int nfiles;
 
 int
-getpredeffile(MemFile **pf, const char *name)
-{
+getpredeffile(MemFile **pf, const char *name) {
    File *f;
    FileUID uid;
    uint h, id, n = countof(fileht);
@@ -874,8 +853,7 @@ getpredeffile(MemFile **pf, const char *name)
 }
 
 int
-openfile(const char **err, MemFile **pf, const char *path)
-{
+openfile(const char **err, MemFile **pf, const char *path) {
    struct stat st;
    File *f;
    FileUID uid;
@@ -919,8 +897,7 @@ openfile(const char **err, MemFile **pf, const char *path)
 }
 
 const char *
-getfilename(int id, uint atoff)
-{
+getfilename(int id, uint atoff) {
    assert((uint)id < countof(fileht) && fileht[id]);
    if (!fileht[id]->linemap.n || !atoff)
       return fileht[id]->path;
@@ -928,15 +905,13 @@ getfilename(int id, uint atoff)
 }
 
 MemFile *
-getfile(int id)
-{
+getfile(int id) {
    assert((uint)id < countof(fileht) && fileht[id]);
    return &fileht[id]->f;
 }
 
 static bool // -> last?
-filllineoffs(File *f, uint upto)
-{
+filllineoffs(File *f, uint upto) {
    if (upto >= f->f.n) upto = f->f.n - 1;
    if (upto <= f->nlscanidx) return 0;
    const uchar *p = f->f.p + f->nlscanidx;
@@ -949,8 +924,7 @@ filllineoffs(File *f, uint upto)
 }
 
 void
-setfileline(int id, uint off, int line, const char *file)
-{
+setfileline(int id, uint off, int line, const char *file) {
    assert((uint)id < countof(fileht) && fileht[id]);
    vec_of(LineMap) *linemap = (void *)&fileht[id]->linemap;
    vec_of(uint) *lineoffs = (void *)&fileht[id]->lineoffs;
@@ -970,8 +944,7 @@ setfileline(int id, uint off, int line, const char *file)
 }
 
 const char *
-getfilepos(int *pline, int *pcol, int id, uint off)
-{
+getfilepos(int *pline, int *pcol, int id, uint off) {
    assert((uint)id < countof(fileht) && fileht[id]);
    File *f = fileht[id];
    int line, col;
@@ -1017,45 +990,39 @@ getfilepos(int *pline, int *pcol, int id, uint off)
 }
 
 bool
-isoncefile(int id, internstr *guard)
-{
+isoncefile(int id, internstr *guard) {
    assert(id < countof(fileht) && fileht[id]);
    *guard = fileht[id]->guardmac;
    return fileht[id]->once;
 }
 
 void
-markfileonce(int id, internstr guard)
-{
+markfileonce(int id, internstr guard) {
    assert(id < countof(fileht) && fileht[id]);
    fileht[id]->once = 1;
    fileht[id]->guardmac = guard;
 }
 
 void
-markfileseen(int id)
-{
+markfileseen(int id) {
    assert(id < countof(fileht) && fileht[id]);
    fileht[id]->seen = 1;
 }
 
 bool
-isfileseen(int id)
-{
+isfileseen(int id) {
    assert(id < countof(fileht) && fileht[id]);
    return fileht[id]->seen;
 }
 
 void
-closefile(int id)
-{
+closefile(int id) {
    assert(id < countof(fileht) && fileht[id]);
    mapclose(&fileht[id]->f);
 }
 
 static int
-safeputnonascii(WriteBuf *buf, const uchar *p)
-{
+safeputnonascii(WriteBuf *buf, const uchar *p) {
    if (aisspace(*p)) { /* don't print the silly whitespaces (carriage return, formfeed etc) */
       return 1;
    } else if (*p > 127) { /* pass utf-8, assume valid. it's fine if not, won't mangle term */
@@ -1070,8 +1037,7 @@ safeputnonascii(WriteBuf *buf, const uchar *p)
 #define isnewline(c) ((c) == '\n' || (c) == '\r')
 
 void
-vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
-{
+vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap) {
    /* to avoid concurrent invocations of the compiler mixing up the diagnostics
     * in the unbuffered stderr output, use a separate buffer here and write()
     * it all out bypassing stdio */
@@ -1192,8 +1158,7 @@ vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap)
 }
 
 void _Noreturn
-fatal(const Span *span, const char *fmt, ...)
-{
+fatal(const Span *span, const char *fmt, ...) {
    if (fmt) {
       va_list ap;
       va_start(ap, fmt);
@@ -1208,8 +1173,7 @@ int nerror, nwarn;
 enum { MAXERROR = 20 };
 
 static void
-counterror(void)
-{
+counterror(void) {
    if (++nerror > MAXERROR) {
       efmt("Too many errors emitted, stopping now.\n");
       exit(1);
@@ -1217,8 +1181,7 @@ counterror(void)
 }
 
 bool
-error(const Span *span, const char *fmt, ...)
-{
+error(const Span *span, const char *fmt, ...) {
    va_list ap;
 
    va_start(ap, fmt);
@@ -1229,8 +1192,7 @@ error(const Span *span, const char *fmt, ...)
 }
 
 bool
-warn(const Span *span, const char *fmt, ...)
-{
+warn(const Span *span, const char *fmt, ...) {
    va_list ap;
 
    if (ccopt.wnone) return 0;
@@ -1243,8 +1205,7 @@ warn(const Span *span, const char *fmt, ...)
 }
 
 void
-note(const Span *span, const char *fmt, ...)
-{
+note(const Span *span, const char *fmt, ...) {
    va_list ap;
 
    va_start(ap, fmt);
@@ -1253,8 +1214,7 @@ note(const Span *span, const char *fmt, ...)
 }
 
 void
-stub(const Span *span, const char *fmt, ...)
-{
+stub(const Span *span, const char *fmt, ...) {
    va_list ap;
 
    va_start(ap, fmt);
@@ -1266,14 +1226,12 @@ stub(const Span *span, const char *fmt, ...)
 /*** UTF util ***/
 
 ushort *
-utf8to16(uint *ulen, Arena **arena, const uchar *s, size_t len)
-{
+utf8to16(uint *ulen, Arena **arena, const uchar *s, size_t len) {
    assert(0 && "nyi");
 }
 
 uint *
-utf8to32(uint *ulen, Arena **arena, const uchar *s, size_t len)
-{
+utf8to32(uint *ulen, Arena **arena, const uchar *s, size_t len) {
    uint *ret, *w;
    const uchar *p, *end;
    size_t n = 0;
@@ -1327,8 +1285,7 @@ utf8to32(uint *ulen, Arena **arena, const uchar *s, size_t len)
 }
 
 int
-utf8enc(char p[4], uint cp)
-{
+utf8enc(char p[4], uint cp) {
    if ((cp & 0xffffff80) == 0) {
       p[0] = cp;
       return 1;

@@ -39,8 +39,7 @@ static vec_of(Reloc) relocs;
 #define O objout
 
 void
-elfinit(void)
-{
+elfinit(void) {
    memcpy(hdr.i_mag, ELFMAG, 4);
    hdr.i_class = ELFCLASS32 + targ_64bit;
    hdr.i_data = ELFDATA2LSB + targ_bigendian;
@@ -67,8 +66,7 @@ elfinit(void)
 }
 
 uint
-str2idx(const char *s)
-{
+str2idx(const char *s) {
    static pmap_of(uint) ht;
    uint *p, i;
 
@@ -82,8 +80,7 @@ str2idx(const char *s)
 }
 
 static Sym *
-findsym(internstr s)
-{
+findsym(internstr s) {
    ushort *idx = pmap_get(&symht, s);
    return idx ? &symtab.p[*idx] : NULL;
 }
@@ -106,8 +103,7 @@ static const char sect2ndx[] = {
 };
 
 enum section
-elfhassym(internstr nam, uint *value)
-{
+elfhassym(internstr nam, uint *value) {
    Sym *sym = findsym(nam);
    if (sym) {
       if (value) *value = sym->value;
@@ -117,8 +113,7 @@ elfhassym(internstr nam, uint *value)
 }
 
 void
-elfaddsym(internstr nam, enum symflags symflags, enum section sect, u64int value, u64int size)
-{
+elfaddsym(internstr nam, enum symflags symflags, enum section sect, u64int value, u64int size) {
    Sym *sym = findsym(nam), sym0;
    if (!sym) {
       sym = &sym0;
@@ -168,8 +163,7 @@ static const ushort relktab[][NRELOCKIND] = {
 };
 
 void
-elfreloc(internstr sym, enum symflags sf, enum relockind kind, enum section sec, uint off, s64int addend)
-{
+elfreloc(internstr sym, enum symflags sf, enum relockind kind, enum section sec, uint off, s64int addend) {
    switch (sec) {
    default: assert(0);
    case Stext:   ++ntextrel; break;
@@ -182,8 +176,7 @@ elfreloc(internstr sym, enum symflags sf, enum relockind kind, enum section sec,
 }
 
 static void
-elf64puthdr(WriteBuf *out, Elf64Hdr *hdr)
-{
+elf64puthdr(WriteBuf *out, Elf64Hdr *hdr) {
    if (!hostntarg_sameendian()) {
       hdr->type = bswap16(hdr->type);
       hdr->machine = bswap16(hdr->machine);
@@ -203,8 +196,7 @@ elf64puthdr(WriteBuf *out, Elf64Hdr *hdr)
 }
 
 static void
-elf32puthdr(WriteBuf *out, Elf32Hdr *hdr)
-{
+elf32puthdr(WriteBuf *out, Elf32Hdr *hdr) {
    if (!hostntarg_sameendian()) {
       hdr->type = bswap16(hdr->type);
       hdr->machine = bswap16(hdr->machine);
@@ -224,8 +216,7 @@ elf32puthdr(WriteBuf *out, Elf32Hdr *hdr)
 }
 
 static void
-elf64putshdr(WriteBuf *out, Elf64Shdr *shdr)
-{
+elf64putshdr(WriteBuf *out, Elf64Shdr *shdr) {
    if (!hostntarg_sameendian()) {
       shdr->name = bswap32(shdr->name);
       shdr->type = bswap32(shdr->type);
@@ -242,8 +233,7 @@ elf64putshdr(WriteBuf *out, Elf64Shdr *shdr)
 }
 
 static void
-elf32putshdr(WriteBuf *out, Elf32Shdr *shdr)
-{
+elf32putshdr(WriteBuf *out, Elf32Shdr *shdr) {
    if (!hostntarg_sameendian()) {
       shdr->name = bswap32(shdr->name);
       shdr->type = bswap32(shdr->type);
@@ -260,8 +250,7 @@ elf32putshdr(WriteBuf *out, Elf32Shdr *shdr)
 }
 
 static void
-elf64putsym(WriteBuf *out, Elf64Sym *sym)
-{
+elf64putsym(WriteBuf *out, Elf64Sym *sym) {
    if (!hostntarg_sameendian()) {
       sym->name = bswap32(sym->name);
       sym->shndx = bswap16(sym->shndx);
@@ -272,8 +261,7 @@ elf64putsym(WriteBuf *out, Elf64Sym *sym)
 }
 
 static void
-elf32putsym(WriteBuf *out, Elf32Sym *sym)
-{
+elf32putsym(WriteBuf *out, Elf32Sym *sym) {
    if (!hostntarg_sameendian()) {
       sym->name = bswap32(sym->name);
       sym->value = bswap32(sym->value);
@@ -284,8 +272,7 @@ elf32putsym(WriteBuf *out, Elf32Sym *sym)
 }
 
 static void
-putsym(WriteBuf *out, const Sym *sym)
-{
+putsym(WriteBuf *out, const Sym *sym) {
    if (targ_64bit) {
       elf64putsym(out, &(Elf64Sym) {
             sym->name, .info = ELF_S_INFO(sym->bind, sym->type), .other = sym->other,
@@ -298,8 +285,7 @@ putsym(WriteBuf *out, const Sym *sym)
 }
 
 static void
-elf64putrel(WriteBuf *out, Elf64Rel *rel)
-{
+elf64putrel(WriteBuf *out, Elf64Rel *rel) {
    if (!hostntarg_sameendian()) {
       rel->offset = bswap64(rel->offset);
       rel->info = bswap64(rel->info);
@@ -308,8 +294,7 @@ elf64putrel(WriteBuf *out, Elf64Rel *rel)
 }
 
 static void
-elf32putrel(WriteBuf *out, Elf32Rel *rel)
-{
+elf32putrel(WriteBuf *out, Elf32Rel *rel) {
    if (!hostntarg_sameendian()) {
       rel->offset = bswap32(rel->offset);
       rel->info = bswap32(rel->info);
@@ -318,8 +303,7 @@ elf32putrel(WriteBuf *out, Elf32Rel *rel)
 }
 
 static void
-elf64putrela(WriteBuf *out, Elf64Rela *rel)
-{
+elf64putrela(WriteBuf *out, Elf64Rela *rel) {
    if (!hostntarg_sameendian()) {
       rel->offset = bswap64(rel->offset);
       rel->info = bswap64(rel->info);
@@ -329,8 +313,7 @@ elf64putrela(WriteBuf *out, Elf64Rela *rel)
 }
 
 static void
-elf32putrela(WriteBuf *out, Elf32Rela *rel)
-{
+elf32putrela(WriteBuf *out, Elf32Rela *rel) {
    if (!hostntarg_sameendian()) {
       rel->offset = bswap32(rel->offset);
       rel->info = bswap32(rel->info);
@@ -340,8 +323,7 @@ elf32putrela(WriteBuf *out, Elf32Rela *rel)
 }
 
 static void
-putreloc(WriteBuf *out, const Reloc *rel, bool userela)
-{
+putreloc(WriteBuf *out, const Reloc *rel, bool userela) {
    if (userela) {
       if (targ_64bit) {
          elf64putrela(out, &(Elf64Rela) {
@@ -369,8 +351,7 @@ putreloc(WriteBuf *out, const Reloc *rel, bool userela)
  * 4. undefined globals
  */
 static int
-symcmp(const void *aa, const void *bb)
-{
+symcmp(const void *aa, const void *bb) {
    const ushort *a = aa, *b = bb;
    const Sym *l = &symtab.p[*a], *r = &symtab.p[*b];
    int tmp;
@@ -380,8 +361,7 @@ symcmp(const void *aa, const void *bb)
 }
 
 static void
-wordalign(WriteBuf *out, int align)
-{
+wordalign(WriteBuf *out, int align) {
    size_t off = out->len + lseek(out->fd, 0, SEEK_CUR);
    while (off++ & (align - 1)) ioputc(out, 0);
 }
@@ -389,8 +369,7 @@ wordalign(WriteBuf *out, int align)
 static const bool userelatab[] = { [ISx86_64] = 1, [ISaarch64] = 1 };
 
 void
-elffini(WriteBuf *out)
-{
+elffini(WriteBuf *out) {
    enum {
       shnam_text = 1, shnam_rodata = 7, shnam_data = 15, shnam_bss = 21, shnam_shstrtab = 26,
       shnam_strtab = 36, shnam_symtab = 44, shnam_reltext = 52, shnam_relrodata = 63, shnam_reldata = 76

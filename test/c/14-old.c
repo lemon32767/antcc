@@ -6,8 +6,7 @@
 kandr(a,b,x,y)
 int a;
 register float b;
-char y,x[sizeof a];
-{
+char y,x[sizeof a]; {
    extern printf();
    printf("%d %g %s%c\n", a, b, x,y);
 }

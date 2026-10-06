@@ -6,8 +6,7 @@
 #include <stdint.h>
 
 static void
-allocerr(void)
-{
+allocerr(void) {
    efmt("antcc fatal: %s\n", strerror(errno));
    ioflush(&bstdout);
    ioflush(&bstderr);
@@ -15,24 +14,21 @@ allocerr(void)
 }
 
 void *
-xmalloc(size_t n)
-{
+xmalloc(size_t n) {
    void *p = malloc(n);
    if (!p) allocerr();
    return p;
 }
 
 void *
-xcalloc(size_t n)
-{
+xcalloc(size_t n) {
    void *p = calloc(n, 1);
    if (!p) allocerr();
    return p;
 }
 
 void *
-xrealloc(void *p, size_t n)
-{
+xrealloc(void *p, size_t n) {
    p = p ? realloc(p, n) : malloc(n);
    if (!p) allocerr();
    return p;
@@ -40,8 +36,7 @@ xrealloc(void *p, size_t n)
 
 /** string interning **/
 internstr
-intern_(const char *s, uint len)
-{
+intern_(const char *s, uint len) {
    static uint N, n;
    static struct Ht {
       internstr s;
@@ -91,8 +86,7 @@ intern_(const char *s, uint len)
 
 /** vec **/
 void
-vinit_(struct vecbase *v, void *inlbuf, uint cap, uint siz)
-{
+vinit_(struct vecbase *v, void *inlbuf, uint cap, uint siz) {
    assert(!v->p);
    v->cap = cap;
    if (inlbuf) {
@@ -105,8 +99,7 @@ vinit_(struct vecbase *v, void *inlbuf, uint cap, uint siz)
 }
 
 void
-vpush_(struct vecbase *v, uint siz)
-{
+vpush_(struct vecbase *v, uint siz) {
    if (v->n < v->cap) return;
    if (!v->dyn && v->n >= v->cap) { /* empty or inline buffer */
       int cap = v->cap ? v->cap * 2 : 8;
@@ -124,8 +117,7 @@ vpush_(struct vecbase *v, uint siz)
 }
 
 void *
-vpushn_(struct vecbase *v, uint siz, const void *dat, uint ndat)
-{
+vpushn_(struct vecbase *v, uint siz, const void *dat, uint ndat) {
    void *beg;
 
    if (!ndat) return v->p;
@@ -139,8 +131,7 @@ vpushn_(struct vecbase *v, uint siz, const void *dat, uint ndat)
 }
 
 void
-vresize_(struct vecbase *v, uint siz, uint N)
-{
+vresize_(struct vecbase *v, uint siz, uint N) {
    while (v->cap < N) {
       vpush_(v, siz);
       v->n = v->cap;
@@ -150,8 +141,7 @@ vresize_(struct vecbase *v, uint siz, uint N)
 
 /** arena **/
 Arena *
-newarena(uint chunksiz)
-{
+newarena(uint chunksiz) {
    Arena *ar = xmalloc(offsetof(Arena, mem) + chunksiz);
    assert(chunksiz < 1u<<31 && "toobig");
    ar->prev = NULL;
@@ -162,11 +152,10 @@ newarena(uint chunksiz)
 }
 
 void *
-alloc(Arena **par, uint siz, uint align)
-{
+alloc(Arena **par, uint siz, uint align) {
    uint idx;
    Arena *new;
-   
+
    if (siz > (*par)->cap) {
       new = newarena(siz);
       new->n = siz;
@@ -190,14 +179,12 @@ alloc(Arena **par, uint siz, uint align)
 }
 
 void *
-allocz(Arena **par, uint siz, uint align)
-{
+allocz(Arena **par, uint siz, uint align) {
    return memset(alloc(par, siz, align), 0, siz);
 }
 
 void
-freearena(Arena **par)
-{
+freearena(Arena **par) {
    Arena *prev;
    for (; *par; *par = prev) {
       prev = (*par)->prev;
@@ -214,8 +201,7 @@ freearena(Arena **par)
 
 /** pointer hashmap **/
 void
-pmap_init_(struct pmapbase *m, void **v, uint vsiz, uint N)
-{
+pmap_init_(struct pmapbase *m, void **v, uint vsiz, uint N) {
    assert(ispo2(N));
    uint sizk = N*sizeof*m->k,
         sizv = N*vsiz;
@@ -226,8 +212,7 @@ pmap_init_(struct pmapbase *m, void **v, uint vsiz, uint N)
 }
 
 int
-pmap_get_(struct pmapbase *m, const void *k)
-{
+pmap_get_(struct pmapbase *m, const void *k) {
    assert(k && "null key");
    if (!m->N) return -1;
    for (size_t i = ptrhash(k);; ++i) {
@@ -240,8 +225,7 @@ pmap_get_(struct pmapbase *m, const void *k)
 char pmap_tombstone_[1];
 
 static void
-pmap_rehash(struct pmapbase *m, void **v, uint vsiz)
-{
+pmap_rehash(struct pmapbase *m, void **v, uint vsiz) {
    void **newk;
    int i, j;
    void *k;
@@ -273,8 +257,7 @@ pmap_rehash(struct pmapbase *m, void **v, uint vsiz)
 }
 
 int
-pmap_set_(struct pmapbase *m, void **v, uint vsiz, const void *k)
-{
+pmap_set_(struct pmapbase *m, void **v, uint vsiz, const void *k) {
    assert(k && "null key");
    if (m->n >= m->N/4*3 /*load factor 75%*/) {
       pmap_rehash(m, v, vsiz);
@@ -293,8 +276,7 @@ pmap_set_(struct pmapbase *m, void **v, uint vsiz, const void *k)
 }
 
 void
-pmap_del_(struct pmapbase *m, const void *k)
-{
+pmap_del_(struct pmapbase *m, const void *k) {
    assert(k && "null key");
    for (size_t i = ptrhash(k);; ++i) {
       i &= m->N - 1;

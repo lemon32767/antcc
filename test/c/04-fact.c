@@ -3,8 +3,7 @@
 */
 
 int
-fact(int x)
-{
+fact(int x) {
    int y = 1;
    while (x >= 1) {
       y *= x;

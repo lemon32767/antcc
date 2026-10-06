@@ -2,8 +2,7 @@
 
 /* binary arithmetic builder with peephole optimizations */
 Ref
-irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r)
-{
+irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r) {
    static const Ref ONE = {.t=RICON, .i=1};
    s64int iv;
    Ref c;
@@ -123,8 +122,7 @@ irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r)
 
 /* implements f32/f64 -> u64 conversion */
 static Ref
-cvtfu64(Function *fn, enum irclass from, Ref x)
-{
+cvtfu64(Function *fn, enum irclass from, Ref x) {
    Block *t, *f, *merge;
    Ref tmp, phiarg[2];
    /* if (x < 2p63) cvtfXs(x) else (cvtfXs(x - 2p63) | (1<<63)) */
@@ -148,8 +146,7 @@ cvtfu64(Function *fn, enum irclass from, Ref x)
 
 /* implements u64 -> f32/f64 conversion */
 static Ref
-cvtu64f(Function *fn, enum irclass to, Ref x)
-{
+cvtu64f(Function *fn, enum irclass to, Ref x) {
    Block *t, *f, *merge;
    Ref t1, t2, phiarg[2];
 
@@ -174,8 +171,7 @@ cvtu64f(Function *fn, enum irclass to, Ref x)
 }
 
 Ref
-irunop(Function *fn, enum op op, enum irclass k, Ref a)
-{
+irunop(Function *fn, enum op op, enum irclass k, Ref a) {
    Ref c;
    Instr *ins = NULL;
    if (foldunop(&c, op, k, a))
@@ -219,8 +215,7 @@ irunop(Function *fn, enum op op, enum irclass k, Ref a)
 int allocinstr(void);
 
 Ref
-addinstr(Function *fn, Instr ins)
-{
+addinstr(Function *fn, Instr ins) {
    int new = allocinstr();
    assert(fn->curblk != NULL);
    instrtab[new] = ins;
@@ -231,18 +226,16 @@ addinstr(Function *fn, Instr ins)
 }
 
 Ref
-foldaddinstr(Function *fn, Instr ins)
-{
+foldaddinstr(Function *fn, Instr ins) {
    if (oisarith(ins.op)) {
-      return ins.op < Oadd ? irunop(fn, ins.op, ins.cls, ins.l) 
+      return ins.op < Oadd ? irunop(fn, ins.op, ins.cls, ins.l)
                            : irbinop(fn, ins.op, ins.cls, ins.l, ins.r);
    }
    return addinstr(fn, ins);
 }
 
 void
-useblk(Function *fn, Block *blk)
-{
+useblk(Function *fn, Block *blk) {
    extern int nerror;
    if (fn->curblk && nerror == 0) assert(fn->curblk->jmp.t && "never finished block");
    if (blk) assert(!blk->jmp.t && "reusing built block");
@@ -257,8 +250,7 @@ useblk(Function *fn, Block *blk)
 }
 
 Ref
-addphi(Function *fn, enum irclass cls, Ref *r)
-{
+addphi(Function *fn, enum irclass cls, Ref *r) {
    assert(fn->curblk);
    if (fn->curblk->npred == 0) return UNDREF;
    if (fn->curblk->npred == 1) /* 1-argument phi is identity */
@@ -287,16 +279,14 @@ addphi(Function *fn, enum irclass cls, Ref *r)
    fn->curblk = NULL;
 
 void
-putbranch(Function *fn, Block *blk)
-{
+putbranch(Function *fn, Block *blk) {
    assert(fn->curblk && blk);
    addpred(blk, fn->curblk);
    putjump(fn, Jb, NOREF, NOREF, blk, NULL);
 }
 
 void
-putcondbranch(Function *fn, Ref arg, Block *t, Block *f)
-{
+putcondbranch(Function *fn, Ref arg, Block *t, Block *f) {
    assert(fn->curblk && t && f);
    if (iscon(arg)) {
       bool truthy;
@@ -315,8 +305,7 @@ putcondbranch(Function *fn, Ref arg, Block *t, Block *f)
 }
 
 void
-putreturn(Function *fn, Ref r0, Ref r1)
-{
+putreturn(Function *fn, Ref r0, Ref r1) {
    assert(fn->curblk);
    adduse(fn->curblk, USERJUMP, r0);
    adduse(fn->curblk, USERJUMP, r1);
@@ -324,8 +313,7 @@ putreturn(Function *fn, Ref r0, Ref r1)
 }
 
 void
-puttrap(Function *fn)
-{
+puttrap(Function *fn) {
    assert(fn->curblk);
    putjump(fn, Jtrap, NOREF, NOREF, NULL, NULL);
 }

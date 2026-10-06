@@ -37,15 +37,13 @@ static int iflagsrc = -1;
 
 #define inscopy(blk, pcuri, k, r) insertinstr((blk), (*(pcuri))++, mkinstr1(Ocopy, k, (r)))
 static void
-picfixsym(Ref *r, Block *blk, int *curi)
-{
+picfixsym(Ref *r, Block *blk, int *curi) {
    if (!ccopt.pic || !isaddrcon(*r,0)) return;
    *r = inscopy(blk, curi, KPTR, *r);
 }
 
 static void
-fixarg(Ref *r, Instr *ins, Block *blk, int *curi)
-{
+fixarg(Ref *r, Instr *ins, Block *blk, int *curi) {
    int sh;
    enum op op = ins ? ins->op : 0;
    enum irclass cls = ins ? ins->cls : 0;
@@ -116,8 +114,7 @@ Begin:
 #define isimm32(r) (iscon(r) && concls(r) == KI32)
 
 static void
-selcall(Function *fn, Instr *ins, Block *blk, int *curi)
-{
+selcall(Function *fn, Instr *ins, Block *blk, int *curi) {
    const IRCall *call = &calltab.p[ins->r.i];
    int iarg = *curi - 1;
    enum irclass cls;
@@ -186,8 +183,7 @@ selcall(Function *fn, Instr *ins, Block *blk, int *curi)
 }
 
 static bool
-aimm(IRAddr *addr, s64int disp)
-{
+aimm(IRAddr *addr, s64int disp) {
    s64int a = addr->disp;
    a += disp;
    if ((int)a == a) {
@@ -198,8 +194,7 @@ aimm(IRAddr *addr, s64int disp)
 }
 
 static bool
-ascale(IRAddr *addr, Ref a, Ref b)
-{
+ascale(IRAddr *addr, Ref a, Ref b) {
    if (b.t != RICON) return 0;
    if (addr->index.bits) return 0;
    if ((unsigned)b.i > 3) return 0;
@@ -228,8 +223,7 @@ ascale(IRAddr *addr, Ref a, Ref b)
 }
 
 static bool
-aadd(IRAddr *out, Block *blk, int *curi, Ref r, bool recurring)
-{
+aadd(IRAddr *out, Block *blk, int *curi, Ref r, bool recurring) {
    if (r.t == RSTACK) {
       if (out->base.bits)
          goto Ref;
@@ -288,8 +282,7 @@ aadd(IRAddr *out, Block *blk, int *curi, Ref r, bool recurring)
 }
 
 static bool
-fuseaddr(Ref *r, Block *blk, int *curi)
-{
+fuseaddr(Ref *r, Block *blk, int *curi) {
    IRAddr addr = { 0 };
 
    if (isaddrcon(*r,1) || r->t == RSTACK) return 1;
@@ -317,8 +310,7 @@ fuseaddr(Ref *r, Block *blk, int *curi)
 
 /* is add instruction with this arg a candidate to transform into efective addr? */
 static bool
-addarg4addrp(Ref r)
-{
+addarg4addrp(Ref r) {
    Instr *ins;
    if (isaddrcon(r, 0)) return 1;
    if (r.t == RSTACK) return 1;
@@ -328,8 +320,7 @@ addarg4addrp(Ref r)
 }
 
 static void
-loadstoreaddr(Block *blk, Ref *r, int *curi)
-{
+loadstoreaddr(Block *blk, Ref *r, int *curi) {
    if (isimm32(*r)) {
       *r = mkaddr((IRAddr){.base = *r});
    } else if (isaddrcon(*r, 0)) {
@@ -342,8 +333,7 @@ loadstoreaddr(Block *blk, Ref *r, int *curi)
 }
 
 static bool
-arithfold(Instr *ins)
-{
+arithfold(Instr *ins) {
    if (isnumcon(ins->l) && (!ins->r.t || isnumcon(ins->r))) {
       Ref r;
       bool ok = ins->r.t ? foldbinop(&r, ins->op, ins->cls, ins->l, ins->r) : foldunop(&r, ins->op, ins->cls, ins->l);
@@ -356,8 +346,7 @@ arithfold(Instr *ins)
 }
 
 static void
-sel(Function *fn, Instr *ins, Block *blk, int *curi)
-{
+sel(Function *fn, Instr *ins, Block *blk, int *curi) {
    int t = ins - instrtab;
    Instr temp = {0};
    enum op op = ins->op;
@@ -575,8 +564,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
 }
 
 static void
-seljmp(Function *fn, Block *blk)
-{
+seljmp(Function *fn, Block *blk) {
    if (blk->jmp.t == Jb && blk->jmp.arg[0].bits) {
       int curi = blk->ins.n;
       fixarg(&blk->jmp.arg[0], NULL, blk, &curi);
@@ -626,8 +614,7 @@ seljmp(Function *fn, Block *blk)
 }
 
 void
-x86_64_isel(Function *fn)
-{
+x86_64_isel(Function *fn) {
    Block *blk = fn->entry;
 
    do {

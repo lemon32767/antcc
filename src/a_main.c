@@ -20,8 +20,7 @@ static CInclPath **cinclpath_tails[5];
 static int nsysinclpaths;
 
 static void
-addinclpath(int ord, const char *path)
-{
+addinclpath(int ord, const char *path) {
    CInclPath *p = alloc(&globarena, sizeof *p, 0);
    assert((uint)ord < countof(cinclpaths));
    p->path = path;
@@ -39,8 +38,7 @@ addinclpath(int ord, const char *path)
 /* parse an argument of the form 'opt=abcd'
  * e.g.  optval("foo=bar123", "foo"); returns "bar123" */
 static const char *
-optval(const char *arg, const char *opt)
-{
+optval(const char *arg, const char *opt) {
    size_t n1 = strlen(arg), n2 = strlen(opt);
    if (n1 < n2+1 || memcmp(arg, opt, n2) != 0 || arg[n2] != '=')
       return NULL;
@@ -49,8 +47,7 @@ optval(const char *arg, const char *opt)
 
 /* "foo.bar" -> "bar"; ".dotfile" -> "" */
 static const char *
-fileext(const char *path)
-{
+fileext(const char *path) {
    const char *dot = strrchr(path, '.');
    return dot ? dot+1 : "";
 }
@@ -58,8 +55,7 @@ fileext(const char *path)
 enum inft { IFTauto, IFTc, IFTasm, IFTobj, IFTar, IFTdll };
 
 static bool
-isinteger(const char *s)
-{
+isinteger(const char *s) {
    do
       if (!in_range(*s, '0', '9')) return 0;
    while (*++s);
@@ -67,8 +63,7 @@ isinteger(const char *s)
 }
 
 static enum inft
-ftdetect(const char *s)
-{
+ftdetect(const char *s) {
    const char *ext = fileext(s);
    if (!strcmp(ext, "c")) return IFTc;
    if (!strcmp(ext, "o") || !strcmp(ext, "lo")) return IFTobj;
@@ -87,8 +82,7 @@ Arena *globarena = &_arenamem.a;
 
 /* withext("x/y.c", "o") -> "y.o"; withext("f9", "s") -> "f9.s" */
 static const char *
-withext(const char *path, const char *ext)
-{
+withext(const char *path, const char *ext) {
    char *res;
    size_t len;
    const char *oext, *file = path;
@@ -135,8 +129,7 @@ void cpp0define(const char *name, const char *body);
 void cpp0undef(const char *name);
 
 static void
-predef(bool undef, const char *cmd)
-{
+predef(bool undef, const char *cmd) {
    char buf[1024];
    const char *sep = strchr(cmd, '='),
               *body = sep ? sep+1 : "1";
@@ -156,8 +149,7 @@ predef(bool undef, const char *cmd)
 
 /* needle in NUL-separated list of strings? */
 static bool
-stroneof(const char *needle, const char *haystack)
-{
+stroneof(const char *needle, const char *haystack) {
    for (const char *s = haystack; *s; s += strlen(s)+1) {
       if (!strcmp(s, needle))
          return 1;
@@ -168,8 +160,7 @@ stroneof(const char *needle, const char *haystack)
 static bool keeptemps;
 
 static void
-prilist(WriteBuf *b, const char *fmt, const char *sep, const char *const *a, size_t n)
-{
+prilist(WriteBuf *b, const char *fmt, const char *sep, const char *const *a, size_t n) {
    for (size_t i = 0; i < n && a[i]; ++i) {
       bfmt(b, fmt, a[i]);
       if (i < n-1 && a[i+1]) bfmt(b, "%s", sep);
@@ -177,8 +168,7 @@ prilist(WriteBuf *b, const char *fmt, const char *sep, const char *const *a, siz
 }
 
 static void
-priinfo(int extra)
-{
+priinfo(int extra) {
    WriteBuf *out = extra ? &bstderr : &bstdout;
    bfmt(out, "antcc version "ANTCC_VERSION_STR"\n"
              "target: "HOST_TRIPLE"\n"
@@ -209,8 +199,7 @@ priinfo(int extra)
 }
 
 static void
-optparse(char **args)
-{
+optparse(char **args) {
    char *arg;
    const char *x;
    enum inft ft = IFTauto;
@@ -478,8 +467,7 @@ breakbreak:
 
 #define vrbfmt(...) if (task.verbose) efmt(__VA_ARGS__)
 static void
-vrbpriargs(const char **a, size_t n)
-{
+vrbpriargs(const char **a, size_t n) {
    if (task.verbose) {
       prilist(&bstderr, "%s", " ", a, n);
       efmt("\n");
@@ -487,8 +475,7 @@ vrbpriargs(const char **a, size_t n)
 }
 
 static const char *
-tempfile(const char *path, const char *ext)
-{
+tempfile(const char *path, const char *ext) {
    int id;
    static int id2;
    static char sbuf[1024];
@@ -536,8 +523,7 @@ mktemps(void) {
 }
 
 static void
-cleantemps(void)
-{
+cleantemps(void) {
    if (keeptemps) return;
    if (getpid() != rootp) return;
    for (int i = 0; i < task.inf.n; ++i) {
@@ -550,14 +536,12 @@ cleantemps(void)
       unlink(tempout), tempout = NULL;
 }
 static void
-sigcleantemps(int _)
-{
+sigcleantemps(int _) {
    cleantemps();
 }
 
 static int
-checkwstat(int wstat, const char *thing)
-{
+checkwstat(int wstat, const char *thing) {
    if (WIFSIGNALED(wstat)) {
       error(NULL, "%s: %s%s", thing, strsignal(WTERMSIG(wstat)),
                               WCOREDUMP(wstat) ? " (core dumped)" : "");
@@ -567,8 +551,7 @@ checkwstat(int wstat, const char *thing)
 }
 
 static void
-compileobjs(void)
-{
+compileobjs(void) {
    int wstat;
    pid_t p;
 
@@ -603,8 +586,7 @@ compileobjs(void)
 #include <fcntl.h>
 
 static bool
-hasprog(const char *prog)
-{
+hasprog(const char *prog) {
    pid_t p;
    if ((p = fork()) < 0) {
       return 0;
@@ -628,16 +610,14 @@ hasprog(const char *prog)
 }
 
 static bool
-iscrosscc(void)
-{
+iscrosscc(void) {
    return target.os != HOST_OS || target.arch != HOST_ARCH || target.abi != HOST_ABI;
 }
 
 typedef vec_of(const char *) CmdArgs;
 
 static void
-findlinkargs(CmdArgs *cmd)
-{
+findlinkargs(CmdArgs *cmd) {
    if (task.targ && iscrosscc()) {
       task.link_with_cc = 1;
       /* try to find a cross compiling toolchain, e.g. aarch64-linux-gnu-gcc */
@@ -677,8 +657,7 @@ findlinkargs(CmdArgs *cmd)
 #define ADDCMDARGS(args) if (*args) vpushn(&cmd, args, countof(args))
 
 static int
-dolink(void)
-{
+dolink(void) {
    const char *cmdbuf[100];
    pid_t p;
    int wstat;
@@ -764,8 +743,7 @@ dolink(void)
 }
 
 static int
-dorun(void)
-{
+dorun(void) {
    if (target.arch != HOST_ARCH || target.os != HOST_OS) {
       warn(NULL, "'-run' with cross-compiled binary");
    }
@@ -805,8 +783,7 @@ dorun(void)
 }
 
 static int
-driver(void)
-{
+driver(void) {
    void cpp(WriteBuf *, const char *);
    vrbfmt("# Target: %s\n", task.targ ? task.targ : HOST_TRIPLE);
    if (task.syntaxonly)
@@ -860,8 +837,7 @@ driver(void)
 }
 
 static int
-cc1(const char *out, const char *in)
-{
+cc1(const char *out, const char *in) {
    void ccomp(const char *);
    extern int nerror;
 
@@ -873,8 +849,7 @@ cc1(const char *out, const char *in)
 }
 
 static void
-detectcolor(void)
-{
+detectcolor(void) {
    const char *s;
    if (!isatty(STDERR_FILENO)
     || ((s = getenv("NO_COLOR")) && *s)
@@ -883,15 +858,13 @@ detectcolor(void)
 }
 
 static void
-sysinclpaths(void)
-{
+sysinclpaths(void) {
    for (int i = 0; i < countof(host_incldirs) && host_incldirs[i]; ++i)
       addinclpath(CINCLsys, host_incldirs[i]);
 }
 
 static void
-prihelp(void)
-{
+prihelp(void) {
    pfmt("antcc version "ANTCC_VERSION_STR"\n"
         "Usage: antcc [options] infile(s)...\n"
         "       antcc [options] -run infile [arguments...]\n"
@@ -933,8 +906,7 @@ prihelp(void)
 static const TargTriple host_targ = { HOST_ARCH, HOST_OS, HOST_ABI };
 
 int
-main(int argc, char **argv)
-{
+main(int argc, char **argv) {
    globarena->cap = sizeof(_arenamem.mem) - sizeof(Arena);
 
    ioinit();

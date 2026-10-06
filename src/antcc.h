@@ -73,8 +73,7 @@ ilog2(u64int x) { /* assumes x is a power of 2 */
 #define lowestsetbit(x) __builtin_ctzll(x)
 #else
 static inline uint
-lowestsetbit(u64int x)
-{
+lowestsetbit(u64int x) {
    int i = 0;
    for (u64int mask = 1;; ++i, mask <<= 1)
       if (x & mask)
@@ -200,8 +199,7 @@ internstr intern_(const char *, uint len);
 #define xbnew_(n) (void *)(1 + (size_t *)xcalloc(sizeof(size_t) + (n)))
 #define xbcap_(p) ((size_t *)(p))[-1]
 static inline void
-xbgrow_(void **p, size_t n)
-{
+xbgrow_(void **p, size_t n) {
    if (!n) return;
    if (!*p) { *p = xbnew_(n); xbcap_(*p) = n; assert(n>0); }
    else if (xbcap_(*p) < n) {
@@ -237,8 +235,7 @@ Arena *newarena(uint chunksiz);
 void *alloc(Arena **, uint siz, uint align);
 void *allocz(Arena **, uint siz, uint align);
 static inline void *
-alloccopy(Arena **arena, const void *src, uint siz, uint align)
-{
+alloccopy(Arena **arena, const void *src, uint siz, uint align) {
    if (!siz) return NULL;
    return memcpy(alloc(arena, siz, align), src, siz);
 }

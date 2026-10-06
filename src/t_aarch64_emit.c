@@ -45,8 +45,7 @@ typedef struct Oper {
 #define mkoper(t, ...) ((Oper){(t), __VA_ARGS__})
 #define reg2oper(r) (assert((uint)(r) <= V(31)), mkoper(OREG, .reg = (r)))
 
-static inline bool usegot(int c)
-{
+static inline bool usegot(int c) {
    const IRCon *con = &contab.p[c];
    return ((ccopt.pic | ccopt.pie) || (con->flag & SFUNC))
        && !con->deref && !con->isdat
@@ -65,8 +64,7 @@ typedef struct Frame {
 static Frame frame;
 
 static int
-stackdisp(int i)
-{
+stackdisp(int i) {
    if (frame.usefp) {
       return i < 0 ? frame.size - i - 8 /* arg */
                    : 16 + i;
@@ -77,8 +75,7 @@ stackdisp(int i)
 }
 
 static Oper
-mkmemoper(uint msiz, Ref r)
-{
+mkmemoper(uint msiz, Ref r) {
    if (r.t == RTMP) {
       assert(in_range(instrtab[r.i].reg-1, R0, SP));
       return mkoper(OMEM, .m = {AIMMIDX, .base = instrtab[r.i].reg-1});
@@ -124,8 +121,7 @@ mkmemoper(uint msiz, Ref r)
 }
 
 static Oper
-ref2oper(Ref r)
-{
+ref2oper(Ref r) {
    switch (r.t) {
    case RTMP: return instrtab[r.i].reg ? mkoper(ONONE,) : reg2oper(instrtab[r.i].reg-1);
    case RREG: return reg2oper(r.i);
@@ -202,8 +198,7 @@ typedef struct EncDesc {
 
 /* match operand against pattern */
 static inline bool
-opermatch(enum operpat pat, enum irclass k, Oper o)
-{
+opermatch(enum operpat pat, enum irclass k, Oper o) {
    switch (pat) {
    case PNONE: return !o.t;
    case PGPRZ:
@@ -257,8 +252,7 @@ static internstr curfnsym;
 /* Given an instruction description table, find the first entry that matches
  * the operands and encode it. */
 static void
-encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper o[3])
-{
+encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper o[3]) {
    const EncDesc *en = NULL;
    for (int i = 0; i < ntab; ++i) {
       if (!(tab[i].psiz & cls2siz[k])) continue;
@@ -413,8 +407,7 @@ DEFINSTR3(Xsubs,
 )
 
 static void
-Xmadd(uchar **pcode, enum irclass k, Oper d, Oper n, Oper m, Oper a)
-{
+Xmadd(uchar **pcode, enum irclass k, Oper d, Oper n, Oper m, Oper a) {
    assert(opermatch(PGPRZ, k, d) && opermatch(PGPRZ, k, n)
        && opermatch(PGPRZ, k, a) && opermatch(PGPRZ, k, m));
    uint sf = k > KI32;
@@ -422,8 +415,7 @@ Xmadd(uchar **pcode, enum irclass k, Oper d, Oper n, Oper m, Oper a)
 }
 
 static void
-Xmsub(uchar **pcode, enum irclass k, Oper d, Oper n, Oper m, Oper a)
-{
+Xmsub(uchar **pcode, enum irclass k, Oper d, Oper n, Oper m, Oper a) {
    assert(opermatch(PGPRZ, k, d) && opermatch(PGPRZ, k, n)
        && opermatch(PGPRZ, k, a) && opermatch(PGPRZ, k, m));
    uint sf = k > KI32;
@@ -450,16 +442,14 @@ DEFINSTR3(Xlslv, {4|8, {PGPRZ, PGPRZ, PGPRZ}, 0x1AC02000, EN_ARITH3R})
 DEFINSTR3(Xlsrv, {4|8, {PGPRZ, PGPRZ, PGPRZ}, 0x1AC02400, EN_ARITH3R})
 DEFINSTR3(Xasrv, {4|8, {PGPRZ, PGPRZ, PGPRZ}, 0x1AC02800, EN_ARITH3R})
 static void
-Xubfm(uchar **pcode, enum irclass k, Oper rd, Oper rn, uint immr, uint imms)
-{
+Xubfm(uchar **pcode, enum irclass k, Oper rd, Oper rn, uint immr, uint imms) {
    uint x = k != KI32;
    uint nbit = x ? 64 : 32;
    assert(opermatch(PGPRZ, k, rd) && opermatch(PGPRZ, k, rn) && immr < nbit && imms < nbit);
    W32(x<<31 | 0x53000000 | x<<22 | immr<<16 | imms<<10 | rn.reg<<5 | rd.reg);
 }
 static void
-Xsbfm(uchar **pcode, enum irclass k, Oper rd, Oper rn, uint immr, uint imms)
-{
+Xsbfm(uchar **pcode, enum irclass k, Oper rd, Oper rn, uint immr, uint imms) {
    uint x = k != KI32;
    uint nbit = x ? 64 : 32;
    assert(opermatch(PGPRZ, k, rd) && opermatch(PGPRZ, k, rn) && immr < nbit && imms < nbit);
@@ -559,8 +549,7 @@ DEFINSTR3(Xfstp,
    {8, {PFPR, PFPR, PMEMPREPOSTXP}, 0x6C800000, EN_MEMPREPOSTXP} /* STP (immediate, (pre/postinc)) */
 )
 static void
-Xcall(uchar **pcode, Oper dst)
-{
+Xcall(uchar **pcode, Oper dst) {
    if (in_range(dst.t, OSYM, OSYMGOT)) {
       objrelocxcon(dst.con, REL_CALL26, Stext, *pcode - objout.textbegin, 0);
       W32(0x94000000); /* BL <rel26> */
@@ -601,8 +590,7 @@ DEFINSTR2(Xrev,
 )
 
 static void
-genmovimm(uchar **pcode, enum irclass cls, Oper dst, u64int u)
-{
+genmovimm(uchar **pcode, enum irclass cls, Oper dst, u64int u) {
    assert(dst.t == OREG && dst.reg <= R(31));
    /* MOV r, #imm */
    if (~u <= 0xFFFF) {
@@ -631,8 +619,7 @@ genmovimm(uchar **pcode, enum irclass cls, Oper dst, u64int u)
 /* if can encode given immediate with pattern, return it
  * otherwise, load imm to scratch reg #2 (IP1/r17) and return reg */
 static Oper
-imm_or_reg(uchar **pcode, enum irclass cls, enum operpat pat, int imm)
-{
+imm_or_reg(uchar **pcode, enum irclass cls, enum operpat pat, int imm) {
    assert(cls == KI32);
    Oper oper = mkoper(OIMM, .imm = imm);
    if (!opermatch(pat, cls, oper)) {
@@ -643,8 +630,7 @@ imm_or_reg(uchar **pcode, enum irclass cls, enum operpat pat, int imm)
 }
 
 static void
-gencopy(uchar **pcode, enum irclass cls, Oper dst, Ref val)
-{
+gencopy(uchar **pcode, enum irclass cls, Oper dst, Ref val) {
    assert(dst.t == OREG);
    assert(cls);
    Oper src;
@@ -689,8 +675,7 @@ gencopy(uchar **pcode, enum irclass cls, Oper dst, Ref val)
 }
 
 static Oper
-genmemoper(uchar **pcode,  enum irclass k, uint msiz, Ref r)
-{
+genmemoper(uchar **pcode,  enum irclass k, uint msiz, Ref r) {
    Oper oper = mkmemoper(msiz, r);
    assert(oper.t == OMEM || in_range(oper.t, OSYM, OSYMGOT));
    if (oper.t == OMEM && oper.m.base == FP && oper.m.mode == AIMMIDX) {
@@ -723,8 +708,7 @@ enum cc {
 };
 
 static void
-Xbcc(uchar **pcode, enum cc cc, Block *dst)
-{
+Xbcc(uchar **pcode, enum cc cc, Block *dst) {
    int disp, insaddr = *pcode - objout.textbegin;
 
    if (blkaddr[dst->id].resolved) {
@@ -739,8 +723,7 @@ Xbcc(uchar **pcode, enum cc cc, Block *dst)
 }
 
 static void
-Xcbcc(uchar **pcode, enum irclass k, uint rt, enum cc cc, Block *dst)
-{
+Xcbcc(uchar **pcode, enum irclass k, uint rt, enum cc cc, Block *dst) {
    int disp, insaddr = *pcode - objout.textbegin;
    if (blkaddr[dst->id].resolved) {
       disp = (int)(blkaddr[dst->id].addr - insaddr)/4;
@@ -755,8 +738,7 @@ Xcbcc(uchar **pcode, enum irclass k, uint rt, enum cc cc, Block *dst)
 }
 
 static void
-Xvaprologue(uchar **pcode, Function *fn, Oper sav)
-{
+Xvaprologue(uchar **pcode, Function *fn, Oper sav) {
    int named_gr = 0, named_vr = 0;
    for (int i = 0; i < fn->nabiarg; ++i) {
       ABIArg abi = fn->abiarg[i];
@@ -790,8 +772,7 @@ static const schar icmpop2cc[] = {
 };
 
 static bool
-cmpzero2branchok(Block *blk, Instr *ins)
-{
+cmpzero2branchok(Block *blk, Instr *ins) {
    /* can transform compare-with-zero + branch sequence into CBZ/CBNZ (compare-zero-and-branch)
     * only if cmp instr is last in block; regalloc could have clobbered reg otherwise
     * when inserting moves for phis. overly conservative but it's ok */
@@ -800,8 +781,7 @@ cmpzero2branchok(Block *blk, Instr *ins)
 }
 
 static void
-emitbranch(uchar **pcode, Block *blk)
-{
+emitbranch(uchar **pcode, Block *blk) {
    enum irclass cbk = 0;
    Oper cbopr;
    enum cc cc = CCAL;
@@ -843,8 +823,7 @@ emitbranch(uchar **pcode, Block *blk)
 }
 
 static void
-emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins)
-{
+emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins) {
    Oper dst, o1, o2;
    enum irclass cls = ins->cls;
    void (*X3)(uchar **, enum irclass, Oper, Oper, Oper) = NULL;
@@ -1030,8 +1009,7 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins)
 }
 
 static void
-prologue(uchar **pcode, Frame *frame, Function *fn)
-{
+prologue(uchar **pcode, Frame *frame, Function *fn) {
    *frame = (Frame){0};
    regset save = frame->save = fn->regusage & mctarg->rcallee;
    Oper adr = mkoper(OMEM, .m = {.mode = APREIDX, .base = SP, .disp = -16});
@@ -1104,8 +1082,7 @@ prologue(uchar **pcode, Frame *frame, Function *fn)
 }
 
 static void
-epilogue(uchar **pcode, Function *fn, Frame *frame)
-{
+epilogue(uchar **pcode, Function *fn, Frame *frame) {
    Oper adr = mkoper(OMEM, .m = {.mode = APOSTIDX, .base = SP, .disp = 16+fn->stksiz+8*frame->nsingle});
    if (frame->usefp) {
       if (opermatch(PMEMPREPOSTXP, KPTR, adr)) {
@@ -1142,8 +1119,7 @@ epilogue(uchar **pcode, Function *fn, Frame *frame)
 }
 
 static void
-emitbin(Function *fn)
-{
+emitbin(Function *fn) {
    Block *blk;
    uchar **pcode = &objout.code;
 
@@ -1218,8 +1194,7 @@ emitbin(Function *fn)
 }
 
 void
-aarch64_emit(Function *fn)
-{
+aarch64_emit(Function *fn) {
    fn->stksiz = alignup(fn->stksiz, 8);
    if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
    emitbin(fn);

@@ -166,8 +166,7 @@ typedef u64int regset;
 #define rsclr(pS, r) (*(pS) &=~ (1ull << (r)))
 #define rstest(S, r) ((S) >> (r) & 1)
 static inline bool
-rsiter(int *i, u64int rs)
-{
+rsiter(int *i, u64int rs) {
    if (*i > 63) return 0;
    u64int mask = -(1ull << *i);
    if ((rs & mask) == 0) return 0;

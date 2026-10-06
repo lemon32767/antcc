@@ -5,16 +5,14 @@
 #include <limits.h>
 
 static int
-forcenumtype(enum typetag tt)
-{
+forcenumtype(enum typetag tt) {
    if (tt == TYLDOUBLE) return TYDOUBLE; /* NYI */
    if (tt == TYPTR) return targ_64bit ? TYUVLONG : TYUINT;
    return tt;
 }
 
 s64int
-intcast(enum typetag to, s64int x)
-{
+intcast(enum typetag to, s64int x) {
    assert(isintt(to));
    if (to == TYBOOL) return !!x;
    int n = 8*targ_primsizes[to];
@@ -28,8 +26,7 @@ intcast(enum typetag to, s64int x)
 }
 
 static bool
-numcast(Type ty, Expr *dst, const Expr *src)
-{
+numcast(Type ty, Expr *dst, const Expr *src) {
    enum typetag td = forcenumtype(scalartypet(ty)),
                 ts = forcenumtype(scalartypet(src->ty));
    s64int isrc;
@@ -72,8 +69,7 @@ numcast(Type ty, Expr *dst, const Expr *src)
 }
 
 static Expr *
-lit2ssym(Expr *ex)
-{
+lit2ssym(Expr *ex) {
    ex->ssym.sym = xcon2sym(expraddr(NULL, ex).i);
    ex->ssym.local = 1;
    ex->ssym.func = 0;
@@ -83,8 +79,7 @@ lit2ssym(Expr *ex)
 }
 
 static Expr
-staticaddrof(Expr *ex, enum evalmode mode)
-{
+staticaddrof(Expr *ex, enum evalmode mode) {
    Expr ret = { .ty = mkptrtype(ex->ty, ex->qual), .span = ex->span };
    if (ex->t == ESYM && ex->ty.t < NTYPETAG) {
       const Decl *decl = &declsbuf.p[ex->decl];
@@ -113,14 +108,12 @@ staticaddrof(Expr *ex, enum evalmode mode)
 }
 
 static bool
-isstaticlval(const Expr *ex, enum evalmode mode)
-{
+isstaticlval(const Expr *ex, enum evalmode mode) {
    return ex->t == ESTRLIT || ex->t == ESSYMREF || (mode == EVSTATICINI && ex->t == EINIT);
 }
 
 static bool
-truthy(const Expr *ex)
-{
+truthy(const Expr *ex) {
    switch (ex->t) {
    default: assert(0 && "!scalar?");
    case ENUMLIT:
@@ -131,8 +124,7 @@ truthy(const Expr *ex)
 }
 
 static bool
-unop(Expr *ex, enum evalmode mode)
-{
+unop(Expr *ex, enum evalmode mode) {
    Expr *sub = ex->sub, ex2;
 
    if (mode >= EVSTATICINI && ex->t == EDEREF) {
@@ -246,8 +238,7 @@ unop(Expr *ex, enum evalmode mode)
 }
 
 static bool
-binop(Expr *ex, enum evalmode mode)
-{
+binop(Expr *ex, enum evalmode mode) {
    Expr *a = &ex->sub[0], *b = &ex->sub[1];
    if (!eval(a, mode)) return 0;
    Type opty;
@@ -392,8 +383,7 @@ binop(Expr *ex, enum evalmode mode)
 }
 
 static bool
-tryreadconst(Expr *ex)
-{
+tryreadconst(Expr *ex) {
    assert(ex->t == ESYM);
    const struct Decl *decl = &declsbuf.p[ex->decl];
    assert(decl->ty.bits == ex->ty.bits && isarith(ex->ty));
@@ -429,8 +419,7 @@ tryreadconst(Expr *ex)
 }
 
 bool
-eval(Expr *ex, enum evalmode mode)
-{
+eval(Expr *ex, enum evalmode mode) {
    if (iscomplex(ex->ty)) return 0;
    switch (ex->t) {
    case EGETF: goto Unop;

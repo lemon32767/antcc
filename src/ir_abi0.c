@@ -10,8 +10,7 @@
 typedef vec_of(ABIArg) ABIArgVec;
 
 static int
-abiret(ABIArg abiret[2], ABIArgVec *abiargs, uchar *r2off, int *ni, IRType retty)
-{
+abiret(ABIArg abiret[2], ABIArgVec *abiargs, uchar *r2off, int *ni, IRType retty) {
    short r[2];
    uchar cls[2];
    int retreg = 0;
@@ -38,8 +37,7 @@ abiret(ABIArg abiret[2], ABIArgVec *abiargs, uchar *r2off, int *ni, IRType retty
 }
 
 static int
-abiarg(ABIArgVec *abiargs, uchar *r2off, int *ni, int *nf, int *ns, IRType ty)
-{
+abiarg(ABIArgVec *abiargs, uchar *r2off, int *ni, int *nf, int *ns, IRType ty) {
    short r[2];
    uchar cls[2];
    int ret = mctarg->abiarg(r, cls, r2off, ni, nf, ns, ty);
@@ -61,8 +59,7 @@ abiarg(ABIArgVec *abiargs, uchar *r2off, int *ni, int *nf, int *ns, IRType ty)
 }
 
 static Instr
-copyparam(Function *fn, int *curi, int param, ABIArg abi)
-{
+copyparam(Function *fn, int *curi, int param, ABIArg abi) {
    Instr par = mkinstr2(Oparam, abi.ty.cls, mkref(RICON, param), mktyperef(abi.ty));
    if (!abi.isstk) { /* reg */
       assert(!abi.ty.isagg);
@@ -88,8 +85,7 @@ copyparam(Function *fn, int *curi, int param, ABIArg abi)
 }
 
 static void
-patchparam(Function *fn, int *curi, int *param, int tydat, int nabi, ABIArg abi[2], uchar r2off)
-{
+patchparam(Function *fn, int *curi, int *param, int tydat, int nabi, ABIArg abi[2], uchar r2off) {
    Block *blk = fn->entry;
 
    for (; *curi < blk->ins.n; ++*curi) {
@@ -143,8 +139,7 @@ patchparam(Function *fn, int *curi, int *param, int tydat, int nabi, ABIArg abi[
 }
 
 static void
-load2regs(Ref out[2], IRType typ, Ref src, int nabi, ABIArg abi[2], uchar r2off, Block *blk, int *curi)
-{
+load2regs(Ref out[2], IRType typ, Ref src, int nabi, ABIArg abi[2], uchar r2off, Block *blk, int *curi) {
    uint align = typedata[typ.dat].align;
    uint siz = typedata[typ.dat].siz;
    if (src.t == RTMP && oisalloca(instrtab[src.i].op)) {
@@ -208,8 +203,7 @@ load2regs(Ref out[2], IRType typ, Ref src, int nabi, ABIArg abi[2], uchar r2off,
 
 static int
 patcharg(Block *blk, int *icall, IRCall *call,
-         int argidx, int nabi, ABIArg abi[2], uchar r2off)
-{
+         int argidx, int nabi, ABIArg abi[2], uchar r2off) {
    int arginst = *icall - (call->narg - argidx);
    Instr *arg = &instrtab[blk->ins.p[arginst]];
    assert(arg->op == Oarg && arg->l.t == RTYPE);
@@ -258,8 +252,7 @@ patcharg(Block *blk, int *icall, IRCall *call,
    }
 }
 void
-abi0_call(Function *fn, Instr *ins, Block *blk, int *curi)
-{
+abi0_call(Function *fn, Instr *ins, Block *blk, int *curi) {
    Ref retmem;
    ABIArg abiargsbuf[32];
    ABIArgVec abiargs = VINIT(abiargsbuf, countof(abiargsbuf));
@@ -353,8 +346,7 @@ abi0_call(Function *fn, Instr *ins, Block *blk, int *curi)
 }
 
 void
-abi0(Function *fn)
-{
+abi0(Function *fn) {
    ABIArg abiargsbuf[32];
    uint nparam = typedata[fn->fnty.dat].nmemb;
    const Type *paramty = typedata[fn->fnty.dat].param;

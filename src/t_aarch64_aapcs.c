@@ -4,8 +4,7 @@
 
 
 static bool
-hfa_scalar(enum typetag *hfa_t, Type t)
-{
+hfa_scalar(enum typetag *hfa_t, Type t) {
    enum typetag tt;
    if (isflt(t)) tt = scalartypet(t);
    else if (iscomplex(t)) tt = t.t - TYCOMPLEXF + TYFLOAT;
@@ -18,8 +17,7 @@ hfa_scalar(enum typetag *hfa_t, Type t)
 static bool cls_hfa(enum typetag *, const TypeData *td);
 
 static bool
-hfa_arr(enum typetag *hfa_t, Type ty)
-{
+hfa_arr(enum typetag *hfa_t, Type ty) {
    Type chld = typechild(ty);
    if (isagg(chld))
       return cls_hfa(hfa_t, &typedata[chld.dat]);
@@ -29,8 +27,7 @@ hfa_arr(enum typetag *hfa_t, Type ty)
 }
 
 static bool
-cls_hfa(enum typetag *hfa_t, const TypeData *td)
-{
+cls_hfa(enum typetag *hfa_t, const TypeData *td) {
    assert(isaggt(td->t));
    for (int i = 0; i < td->nmemb; ++i) {
       FieldData *fld = &td->fld[i].f;
@@ -51,8 +48,7 @@ cls_hfa(enum typetag *hfa_t, const TypeData *td)
 }
 
 static enum irclass
-classify(const TypeData *td)
-{
+classify(const TypeData *td) {
    if (td->siz > 16) return 0;
    enum typetag hfa_t = 0;
    return cls_hfa(&hfa_t, td) ? type2cls[hfa_t] : (td->siz > 4 ? KI64 : KI32);
@@ -61,8 +57,7 @@ classify(const TypeData *td)
 /* XXX types with alignment >= 16 */
 
 static int
-abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType typ)
-{
+abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType typ) {
    enum { NINT = 8, NFLT = 8 };
    if (!typ.isagg) {
       if (kisflt(cls[0] = typ.cls) && *nf < 8) {
@@ -126,8 +121,7 @@ abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType
 }
 
 static int
-abiret(short r[2], uchar cls[2], uchar *r2off, int *_ni, IRType typ)
-{
+abiret(short r[2], uchar cls[2], uchar *r2off, int *_ni, IRType typ) {
    if (!typ.isagg) {
       r[0] = kisflt(cls[0] = typ.cls) ? V(0) : R0;
       return 1;
@@ -162,8 +156,7 @@ enum {
 
 /* !!keep in sync with emit()'s xvaprologue */
 static void
-vastart(Function *fn, Block *blk, int *curi)
-{
+vastart(Function *fn, Block *blk, int *curi) {
    int named_gr = 0, named_vr = 0, named_stk = 0;
    Instr *ins = &instrtab[blk->ins.p[*curi]];
    Ref ap = ins->l, dst, src;
@@ -211,8 +204,7 @@ vastart(Function *fn, Block *blk, int *curi)
 }
 
 static void
-vaarg(Function *fn, Block *blk, int *curi)
-{
+vaarg(Function *fn, Block *blk, int *curi) {
    short r[2];
    uchar cls[2];
    int ngr = 0, nvr = 0, nstk = 0;

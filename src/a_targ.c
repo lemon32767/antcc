@@ -23,8 +23,7 @@ bool targ_charsigned, targ_bigendian, targ_64bit;
 const struct MCTarg *mctarg;
 
 static bool
-matchstr(const char **s, const char *pat)
-{
+matchstr(const char **s, const char *pat) {
    const char *p;
    for (p = *s; *pat; ++p, ++pat) {
       if (*pat == '$') { if (*p) return 0; else break; }
@@ -35,8 +34,7 @@ matchstr(const char **s, const char *pat)
 }
 
 static bool
-parsetriple(TargTriple *trg, const char *str)
-{
+parsetriple(TargTriple *trg, const char *str) {
    if (matchstr(&str, "x86_64-") || matchstr(&str, "amd64-"))
       trg->arch = ISx86_64;
    else if (matchstr(&str, "aarch64-") || matchstr(&str, "arm64-"))
@@ -81,8 +79,7 @@ _Static_assert(countof(ospredefs) == NUM_MC_OS, "missing os");
 
 /* https://gcc.gnu.org/onlinedocs/cpp/Common-Predefined-Macros.html */
 static void
-putpredefmacros(void)
-{
+putpredefmacros(void) {
    for (const char *s = ospredefs[target.os]; s && *s; s = s + strlen(s)+1)
       cpp0define(s, NULL);
    for (const char *s = archpredefs[target.arch]; s && *s; s = s + strlen(s)+1)
@@ -157,8 +154,7 @@ putpredefmacros(void)
 }
 
 bool
-targ_init(const char *starg, const TargTriple *dfault)
-{
+targ_init(const char *starg, const TargTriple *dfault) {
    const struct Targ *t = NULL;
    uchar *sizes = targ_primsizes, *align = targ_primalign;
 

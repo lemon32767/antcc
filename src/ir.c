@@ -43,8 +43,7 @@ static int naddrht;
 int visitmark;
 
 void
-irinit(Function *fn)
-{
+irinit(Function *fn) {
    static IRCall callsbuf[64];
    static Ref *phisbuf[64];
    static IRDat datsbuf[64];
@@ -89,8 +88,7 @@ irinit(Function *fn)
 }
 
 static int
-newaddr(const IRAddr *addr)
-{
+newaddr(const IRAddr *addr) {
    if (addrtab.n >= naddrht/4*3 /*75% load factor */) {
       xbgrowz(&addrht, naddrht*2);
       memset(addrht, 0, naddrht * sizeof *addrht);
@@ -117,16 +115,14 @@ newaddr(const IRAddr *addr)
 }
 
 Ref
-newxcon(const IRCon *con)
-{
+newxcon(const IRCon *con) {
    assert((con->issym ^ con->isdat) || con->cls);
    vpush(&contab, *con);
    return mkref(RXCON, contab.n-1);
 }
 
 IRType
-mkirtype(Type t)
-{
+mkirtype(Type t) {
    if (iscomplex(t)) t = complex2struct(t);
    if (t.t == TYVOID || isscalar(t))
       return (IRType) { .cls = type2cls[scalartypet(t)] };
@@ -135,8 +131,7 @@ mkirtype(Type t)
 }
 
 Ref
-mkintcon(enum irclass k, s64int i)
-{
+mkintcon(enum irclass k, s64int i) {
    if (cls2siz[k] == 4) { /* check upper half is zero or -1 */
       assert(in_range((i >> 32) + 1, 0, 1));
       i = (int)i;
@@ -150,30 +145,26 @@ mkintcon(enum irclass k, s64int i)
 }
 
 Ref
-mkfltcon(enum irclass k, double f)
-{
+mkfltcon(enum irclass k, double f) {
    IRCon con = { .cls = k, .f = k == KF32 ? (float) f : f };
    return newxcon(&con);
 }
 
 Ref
-mksymref(internstr s, enum symflags symflags)
-{
+mksymref(internstr s, enum symflags symflags) {
    IRCon con = { .issym = 1, .sym = s, .flag = symflags };
    return newxcon(&con);
 }
 
 static bool
-textdataok(void)
-{
+textdataok(void) {
    /* openbsd enforces R^X for .text */
    return target.os != OSopenbsd;
 }
 
 Ref
 mkdatref(internstr name, Type ctype, uint siz, uint align,
-         const void *bytes, uint n, bool deref, bool funclocal)
-{
+         const void *bytes, uint n, bool deref, bool funclocal) {
    IRDat dat = { .ctype = ctype, .align = align, .siz = siz, .name = name, .section = Srodata };
 
    if (funclocal && textdataok() && objout.code
@@ -199,16 +190,14 @@ mkdatref(internstr name, Type ctype, uint siz, uint align,
 }
 
 internstr
-xcon2sym(int ref)
-{
+xcon2sym(int ref) {
    IRCon con = contab.p[ref];
    assert(con.issym ^ con.isdat);
    return con.issym ? con.sym : dattab.p[con.dat].name;
 }
 
 Instr
-mkalloca(uint siz, uint align)
-{
+mkalloca(uint siz, uint align) {
    Instr ins = { .cls = KPTR };
    assert(ispo2(align) && align <= 16);
    ins.op = Oalloca1 + ilog2(align);
@@ -217,8 +206,7 @@ mkalloca(uint siz, uint align)
 }
 
 Ref
-mkcallarg(IRType ret, uint narg, int vararg)
-{
+mkcallarg(IRType ret, uint narg, int vararg) {
    IRCall call = { .ret=ret, .narg=narg, .vararg=vararg };
    assert(vararg == -1 || (uint)vararg <= narg);
    vpush(&calltab, call);
@@ -226,14 +214,12 @@ mkcallarg(IRType ret, uint narg, int vararg)
 }
 
 Ref
-mkaddr(IRAddr addr)
-{
+mkaddr(IRAddr addr) {
    return mkref(RADDR, newaddr(&addr));
 }
 
 void
-addpred(Block *blk, Block *p)
-{
+addpred(Block *blk, Block *p) {
    if (blk->npred == 0) {
       blk->_pred0 = p;
       ++blk->npred;
@@ -249,8 +235,7 @@ addpred(Block *blk, Block *p)
 }
 
 int
-delpred(Block *blk, Block *p)
-{
+delpred(Block *blk, Block *p) {
    for (int i = 0; i < blk->npred; ++i) {
       if (blkpred(blk, i) == p) {
          for (int j = 0; j < blk->phi.n; ++j) {
@@ -280,16 +265,14 @@ enum {
 };
 
 Block *
-newblk(Function *fn)
-{
+newblk(Function *fn) {
    Block *blk = allocz(fn->arena, sizeof(Block), 0);
    blk->id = BLKUNINIT;
    return blk;
 }
 
 void
-freeblk(Function *fn, Block *blk)
-{
+freeblk(Function *fn, Block *blk) {
    if (blk->npred > 1)
       xbfree(blk->_pred);
    blk->npred = 0;
@@ -323,8 +306,7 @@ freeblk(Function *fn, Block *blk)
 }
 
 Block *
-insertblk(Function *fn, Block *pred, Block *subst)
-{
+insertblk(Function *fn, Block *pred, Block *subst) {
    Block *new = newblk(fn);
    Block **s = pred->s1 == subst ? &pred->s1 : &pred->s2;
    assert(*s == subst);
@@ -352,8 +334,7 @@ insertblk(Function *fn, Block *pred, Block *subst)
 }
 
 Block *
-blksplitafter(Function *fn, Block *blk, int idx)
-{
+blksplitafter(Function *fn, Block *blk, int idx) {
    Block *new = newblk(fn);
    ++fn->nblk;
    new->lprev = blk;
@@ -387,8 +368,7 @@ blksplitafter(Function *fn, Block *blk, int idx)
 }
 
 int
-allocinstr(void)
-{
+allocinstr(void) {
    int t;
    if (instrfreelist != -1) {
       t = instrfreelist;
@@ -405,8 +385,7 @@ allocinstr(void)
 }
 
 static inline void
-freeinstr(int t)
-{
+freeinstr(int t) {
    instrtab[t].op = Oxxx;
    instrtab[t].l = mkref(RXXX, instrfreelist);
    instrfreelist = t;
@@ -449,8 +428,7 @@ deluse(Block *ublk, int ui, Ref r) {
 }
 
 void
-filluses(Function *fn)
-{
+filluses(Function *fn) {
    Block *blk = fn->entry;
 
    for (int i = 0; i < ninstrtab; ++i)
@@ -477,8 +455,7 @@ filluses(Function *fn)
 
 
 void
-inschoper(Block *b, Instr *ins, int i, Ref r)
-{
+inschoper(Block *b, Instr *ins, int i, Ref r) {
    int t = ins - instrtab;
    Ref *o = &ins->oper[i];
    deluse(b, t, *o);
@@ -487,8 +464,7 @@ inschoper(Block *b, Instr *ins, int i, Ref r)
 }
 
 int
-newinstr(Block *at, Instr ins)
-{
+newinstr(Block *at, Instr ins) {
    int new = allocinstr();
    instrtab[new] = ins;
    if (at) {
@@ -499,8 +475,7 @@ newinstr(Block *at, Instr ins)
 }
 
 Ref
-insertinstr(Block *blk, int idx, Instr ins)
-{
+insertinstr(Block *blk, int idx, Instr ins) {
    int new = newinstr(blk, ins);
    if (idx == blk->ins.n) vpush(&blk->ins, new);
    else {
@@ -515,8 +490,7 @@ insertinstr(Block *blk, int idx, Instr ins)
 }
 
 Ref
-insertphi(Block *blk, enum irclass cls)
-{
+insertphi(Block *blk, enum irclass cls) {
    int new = allocinstr();
    Ref *refs = NULL;
    assert(blk->npred > 0);
@@ -528,8 +502,7 @@ insertphi(Block *blk, enum irclass cls)
 }
 
 uint
-numberinstrs(Function *fn)
-{
+numberinstrs(Function *fn) {
    Block *blk = fn->entry;
    int start = 0;
    do {
@@ -540,8 +513,7 @@ numberinstrs(Function *fn)
 }
 
 static bool
-reachablerec(Function *fn, Block *blk)
-{
+reachablerec(Function *fn, Block *blk) {
    if (blk == fn->entry) return 1;
    markvisited(blk);
    if (blk->npred == 1 && !wasvisited(blkpred(blk, 0)))
@@ -554,16 +526,14 @@ reachablerec(Function *fn, Block *blk)
 }
 
 bool
-blkreachable(Function *fn, Block *blk)
-{
+blkreachable(Function *fn, Block *blk) {
    startbbvisit();
    return reachablerec(fn, blk);
 }
 
 /* require use */
 void
-replcuses(Ref from, Ref to, Block *at, enum replcusesmode m)
-{
+replcuses(Ref from, Ref to, Block *at, enum replcusesmode m) {
    assert(from.t == RTMP);
    assert(m == REPLC_ALL || at != NULL);
    for (IRUse *use, *next = instruse[from.i]; (use = next);) {
@@ -604,8 +574,7 @@ replcuses(Ref from, Ref to, Block *at, enum replcusesmode m)
 }
 
 void
-deluses(int ins)
-{
+deluses(int ins) {
    for (IRUse *use = instruse[ins], *next; use; use = next) {
       next = use->next;
       use->blk = 0;
@@ -617,8 +586,7 @@ deluses(int ins)
 }
 
 void
-delinstr(Block *blk, int idx)
-{
+delinstr(Block *blk, int idx) {
    int t = blk->ins.p[idx];
    assert(idx >= 0 && idx < blk->ins.n);
    for (int i = 0; i < 2; ++i) {
@@ -632,8 +600,7 @@ delinstr(Block *blk, int idx)
 }
 
 void
-delphi(Block *blk, int idx)
-{
+delphi(Block *blk, int idx) {
    int t = blk->phi.p[idx];
    assert(idx >= 0 && idx < blk->phi.n);
    freeinstr(t);
@@ -644,8 +611,7 @@ delphi(Block *blk, int idx)
 }
 
 void
-delnops(Block *blk)
-{
+delnops(Block *blk) {
    int i, n, t;
    /* delete trailing nops */
    while (blk->ins.n > 0 && instrtab[t = blk->ins.p[blk->ins.n - 1]].op == Onop) {
@@ -670,8 +636,7 @@ delnops(Block *blk)
 }
 
 void
-fillblkids(Function *fn)
-{
+fillblkids(Function *fn) {
    int i = 0;
    Block *blk = fn->entry;
    do blk->id = i++; while ((blk = blk->lnext) != fn->entry);
@@ -682,8 +647,7 @@ fillblkids(Function *fn)
 /** Misc **/
 
 static void
-freefn(Function *fn)
-{
+freefn(Function *fn) {
    Block *blk = fn->entry;
    do {
       if (blk->npred > 1) xbfree(blk->_pred);
@@ -693,8 +657,7 @@ freefn(Function *fn)
 }
 
 static void
-pass(Function *fn, const char *pname, void p(Function *))
-{
+pass(Function *fn, const char *pname, void p(Function *)) {
    if (dumpbefore(&fn->name->c, pname)) {
       bfmt(ccopt.dbg.out, "<< Before %s >>\n", pname);
       irdump(fn);
@@ -707,8 +670,7 @@ pass(Function *fn, const char *pname, void p(Function *))
 }
 
 static int
-ipass(Function *fn, const char *pname, int p(Function *), int n)
-{
+ipass(Function *fn, const char *pname, int p(Function *), int n) {
    if (dumpbefore(&fn->name->c, pname)) {
       bfmt(ccopt.dbg.out, "<< Before %s ", pname);
       if (n) bfmt(ccopt.dbg.out, "#%d ", n+1);
@@ -726,8 +688,7 @@ ipass(Function *fn, const char *pname, int p(Function *), int n)
 }
 
 static void
-optimize(Function *fn)
-{
+optimize(Function *fn) {
    int redo, fuel = ccopt.o > OPT1 ? 3 : 1, iter = 0;
    do {
       redo = 0;
@@ -753,8 +714,7 @@ optimize(Function *fn)
 }
 
 void
-irfini(Function *fn)
-{
+irfini(Function *fn) {
    extern int nerror;
    static union { char m[sizeof(Arena) + (1<<14)]; Arena *_align; } amem;
    Arena *passarena = (void *)&amem.m;
@@ -793,8 +753,7 @@ irfini(Function *fn)
 }
 
 void
-irfini_end(Function *fn)
-{
+irfini_end(Function *fn) {
    pass(fn, "lowerstack", lowerstack);
    freearena(fn->passarena);
    pass(fn, "isel", mctarg->isel);

@@ -6,8 +6,7 @@
 static int iflagsrc = -1;
 
 static inline uint
-clz(u64int x)
-{
+clz(u64int x) {
 #if HAS_BUILTIN(clzll)
    return __builtin_clzll(x);
 #else
@@ -21,8 +20,7 @@ clz(u64int x)
 
 /* Encode logical immediate */
 bool
-aarch64_logimm(uint *enc, enum irclass k, u64int x)
-{
+aarch64_logimm(uint *enc, enum irclass k, u64int x) {
    /* https://github.com/v8/v8/blob/927ccc6076e25a614787c7011315468e40fe39a4/src/codegen/arm64/assembler-arm64.cc#L4409 */
    if (k == KI32) x = (uint)x | x << 32;
    bool neg;
@@ -74,8 +72,7 @@ aarch64_logimm(uint *enc, enum irclass k, u64int x)
 
 static void fixarg(Ref *r, Instr *ins, Block *blk, int *curi);
 static void
-regarg(Ref *r, enum irclass k, Block *blk, int *curi)
-{
+regarg(Ref *r, enum irclass k, Block *blk, int *curi) {
    if (!r->t) {
       assert(r->bits == UNDREF.bits);
       *r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, k, *r));
@@ -90,8 +87,7 @@ regarg(Ref *r, enum irclass k, Block *blk, int *curi)
 }
 
 static void
-fixarg(Ref *r, Instr *ins, Block *blk, int *curi)
-{
+fixarg(Ref *r, Instr *ins, Block *blk, int *curi) {
    enum op op = ins ? ins->op : 0;
    if (isintcon(*r)) {
       s64int x = intconval(*r);
@@ -162,8 +158,7 @@ fixarg(Ref *r, Instr *ins, Block *blk, int *curi)
 }
 
 static bool
-arithfold(Instr *ins)
-{
+arithfold(Instr *ins) {
    if (isnumcon(ins->l) && (!ins->r.t || isnumcon(ins->r))) {
       Ref r;
       bool ok = ins->r.t ? foldbinop(&r, ins->op, ins->cls, ins->l, ins->r) : foldunop(&r, ins->op, ins->cls, ins->l);
@@ -175,8 +170,7 @@ arithfold(Instr *ins)
 }
 
 static void
-selcall(Function *fn, Instr *ins, Block *blk, int *curi)
-{
+selcall(Function *fn, Instr *ins, Block *blk, int *curi) {
    const IRCall *call = &calltab.p[ins->r.i];
    int iarg = *curi - 1;
    enum irclass cls;
@@ -235,8 +229,7 @@ selcall(Function *fn, Instr *ins, Block *blk, int *curi)
 }
 
 static bool
-aimm(IRAddr *addr, s64int disp)
-{
+aimm(IRAddr *addr, s64int disp) {
    if (addr->index.bits) return 0;
    s64int a = addr->disp;
    a += disp;
@@ -248,8 +241,7 @@ aimm(IRAddr *addr, s64int disp)
 }
 
 static bool
-ascale(IRAddr *addr, Ref a, Ref b, uint siz/*1,2,4,8*/)
-{
+ascale(IRAddr *addr, Ref a, Ref b, uint siz/*1,2,4,8*/) {
    if (b.t != RICON) return 0;
    if (addr->index.bits || addr->base.t == RSTACK
          || (addr->disp && !isaddrcon(addr->base,1))) return 0;
@@ -263,8 +255,7 @@ ascale(IRAddr *addr, Ref a, Ref b, uint siz/*1,2,4,8*/)
 }
 
 static bool
-aadd(IRAddr *addr, Block *blk, int *curi, Ref r, uint siz/*1,2,4,8*/)
-{
+aadd(IRAddr *addr, Block *blk, int *curi, Ref r, uint siz/*1,2,4,8*/) {
    if (r.t == RSTACK) {
       if (addr->base.bits) goto Ref;
       addr->base = r;
@@ -312,8 +303,7 @@ aadd(IRAddr *addr, Block *blk, int *curi, Ref r, uint siz/*1,2,4,8*/)
 }
 
 static bool
-fuseaddr(Ref *r, Block *blk, int *curi, uint siz/*1,2,4,8*/)
-{
+fuseaddr(Ref *r, Block *blk, int *curi, uint siz/*1,2,4,8*/) {
    IRAddr addr = {0};
 
    if (isaddrcon(*r,1)) return 1;
@@ -358,16 +348,14 @@ static const uchar storesz[] = {
 
 /* can use LDR* PC-relative literal form? only for local symbols in the .text section */
 static bool
-ldrlitok(enum op op, const IRCon *con)
-{
+ldrlitok(enum op op, const IRCon *con) {
    return in_range(op, Oloads32, Oloadf64)
       && (con->flag & SLOCAL)
       && objhassym(con->sym, NULL) == Stext;
 }
 
 static void
-loadstoreaddr(Block *blk, Ref *r, int *curi, enum op op)
-{
+loadstoreaddr(Block *blk, Ref *r, int *curi, enum op op) {
    uint siz = oisload(op) ? loadsz[op-Oloads8] : storesz[op-Ostorei8];
    if (isimm32(*r)) {
       regarg(r, KPTR, blk, curi);
@@ -388,8 +376,7 @@ loadstoreaddr(Block *blk, Ref *r, int *curi, enum op op)
 }
 
 static void
-sel(Function *fn, Instr *ins, Block *blk, int *curi)
-{
+sel(Function *fn, Instr *ins, Block *blk, int *curi) {
    Ref tmp;
    enum irclass cls;
    enum op op = ins->op;
@@ -533,8 +520,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi)
 }
 
 static void
-seljmp(Function *fn, Block *blk)
-{
+seljmp(Function *fn, Block *blk) {
    if (blk->jmp.t == Jb && blk->jmp.arg[0].bits) {
       int curi = blk->ins.n;
       fixarg(&blk->jmp.arg[0], NULL, blk, &curi);
@@ -571,8 +557,7 @@ seljmp(Function *fn, Block *blk)
 }
 
 void
-aarch64_isel(Function *fn)
-{
+aarch64_isel(Function *fn) {
    Block *blk = fn->entry;
 
    do {

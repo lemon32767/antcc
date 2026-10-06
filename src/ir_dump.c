@@ -7,8 +7,7 @@ static int nextdat;
 static WriteBuf *out = &bstdout;
 
 static bool
-prilitdat(const IRDat *dat, const char *prefix)
-{
+prilitdat(const IRDat *dat, const char *prefix) {
    uchar *p;
    switch (dat->section) {
       default: assert(0);
@@ -29,8 +28,7 @@ prilitdat(const IRDat *dat, const char *prefix)
 }
 
 static void
-pridat(const IRDat *dat)
-{
+pridat(const IRDat *dat) {
    static const char *snames[] = { [Sdata] = ".data", [Srodata] = ".rodata", [Stext] = ".text" };
    uchar *p;
    switch (dat->section) {
@@ -74,8 +72,7 @@ const char *clsname[] = {
 };
 
 static int
-prityp(WriteBuf *buf, IRType typ)
-{
+prityp(WriteBuf *buf, IRType typ) {
    if (!typ.isagg)
       return bfmt(buf, clsname[typ.cls]);
    else {
@@ -96,8 +93,7 @@ static const char *intrinname[] = {
 };
 
 int
-dumpref(WriteBuf *buf, enum op o, Ref ref)
-{
+dumpref(WriteBuf *buf, enum op o, Ref ref) {
    IRCon *con;
    int n = 0;
    switch (ref.t) {
@@ -175,14 +171,12 @@ dumpref(WriteBuf *buf, enum op o, Ref ref)
 }
 
 static void
-dumpref1(enum op o, Ref ref)
-{
+dumpref1(enum op o, Ref ref) {
    dumpref(out, o, ref);
 }
 
 static void
-dumpcall(WriteBuf *buf, IRCall *call)
-{
+dumpcall(WriteBuf *buf, IRCall *call) {
    if (call->ret.isagg) {
       bfmt(buf, "sret ");
       prityp(buf, call->ret);
@@ -197,8 +191,7 @@ dumpcall(WriteBuf *buf, IRCall *call)
 }
 
 void
-dumpinstr(WriteBuf *buf, const Instr *ins)
-{
+dumpinstr(WriteBuf *buf, const Instr *ins) {
    int i;
    if (ins->op == Omove) {
       bfmt(buf, "move %s ", clsname[ins->cls]);
@@ -232,8 +225,7 @@ dumpinstr(WriteBuf *buf, const Instr *ins)
 }
 
 void
-dumpinstr1(const Instr *ins)
-{
+dumpinstr1(const Instr *ins) {
    dumpinstr(out, ins);
    ioputc(out, '\n');
 }
@@ -241,8 +233,7 @@ dumpinstr1(const Instr *ins)
 static bool prinums;
 
 void
-dumpblk(Function *fn, Block *blk)
-{
+dumpblk(Function *fn, Block *blk) {
    static const char *jnames[] = { 0, "b", "ret", "trap" };
    int i;
    bfmt(out, "  @%d:", blk->id);
@@ -303,8 +294,7 @@ dumpblk(Function *fn, Block *blk)
 }
 
 void
-irdump(Function *fn)
-{
+irdump(Function *fn) {
    out = ccopt.dbg.out;
 
    if (ccopt.dbg.dumpparsed) {
@@ -348,8 +338,7 @@ irdump(Function *fn)
 }
 
 static bool
-inlist(const char *list, const char *x)
-{
+inlist(const char *list, const char *x) {
    assert(list && x && *x);
    if (!strcmp(list, "*")) return 1;
    const char *y = strstr(list, x);
@@ -359,22 +348,19 @@ inlist(const char *list, const char *x)
 }
 
 bool
-dumpfilt(const char *fn)
-{
+dumpfilt(const char *fn) {
    return !ccopt.dbg.dumpfilt || inlist(ccopt.dbg.dumpfilt, fn);
 }
 
 bool
-dumpbefore(const char *fn, const char *pass)
-{
+dumpbefore(const char *fn, const char *pass) {
    if (!ccopt.dbg.any) return 0;
    if (!ccopt.dbg.dumpbefore) return 0;
    return inlist(ccopt.dbg.dumpbefore, pass) && dumpfilt(fn);
 }
 
 bool
-dumpafter(const char *fn, const char *pass)
-{
+dumpafter(const char *fn, const char *pass) {
    if (!ccopt.dbg.any) return 0;
    if (!ccopt.dbg.dumpafter) return 0;
    return inlist(ccopt.dbg.dumpafter, pass) && dumpfilt(fn);

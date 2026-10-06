@@ -3,8 +3,7 @@ Hello World!
 */
 unsigned char M[1<<15];
 
-void bf(const char *p)
-{
+void bf(const char *p) {
    extern int putchar(int);
    extern int getchar(void);
    unsigned char *Mend = M + sizeof M;
