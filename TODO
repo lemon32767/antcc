@@ -44,7 +44,7 @@ opt regalloc interval splitting
 opt gcm gvn @ https://doi.org/10.1145/207110.207154
 
 COMPILE w/o patches
-git (debug assert failure in -O1 loopopt; need vla/alloca)
+git (debug assert failure in -O1 loopopt)
 tcl
 python
 SDL
