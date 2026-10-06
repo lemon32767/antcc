@@ -73,97 +73,6 @@ expect(CComp *cm, enum toktag t, const char *s) {
    return 1;
 }
 
-/******************************************/
-/* Data structures for declaration parser */
-/******************************************/
-
-enum declkind {
-   DTOPLEVEL,
-   DFUNCPARAM,
-   DFUNCPARAMOLD,
-   DFUNCVAR,
-   DFIELD,
-   DCASTEXPR,
-};
-
-/* Since a declaration can have multiple declarators, and we need to process
- * each one individually, the declaration parser is a state machine
- * (conceptually a generator coroutine); the state is zero-initialized (except
- * for the .kind field), each call to pdecl yields the next individual decl,
- * st.more indicates whether there are more decls left to parse (the coroutine
- * has yielded), or this declaration list is done (the coroutine has finalized)
- */
-typedef struct DeclState {
-   enum declkind kind;
-   Type base;
-   uchar scls; /* enum storageclass bitset */
-   uchar qual;
-   bool fninline : 1;
-   bool base0  : 1, /* caller set initial base type, but there may be declspecs to parse */
-        more   : 1, /* caller should keep calling pdecl to get next decl */
-        varini : 1, /* caller should parse an initializer ('=' <ini>) and
-                       call pdecl() to advance state before checking .more */
-        funcdef : 1, /* caller should parse an func definition ('{' <body> '}').
-                        the declaration list is finished. */
-        bitf    : 1, /* caller should parse a bitfield size and
-                        call pdecl() to advance state before checking .more */
-        tagdecl : 1, /* declarator is a tagged type */
-        empty   : 1; /* nothing decl (';') */
-   internstr *pnames; /* param names for function definition */
-   Span *pspans; /* param spans ditto */
-   uchar *pqual; /* param quals ditto */
-   Attrs attr;
-} DeclState;
-static Decl pdecl(DeclState *st, CComp *cm);
-
-static Decl *finddecl(CComp *cm, internstr name);
-
-/* next token starts a decl? */
-static bool
-isdecltok(CComp *cm) {
-   Token tk;
-   if (peek(cm, &tk) == TKIDENT) {
-      Decl *decl = finddecl(cm, tk.name);
-      return decl && decl->scls == SCTYPEDEF;
-   } else {
-      static const bool kws[] = {
-#define kw(x) [TKW##x-TKWBEGIN_] = 1
-         kw(auto), kw(extern), kw(static), kw(register), kw(typedef),
-         kw(_Thread_local), kw(thread_local), kw(_Static_assert),
-         kw(inline), kw(_Noreturn),
-         kw(const), kw(volatile), kw(restrict), kw(_Atomic),
-         kw(void), kw(float), kw(double), kw(_Complex),
-         kw(signed), kw(unsigned), kw(short), kw(long),
-         kw(int), kw(char), kw(_Bool), kw(bool), kw(__int128), kw(__uint128_t),
-         kw(struct), kw(union), kw(enum),
-         kw(__typeof__), kw(typeof), kw(typeof_unqual),
-         kw(__attribute__)
-#undef kw
-      };
-      return ((uint)tk.t-TKWBEGIN_) < countof(kws) && kws[tk.t-TKWBEGIN_];
-   }
-}
-
-/* next token starts an expr? */
-static bool
-isexprtok(CComp *cm) {
-   Token tk;
-   if (peek(cm, &tk) == TKIDENT) {
-      Decl *decl = finddecl(cm, tk.name);
-      return !decl || decl->scls != SCTYPEDEF;
-   } else {
-      static const bool tks[] = {
-#define tk(x) [x] = 1
-         tk('+'), tk('-'), tk('*'), tk('&'), tk('~'), tk('!'), tk(TKINC), tk(TKDEC),
-         tk(TKWsizeof), tk(TKW_Alignof), tk(TKWalignof), tk(TKWtrue), tk(TKWfalse),
-         tk('('), tk(TKNUMLIT), tk(TKCHRLIT), tk(TKSTRLIT), tk(TKW_Generic),
-         tk(TKW__builtin_va_arg),
-#undef tk
-      };
-      return tk.t < countof(tks) && tks[tk.t];
-   }
-}
-
 /**********************************/
 /* Environment (scope) management */
 /**********************************/
@@ -177,7 +86,7 @@ static Tagged envtaggedbuf[1<<7];
 static vec_of(Tagged) envtagged = VINIT(envtaggedbuf, countof(envtaggedbuf));
 struct Env {
    Env *up;
-   /* list of decls is implicitly envdecls[decl..ndecl] */
+   /* list of decls is implicitly declsbuf[decl..ndecl] */
    ushort decl, ndecl;
    /* ditto for envtagged[] */
    ushort tagged, ntagged;
@@ -283,7 +192,7 @@ mergeattr(Attrs *to, const Attrs *src) {
 
 static int
 putdecl(CComp *cm, Decl *decl) {
-   for (Env *env = cm->env; env; env = env->up) {
+   if (decl->name) for (Env *env = cm->env; env; env = env->up) {
       Decl *old;
       if (!env->up) {
          ushort *pi = pmap_get(&tldeclmap, decl->name);
@@ -390,6 +299,94 @@ deftagged(CComp *cm, Span *span, enum typetag tt, internstr name, Type ty, enum 
    return envaddtagged(cm->env, ty.t ? ty : mktagtype(name, &(TypeData){tt, TFUNKNOWN, .backing = enumbasety}), span)->ty;
 }
 
+/******************************************/
+/* Data structures for declaration parser */
+/******************************************/
+
+enum declkind {
+   DTOPLEVEL,
+   DFUNCPARAM,
+   DFUNCPARAMOLD,
+   DFUNCVAR,
+   DFIELD,
+   DCASTEXPR,
+};
+
+/* Since a declaration can have multiple declarators, and we need to process
+ * each one individually, the declaration parser is a state machine
+ * (conceptually a generator coroutine); the state is zero-initialized (except
+ * for the .kind field), each call to pdecl yields the next individual decl,
+ * st.more indicates whether there are more decls left to parse (the coroutine
+ * has yielded), or this declaration list is done (the coroutine has finalized)
+ */
+typedef struct DeclState {
+   enum declkind kind;
+   Type base;
+   uchar scls; /* enum storageclass bitset */
+   uchar qual;
+   bool fninline : 1;
+   bool base0  : 1, /* caller set initial base type, but there may be declspecs to parse */
+        more   : 1, /* caller should keep calling pdecl to get next decl */
+        varini : 1, /* caller should parse an initializer ('=' <ini>) and
+                       call pdecl() to advance state before checking .more */
+        funcdef : 1, /* caller should parse an func definition ('{' <body> '}').
+                        the declaration list is finished. */
+        bitf    : 1, /* caller should parse a bitfield size and
+                        call pdecl() to advance state before checking .more */
+        tagdecl : 1, /* declarator is a tagged type */
+        empty   : 1; /* nothing decl (';') */
+   Attrs attr;
+} DeclState;
+static Decl pdecl(DeclState *st, CComp *cm);
+
+static Decl *finddecl(CComp *cm, internstr name);
+
+/* next token starts a decl? */
+static bool
+isdecltok(CComp *cm) {
+   Token tk;
+   if (peek(cm, &tk) == TKIDENT) {
+      Decl *decl = finddecl(cm, tk.name);
+      return decl && decl->scls == SCTYPEDEF;
+   } else {
+      static const bool kws[] = {
+#define kw(x) [TKW##x-TKWBEGIN_] = 1
+         kw(auto), kw(extern), kw(static), kw(register), kw(typedef),
+         kw(_Thread_local), kw(thread_local), kw(_Static_assert),
+         kw(inline), kw(_Noreturn),
+         kw(const), kw(volatile), kw(restrict), kw(_Atomic),
+         kw(void), kw(float), kw(double), kw(_Complex),
+         kw(signed), kw(unsigned), kw(short), kw(long),
+         kw(int), kw(char), kw(_Bool), kw(bool), kw(__int128), kw(__uint128_t),
+         kw(struct), kw(union), kw(enum),
+         kw(__typeof__), kw(typeof), kw(typeof_unqual),
+         kw(__attribute__)
+#undef kw
+      };
+      return ((uint)tk.t-TKWBEGIN_) < countof(kws) && kws[tk.t-TKWBEGIN_];
+   }
+}
+
+/* next token starts an expr? */
+static bool
+isexprtok(CComp *cm) {
+   Token tk;
+   if (peek(cm, &tk) == TKIDENT) {
+      Decl *decl = finddecl(cm, tk.name);
+      return !decl || decl->scls != SCTYPEDEF;
+   } else {
+      static const bool tks[] = {
+#define tk(x) [x] = 1
+         tk('+'), tk('-'), tk('*'), tk('&'), tk('~'), tk('!'), tk(TKINC), tk(TKDEC),
+         tk(TKWsizeof), tk(TKW_Alignof), tk(TKWalignof), tk(TKWtrue), tk(TKWfalse),
+         tk('('), tk(TKNUMLIT), tk(TKCHRLIT), tk(TKSTRLIT), tk(TKW_Generic),
+         tk(TKW__builtin_va_arg),
+#undef tk
+      };
+      return tk.t < countof(tks) && tks[tk.t];
+   }
+}
+
 /*********************/
 /* Expr Typechecking */
 /*********************/
@@ -491,7 +488,7 @@ static Expr /* 6.5.3.4 The sizeof and _Alignof operators */
 sizeofalignofcheck(const Span *span, enum toktag tt, Type ty, const Expr *ex) {
    Type sizet = mktype(targ_sizetype);
    if (isvla(ty) && tt == TKWsizeof)
-      return mkexpr(EIRVALUE, *span, sizet, .irref.bits = typesizeref(ty).bits);
+      return mkexpr(ESIZEOF, *span, sizet, .ty4sizeof = ty);
    uint r = (tt == TKWsizeof ? typesize : typealign)(ty);
    if (ty.t == TYVOID) {
       if (ccopt.pedant) warn(span, "applying %'tt to void type", tt);
@@ -1990,6 +1987,7 @@ dumpexpr(const Expr *ex, bool prity) {
       [ESETMUL] = "setmul",   [ESETDIV] = "setdiv", [ESETREM] = "setrem",
       [ESETAND] = "setand",   [ESETIOR] = "setior", [ESETXOR] = "setxor",
       [ESETSHL] = "setshl",   [ESETSHR] = "setshr", [ESEQ] = "seq",
+      [EIRVALUE] = "irvalue", [ESIZEOF] = "sizeof",
    };
    ioputc(&bstderr, '(');
    efmt("%s ", name[ex->t]);
@@ -2021,6 +2019,8 @@ dumpexpr(const Expr *ex, bool prity) {
          dumpexpr(&ex->sub[i], prity);
       }
       break;
+   case EIRVALUE: efmt("%r", (Ref){.bits = ex->irref.bits}); break;
+   case ESIZEOF: efmt("%ty", ex->ty4sizeof); break;
    case EINIT: assert(!"nyi");
    }
    ioputc(&bstderr, ')');
@@ -2853,9 +2853,6 @@ static struct DeclList {
       };
       struct { /* TYFUNC */
          Type *param;
-         internstr *pnames;
-         Span *pspans;
-         uchar *pqual;
          short npar;
          bool kandr : 1, variadic : 1;
       };
@@ -2864,9 +2861,6 @@ static struct DeclList {
 } decltmp[64], *declfreelist;
 static bool usingdeclparamtmp;
 static Type declparamtmp[16];
-static internstr declpnamestmp[16];
-static Span declpspanstmp[16];
-static uchar declpqualtmp[16];
 
 static void
 declinsert(DeclList *list, const DeclList *node) {
@@ -2912,12 +2906,10 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
          node.span = tk.span;
          node.t = TYFUNC;
          node.param = NULL;
-         node.pqual = NULL;
-         node.pnames = NULL;
-         node.pspans = NULL;
          node.variadic = 0;
          node.kandr = 1;
          node.npar = 0;
+         envdown(cm, allocz(&cm->fnarena, sizeof(Env), 0));
          declinsert(ptr->prev, &node);
          joinspan(&span->ex, tk.span.ex);
          break;
@@ -2965,16 +2957,10 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
          joinspan(&span->ex, node.span.ex);
       } else if (match(cm, &tk, '(')) Func: {
          vec_of(Type) params = {0};
-         vec_of(uchar) qual = {0};
-         vec_of(internstr) names = {0};
-         vec_of(Span) spans = {0};
 
          if (!usingdeclparamtmp) {
             usingdeclparamtmp = 1;
             vinit(&params, declparamtmp, countof(declparamtmp));
-            vinit(&qual, declpqualtmp, countof(declpqualtmp));
-            vinit(&names, declpnamestmp, countof(declpnamestmp));
-            vinit(&spans, declpspanstmp, countof(declpspanstmp));
          }
 
          node.span = tk.span;
@@ -2983,6 +2969,7 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
          if (ccopt.cstd < STDC23 && !isdecltok(cm)) {
             node.kandr = 1;
          }
+         envdown(cm, allocz(&cm->fnarena, sizeof(Env), 0));
 
          if (!match(cm, &tk, ')')) for (;;) {
             if (match(cm, &tk, TKDOTS)) {
@@ -2992,9 +2979,8 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
             }
             if (node.kandr) {
                if (match(cm, &tk, TKIDENT)) {
+                  putdecl(cm, &(Decl){mktype(TYINT), .span = tk.span, .name = tk.name, .id = params.n});
                   vpush(&params, mktype(TYINT));
-                  vpush(&names, tk.name);
-                  vpush(&spans, tk.span);
                } else error(&tk.span, "expected identifier");
             } else if (!isdecltok(cm) && peek(cm, &tk) != TKIDENT) {
                error(&tk.span, "expected parameter declarator");
@@ -3004,14 +2990,12 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
                decl = pdecl(&st, cm);
                decl.ty = typedecay(decl.ty);
                vpush(&params, decl.ty);
-               vpush(&names, decl.name);
-               vpush(&spans, decl.span);
-               vpush(&qual, decl.qual);
                if (decl.ty.t == TYVOID) {
                   if (params.n > 1 || decl.qual || decl.name || peek(cm, &tk) != ')') {
-                     error(&decl.span, "function parameter #%d has void type",
-                           params.n, decl.ty, qual.p[params.n-1]);
+                     error(&decl.span, "function parameter #%d has void type", params.n);
                   }
+               } else {
+                  putdecl(cm, &decl);
                }
             }
             peek(cm, &tk);
@@ -3025,23 +3009,22 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
          }
          if (node.kandr && ccopt.cstd != STDC89 && params.n > 0) {
             warn(&node.span, "K&R function prototype is deprecated");
-         } else if (params.n == 1 && params.p[0].t == TYVOID && !qual.p[0] && !names.p[0]) { /* (void) */
+         } else if (params.n == 1 && params.p[0].t == TYVOID) { /* (void) */
             vfree(&params);
-            vfree(&names);
-            vfree(&spans);
-            vfree(&qual);
          }
          node.t = TYFUNC;
          node.param = params.n ? params.p : NULL;
-         node.pqual = qual.n ? qual.p : NULL;
-         node.pnames = params.n ? names.p : NULL;
-         node.pspans = params.n ? spans.p : NULL;
          node.npar = params.n;
          declinsert(ptr->prev, &node);
          joinspan(&span->ex, node.span.ex);
       } else break;
    }
 }
+
+typedef struct LazyVLA {
+   Type ty;
+   Expr *len;
+} LazyVLA;
 
 static Decl
 declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0) {
@@ -3077,16 +3060,22 @@ declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0) {
             decl.ty = mkunszarrtype(decl.ty, decl.qual);
          else {
             Expr *ex = &l->count;
-            bool vlaok = cm->fn != NULL && in_range(st->kind, DFUNCPARAM, DFUNCVAR)
-                        && !(st->scls & (SCSTATIC|SCEXTERN)) && ccopt.cstd > STDC89;
+            bool inparam = st->kind == DFUNCPARAM || st->kind == DFUNCPARAMOLD;
+            bool vlaok = (cm->fn ? st->kind != DFIELD && !(st->scls & (SCSTATIC|SCEXTERN))
+                                 : inparam) && ccopt.cstd > STDC89;
             if (!ex->t) { /* ['*'] */
                if (l->prev != &list) error(&l->span, "[*] array declarator is not allowed here");
                decl.ty = mkarrtype(decl.ty, decl.qual, 0);
             } else if (vlaok && isint(ex->ty) && (!eval(ex, EVFOLD) || isvla(decl.ty))) {
                /* VLA */
-               Ref n = scalarcvt(cm->fn, mktype(targ_sizetype), ex->ty, compileexpr(cm->fn, ex, 0));
-               Ref siz = irbinop(cm->fn, Omul, type2cls[targ_sizetype], typesizeref(decl.ty), n);
-               decl.ty = mkvlarrtype(decl.ty, decl.qual, siz.bits);
+               if (cm->fn) {
+                  Ref n = scalarcvt(cm->fn, mktype(targ_sizetype), ex->ty, compileexpr(cm->fn, ex, 0));
+                  Ref siz = irbinop(cm->fn, Omul, type2cls[targ_sizetype], typesizeref(decl.ty), n);
+                  decl.ty = mkvlarrtype(decl.ty, decl.qual, siz.bits);
+               } else {
+                  decl.ty = mkvlarrtype(decl.ty, decl.qual, mkref(RXXX, cm->lazyvla.n).bits);
+                  vpush(&cm->lazyvla, ((LazyVLA){decl.ty, alloccopy(&cm->exarena, ex, sizeof *ex, 0)}));
+               }
             } else {
                uint n = 0;
                if (!eval2xintcon(ex)) {
@@ -3116,17 +3105,11 @@ declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0) {
          decl.ty = mkfntype(decl.ty, l->npar, l->param, l->kandr, l->variadic);
          if (l->param != declparamtmp) free(l->param);
          if (l->prev == &list) { /* root declaration node */
-            if (l->npar) {
-               st->pnames = alloccopy(&cm->fnarena, l->pnames, l->npar * sizeof(char *), 0);
-               st->pspans = alloccopy(&cm->fnarena, l->pspans, l->npar * sizeof(Span), 0);
-               st->pqual = l->pqual ? alloccopy(&cm->fnarena, l->pqual, l->npar, 1) : NULL;
-            }
             st->funcdef = 1;
             decl.inlin = st->fninline;
+         } else {
+            envup(cm); /* discard param decls */
          }
-         if (l->pqual != declpqualtmp) free(l->pqual);
-         if (l->pnames != declpnamestmp) free(l->pnames);
-         if (l->pspans != declpspanstmp) free(l->pspans);
          if (l->param == declparamtmp) usingdeclparamtmp = 0;
          decl.qual = 0;
          break;
@@ -3142,34 +3125,27 @@ declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0) {
 
 /* declaration-list for K&R style def. 'f(a) int a; { ... }' */
 static void
-poldstyleparams(CComp *cm, Decl *fndecl, internstr *pnames, Span *pspans) {
+poldstyleparams(CComp *cm, DeclState *st0, Decl *fndecl) {
    assert(fndecl->ty.t == TYFUNC);
    const TypeData *td = &typedata[fndecl->ty.dat];
    int nparam = td->nmemb;
    Type *params = alloccopy(&cm->fnarena, td->param, nparam * sizeof *params, 0);
-
-   /* scope setup */
-   Env env = {0};
-   envdown(cm, &env);
-   for (int i = 0; i < nparam; ++i)
-      envadddecl(&env, &(Decl){params[i], .span = pspans[i], .name = pnames[i],
-                               .id = i});
 
    do {
       DeclState st = { DFUNCPARAMOLD };
       do {
          Decl decl = pdecl(&st, cm),
               *par = NULL;
-         while (enviterdecl(&par, &env))
+         while (enviterdecl(&par, cm->env)) {
             if (decl.name == par->name)
                break;
+         }
          if (par) {
             if (par->id >= 0) {
                (void)decl.qual; /* it's "old style" C, who cares about const */
-               params[par->id] = decl.ty = typedecay(decl.ty);
-               pspans[par->id] = decl.span;
+               params[par->id] = typedecay(decl.ty);
                *par = decl;
-               par->id = -1; /* mark defined */
+               par->id = -1; /* mark visited */
             } else if (!typescompat(NULL, decl.ty, par->ty)) {
                error(&decl.span, "redefinition of parameter '%s'", decl.name);
             }
@@ -3178,7 +3154,6 @@ poldstyleparams(CComp *cm, Decl *fndecl, internstr *pnames, Span *pspans) {
          }
       } while (st.more);
    } while (isdecltok(cm));
-   envup(cm);
    fndecl->ty = mkfntype(td->ret, nparam, params, /*kandr*/1, 0);
 }
 
@@ -3283,24 +3258,24 @@ pdecl(DeclState *st, CComp *cm) {
    declcheckattr(&decl);
    if (properdecl && match(cm, &tk, '=')) {
       st->varini = 1;
-      return decl;
+      goto End;
    } else if (funcdefok) {
       if (match(cm, &tk, '{')) {
          st->funcdef = 1;
-         return decl;
+         goto End;
       } else if (typedata[decl.ty.dat].kandr && isdecltok(cm)) {
-         poldstyleparams(cm, &decl, st->pnames, st->pspans);
+         poldstyleparams(cm, st, &decl);
          if (match(cm, &tk, '{')) {
             st->funcdef = 1;
          } else {
             peek(cm, &tk);
             error(&tk.span, "expected '{' for function body after parameter list");
          }
-         return decl;
+         goto End;
       }
    } else if (st->kind == DFIELD && match(cm, &tk, ':')) {
       st->bitf = 1;
-      return decl;
+      goto End;
    }
 
 AfterIniBitf:
@@ -3311,6 +3286,10 @@ AfterIniBitf:
          st->more = 1;
       else expect(cm, st->kind == DFUNCPARAM ? ')' : ';', "or `,'");
    }
+
+End:
+   if (!st->funcdef &&decl.ty.t == TYFUNC)
+      envup(cm); /* discard fn params env */
 
    return decl;
 }
@@ -4282,6 +4261,8 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
       return compileexpr(fn, &sub[1], discard);
    case EIRVALUE:
       return (Ref){.bits = ex->irref.bits};
+   case ESIZEOF:
+      return typesizeref(ex->ty4sizeof);
    default: assert(!"nyi expr");
    }
 }
@@ -5232,14 +5213,41 @@ block(CComp *cm, Ref *stexval, Type *stexty) {
 }
 
 static void
-functionbody(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uchar *pquals) {
+lazyvlaexprfixup(int par0decl, Expr *ex, bool lval)
+{
+   if (ex->t == ESYM && ex->decl >= par0decl) {
+      if (lval) ++ex->decl; /* fn decl shifts param decls by one, adjust */
+      else {
+         /* use Oparam result directly */
+         ex->t = EIRVALUE;
+         ex->irref.bits = mkref(RTMP, ex->decl - par0decl).bits;
+      }
+      return;
+   } else if (ex->t == EINIT) {
+      for (InitElem *el = ex->init->vals; el; el = el->next)
+         lazyvlaexprfixup(par0decl, &el->ex, 0);
+      return;
+   }
+   int n = 0;
+   lval = 0;
+   if (ex->t == EADDROF) n = 1, lval = 1;
+   else if (isunop(ex->t)) n = 1;
+   else if (isbinop(ex->t)) n = 2;
+   else if (ex->t == EVAARG) n = 1;
+   else if (ex->t == EGETF) n = 1, lval = 1;
+   else if (ex->t == ECALL) n = ex->narg + 1;
+   else if (ex->t == ECOND) n = 3;
+   for (int i = 0; i < n; ++i)
+      lazyvlaexprfixup(par0decl, &ex->sub[i], lval);
+}
+
+static void
+functionbody(CComp *cm, Function *fn) {
    const TypeData *td = &typedata[fn->fnty.dat];
    const bool doemit = fn->curblk;
    Function *prevfn = cm->fn;
    cm->fn = fn;
-   Env e;
    Token tk;
-   envdown(cm, &e);
 
    /* emit Oparam instructions */
    EMITS {
@@ -5250,22 +5258,23 @@ functionbody(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uch
          assert(r.t == RTMP && r.i == i);
       }
    }
-   /* add parameters to symbol table and create prologue (arguments) block */
+   /* create prologue (arguments) block */
+   assert(td->nmemb == cm->env->ndecl);
    for (int i = 0; i < td->nmemb; ++i) {
-      if (pnames[i]) {
-         Decl arg = { .ty = td->param[i], .qual = pquals ? pquals[i] : 0,
-                             .name = pnames[i], .scls = SCAUTO, .span = pspans[i] };
-         EMITS {
-            if (isscalar(arg.ty) && !iscomplex(arg.ty)) {
-               arg.id = addinstr(fn, mkalloca(typesize(arg.ty), typealign(arg.ty))).i;
-               genstore(fn, arg.ty, mkref(RTMP, arg.id), mkref(RTMP, i), /*volatile*/0);
-            } else {
-               arg.id = addinstr(fn, mkinstr1(Ocopy, KPTR, mkref(RTMP, i))).i;
-            }
+      Decl *arg = &declsbuf.p[cm->env->decl + i];
+      arg->scls = SCAUTO;
+      if (!arg->name) {
+         if (ccopt.cstd < STDC23)
+            warn(&arg->span, "missing name of parameter #%d", i+1);
+         continue;
+      }
+      EMITS {
+         if (isscalar(arg->ty) && !iscomplex(arg->ty)) {
+            arg->id = addinstr(fn, mkalloca(typesize(arg->ty), typealign(arg->ty))).i;
+            genstore(fn, arg->ty, mkref(RTMP, arg->id), mkref(RTMP, i), /*volatile*/0);
+         } else {
+            arg->id = addinstr(fn, mkinstr1(Ocopy, KPTR, mkref(RTMP, i))).i;
          }
-         putdecl(cm, &arg);
-      } else if (ccopt.cstd < STDC23) {
-         warn(&pspans[i], "missing name of parameter #%d", i+1);
       }
    }
 
@@ -5281,7 +5290,19 @@ functionbody(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uch
       Block *blk;
       putbranch(fn, blk = newblk(fn));
       useblk(fn, blk);
+
+      /* fixup vlaparams */
+      for (int i = 0; i < cm->lazyvla.n; ++i) {
+         Type ty = cm->lazyvla.p[i].ty;
+         assert(ty.t == TYARRAY && isvla(ty));
+         Expr *len = cm->lazyvla.p[i].len;
+         lazyvlaexprfixup(cm->env->decl - 1/*account for fndecl*/, len, /*lval*/0);
+         Ref n = scalarcvt(fn, mktype(targ_sizetype), len->ty, compileexpr(cm->fn, len, 0));
+         Ref siz = irbinop(fn, Omul, type2cls[targ_sizetype], typesizeref(typechild(ty)), n);
+         typedata[ty.dat].vlasizeref = siz.bits;
+      }
    }
+
    cm->labels = NULL;
    block(cm, NULL, NULL);
    envup(cm);
@@ -5312,6 +5333,7 @@ functionbody(CComp *cm, Function *fn, internstr *pnames, const Span *pspans, uch
 static void
 tldecl(CComp *cm) {
    DeclState st = { DTOPLEVEL };
+   vfree(&cm->lazyvla);
    do {
       bool noscls = 0;
       int nerr = nerror;
@@ -5335,13 +5357,27 @@ tldecl(CComp *cm) {
          if (td->ret.t != TYVOID && isincomplete(td->ret))
             error(&decl->span, "function definition with incomplete return type '%ty'", td->ret);
          for (int i = 0; i < td->nmemb; ++i) {
-            if (td->param[i].t != TYVOID && isincomplete(td->param[i]))
-               error(&st.pspans[i], "parameter has incomplete type '%ty'", td->param[i]);
+            if (td->param[i].t != TYVOID && isincomplete(td->param[i])) {
+               Decl *par = &declsbuf.p[cm->env->decl + i];
+               error(&par->span, "parameter has incomplete type '%ty'", td->param[i]);
+            }
          }
          decl->isdef = 1;
          int idecl = -1;
          if (decl->name) {
+            /* lift params from fn env to put fn before it, the reinsert */
+            int n = td->nmemb;
+            Env *e = cm->env;
+            assert(e->ndecl == n);
+            Decl parbuf[32], *par = &declsbuf.p[e->decl];
+            if (n < countof(parbuf)) par = memcpy(parbuf, par, n * sizeof *par);
+            else par = alloccopy(&cm->exarena, par, n*sizeof *par, 0);
+            envup(cm);
             idecl = putdecl(cm, decl);
+            memset(e, 0, sizeof *e);
+            envdown(cm, e);
+            for (int i = 0; i < n; ++i)
+               putdecl(cm, &par[i]);
             decl = &declsbuf.p[idecl];
          } else {
             /* had e.g. 'int () {...}' */
@@ -5359,7 +5395,7 @@ tldecl(CComp *cm) {
             fn.inlhint |= FNINLNEVER;
          }
          irinit(&fn);
-         functionbody(cm, &fn, st.pnames, st.pspans, st.pqual);
+         functionbody(cm, &fn);
          if (idecl >= 0)
             decl = &declsbuf.p[idecl];
          if (!nerror && ccopt.dbg.dumpparsed && dumpfilt(&fn.name->c))
@@ -5414,6 +5450,7 @@ tldecl(CComp *cm) {
       freearena(&cm->fnarena);
       freearena(&cm->exarena);
       lexerfreetemps(cm->lx);
+      vfree(&cm->lazyvla);
    } while (st.more);
 }
 

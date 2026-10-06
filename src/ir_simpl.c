@@ -151,6 +151,12 @@ doins(Instr *ins, Block *blk, int *curi) {
             return 1;
          }
       }
+      break;
+   case Oallocav:
+      if (isintcon(ins->l) && (u64int)intconval(ins->l) < (1<<20)) {
+         /* turn folded dynamic alloca into regular alloca */
+         *ins = mkalloca(intconval(ins->l), 16);
+      }
    }
    return 0;
 }
