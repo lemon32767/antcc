@@ -638,7 +638,8 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap) {
          break;
       case '?': /* callback, ptr */
          {
-            int (*f)(WriteBuf *, void *) = va_arg(ap, int(*)(WriteBuf *, void *));
+            typedef int (*cb)(WriteBuf *, void *);
+            cb f = va_arg(ap, cb);
             n += f(buf, va_arg(ap, void *));
          }
          break;
