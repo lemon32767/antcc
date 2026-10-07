@@ -4215,7 +4215,10 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
       CompoundBitf:
          adr = expraddr(fn, &sub[0].sub[0]);
          l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
-         q = irbinop(fn, op, cls, l, r);
+         l = scalarcvt(fn, ty, sub[0].ty, l);
+         r = scalarcvt(fn, ty, sub[1].ty, r);
+         q = irbinop(fn, op, type2cls[ty.t], l, r);
+         q = scalarcvt(fn, sub[0].ty, ty, q);
          genbitfstore(fn, sub[0].ty, adr, &sub[0].fld, tmp, q, sub[0].qual & QVOLATILE);
       } else {
          bitsiz = 0;
