@@ -1,4 +1,3 @@
-C frontend does not check uniqueness of fields in aggregate type definitions, duplicates
-are silently ignored instead of raising a compilation error.
+C frontend does not check uniqueness of fields in aggregate type definitions, duplicates are silently ignored instead of raising a compilation error.
 bitfield packing differs from GCC in some cases
-
+preprocessor can produce non-standard results for stringifying string or character literals containing escapes
