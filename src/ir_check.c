@@ -128,7 +128,7 @@ checkstore(enum irclass retk, enum irclass wantk, const Ref *oper) {
 
 static void
 checkcall(enum irclass k, const IRCall *call) {
-   if (!call->abiarg)  {
+   if (!call->abiarg && call->ret.bits)  {
       enum irclass retk = call->ret.isagg ? KPTR : call->ret.cls;
       CHECK(clseql0(retk, k),
             "returns %r, instr had %k", mktyperef(call->ret), k);
