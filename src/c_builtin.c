@@ -142,10 +142,21 @@ expect_comp(Function *fn, Expr *ex, bool discard) {
    return compileexpr(fn, &ex->sub[1], discard);
 }
 
+DEF_FNLIKE_SEMA(alloca, mkptrtype(mktype(TYVOID), 0), mktype(TYLONG))
+static Ref
+alloca_comp(Function *fn, Expr *ex, bool discard) {
+   if (discard) return NOREF;
+   Ref siz = compileexpr(fn, &ex->sub[1], discard);
+   Instr alloc = isintcon(siz) ? mkalloca(intconval(siz), 16)
+                               : mkinstr1(Oallocav, KPTR, siz);
+   return addinstr(fn, alloc);
+}
+
 #define LIST_BUILTINS(_) \
    _(va_start) _(va_copy) _(va_end) \
    _(trap) _(bswap16) _(bswap32) _(bswap64) \
    _(unreachable) _(constant_p) _(expect) \
+   _(alloca)
 
 static const struct {
    const char *name;
