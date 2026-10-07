@@ -225,8 +225,14 @@ ascale(IRAddr *addr, Ref a, Ref b) {
 static bool
 aadd(IRAddr *out, Block *blk, int *curi, Ref r, bool recurring) {
    if (r.t == RSTACK) {
-      if (out->base.bits)
-         goto Ref;
+      if (out->base.bits) {
+         /* if base taken by reg and index is free, move base to index
+          * because RSTACK can only be base. i.e. swap i+addr -> addr+i */
+         if (out->index.bits || (out->base.t != RREG && out->base.t != RTMP))
+            return 0;
+         out->index = out->base;
+         out->shift = 0;
+      }
       out->base = r;
    } else if (r.t == RTMP) {
       Instr *ins = &instrtab[r.i];
