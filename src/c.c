@@ -4110,13 +4110,17 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
       else
          r = isflt(ex->ty) ? mkfltcon(type2cls[ex->ty.t], 1.0) : mkref(RICON, 1);
       if (sub[0].t == EGETF && (bitsiz = sub->fld.bitsiz)) {
-         ty = ex->ty;
-         goto CompoundBitf;
+         Ref tmp;
+         adr = expraddr(fn, &sub[0].sub[0]);
+         l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
+         q = irbinop(fn, op, cls, l, r);
+         genbitfstore(fn, sub[0].ty, adr, &sub[0].fld, tmp, q, sub[0].qual & QVOLATILE);
+      } else {
+         adr = expraddr(fn, sub);
+         l = genload(fn, sub->ty, adr, sub->qual & QVOLATILE);
+         q = irbinop(fn, op, cls, l, r);
+         genstore(fn, sub->ty, adr, q, sub[0].qual & QVOLATILE);
       }
-      adr = expraddr(fn, sub);
-      l = genload(fn, sub->ty, adr, sub->qual & QVOLATILE);
-      q = irbinop(fn, op, cls, l, r);
-      genstore(fn, sub->ty, adr, q, sub[0].qual & QVOLATILE);
       if (discard) return NOREF;
       return narrow(fn, cls, ex->ty, q, 0);
    case EEQU:
@@ -4212,7 +4216,6 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
       if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
          /* bit-field */
          Ref tmp;
-      CompoundBitf:
          adr = expraddr(fn, &sub[0].sub[0]);
          l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
          l = scalarcvt(fn, ty, sub[0].ty, l);
