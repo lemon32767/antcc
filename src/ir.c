@@ -759,6 +759,7 @@ irfini(Function *fn) {
 
 void
 irfini_end(Function *fn) {
+   pass(fn, "sinkcond", sinkcond);
    pass(fn, "lowerstack", lowerstack);
    freearena(fn->passarena);
    pass(fn, "isel", mctarg->isel);

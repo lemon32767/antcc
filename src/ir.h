@@ -385,6 +385,9 @@ void lowerintrin(Function *);
 /** ir_stack.c **/
 void lowerstack(Function *);
 
+/** ir_motion.c **/
+void sinkcond(Function *);
+
 /** ir_regalloc.c **/
 void regalloc(Function *);
 
