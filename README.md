@@ -6,7 +6,7 @@ A small C compiler using its own independent backend.
 Supports [most of C11 and some C23 features](doc/cstd.md), as well as [some common extensions](doc/cext.md).
 
 Currently still in an alpha stage, but can successfully build some
-real-world C codebases such as Lua, SQLite,
+real-world C codebases such as Lua, SQLite, git,
 [oksh](https://github.com/ibara/oksh), [tin](http://www.tin.org/), [DOOM](https://github.com/chocolate-doom/chocolate-doom) and itself.
 
 `antcc` is inspired by other small C compilers like
