@@ -34,7 +34,6 @@ copyopt(Function *fn) {
             if (arg.t == RTMP)
                deluse(blk, var.i, arg);
             *ins = mkinstr0(Onop,0);
-            deluses(var.i);
          }
       }
       delnops(blk);

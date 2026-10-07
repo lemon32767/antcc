@@ -636,6 +636,13 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap) {
       case 'r': /* ir ref */
          n += dumpref(buf, 0, va_arg(ap, Ref));
          break;
+      case '?': /* callback, ptr */
+         {
+            typedef int (*cb)(WriteBuf *, void *);
+            cb f = va_arg(ap, cb);
+            n += f(buf, va_arg(ap, void *));
+         }
+         break;
       default:
          if (umod || lmod) {
             --fmt;

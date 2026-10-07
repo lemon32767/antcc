@@ -1,5 +1,6 @@
 #!/bin/sh
 
+export ANTCC_IRCHECK=1
 cd "$(dirname "$0")"/..
 
 mktgt=

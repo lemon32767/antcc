@@ -198,6 +198,10 @@ H limits.h << @@@@@@
 #define LLONG_MIN   (-LLONG_MAX-1)
 @@@@@@
 
+H alloca.h << @@@@@@
+#define alloca __builtin_alloca
+@@@@@@
+
 cat << @@@@@@
    {NULL}
 };

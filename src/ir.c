@@ -413,9 +413,10 @@ bool
 deluse(Block *ublk, int ui, Ref r) {
    if (r.t != RTMP) return 0;
 
+   if (!ublk) assert(ui != USERJUMP);
    for (IRUse **puse = &instruse[r.i]; *puse; puse = &(*puse)->next) {
       IRUse *use = *puse;
-      if (use->blk == ublk && use->u == ui) {
+      if ((!ublk || use->blk == ublk) && use->u == ui) {
          *puse = use->next;
          use->blk = 0;
          use->u = 0;
@@ -568,6 +569,7 @@ replcuses(Ref from, Ref to, Block *at, enum replcusesmode m) {
          }
          u[j].bits = to.bits;
          adduse(use->blk, use->u, to);
+         deluse(use->blk, use->u, from);
          break;
       }
    }
@@ -603,6 +605,9 @@ void
 delphi(Block *blk, int idx) {
    int t = blk->phi.p[idx];
    assert(idx >= 0 && idx < blk->phi.n);
+   Ref *args = phiargs(t);
+   for (int i = 0; i < blk->npred; ++i)
+      deluse(NULL, t, args[i]);
    freeinstr(t);
    deluses(t);
    for (int i = idx; i < blk->phi.n - 1; ++i)
@@ -754,6 +759,7 @@ irfini(Function *fn) {
 
 void
 irfini_end(Function *fn) {
+   pass(fn, "sinkcond", sinkcond);
    pass(fn, "lowerstack", lowerstack);
    freearena(fn->passarena);
    pass(fn, "isel", mctarg->isel);

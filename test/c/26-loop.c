@@ -3,6 +3,7 @@
 wordalign: ok
 bsunion: ok
 decr_gt0: ok
+count_down: ok
 incr_lt: ok
 incr_sqr_lt: ok
 str_loop: ok
@@ -70,6 +71,19 @@ static void t_decr_gt0(void) {
       if (s != n) bad = 1;
    }
    chk("decr_gt0", bad);
+}
+
+static void count_down(int n, int *sp) {
+   for (int i = 100; i > 0; --i) *sp += i * n;
+}
+static void t_count_down(void) {
+   int bad = 0;
+   for (int n = 0; n < 30; ++n) {
+      int s = 0;
+      count_down(n, &s);
+      if (s != 5050 * n) bad = 1;
+   }
+   chk("count_down", bad);
 }
 
 static void incr_lt(int n, int *cp) {
@@ -189,6 +203,7 @@ int main() {
    t_wordalign();
    t_bsunion();
    t_decr_gt0();
+   t_count_down();
    t_incr_lt();
    t_incr_sqr_lt();
    t_str_loop();

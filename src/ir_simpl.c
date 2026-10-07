@@ -76,9 +76,11 @@ divmodk(Instr *ins, Block *blk, int *curi) {
          temp = insertinstr(blk, (*curi)++, mkinstr2(Oadd, cls, ins->l, temp));
          if (op == Odiv) {
             /* (-) (x' >> s) */
-            Instr sar = mkinstr2(Osar, cls, temp, mkref(RICON, s));
-            if (!neg) *ins = sar;
-            else {
+            if (!neg) {
+               ins->op = Osar;
+               inschoper(blk, ins, 0, temp), ins->r = mkref(RICON, s);
+            } else {
+               Instr sar = mkinstr2(Osar, cls, temp, mkref(RICON, s));
                temp = insertinstr(blk, (*curi)++, sar);
                ins->op = Oneg;
                inschoper(blk, ins, 0, temp);
