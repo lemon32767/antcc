@@ -63,6 +63,12 @@ deltrivialphis(SSABuilder *sb, Var *var, Block *blk, Ref phiref) {
    if (same.bits == 0)
       same = UNDREF; /* the phi is unreachable or in the start block */
 
+   struct trivuser { Block *blk; int u; };
+   DEF_SVEC(struct trivuser, 8, trivusers);
+   for (IRUse *use = instruse[phiref.i]; use; use = use->next)
+      if (use->u != USERJUMP && instrtab[use->u].op == Ophi && use->u != phiref.i)
+         vpush(&trivusers, ((struct trivuser) { use->blk, use->u }));
+
    /* replace uses */
    replcuses(phiref, same, NULL, REPLC_ALL);
    for (int i = blk->id; i < sb->nblk; ++i) {
@@ -74,17 +80,15 @@ deltrivialphis(SSABuilder *sb, Var *var, Block *blk, Ref phiref) {
    instrtab[phiref.i].op = Onop;
 
    /* recursively try to remove all phi users as they might have become trivial */
-   for (IRUse *use = instruse[phiref.i], *next; use; use = next) {
-      next = use->next;
-      if (use->u != USERJUMP && instrtab[use->u].op == Ophi && use->u != phiref.i) {
-         Ref it = mkref(RTMP, use->u);
-         Ref vphi2 = deltrivialphis(sb, var, use->blk, it);
-         if (vphi2.bits != it.bits) {
-            same = vphi2;
-         }
+   for (int i = 0; i < trivusers.n; ++i) {
+      Ref it = mkref(RTMP, trivusers.p[i].u);
+      if (instrtab[trivusers.p[i].u].op != Ophi) continue; /* already collapsed */
+      Ref vphi2 = deltrivialphis(sb, var, trivusers.p[i].blk, it);
+      if (vphi2.bits != it.bits) {
+         same = vphi2;
       }
    }
-   deluses(phiref.i);
+   vfree(&trivusers);
 
    return same;
 }

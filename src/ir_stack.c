@@ -23,7 +23,6 @@ lowerstack(Function *fn) {
             if (fn->stksiz > (1<<20)-1) error(NULL, "'%s' stack frame too big", fn->name);
             *ins = mkinstr0(Onop,0);
             replcuses(mkref(RTMP, t), mkref(RSTACK, fn->stksiz-siz), NULL, REPLC_ALL);
-            deluses(t);
          }
       }
    } while ((blk = blk->lnext) != fn->entry);
