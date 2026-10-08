@@ -4772,6 +4772,8 @@ stmt(CComp *cm, Ref *stmtexprval, Type *stmtexprty) {
             useblk(fn, begin);
          }
          if (cm->switchstmt) {
+            if (targ_primsizes[ex.ty.t] < sizeof(s64int))
+               ex.i = (int)ex.i; /* must signextend32 for switchcase ordering */
             vpush(&cm->switchstmt->cases, ((IRSwitchCase) {ex.i, fn->curblk}));
             vpush(&cm->switchstmt->casespans, ex.span);
          }
