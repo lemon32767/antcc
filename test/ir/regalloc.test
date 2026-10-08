@@ -1,0 +1,11 @@
+source [file dirname $argv0]/common.tcl
+
+set prog {
+    int deadphicycle(int n) {
+        int x = 999;
+        while (n--) x = x;
+        return 0;
+    }
+}
+set out [c+out {-dfilter=deadphicycle -dafter=regalloc -O1} $prog]
+asserteq "x is gone" [regexp -all 999 $out] 0

@@ -10,45 +10,7 @@
      - https://bernsteinbear.com/assets/img/linear-scan-ra-context-ssa.pdf
  */
 
-#if 1
-#define DBG(...) if(ra->debug) bfmt(ccopt.dbg.out, __VA_ARGS__)
-#else
-#define DBG(...) ((void)0)
-#endif
-
-static bool
-checkliveuse(BitSet *defined, Instr *ins, Ref r, Block *blk) {
-   if (r.t == RADDR) {
-      return checkliveuse(defined, ins, addrtab.p[r.i].base, blk)
-          && checkliveuse(defined, ins, addrtab.p[r.i].index, blk);
-   } else if (r.t != RTMP) return 1;
-   return bstest(defined, r.i);
-}
-
-/* ensure the definition of a temporary appears before all of its uses */
-static void
-checklive(Function *fn) {
-   extern int ninstrtab;
-   Block *blk = fn->entry;
-   BitSet definedbuf[4] = {0}, *defined = definedbuf;
-
-   if (BSSIZE(ninstrtab) >= countof(definedbuf))
-      defined = anewbitset(fn->passarena, ninstrtab);
-
-   bool ok = 1;
-   do {
-      for (int i = 0; i < blk->phi.n; ++i)
-         bsset(defined, blk->phi.p[i]);
-      for (int i = 0; i < blk->ins.n; ++i) {
-         int t = blk->ins.p[i];
-         Instr *ins = &instrtab[t];
-         for (int i = 0; i < opnoper[ins->op]; ++i)
-            ok &= checkliveuse(defined, ins, ins->oper[i], blk);
-         bsset(defined, t);
-      }
-   } while ((blk = blk->lnext) != fn->entry);
-   assert(ok && "bad liveness");
-}
+#define DBG(...) if (ra->debug && dumpfilt(&ra->fn->name->c)) bfmt(ccopt.dbg.out, __VA_ARGS__)
 
 /* XXX will need a 3rd set for x86 FPU regs */
 static regset gpregset, fpregset;
@@ -98,6 +60,8 @@ typedef struct FixInterval {
 typedef struct RegAlloc {
    Function *fn;
    Arena **arena;
+
+   BitSet *livephis; /* phis that have non-phi uses */
 
    int intercount; /* number of actual intervals */
    int ninter; /* size of inter */
@@ -271,6 +235,7 @@ lowerphis(RegAlloc *ra, Block *blk, Block *suc) {
    /* ensure phi args go to the same slot as phi with parallel copies */
    for (int i = 0; i < suc->phi.n; ++i) {
       Instr *phi = &instrtab[suc->phi.p[i]];
+      if (phi->op == Onop) continue;
       Ref *arg = &phitab.p[phi->l.i][predno];
       Alloc from, to;
 
@@ -307,9 +272,11 @@ lowerphis(RegAlloc *ra, Block *blk, Block *suc) {
    if (n) emitpm(&pms, n);
 }
 
-/* generate copies for phi operands to transform into conventional-SSA */
+/* generate copies for phi operands to transform into conventional-SSA
+ * tombstone dead phis */
 static void
-fixcssa(Function *fn) {
+fixcssa(RegAlloc *ra) {
+   Function *fn = ra->fn;
    Block *blk = fn->entry;
    do {
       if (!blk->phi.n) continue;
@@ -324,6 +291,10 @@ fixcssa(Function *fn) {
          }
          for (int i = 0; i < blk->phi.n; ++i) {
             int phi = blk->phi.p[i];
+            if (ra->livephis && !bstest(ra->livephis, phi)) {
+               instrtab[phi].op = Onop;
+               continue;
+            }
             Ref *args = phiargs(phi);
             args[p] = insertinstr(n, n->ins.n, mkinstr1(Ocopy, instrtab[phi].cls, args[p]));
          }
@@ -544,7 +515,12 @@ buildintervals(RegAlloc *ra) {
          int predno;
          for (predno = 0; blkpred(suc, predno) != blk; ++predno) ;
          for (int i = 0; i < suc->phi.n; ++i) {
-            Instr *phi = &instrtab[suc->phi.p[i]];
+            int p = suc->phi.p[i];
+            if (ra->livephis && !bstest(ra->livephis, p)) {
+               DBG("skip dead phi %%%d\n", p);
+               continue;
+            }
+            Instr *phi = &instrtab[p];
             Ref *arg = &phitab.p[phi->l.i][predno];
             assert(arg->t == RTMP);
             bsset(live, arg->i);
@@ -680,6 +656,7 @@ buildintervals(RegAlloc *ra) {
        */
       for (int i = 0; i < blk->phi.n; ++i) {
          int phi = blk->phi.p[i];
+         if (instrtab[phi].op == Onop) continue;
          bsclr(live, phi);
          for (int i = 0; i < blk->npred; ++i)
             incrcost(&ra->intertab[phi], blkpred(blk, i));
@@ -1324,6 +1301,8 @@ fini(RegAlloc *ra) {
    } while ((blk = blk->lnext) != fn->entry);
 }
 
+static void checklive(RegAlloc *, Function *, bool prunephis);
+
 void
 regalloc(Function *fn) {
    RegAlloc ra = {fn, .arena = fn->passarena, .debug = ccopt.dbg.regalloc && dumpfilt(&fn->name->c)};
@@ -1346,10 +1325,11 @@ regalloc(Function *fn) {
    sortrpo(fn);
 
    /* check liveness ranges */
-   checklive(fn);
+   bool prunephis = ccopt.o >= OPT1;
+   checklive(&ra, fn, prunephis);
 
    /* transform into CSSA */
-   fixcssa(fn);
+   fixcssa(&ra);
 
    fillblkids(fn);
    filldom(fn);
@@ -1384,6 +1364,64 @@ regalloc(Function *fn) {
    for (Interval *it = ra.intertab; ra.intercount > 0; ++it) {
       if (it->nrange > 2) xbfree(it->_rdyn);
       if (it->nrange > 0) --ra.intercount;
+   }
+}
+
+static bool
+checkliveuse(BitSet *livephis, BitSet *defined, Instr *ins, Ref r, Block *blk) {
+   if (r.t == RADDR) {
+      return checkliveuse(livephis, defined, ins, addrtab.p[r.i].base, blk)
+          && checkliveuse(livephis, defined, ins, addrtab.p[r.i].index, blk);
+   } else if (r.t != RTMP) return 1;
+   if (livephis && instrtab[r.i].op == Ophi) bsset(livephis, r.i);
+   return bstest(defined, r.i);
+}
+
+/* ensure the definition of a temporary appears before all of its uses
+ * also collect live phis (phis used by at least one non phi instruction) */
+static void
+checklive(RegAlloc *ra, Function *fn, bool prunephis) {
+   extern int ninstrtab;
+   Block *blk = fn->entry;
+   BitSet definedbuf[4] = {0}, *defined = definedbuf;
+   ra->livephis = prunephis ? anewbitset(ra->arena, ninstrtab) : NULL;
+
+   if (BSSIZE(ninstrtab) >= countof(definedbuf))
+      defined = anewbitset(fn->passarena, ninstrtab);
+
+   bool ok = 1;
+   do {
+      for (int i = 0; i < blk->phi.n; ++i)
+         bsset(defined, blk->phi.p[i]);
+      for (int i = 0; i < blk->ins.n; ++i) {
+         int t = blk->ins.p[i];
+         Instr *ins = &instrtab[t];
+         for (int i = 0; i < opnoper[ins->op]; ++i)
+            ok &= checkliveuse(ra->livephis, defined, ins, ins->oper[i], blk);
+         bsset(defined, t);
+      }
+      for (int i = 0; i < 2; ++i) {
+         if (blk->jmp.arg[i].bits)
+            checkliveuse(ra->livephis, defined, NULL, blk->jmp.arg[i], blk);
+      }
+   } while ((blk = blk->lnext) != fn->entry);
+   assert(ok && "bad liveness");
+
+   /* mark live phi phi operands til fixpoint */
+   if (prunephis) for (bool chg = 1; chg;) {
+      chg = 0;
+      do {
+         for (int i = 0; i < blk->phi.n; ++i) {
+            int p = blk->phi.p[i];
+            if (!bstest(ra->livephis, p)) continue;
+            for (Ref *a = phiargs(p), *end = a + blk->npred; a != end; ++a) {
+               if (a->t == RTMP && instrtab[a->i].op == Ophi && !bstest(ra->livephis, a->i)) {
+                  bsset(ra->livephis, a->i);
+                  chg = 1;
+               }
+            }
+         }
+      } while ((blk = blk->lnext) != fn->entry);
    }
 }
 
