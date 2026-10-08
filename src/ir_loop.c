@@ -558,6 +558,7 @@ matchderivediv(Loop *l, IndVar *iv, int t) {
       iv->scale = mkintcon(iv->cls, 1ull << intconval(ins->r));
    } else if (in_range(op, Oexts32, Oextu32) && (base = getiv(l, ins->l))) {
       /* e.g. (long) base */
+      /* XXX ensure base can't overflow for correctness */
       iv->kind = IVDERIVWIDEN;
       iv->op = ins->op;
    } else {
