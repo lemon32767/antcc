@@ -24,6 +24,7 @@ memvla = 1
 derefvla = 1
 mutvla = 1
 aliasvla = 1
+sums = 6
 */
 
 #include <stdio.h>
@@ -105,6 +106,22 @@ static int incp(int *p) { return (*p += 1); }
 static int mutvla(int a, int (*p)[(a++, a)]) { return sizeof *p == a*4 && a == 5; }
 static int aliasvla(int a, int (*p)[(incp(&a), a)]) { return sizeof *p == a*4 && a == 5; }
 
+static void sum_aux(float *out, float *v, size_t n, char *);
+static void sum_aux(float *out, float *v, size_t n, char _[(
+    (n > 0) ? (
+        *out += *v,
+        sum_aux(out, v + 1, n - 1, "")
+    ) : 1, 1
+)]) {}
+
+void sum(float *out, float *v, size_t n, char _[(*out = 0.0f, sum_aux(out, v, n, ""), 1)]) {}
+
+int sums(void) {
+   float f;
+   sum(&f, (float []){1.0f,2.0f,3.0f}, 3, "");
+   return (int) f;
+}
+
 int
 main() {
    foo("12345");
@@ -127,4 +144,5 @@ main() {
    printf("derefvla = %d\n", derefvla(&q, (int (*)[4])a));
    printf("mutvla = %d\n", mutvla(4, (int (*)[5])a));
    printf("aliasvla = %d\n", aliasvla(4, (int (*)[5])a));
+   printf("sums = %d\n", sums());
 }

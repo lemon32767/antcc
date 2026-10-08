@@ -559,6 +559,14 @@ condtype(const Expr *a, const Expr *b) {
    Type t1 = typedecay(a->ty), t2 = typedecay(b->ty), s1, s2;
    if (isarith(t1) && isarith(t2)) return cvtarith(t1, t2);
    if (t1.bits == t2.bits) return t1;
+   if (t1.t == TYVOID || t2.t == TYVOID) {
+      if (ccopt.pedant && ccopt.cstd < STDC23) {
+         Span span = a->span;
+         joinspan(&span.ex, b->span.ex);
+         warn(&span, "conditional with only one void side in %M");
+      }
+      return mktype(TYVOID);
+   }
    if (t1.t == TYPTR && isnullpo(b)) return t1;
    if (isnullpo(a) && t2.t == TYPTR) return t2;
    if (t1.t == TYPTR && t2.t == TYPTR) {
