@@ -244,6 +244,8 @@ mem2reg(Function *fn) {
             v->cls = k;
             v->i = var;
             sb.vars[var] = v;
+            /* var is undef at allocation point, this matters when declared inside loops */
+            v->curdefs[blk->id] = UNDREF;
          } else {
             sb.vars[var] = DEAD;
          }
