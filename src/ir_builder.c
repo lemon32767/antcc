@@ -318,18 +318,52 @@ puttrap(Function *fn) {
    putjump(fn, Jtrap, NOREF, NOREF, NULL, NULL);
 }
 
+static void
+putswitchlinear(Function *fn, Ref sel, enum irclass k, IRSwitchCase *cs, uint n, Block *def) {
+   for (uint i = 0; i < n; ++i) {
+      IRSwitchCase *c = &cs[i];
+      Block *next = i < n - 1 ? newblk(fn) : def;
+      putcondbranch(fn, irbinop(fn, Oequ, k, sel, mkintcon(k, c->v)), c->b, next);
+      if (next != def) useblk(fn, next);
+   }
+}
+
+enum { LINEARSWITCHTHRESH = 5 };
+
+static void
+putswitchbtree(Function *fn, Ref sel, enum irclass k, IRSwitchCase *cs, uint n, Block *def) {
+   while (n > LINEARSWITCHTHRESH) {
+      uint m = n / 2;
+      IRSwitchCase *c = &cs[m];
+      Block *lt = newblk(fn), *ge = newblk(fn);
+
+      /* if (sel < m) switch{c_lo..m-1} */
+      putcondbranch(fn, irbinop(fn, Olth, k, sel, mkintcon(k, c->v)), lt, ge);
+      useblk(fn, lt);
+      putswitchbtree(fn, sel, k, cs, m, def);
+
+      /* else if (sel == m) ->b */
+      useblk(fn, ge);
+      Block *right = newblk(fn);
+      putcondbranch(fn, irbinop(fn, Oequ, k, sel, mkintcon(k, c->v)), c->b, right);
+
+      /* else switch{m+1..c_hi} */
+      useblk(fn, right);
+      cs += m + 1, n -= m + 1; /* tail recurse */
+   }
+   putswitchlinear(fn, sel, k, cs, n, def);
+}
+
 void
 putswitch(Function *fn, Ref sel, IRSwitchCase *cs, uint n, Block *bdefault, bool sorted) {
    enum irclass k = KI32;
    if (sel.t == RTMP) k = insrescls(instrtab[sel.i]);
    else if (iscon(sel)) k = concls(sel);
    assert(kisint(k));
-   for (int i = 0; i < n; ++i) {
-      const IRSwitchCase *c = &cs[i];
-      Block *next = i < n - 1 ? newblk(fn) : bdefault;
-      putcondbranch(fn, irbinop(fn, Oequ, k, sel, mkintcon(k, c->v)), c->b, next);
-      if (next != bdefault) useblk(fn, next);
-   }
+   if (sorted && n > LINEARSWITCHTHRESH)
+      putswitchbtree(fn, sel, k, cs, n, bdefault);
+   else
+      putswitchlinear(fn, sel, k, cs, n, bdefault);
 }
 
 #undef putjump

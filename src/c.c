@@ -4705,12 +4705,7 @@ genswitch(CComp *cm, const Expr *ex) {
    swsortcases(st.cases.p, st.casespans.p, st.cases.n);
    doemit = 1;
    if (!st.bdefault) st.bdefault = end;
-   /* TODO: optimize instead of generating the equivalent of if == .. else if .. chain
-    *    XX 1. sort by case values (also for easy duplicates checking)
-    *       2. contiguous ranges (case a..b:  ->  x >= && x <= b)
-    *       3. binary search
-    *       4. jump tables? (harder, backend refactoring)
-    */
+
    s64int prev;
    for (int i = 0; i < st.cases.n; ++i) {
       const IRSwitchCase *c = &st.cases.p[i];
