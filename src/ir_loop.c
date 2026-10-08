@@ -466,7 +466,7 @@ ivstridev(Function *fn, Loop *l, IndVar *iv) {
    case IVDERIVSCALED:
       return iv->_stride = irbinop(fn, Omul, iv->cls, ivstridev(fn, l, iv->base), iv->scale);
    case IVDERIVWIDEN:
-      return iv->_stride = irunop(fn, iv->op, iv->cls, ivstridev(fn, l, iv->base));
+      return iv->_stride = irunop(fn, Oexts32, iv->cls, ivstridev(fn, l, iv->base));
    }
 }
 
