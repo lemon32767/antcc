@@ -34,18 +34,20 @@ gnu builtins
     types_compatible_p
     choose_expr
     prefetch
-gnu __asm__, constriants, reg vars
+gnu __asm__, constraints, reg vars
 
 BACKEND
-opt fixup and merge loopiv
 need assembler for gnu asm
+mem2reg remove redundant phis SCC algo
 text assembly output? for debug&nice
-opt x86 isel+codegen memory args
+opt loop counted unroll, remove empty
+opt x86 memory args (isel+rega+emit)
+opt regalloc tweak spill costs, better copy coalescing
+opt regalloc peephole spill dead load/store removal
 opt regalloc interval splitting
 opt gcm gvn @ https://doi.org/10.1145/207110.207154
 
 COMPILE w/o patches
-git (debug assert failure in -O1 loopopt)
 tcl
 python
 SDL
