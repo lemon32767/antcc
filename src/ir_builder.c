@@ -318,6 +318,20 @@ puttrap(Function *fn) {
    putjump(fn, Jtrap, NOREF, NOREF, NULL, NULL);
 }
 
+void
+putswitch(Function *fn, Ref sel, IRSwitchCase *cs, uint n, Block *bdefault, bool sorted) {
+   enum irclass k = KI32;
+   if (sel.t == RTMP) k = insrescls(instrtab[sel.i]);
+   else if (iscon(sel)) k = concls(sel);
+   assert(kisint(k));
+   for (int i = 0; i < n; ++i) {
+      const IRSwitchCase *c = &cs[i];
+      Block *next = i < n - 1 ? newblk(fn) : bdefault;
+      putcondbranch(fn, irbinop(fn, Oequ, k, sel, mkintcon(k, c->v)), c->b, next);
+      if (next != bdefault) useblk(fn, next);
+   }
+}
+
 #undef putjump
 
 /* vim:set ts=3 sw=3 expandtab: */

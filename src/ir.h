@@ -149,6 +149,8 @@ struct Block {
    struct { uchar t; Ref arg[2]; } jmp;
 };
 
+typedef struct { s64int v; Block *b; } IRSwitchCase;
+
 #define blkpred(blk, i) 0[(blk)->npred < 2 ? &(blk)->_pred0 : &(blk)->_pred[i]]
 
 enum { USERJUMP = 0xFFFF };
@@ -334,6 +336,7 @@ void putbranch(Function *, Block *);
 void putcondbranch(Function *, Ref arg, Block *t, Block *f);
 void putreturn(Function *, Ref r0, Ref r1);
 void puttrap(Function *);
+void putswitch(Function *, Ref sel, IRSwitchCase *, uint n, Block *bdefault, bool sorted);
 
 /** ir_fold.c **/
 bool foldbinop(Ref *to, enum op, enum irclass, Ref l, Ref r);

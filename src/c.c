@@ -4621,29 +4621,52 @@ loopbody(CComp *cm, Block *brk, Block *cont) {
 
 #define EMITS if (doemit && !nerror)
 
-typedef struct {
-   s64int val;
-   Block *blk;
-   Span span;
-} SwitchCase;
 typedef struct SwitchStmt {
    Block *bdefault;
    Type condtype;
-   vec_of(SwitchCase) cases;
+   vec_of(IRSwitchCase) cases;
+   vec_of(Span) casespans;
 } SwitchStmt;
 
-static int
-cmpswcase(const void *aa, const void *bb) {
-   const SwitchCase *a = aa, *b = bb;
-   s64int v1 = a->val, v2 = b->val;
-   if (v1 != v2) return v1 < v2 ? -1 : 1;
-   return (a > b) - (a < b); /* preserve original order */
+static void swsortcases(IRSwitchCase *cs, Span *span, uint n);
+static inline bool
+swcaselt(const IRSwitchCase *a, const Span *sa, const IRSwitchCase *b, const Span *sb) {
+   if (a->v != b->v) return a->v < b->v;
+   /* (try to) preserve original source order for error reporting */
+   return sa->ex.off < sb->ex.off;
 }
-
 static void
-swsortcases(SwitchCase *cs, uint n) {
-   void qsort(void *, size_t n, size_t size, int (*)(const void *, const void *));
-   qsort(cs, n, sizeof *cs, cmpswcase);
+swsortcases0(IRSwitchCase *cs, Span *span, uint n) {
+   for (uint i = 1, j; i < n; ++i) {
+      IRSwitchCase c = cs[i];
+      Span s = span[i];
+      for (j = i; j > 0 && swcaselt(&c, &s, &cs[j-1], &span[j-1]); --j) {
+         cs[j] = cs[j-1];
+         span[j] = span[j-1];
+      }
+      cs[j] = c, span[j] = s;
+   }
+}
+static void
+swsortcasesq(IRSwitchCase *cs, Span *span, uint n) {
+   IRSwitchCase pv = cs[n/2];
+   Span pvsp = span[n/2];
+   uint i, j;
+   for (i = 0, j = n - 1;; ++i, --j) {
+      while (swcaselt(&cs[i], &span[i], &pv, &pvsp)) ++i;
+      while (swcaselt(&pv, &pvsp, &cs[j], &span[j])) --j;
+      if (i >= j) break;
+      IRSwitchCase tc = cs[i]; cs[i] = cs[j], cs[j] = tc;
+      Span ts = span[i]; span[i] = span[j], span[j] = ts;
+   }
+   swsortcases(cs, span, i);
+   swsortcases(cs+i, span+i, n-i);
+}
+static void
+swsortcases(IRSwitchCase *cs, Span *span, uint n) {
+   if (n < 2) return;
+   if (n < 16) swsortcases0(cs, span, n);
+   else swsortcasesq(cs, span, n);
 }
 
 static bool
@@ -4654,8 +4677,10 @@ genswitch(CComp *cm, const Expr *ex) {
    Block *begin = NULL, *end = NULL, *breaksave = cm->breakto;
    SwitchStmt *stsave = cm->switchstmt, st = {.condtype = ex->ty};
    enum irclass k = type2cls[scalartypet(ex->ty)];
-   SwitchCase casebuf[8];
+   IRSwitchCase casebuf[8];
+   Span casespanbuf[8];
    vinit(&st.cases, casebuf, countof(casebuf));
+   vinit(&st.casespans, casespanbuf, countof(casespanbuf));
 
    assert(k);
    end = newblk(fn);
@@ -4676,7 +4701,8 @@ genswitch(CComp *cm, const Expr *ex) {
 
    EMITS putbranch(fn, end);
    useblk(fn, begin);
-   swsortcases(st.cases.p, st.cases.n);
+   assert(st.cases.n == st.casespans.n);
+   swsortcases(st.cases.p, st.casespans.p, st.cases.n);
    doemit = 1;
    if (!st.bdefault) st.bdefault = end;
    /* TODO: optimize instead of generating the equivalent of if == .. else if .. chain
@@ -4687,22 +4713,19 @@ genswitch(CComp *cm, const Expr *ex) {
     */
    s64int prev;
    for (int i = 0; i < st.cases.n; ++i) {
-      const SwitchCase *c = &st.cases.p[i];
+      const IRSwitchCase *c = &st.cases.p[i];
       if (i > 0) {
-         assert(c->val >= prev);
-         if (c->val == prev) {
-            error(&c->span, "duplicate case value");
-            note(&c[-1].span, "previously defined here");
+         assert(c->v >= prev);
+         if (c->v == prev) {
+            error(&st.casespans.p[i], "duplicate case value");
+            note(&st.casespans.p[i-1], "previously defined here");
          }
       }
-      EMITS {
-         Block *next = i < st.cases.n - 1 ? newblk(fn) : st.bdefault;
-         putcondbranch(fn, irbinop(fn, Oequ, k, sel, mkintcon(k, c->val)), c->blk, next);
-         if (next != st.bdefault) useblk(fn, next);
-      }
-      prev = c->val;
+      prev = c->v;
    }
+   EMITS putswitch(fn, sel, st.cases.p, st.cases.n, st.bdefault, /*sorted*/1);
    vfree(&st.cases);
+   vfree(&st.casespans);
    if (fn->curblk != end) {
       if (fn->curblk) EMITS putbranch(fn, end);
       if (end->npred > 0) {
@@ -4753,8 +4776,10 @@ stmt(CComp *cm, Ref *stmtexprval, Type *stmtexprty) {
             EMITS putbranch(fn, begin);
             useblk(fn, begin);
          }
-         if (cm->switchstmt)
-            vpush(&cm->switchstmt->cases, ((SwitchCase) {ex.i, fn->curblk, ex.span}));
+         if (cm->switchstmt) {
+            vpush(&cm->switchstmt->cases, ((IRSwitchCase) {ex.i, fn->curblk}));
+            vpush(&cm->switchstmt->casespans, ex.span);
+         }
       } else if (tk.t == TKWdefault) {
          /* default ':' */
          if (!cm->switchstmt) error(&tk.span, "'default' outside of switch statement");
