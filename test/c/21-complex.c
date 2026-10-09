@@ -16,6 +16,8 @@ foo(a) = 81.0-95.0
 a==b = 0; b!=a = 1; !a = 0; a&&b = 1; !!I = 1
 e^(i*0.5) = 0.877583+0.479426i
 cos(0.5)+i*sin(0.5) = 0.877583+0.479426i
+? 2.0+0.0i 3.5+0.0i 1.5+2.5i
+?: 3.0+4.0i 7.0+0.0i 3.0+4.0i 2.0+0.0i
 */
 
 #include <complex.h>
@@ -83,6 +85,12 @@ int main() {
    complex double target = cos(theta) + I * sin(theta);
    printf("e^(i*0.5) = %.6f%+.6fi\n", creal(eith), cimag(eith));
    printf("cos(0.5)+i*sin(0.5) = %.6f%+.6fi\n", creal(target), cimag(target));
+
+   volatile int z0 = 0, z1 = 7;
+   complex double c1 = z0 ? a : 2.0, c2 = z1 ? 3.5 : a, c3 = z1 ? (complex float)(1.5 + 2.5 * I) : a;
+   printf("? %.1f%+.1fi %.1f%+.1fi %.1f%+.1fi\n", creal(c1), cimag(c1), creal(c2), cimag(c2), creal(c3), cimag(c3));
+   complex double e1 = z0 ?: a, e2 = z1 ?: a, e3 = a ?: 2.0, e4 = (a - a) ?: 2.0;
+   printf("?: %.1f%+.1fi %.1f%+.1fi %.1f%+.1fi %.1f%+.1fi\n", creal(e1), cimag(e1), creal(e2), cimag(e2), creal(e3), cimag(e3), creal(e4), cimag(e4));
 
    return a;
 }

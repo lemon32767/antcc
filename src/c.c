@@ -4562,20 +4562,20 @@ compcomplexex(Function *fn, const Expr *ex, bool discard) {
       goto Load;
    case ECOND:
       for (bool c; knowntruthy(&c, &ex->sub[0]);) {
-         r = compileexpr(fn, &ex->sub[2-c], discard);
-         if (discard) return NIL;
-         assert(ex->sub[2-c].ty.bits == ex->ty.bits);
-         return compcomplexex(fn, &ex->sub[2-c], 0);
+         if (discard) {
+            expreffects(fn, &ex->sub[2-c]);
+            return NIL;
+         }
+         return cvt2complex(fn, sty, &ex->sub[2-c]);
       }
-
       condjump(fn, &sub[0], tr = newblk(fn), fl = newblk(fn));
       useblk(fn, tr);
-      q = compcomplexex(fn, &sub[1], discard);
+      q = cvt2complex(fn, sty, &sub[1]);
       end = newblk(fn);
       if (fn->curblk)
          putbranch(fn, end);
       useblk(fn, fl);
-      w = compcomplexex(fn, &sub[2], discard);
+      w = cvt2complex(fn, sty, &sub[2]);
       if (fn->curblk)
          putbranch(fn, end);
       useblk(fn, end);
