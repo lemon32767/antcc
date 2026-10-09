@@ -1320,27 +1320,38 @@ Unary:
          assert(ty.t);
          ex = mkexpr(ek, span, ty, .sub = exprdup2(cm, &ex, &rhs));
       } else {
-         /* logical-OR-expression ? expression : conditional-expression */
-         Expr *sub;
+         /* logical-OR-expression ? <expression> : conditional-expression */
          span.sl = tk.span.sl;
          span.ex = ex.span.ex;
          if (!isptrcvt(ex.ty) && !isscalar(ex.ty))
             error(&ex.span, "?: condition is not a scalar type: '%ty'", ex.ty);
-         tmp = commaexpr(cm);
-         joinspan(&tk.span.ex, tmp.span.ex);
+         Expr *etrue;
+         bool elvis = peek(cm, NULL) == ':';
+         if (elvis) {
+            if (ccopt.pedant) warn(&span, "'?:' is an extension");
+            etrue = &ex;
+         } else {
+            tmp = commaexpr(cm);
+            etrue = &tmp;
+            joinspan(&tk.span.ex, tmp.span.ex);
+         }
          expect(cm, ':', NULL);
          rhs = exprparse(cm, opprec, NULL, 0);
-         if (!joinspan(&span.ex, tk.span.ex) || !joinspan(&span.ex, tmp.span.ex)
-           || !joinspan(&span.ex, rhs.span.ex))
+         if (!joinspan(&span.ex, tk.span.ex)
+          || (!elvis && !joinspan(&span.ex, tmp.span.ex))
+          || !joinspan(&span.ex, rhs.span.ex)) {
             span.ex = tk.span.ex;
-         ty = condtype(&tmp, &rhs);
-         if (!ty.t) {
-            error(&span, "incompatible types in conditional expression: '%ty', '%ty'", tmp.ty, rhs.ty);
-            ty = tmp.ty;
          }
-         sub = alloc(&cm->exarena, 3 * sizeof*sub, 0);
-         sub[0] = ex, sub[1] = tmp, sub[2] = rhs;
-         ex = mkexpr(ECOND, span, ty, .sub = sub);
+         ty = condtype(etrue, &rhs);
+         if (!ty.t) {
+            error(&span, "incompatible types in conditional expression: '%ty', '%ty'", etrue->ty, rhs.ty);
+            ty = etrue->ty;
+         }
+         Expr *sub = alloc(&cm->exarena, (3 - elvis)*sizeof*sub, 0);
+         sub[0] = ex;
+         if (elvis) sub[1] = rhs;
+         else sub[1] = tmp, sub[2] = rhs;
+         ex = mkexpr(elvis ? EELVIS : ECOND, span, ty, .sub = sub);
       }
    }
 
@@ -1995,8 +2006,8 @@ dumpexpr(const Expr *ex, bool prity) {
       [ESET] = "set",         [ESETADD] = "setadd", [ESETSUB] = "setsub",
       [ESETMUL] = "setmul",   [ESETDIV] = "setdiv", [ESETREM] = "setrem",
       [ESETAND] = "setand",   [ESETIOR] = "setior", [ESETXOR] = "setxor",
-      [ESETSHL] = "setshl",   [ESETSHR] = "setshr", [ESEQ] = "seq",
-      [EIRVALUE] = "irvalue", [ESIZEOF] = "sizeof",
+      [ESETSHL] = "setshl",   [ESETSHR] = "setshr", [EELVIS] = "elvis",
+      [ESEQ] = "seq",       [EIRVALUE] = "irvalue", [ESIZEOF] = "sizeof",
    };
    ioputc(&bstderr, '(');
    efmt("%s ", name[ex->t]);
@@ -3713,7 +3724,7 @@ Recur:
       useblk(fn, next);
       ex = &ex->sub[1];
       goto Recur;
-   } else if (ex->t == ELOGIOR) {
+   } else if (ex->t == ELOGIOR || ex->t == EELVIS) {
       next = newblk(fn);
       condjump(fn, &ex->sub[0], tr, next);
       useblk(fn, next);
@@ -3779,6 +3790,20 @@ Recur:
       useblk(fn, fl);
       ex = &ex->sub[1];
       goto Recur;
+   } else if (ex->t == EELVIS && !iscomplex(ex->ty)) {
+      Block *fl = newblk(fn);
+      Ref lhs = exprvalue(fn, &ex->sub[0]);
+      putcondbranch(fn, lhs, end, fl);
+      assert(prevpred <= end->npred);
+      if (phi) {
+         assert(isscalar(phi->typ));
+         lhs = scalarcvt(fn, phi->typ, ex->sub[0].ty, lhs);
+         for (int n = end->npred - prevpred; n > 0; --n)
+            vpush(&phi->refs, lhs);
+      }
+      useblk(fn, fl);
+      ex = &ex->sub[1];
+      goto Recur;
    } else if (ex->t == ECOND) {
       Block *tr = newblk(fn), *fl = newblk(fn);
       condjump(fn, &ex->sub[0], tr, fl);
@@ -3813,7 +3838,10 @@ Recur:
 static Ref
 condexprvalue(Function *fn, const Expr *ex, bool discard) {
    Ref refbuf[8];
-   CondPhi phi = { ex->t == ECOND ? ex->ty : mktype(TYBOOL), VINIT(refbuf, countof(refbuf)) };
+   CondPhi phi = {
+      (ex->t == ECOND || ex->t == EELVIS) ? ex->ty : mktype(TYBOOL),
+      VINIT(refbuf, countof(refbuf))
+   };
    Block *dst = newblk(fn);
    condexprrec(fn, ex, discard ? NULL : &phi, dst);
    useblk(fn, dst);
@@ -4275,6 +4303,24 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
          return NOREF;
       }
       return condexprvalue(fn, ex, discard);
+   case EELVIS:
+      for (bool c; knowntruthy(&c, &ex->sub[0]);) {
+         r = compileexpr(fn, &ex->sub[c^1], discard);
+         if (discard) return NOREF;
+         return scalarcvt(fn, ex->ty, ex->sub[c^1].ty, r);
+      }
+
+      if (ex->ty.t == TYVOID || discard) {
+         Block *fl, *end;
+         condjump(fn, &sub[0], end = newblk(fn), fl = newblk(fn));
+         useblk(fn, fl);
+         expreffects(fn, &sub[1]);
+         if (fn->curblk)
+            putbranch(fn, end);
+         useblk(fn, end);
+         return NOREF;
+      }
+      return condexprvalue(fn, ex, discard);
    case ELOGAND:
    case ELOGIOR:
       for (bool c; knowntruthy(&c, &ex->sub[0]);) {
@@ -4360,11 +4406,12 @@ compcomplexex(Function *fn, const Expr *ex, bool discard) {
    Type sty = typechild(ex->ty);
    assert(isflt(sty));
    enum irclass cls = type2cls[sty.t];
+   const Expr *sub = ex->sub;
    Ref adr, r;
    Ref2 q, w, z;
-   const Expr *sub = ex->sub;
    Type ty;
    enum op op;
+   Block *tr, *fl, *end;
    switch (ex->t) {
    case ENUMLIT: /* imaginary literal e.g. 1.0iF */
       if (discard) return NIL;
@@ -4521,7 +4568,6 @@ compcomplexex(Function *fn, const Expr *ex, bool discard) {
          return compcomplexex(fn, &ex->sub[2-c], 0);
       }
 
-      Block *tr, *fl, *end;
       condjump(fn, &sub[0], tr = newblk(fn), fl = newblk(fn));
       useblk(fn, tr);
       q = compcomplexex(fn, &sub[1], discard);
@@ -4537,6 +4583,51 @@ compcomplexex(Function *fn, const Expr *ex, bool discard) {
       z.a = addphi(fn, cls, (Ref[2]){q.a, w.a});
       z.b = addphi(fn, cls, (Ref[2]){q.b, w.b});
       return z;
+   case EELVIS:
+      for (bool c; knowntruthy(&c, &ex->sub[0]);) {
+         if (discard) {
+            if (!c) expreffects(fn, &ex->sub[1]);
+            return NIL;
+         }
+         return cvt2complex(fn, sty, &ex->sub[c^1]);
+      }
+      if (discard) {
+         condjump(fn, &sub[0], end = newblk(fn), fl = newblk(fn));
+         useblk(fn, fl);
+         expreffects(fn, &sub[1]);
+         if (fn->curblk)
+            putbranch(fn, end);
+         useblk(fn, end);
+         return NIL;
+      } else {
+         Ref2 lhs;
+         Ref cnd;
+         if (iscomplex(sub[0].ty)) {
+            Type lbase = typechild(sub[0].ty);
+            lhs = compcomplexex(fn, &sub[0], 0);
+            Ref lr = scalarcvt(fn, mktype(TYBOOL), lbase, lhs.a),
+                li = scalarcvt(fn, mktype(TYBOOL), lbase, lhs.b);
+            cnd = irbinop(fn, Oior, KI32, lr, li);
+            if (lbase.bits != sty.bits) {
+               lhs.a = scalarcvt(fn, sty, lbase, lhs.a);
+               lhs.b = scalarcvt(fn, sty, lbase, lhs.b);
+            }
+         } else {
+            Ref lv = exprvalue(fn, &sub[0]);
+            cnd = lv;
+            lhs.a = scalarcvt(fn, sty, sub[0].ty, lv);
+            lhs.b = mkfltcon(cls, 0.0);
+         }
+         putcondbranch(fn, cnd, end = newblk(fn), fl = newblk(fn));
+         useblk(fn, fl);
+         w = cvt2complex(fn, sty, &sub[1]);
+         if (fn->curblk)
+            putbranch(fn, end);
+         useblk(fn, end);
+         z.a = addphi(fn, cls, (Ref[2]){lhs.a, w.a});
+         z.b = addphi(fn, cls, (Ref[2]){lhs.b, w.b});
+         return z;
+      }
    case ESEQ:
       expreffects(fn, &sub[0]);
       return compcomplexex(fn, &sub[1], discard);

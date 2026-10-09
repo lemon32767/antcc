@@ -24,6 +24,7 @@ Other GNU C language extensions
   - `__asm__` for symbol renaming
   - zero-sized arrays, empty structs/unions
   - `return`ing void expression in void function
+  - elvis operator `a ?: b`
   - forward-declared enums
   - `__FUNCTION__`, `__PRETTY_FUNCTION__` as synonyms for `__func__`
   - applying `_Alignof` to an expression

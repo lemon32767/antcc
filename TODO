@@ -4,7 +4,6 @@ c atomics
 c va_arg 2reg structs
 c long double
 cpp fix strify for str/chr with escapes (current #"\x00" -> "\0" bc rebuilt from parsed lit)
-gnu ?:
 gnu cast to union
 gnu case range
 gnu designated initializers

@@ -69,4 +69,13 @@ int main() {
    assert(*g_131 == 5 && *g_132 == 14 && *g_133 == 0);
    printf("S3 =%d, f2@%d, q@%d\n", (int)sizeof(struct S3), (int)offsetof(struct S3, f2), (int)offsetof(struct S3, q));
    assert(!(***strcmp)(__func__, "main"));
+   volatile int z = 0, w = 3, n = 0;
+   assert((z ?: 5) == 5), assert((w ?: 5) == 3);
+   assert((w ?: ++n) == 3 && n == 0), assert((n++ ?: 9) == 9 && n == 1);
+   assert((g_131 ?: g_132) == g_131), assert(*(g_131 ?: g_132) == 5), assert((0 ?: g_133) == g_133);
+   volatile int *vp = 0;
+   assert((vp ?: g_132) == g_132);
+   assert((z ?: w ?: 9) == 3), assert((z ?: z ?: 7) == 7);
+   assert((z ?: (w ? 6 : 7)) == 6), assert((w ? z ?: 9 : 8) == 9);
+   assert((vp ?: g_131 ?: g_132) == g_131);
 }

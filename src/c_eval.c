@@ -435,6 +435,12 @@ eval(Expr *ex, enum evalmode mode) {
       *ex = ex->sub[2-truthy(&ex->sub[0])];
       ex->span = span;
       return eval(ex, mode);
+   case EELVIS:
+      if (!eval(&ex->sub[0], mode)) return 0;
+      span = ex->span;
+      *ex = ex->sub[!truthy(&ex->sub[0])];
+      ex->span = span;
+      return eval(ex, mode);
    case EINIT:
       for (InitElem *v = ex->init->vals; v; v = v->next) {
          if (!eval(&v->ex, mode)) return 0;
