@@ -912,7 +912,15 @@ findavailregs(RegAlloc *ra, LinearScan *s, regset *out_fixexcl) {
       if (ins->r.t == RREG) rsset(&excl, ins->r.i);
       else if (ins->r.t == RTMP && (xreg = instrtab[ins->r.i].reg)) {
          if (ins->r.bits != ins->l.bits)
-            rsset(&fixexcl, xreg-1);
+            rsset(&excl, xreg-1);
+      } else if (ins->r.t == RADDR) {
+         /* also prevent clob of memory operand's base/index regs */
+         IRAddr *a = &addrtab.p[ins->r.i];
+         for (Ref *r = &a->base, *end = r + 2; r != end; ++r) {
+            if (r->t == RREG) rsset(&excl, r->i);
+            else if (r->t == RTMP && ra->intertab[r->i].alloc.t == AREG)
+               rsset(&excl, ra->intertab[r->i].alloc.a);
+         }
       }
    }
    *out_fixexcl = fixexcl;
@@ -1068,6 +1076,21 @@ isstoreimm(Ref r) {
    return 0;
 }
 
+static bool
+canusememoper(Instr *ins, Ref *r) {
+   /* another hard coded arch dependant dispatch */
+   if (target.arch != ISx86_64) return 0;
+   if (r != &ins->r || !kisint(ins->cls)) return 0;
+   switch (ins->op) {
+   case Oadd: /* two-address only, lea can't */
+      return ins->reg && ins->inplace;
+   case Osub: case Oand: case Oior: case Oxor:
+      /* !reg means a cmp/test, also can take mem oper */
+      return !ins->reg || ins->inplace;
+   }
+   return 0;
+}
+
 /* replace temps with physical regs, add loads & stores for spilled temps */
 static bool
 devirt(RegAlloc *ra, Block *blk) {
@@ -1117,6 +1140,9 @@ devirt(RegAlloc *ra, Block *blk) {
                /* [reg] = copy [stk] -> [reg] = load [stk] */
                ins->op = cls2load[instrtab[r->i].cls];
                ins->l = stkslotref(fn, alloc->a*8);
+            } else if (alloc->t == ASTACK && canusememoper(ins, r)) {
+               /* can use spilled ref directly as a memory operand */
+               *r = stkslotref(fn, alloc->a*8);
             } else if (alloc->t == ASTACK) {
                /* ref was spilled, gen load to scratch register and use it */
                Instr ld = {.cls = insrescls(instrtab[r->i])};

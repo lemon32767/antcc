@@ -3,7 +3,10 @@
 #include "u_hash.h"
 
 uchar type2cls[NTYPETAG];
-uchar cls2siz[] = { [KI32] = 4, [KI64] = 8, [KF32] = 4, [KF64] = 8 };
+uchar cls2siz[] = {
+   [KI32] = 4, [KI64] = 8, [KF32] = 4, [KF64] = 8,
+   [KMI8] = 1, [KMI16] = 2
+};
 uchar cls2load[] = {
    [KI32] = Oloadu32, [KI64] = Oloadi64,
    [KF32] = Oloadf32, [KF64] = Oloadf64, [KPTR] = -1
@@ -12,6 +15,23 @@ uchar cls2load[] = {
    [KF32] = Ostoref32, [KF64] = Ostoref64, [KPTR] = -1
 };
 const uchar siz2intcls[] = { [1] = KI32, [2] = KI32, [4] = KI32, [8] = KI64 };
+const uchar _loadstoreszcls[] = {
+   [Oloads8  - Oloads8] = 1|KI32<<4, [Oloadu8  - Oloads8] = 1|KI32<<4,
+   [Oloads16 - Oloads8] = 2|KI32<<4, [Oloadu16 - Oloads8] = 2|KI32<<4,
+   [Oloads32 - Oloads8] = 4|KI32<<4, [Oloadu32 - Oloads8] = 4|KI32<<4,
+   [Oloadi64 - Oloads8] = 8|KI64<<4,
+   [Oloadf32 - Oloads8] = 4|KF32<<4,
+   [Oloadf64 - Oloads8] = 8|KF64<<4,
+   [Ostorei8  - Oloads8] = 1|KI32<<4, [Ostorei16 - Oloads8] = 2|KI32<<4,
+   [Ostorei32 - Oloads8] = 4|KI32<<4, [Ostorei64 - Oloads8] = 8|KI64<<4,
+   [Ostoref32 - Oloads8] = 4|KF32<<4, [Ostoref64 - Oloads8] = 8|KF64<<4,
+};
+const uchar _load2ext[] = {
+   [Oloads8  - Oloads8] = Oexts8,  [Oloadu8  - Oloads8] = Oextu8,
+   [Oloads16 - Oloads8] = Oexts16, [Oloadu16 - Oloads8] = Oextu16,
+   [Oloads32 - Oloads8] = Oexts32, [Oloadu32 - Oloads8] = Oextu32,
+   [Oloadi64 - Oloads8] = Ocopy,
+};
 
 const char *opnames[] = {
    "?\??",

@@ -68,7 +68,7 @@ pridat(const IRDat *dat) {
 }
 
 const char *clsname[] = {
-   "?", "i32", "i64", "ptr", "f32", "f64"
+   "?", "i32", "i64", "ptr", "f32", "f64", "i8", "i16"
 };
 
 static int
@@ -148,7 +148,9 @@ dumpref(WriteBuf *buf, enum op o, Ref ref) {
       {
          const IRAddr *addr = &addrtab.p[ref.i];
          bool k = 0;
-         n += bfmt(buf, "addr [");
+         if (addr->cls)
+            n += bfmt(buf, "*%s ", clsname[addr->cls]);
+         n += bfmt(buf, "[");
          if ((k = addr->base.bits)) n += dumpref(buf, 0, addr->base);
          if (addr->index.bits) {
             if (k) n += bfmt(buf, " + %r", addr->index);

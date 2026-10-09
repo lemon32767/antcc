@@ -42,6 +42,20 @@ picfixsym(Ref *r, Block *blk, int *curi) {
    *r = inscopy(blk, curi, KPTR, *r);
 }
 
+static inline bool
+issingleuse(int t) {
+   return instruse[t] && !instruse[t]->next;
+}
+
+static inline bool
+canfusememop(enum op op, enum irclass k) {
+   static const bool tab[] = {
+      [Oadd] = 1, [Osub] = 1, [Oand] = 1, [Oior] = 1, [Oxor] = 1,
+      [Oshl] = 1, [Osar] = 1, [Oslr] = 1, [Oneg] = 1, [Onot] = 1,
+   };
+   return kisint(k) && (unsigned)op < countof(tab) && tab[op];
+}
+
 static void
 fixarg(Ref *r, Instr *ins, Block *blk, int *curi) {
    int sh;
@@ -102,6 +116,46 @@ Begin:
       sh = r->i;
    ShiftImm: /* shift immediate is always 8bit */
       *r = mkref(RICON, sh & 255);
+   } else if (r->t == RTMP) {
+      /* look for
+       *  %t = loadX %ptr
+       *  <op> ..., %t
+       * where <op> can take a mem arg
+       *
+       * TODO match narrower thru s/zext too
+       */
+      if (!canfusememop(op, cls)) return;
+      if (!issingleuse(r->i)) return;
+      Instr *load = NULL;
+      for (int i = *curi - 1, t; i >= 0; --i) {
+         Instr *ins = &instrtab[t = blk->ins.p[i]];
+         if (ins->op == Onop) continue;
+         if (t == r->i) {
+            if (!oisload(ins->op)) return;
+            load = ins;
+            break;
+         }
+         if (!oisarith(ins->op)) return; /* barrier */
+      }
+      if (!load || loadstorecls(load->op) != cls || loadstoresz(load->op) != cls2siz[cls]
+       || load->keep)
+         return;
+      Ref ptr = load->l;
+      IRAddr m;
+      if (ptr.t == RTMP || isaddrcon(ptr, 0)) {
+         m = (IRAddr){.base = ptr, .cls = cls};
+      } else if (ptr.t == RADDR) {
+         m = addrtab.p[ptr.i];
+         m.cls = cls;
+      } else {
+         return;
+      }
+      /* turn into
+       *   <op> ..., *kX [%ptr]
+       */
+      ins->inplace = 1;
+      *r = mkaddr(m);
+      load->op = Onop;
    } else if (r->t == RSTACK) {
       if (!(oisloadstore(op) && r == &ins->l) && !in_range(op, Ocopy, Omove) && op != Ophi)
          *r = inscopy(blk, curi, KPTR, *r);
@@ -265,6 +319,9 @@ aadd(IRAddr *out, Block *blk, int *curi, Ref r, bool recurring) {
          goto Add2;
       } else if (ins->op == Ocopy && ins->l.t == RSTACK && !out->base.bits) {
          out->base = ins->l;
+      } else if (ins->op == Ocopy && isintcon(ins->l)) {
+         if (!aimm(out, intconval(ins->l))) return 0;
+         ins->skip = 1;
       } else if (ins->op == Oshl) {
          if (!ascale(out, ins->l, ins->r)) goto Ref;
          ins->skip = 1;
@@ -349,6 +406,66 @@ arithfold(Instr *ins) {
       }
    }
    return 0;
+}
+
+static void
+tryfusememwrite(Block *blk, Instr *store, int *curi) {
+   assert(oisstore(store->op));
+   Ref ptr = store->l, val = store->r, temp;
+   if (val.t != RTMP) return;
+   if (!issingleuse(val.i)) return;
+   Instr *oper = NULL, *load = NULL;
+   /* look for pattern like
+    *   kX %t = loadX %ptr
+    *   kX %val = <op> ..., %t
+    *   storeX %ptr, %val
+    */
+   int i, t;
+   for (i = *curi - 1; i > 0; --i) {
+      oper = &instrtab[t = blk->ins.p[i]];
+      if (oper->op == Onop || oper->skip) continue;
+      if (t != val.i || !oisarith(oper->op) || oper->l.t != RTMP) return;
+      temp = oper->l;
+      break;
+   }
+   if (!oper || oper->r.t == RADDR || oper->r.t == RSTACK || isaddrcon(oper->r, 1))
+      return;
+   for (--i; i >= 0; --i) {
+      load = &instrtab[t = blk->ins.p[i]];
+      if (load->op == Onop) continue;
+      if (t == temp.i) {
+         if (!oisload(load->op) || load->l.bits != ptr.bits) return;
+         break;
+      }
+      if (!oisarith(load->op)) return; /* barrier */
+   }
+   if (i < 0) return;
+   if (!issingleuse(temp.i)) return;
+   if (loadstoresz(load->op) != loadstoresz(store->op)) return;
+   if (load->keep || store->keep) return;
+   enum irclass k = oper->cls;
+   if (cls2siz[load->cls] != cls2siz[k] || cls2siz[k] != cls2siz[loadstorecls(store->op)]) return;
+   if (!canfusememop(oper->op, k)) return;
+   enum irclass mcls = k;
+   switch (loadstoresz(store->op)) {
+   case 1: mcls = KMI8; break;
+   case 2: mcls = KMI16; break;
+   }
+   IRAddr p2;
+   if (ptr.t == RTMP || isaddrcon(ptr, 0)) {
+      p2 = (IRAddr){.base = ptr, .cls = mcls};
+   } else if (ptr.t == RADDR) {
+      p2 = addrtab.p[ptr.i];
+      p2.cls = mcls;
+   } else {
+      return;
+   }
+   /* turn into
+    *   <op> *kX [%ptr], ...
+    */
+   oper->l = mkaddr(p2);
+   oper->cls = 0;
+   store->op = load->op = Onop;
 }
 
 static void
@@ -515,6 +632,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi) {
          ins->r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, KPTR, ins->r));
       else
          fixarg(&ins->r, ins, blk, curi);
+      tryfusememwrite(blk, ins, curi);
       break;
    case Ocvtu32f:
       fixarg(&ins->l, ins, blk, curi);
@@ -623,6 +741,7 @@ void
 x86_64_isel(Function *fn) {
    Block *blk = fn->entry;
 
+   FREQUIRE(FNUSE);
    do {
       for (int i = 0; i < blk->phi.n; ++i) {
          Instr *ins = &instrtab[blk->phi.p[i]];

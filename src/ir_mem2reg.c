@@ -1,33 +1,6 @@
 #include "ir.h"
 #include "u_bits.h"
 
-static const uchar loadszcls[] = {
-   [Oloads8  - Oloads8] = 1|KI32<<4, [Oloadu8  - Oloads8] = 1|KI32<<4,
-   [Oloads16 - Oloads8] = 2|KI32<<4, [Oloadu16 - Oloads8] = 2|KI32<<4,
-   [Oloads32 - Oloads8] = 4|KI32<<4, [Oloadu32 - Oloads8] = 4|KI32<<4,
-   [Oloadi64 - Oloads8] = 8|KI64<<4,
-   [Oloadf32 - Oloads8] = 4|KF32<<4,
-   [Oloadf64 - Oloads8] = 8|KF64<<4,
-};
-static const uchar load2ext[] = {
-   [Oloads8  - Oloads8] = Oexts8,  [Oloadu8  - Oloads8] = Oextu8,
-   [Oloads16 - Oloads8] = Oexts16, [Oloadu16 - Oloads8] = Oextu16,
-   [Oloads32 - Oloads8] = Oexts32, [Oloadu32 - Oloads8] = Oextu32,
-   [Oloadi64 - Oloads8] = Ocopy,
-};
-static const uchar storesz[] = {
-   [Ostorei8  - Ostorei8] = 1,
-   [Ostorei16 - Ostorei8] = 2,
-   [Ostorei32 - Ostorei8] = 4,
-   [Ostorei64 - Ostorei8] = 8,
-   [Ostoref32 - Ostorei8] = 4,
-   [Ostoref64 - Ostorei8] = 8,
-};
-#define loadsz(o) (loadszcls[(o) - Oloads8] & 0xF)
-#define loadcls(o) (loadszcls[(o) - Oloads8] >> 4)
-#define load2ext(o) (load2ext[(o) - Oloads8])
-#define storesz(o) (storesz[(o) - Ostorei8])
-
 /* Implements algorithm in 'Simple and Efficient Construction of Static Single Assignment' (Braun et al) */
 
 typedef struct SSABuilder {
@@ -227,15 +200,15 @@ mem2reg(Function *fn) {
             if (use->u == USERJUMP) goto Skip;
             Instr *m = &instrtab[use->u];
             if (m->keep) /*volatile*/ goto Skip;
-            if (oisload(m->op) && (!sz || sz == loadsz(m->op))) {
+            if (oisload(m->op) && (!sz || sz == loadstoresz(m->op))) {
                ++nwrite;
-               sz = loadsz(m->op);
-               k = loadcls(m->op);
+               sz = loadstoresz(m->op);
+               k = loadstorecls(m->op);
                if (sz < 4) ext = load2ext(m->op);
             } else if (oisstore(m->op) && m->l.bits == mkref(RTMP, var).bits
-              && (!sz || sz == storesz(m->op))) {
+              && (!sz || sz == loadstoresz(m->op))) {
                ++nread;
-               sz = storesz(m->op);
+               sz = loadstoresz(m->op);
             } else goto Skip;
          }
          if (nwrite && nread) { /* vars with no reads or no writes are dead */

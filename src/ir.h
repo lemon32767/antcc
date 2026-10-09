@@ -7,6 +7,7 @@ enum irclass {
    KXXX,
    KI32, KI64, KPTR,
    KF32, KF64,
+   KMI8, KMI16, /* pseudo for x86 mem args */
 };
 
 #define kisint(k) in_range((k), KI32, KPTR)
@@ -76,7 +77,8 @@ static_assert(sizeof(Ref) == 4);
 
 typedef struct IRAddr {
    Ref base, index;
-   int shift, disp;
+   short cls, shift;
+   int disp;
 } IRAddr;
 
 #define insrescls(ins) (oiscmp((ins).op) ? KI32 : (ins).cls)
@@ -102,6 +104,11 @@ enum op {
 #define oisstore(o) in_range(o, Ostorei8, Ostoref64)
 #define oisload(o) in_range(o, Oloads8, Oloadf64)
 #define oisloadstore(o) in_range(o, Oloads8, Ostoref64)
+extern const uchar _loadstoreszcls[];
+extern const uchar _load2ext[];
+#define loadstoresz(o) (_loadstoreszcls[(o) - Oloads8] & 0xF)
+#define loadstorecls(o) (_loadstoreszcls[(o) - Oloads8] >> 4)
+#define load2ext(o) (_load2ext[(o) - Oloads8])
 extern const char *opnames[];
 extern const uchar opnoper[];
 
@@ -345,7 +352,7 @@ bool foldunop(Ref *to, enum op, enum irclass, Ref);
 /** ir_dump.c **/
 int dumpref(WriteBuf *, enum op, Ref);
 void dumpinstr(WriteBuf *, const Instr *);
-extern const char *clsname[KF64+1];
+extern const char *clsname[KMI16+1];
 void irdump(Function *);
 bool dumpbefore(const char *fn, const char *pass);
 bool dumpafter(const char *fn, const char *pass);

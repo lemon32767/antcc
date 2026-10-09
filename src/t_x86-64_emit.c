@@ -471,18 +471,32 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper dst, Op
 
 #define DEFINSTR1(X, ...)                                    \
    static void                                               \
-   X(uchar **pcode, enum irclass k, Oper oper)               \
-   {                                                         \
+   X(uchar **pcode, enum irclass k, Oper oper) {             \
       static const EncDesc tab[] = { __VA_ARGS__ };          \
       encode(pcode, tab, countof(tab), k, oper, mkoper(0,)); \
    }
 
-#define DEFINSTR2(X, ...)                               \
-   static void                                          \
-   X(uchar **pcode, enum irclass k, Oper dst, Oper src) \
-   {                                                    \
-      static const EncDesc tab[] = { __VA_ARGS__ };     \
-      encode(pcode, tab, countof(tab), k, dst, src);    \
+#define DEFINSTR2(X, ...)                                 \
+   static void                                            \
+   X(uchar **pcode, enum irclass k, Oper dst, Oper src) { \
+      static const EncDesc tab[] = { __VA_ARGS__ };       \
+      encode(pcode, tab, countof(tab), k, dst, src);      \
+   }
+
+#define DEFINSTR1M(X, ...)                                                            \
+   static void                                                                        \
+   X(uchar **pcode, Ref r) {                                                          \
+      static const EncDesc tab[] = { __VA_ARGS__ };                                   \
+      assert(r.t == RADDR);                                                           \
+      encode(pcode, tab, countof(tab), addrtab.p[r.i].cls, mkmemoper(r), mkoper(0,)); \
+   }
+
+#define DEFINSTR2M(X, ...)                                                         \
+   static void                                                                     \
+   X(uchar **pcode, Ref dst, Oper src) {                                           \
+      static const EncDesc tab[] = { __VA_ARGS__ };                                \
+      assert(dst.t == RADDR);                                                      \
+      encode(pcode, tab, countof(tab), addrtab.p[dst.i].cls, mkmemoper(dst), src); \
    }
 
 #define O(s) (sizeof s)-1,s
@@ -565,13 +579,23 @@ DEFINSTR2(Xadd,
    {4|8, PGPR, PI8,  O("\x83"), EN_RI8},  /* ADD r32/64, imm8 */
    {4|8, PRAX, PI32, O("\x05"), EN_I32},  /* ADD eax/rax, imm */
    {4|8, PGPR, PI32, O("\x81"), EN_RI32}, /* ADD r32/64, imm */
-   {  8, PGPR, PMEM, O("\x03"), EN_RM},   /* ADD r64, m64 */
+   {4|8, PGPR, PMEM, O("\x03"), EN_RM},   /* ADD r32/64, m32/64 */
 )
 DEFINSTR2(Xaddf,
    {4, PFPR, PFPR, O("\xF3\x0F\x58"), EN_RR}, /* ADDSS xmm, xmm */
    {8, PFPR, PFPR, O("\xF2\x0F\x58"), EN_RR}, /* ADDSD xmm, xmm */
    {4, PFPR, PMEM, O("\xF3\x0F\x58"), EN_RM}, /* ADDSS xmm, m32 */
    {8, PFPR, PMEM, O("\xF2\x0F\x58"), EN_RM}, /* ADDSD xmm, m64 */
+)
+DEFINSTR2M(Xaddm,
+   {4|8, PMEM, PGPR, O("\x01"), EN_MR},   /* ADD mem, reg */
+   {4|8, PMEM, PI8,  O("\x83"), EN_MI8},  /* ADD mem, imm8 */
+   {4|8, PMEM, PI32, O("\x81"), EN_MI32}, /* ADD mem, imm32 */
+   {  1, PMEM, PGPR, O("\x00"), EN_MR, .r8=1}, /* ADD m8, r8 */
+   {  1, PMEM, PI32, O("\x80"), EN_MI8},       /* ADD m8, imm8 */
+   {  2, PMEM, PGPR, O("\x66\x01"), EN_MR},    /* ADD m16, r16 */
+   {  2, PMEM, PI8,  O("\x66\x83"), EN_MI8},   /* ADD m16, imm8 */
+   {  2, PMEM, PI32, O("\x66\x81"), EN_MI16},  /* ADD m16, imm16 */
 )
 DEFINSTR2(Xsub,
    {4|8, PGPR, PGPR, O("\x2B"), EN_RR},           /* SUB r32/64, r32/64 */
@@ -580,13 +604,23 @@ DEFINSTR2(Xsub,
    {4|8, PGPR, PI8,  O("\x83"), EN_RI8, .ext=5},  /* SUB r32/64, imm8 */
    {4|8, PRAX, PI32, O("\x2D"), EN_I32},          /* SUB eax/rax, imm */
    {4|8, PGPR, PI32, O("\x81"), EN_RI32, .ext=5}, /* SUB r32/64, imm */
-   {  8, PGPR, PMEM, O("\x2B"), EN_RM},           /* SUB r64, m64 */
+   {4|8, PGPR, PMEM, O("\x2B"), EN_RM},           /* SUB r32/64, m32/64 */
 )
 DEFINSTR2(Xsubf,
    {4, PFPR, PFPR, O("\xF3\x0F\x5C"), EN_RR}, /* SUBSS xmm, xmm */
    {8, PFPR, PFPR, O("\xF2\x0F\x5C"), EN_RR}, /* SUBSD xmm, xmm */
    {4, PFPR, PMEM, O("\xF3\x0F\x5C"), EN_RM}, /* SUBSS xmm, m32 */
    {8, PFPR, PMEM, O("\xF2\x0F\x5C"), EN_RM}, /* SUBSD xmm, m64 */
+)
+DEFINSTR2M(Xsubm,
+   {4|8, PMEM, PGPR, O("\x29"), EN_MR},           /* SUB mem, reg */
+   {4|8, PMEM, PI8,  O("\x83"), EN_MI8,  .ext=5}, /* SUB mem, imm8 */
+   {4|8, PMEM, PI32, O("\x81"), EN_MI32, .ext=5}, /* SUB mem, imm32 */
+   {  1, PMEM, PGPR, O("\x28"), EN_MR, .r8=1},        /* SUB m8, r8 */
+   {  1, PMEM, PI32, O("\x80"), EN_MI8,.ext=5},       /* SUB m8, imm8 */
+   {  2, PMEM, PGPR, O("\x66\x29"), EN_MR},           /* SUB m16, r16 */
+   {  2, PMEM, PI8,  O("\x66\x83"), EN_MI8,  .ext=5}, /* SUB m16, imm8 */
+   {  2, PMEM, PI32, O("\x66\x81"), EN_MI16, .ext=5}, /* SUB m16, imm16 */
 )
 DEFINSTR2(Xmulf,
    {4, PFPR, PFPR, O("\xF3\x0F\x59"), EN_RR}, /* MULSS xmm, xmm */
@@ -605,34 +639,86 @@ DEFINSTR2(Xand,
    {4|8, PGPR, PI8,  O("\x83"), EN_RI8, .ext=4},  /* AND r32/64, imm8 */
    {4|8, PRAX, PI32, O("\x25"), EN_I32},          /* AND eax/rax, imm */
    {4|8, PGPR, PI32, O("\x81"), EN_RI32, .ext=4}, /* AND r32/64, imm */
-   {  8, PGPR, PMEM, O("\x23"), EN_RM},           /* AND r64, m64 */
+   {4|8, PGPR, PMEM, O("\x23"), EN_RM},           /* AND r32/64, m32/64 */
+)
+DEFINSTR2M(Xandm,
+   {4|8, PMEM, PGPR, O("\x21"), EN_MR},           /* AND mem, reg */
+   {4|8, PMEM, PI8,  O("\x83"), EN_MI8,  .ext=4}, /* AND mem, imm8 */
+   {4|8, PMEM, PI32, O("\x81"), EN_MI32, .ext=4}, /* AND mem, imm32 */
+   {  1, PMEM, PGPR, O("\x20"), EN_MR, .r8=1},        /* AND m8, r8 */
+   {  1, PMEM, PI32, O("\x80"), EN_MI8,.ext=4},       /* AND m8, imm8 */
+   {  2, PMEM, PGPR, O("\x66\x21"), EN_MR},           /* AND m16, r16 */
+   {  2, PMEM, PI8,  O("\x66\x83"), EN_MI8,  .ext=4}, /* AND m16, imm8 */
+   {  2, PMEM, PI32, O("\x66\x81"), EN_MI16, .ext=4}, /* AND m16, imm16 */
 )
 DEFINSTR2(Xior,
    {4|8, PGPR, PGPR, O("\x0B"), EN_RR},           /* OR r32/64, r32/64 */
    {4|8, PGPR, PI8,  O("\x83"), EN_RI8, .ext=1},  /* OR r32/64, imm8 */
    {4|8, PRAX, PI32, O("\x0D"), EN_I32},          /* OR eax/rax, imm */
    {4|8, PGPR, PI32, O("\x81"), EN_RI32, .ext=1}, /* OR r32/64, imm */
-   {  8, PGPR, PMEM, O("\x0B"), EN_RM},           /* OR r64, m64 */
+   {4|8, PGPR, PMEM, O("\x0B"), EN_RM},           /* OR r32/64, m32/64 */
    {4|8, PFPR, PFPR, O("\x0F\x57"), EN_RR},       /* ORPS xmm, xmm */
+)
+DEFINSTR2M(Xiorm,
+   {4|8, PMEM, PGPR, O("\x09"), EN_MR},           /* OR mem, reg */
+   {4|8, PMEM, PI8,  O("\x83"), EN_MI8,  .ext=1}, /* OR mem, imm8 */
+   {4|8, PMEM, PI32, O("\x81"), EN_MI32, .ext=1}, /* OR mem, imm32 */
+   {  1, PMEM, PGPR, O("\x08"), EN_MR,  .r8=1},       /* OR m8, r8 */
+   {  1, PMEM, PI32, O("\x80"), EN_MI8, .ext=1},      /* OR m8, imm8 */
+   {  2, PMEM, PGPR, O("\x66\x09"), EN_MR},           /* OR m16, r16 */
+   {  2, PMEM, PI8,  O("\x66\x83"), EN_MI8,  .ext=1}, /* OR m16, imm8 */
+   {  2, PMEM, PI32, O("\x66\x81"), EN_MI16, .ext=1}, /* OR m16, imm16 */
 )
 DEFINSTR2(Xxor,
    {4|8, PGPR, PGPR, O("\x33"), EN_RR},           /* XOR r32/64, r32/64 */
    {4|8, PGPR, PI8,  O("\x83"), EN_RI8, .ext=6},  /* XOR r32/64, imm8 */
    {4|8, PRAX, PI32, O("\x35"), EN_I32},          /* XOR eax/rax, imm */
    {4|8, PGPR, PI32, O("\x81"), EN_RI32, .ext=6}, /* XOR r32/64, imm */
-   {  8, PGPR, PMEM, O("\x33"), EN_RM},           /* XOR r64, m64 */
+   {4|8, PGPR, PMEM, O("\x33"), EN_RM},           /* XOR r32/64, m32/64 */
    {4|8, PFPR, PFPR, O("\x0F\x57"), EN_RR},       /* XORPS xmm, xmm */
    {4|8, PFPR, PMEM, O("\x0F\x57"), EN_RM},       /* XORPS xmm, m128 */
+)
+DEFINSTR2M(Xxorm,
+   {4|8, PMEM, PGPR, O("\x31"), EN_MR},           /* XOR mem, reg */
+   {4|8, PMEM, PI8,  O("\x83"), EN_MI8,  .ext=6}, /* XOR mem, imm8 */
+   {4|8, PMEM, PI32, O("\x81"), EN_MI32, .ext=6}, /* XOR mem, imm32 */
+   {  1, PMEM, PGPR, O("\x30"), EN_MR,  .r8=1},       /* XOR m8, r8 */
+   {  1, PMEM, PI32, O("\x80"), EN_MI8, .ext=6},      /* XOR m8, imm8 */
+   {  2, PMEM, PGPR, O("\x66\x31"), EN_MR},           /* XOR m16, r16 */
+   {  2, PMEM, PI8,  O("\x66\x83"), EN_MI8,  .ext=6}, /* XOR m16, imm8 */
+   {  2, PMEM, PI32, O("\x66\x81"), EN_MI16, .ext=6}, /* XOR m16, imm16 */
 )
 DEFINSTR2(Xshl,
    {4|8, PGPR, P1,   O("\xD1"), EN_R, .ext=4},   /* SHL r32/64, 1 */
    {4|8, PGPR, PI32, O("\xC1"), EN_RI8, .ext=4}, /* SHL r32/64, imm */
    {4|8, PGPR, PRCX, O("\xD3"), EN_R, .ext=4},   /* SHL r32/64, CL */
 )
+DEFINSTR2M(Xshlm,
+   {4|8, PMEM, P1,   O("\xD1"), EN_M, .ext=4},   /* SHL mem, 1 */
+   {4|8, PMEM, PI32, O("\xC1"), EN_MI8, .ext=4}, /* SHL mem, imm8 */
+   {4|8, PMEM, PRCX, O("\xD3"), EN_M, .ext=4},   /* SHL mem, CL */
+   {  1, PMEM, P1,   O("\xD0"), EN_M, .ext=4},       /* SHL m8, 1 */
+   {  1, PMEM, PI32, O("\xC0"), EN_MI8, .ext=4},     /* SHL m8, imm8 */
+   {  1, PMEM, PRCX, O("\xD2"), EN_M, .ext=4},       /* SHL m8, CL */
+   {  2, PMEM, P1,   O("\x66\xD1"), EN_M, .ext=4},   /* SHL m16, 1 */
+   {  2, PMEM, PI32, O("\x66\xC1"), EN_MI8, .ext=4}, /* SHL m16, imm8 */
+   {  2, PMEM, PRCX, O("\x66\xD3"), EN_M, .ext=4},   /* SHL m16, CL */
+)
 DEFINSTR2(Xsar,
    {4|8, PGPR, P1,   O("\xD1"), EN_R, .ext=7},   /* SAR r32/64, 1 */
    {4|8, PGPR, PI32, O("\xC1"), EN_RI8, .ext=7}, /* SAR r32/64, imm */
    {4|8, PGPR, PRCX, O("\xD3"), EN_R, .ext=7},   /* SAR r32/64, CL */
+)
+DEFINSTR2M(Xsarm,
+   {4|8, PMEM, P1,   O("\xD1"), EN_M, .ext=7},   /* SAR mem, 1 */
+   {4|8, PMEM, PI32, O("\xC1"), EN_MI8, .ext=7}, /* SAR mem, imm8 */
+   {4|8, PMEM, PRCX, O("\xD3"), EN_M, .ext=7},   /* SAR mem, CL */
+   {  1, PMEM, P1,   O("\xD0"), EN_M, .ext=7},       /* SAR m8, 1 */
+   {  1, PMEM, PI32, O("\xC0"), EN_MI8, .ext=7},     /* SAR m8, imm8 */
+   {  1, PMEM, PRCX, O("\xD2"), EN_M, .ext=7},       /* SAR m8, CL */
+   {  2, PMEM, P1,   O("\x66\xD1"), EN_M, .ext=7},   /* SAR m16, 1 */
+   {  2, PMEM, PI32, O("\x66\xC1"), EN_MI8, .ext=7}, /* SAR m16, imm8 */
+   {  2, PMEM, PRCX, O("\x66\xD3"), EN_M, .ext=7},   /* SAR m16, CL */
 )
 DEFINSTR2(Xrolw,
    {-1,  PGPR, PI8, O("\x66\xC1"), EN_RI8}, /* ROL r16, imm */
@@ -641,6 +727,17 @@ DEFINSTR2(Xshr,
    {4|8, PGPR, P1,   O("\xD1"), EN_R, .ext=5},   /* SHR r32/64, 1 */
    {4|8, PGPR, PI32, O("\xC1"), EN_RI8, .ext=5}, /* SHR r32/64, imm */
    {4|8, PGPR, PRCX, O("\xD3"), EN_R, .ext=5},   /* SHR r32/64, CL */
+)
+DEFINSTR2M(Xshrm,
+   {4|8, PMEM, P1,   O("\xD1"), EN_M, .ext=5},    /* SHR mem, 1 */
+   {4|8, PMEM, PI32, O("\xC1"), EN_MI8, .ext=5},  /* SHR mem, imm8 */
+   {4|8, PMEM, PRCX, O("\xD3"), EN_M, .ext=5},    /* SHR mem, CL */
+   {  1, PMEM, P1,   O("\xD0"), EN_M, .ext=5},       /* SHR m8, 1 */
+   {  1, PMEM, PI32, O("\xC0"), EN_MI8, .ext=5},     /* SHR m8, imm8 */
+   {  1, PMEM, PRCX, O("\xD2"), EN_M, .ext=5},       /* SHR m8, CL */
+   {  2, PMEM, P1,   O("\x66\xD1"), EN_M, .ext=5},   /* SHR m16, 1 */
+   {  2, PMEM, PI32, O("\x66\xC1"), EN_MI8, .ext=5}, /* SHR m16, imm8 */
+   {  2, PMEM, PRCX, O("\x66\xD3"), EN_M, .ext=5},   /* SHR m16, CL */
 )
 DEFINSTR2(Xcvtss2sd,
    {-1,  PFPR, PFPR, O("\xF3\x0F\x5A"), EN_RR}, /* CVTSS2SD xmm, xmm */
@@ -669,8 +766,18 @@ DEFINSTR2(Xcvttsd2si,
 DEFINSTR1(Xneg,
    {4|8, PGPR, 0, O("\xF7"), EN_R, .ext=3} /* NEG r32/64 */
 )
+DEFINSTR1M(Xnegm,
+   {4|8, PMEM, 0, O("\xF7"), EN_M, .ext=3},     /* NEG m32/64 */
+   {  1, PMEM, 0, O("\xF6"), EN_M, .ext=3},     /* NEG m8 */
+   {  2, PMEM, 0, O("\x66\xF7"), EN_M, .ext=3}, /* NEG m16 */
+)
 DEFINSTR1(Xnot,
    {4|8, PGPR, 0, O("\xF7"), EN_R, .ext=2} /* NOT r32/64 */
+)
+DEFINSTR1M(Xnotm,
+   {4|8, PMEM, 0, O("\xF7"), EN_M, .ext=2},     /* NOT m32/64 */
+   {  1, PMEM, 0, O("\xF6"), EN_M, .ext=2},     /* NOT m8 */
+   {  2, PMEM, 0, O("\x66\xF7"), EN_M, .ext=2}, /* NOT m16 */
 )
 DEFINSTR1(Xidiv,
    {4|8, PGPR, 0, O("\xF7"), EN_R, .ext=7}, /* IDIV r32/64 */
@@ -693,7 +800,7 @@ DEFINSTR2(Xcmp,
    {4|8, PGPR, PI8,  O("\x83"), EN_RI8, .ext=7},  /* CMP r32/64, imm8 */
    {4|8, PRAX, PI32, O("\x3D"), EN_I32},          /* CMP eax/rax, imm */
    {4|8, PGPR, PI32, O("\x81"), EN_RI32, .ext=7}, /* CMP r32/64, imm */
-   {  8, PGPR, PMEM, O("\x3B"), EN_RM},           /* CMP r64, m64 */
+   {4|8, PGPR, PMEM, O("\x3B"), EN_RM},           /* CMP r32/64, m32/64 */
    {4  , PFPR, PFPR, O("\x0F\x2E"), EN_RR},       /* UCOMISS xmm, xmm */
    {4  , PFPR, PMEM, O("\x0F\x2E"), EN_RM},       /* UCOMISS xmm, m32 */
    {  8, PFPR, PFPR, O("\x66\x0F\x2E"), EN_RR},   /* UCOMISD xmm, xmm */
@@ -1048,9 +1155,10 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins) {
       X(pcode, cls, reg2oper(ins->reg-1), mkdatregoper(ins->l));
       break;
    case Oadd:
+      if (!ins->cls) { Xaddm(pcode, ins->l, ref2oper(ins->r)); break; }
       dst = mkregoper(ins->l);
       if (kisflt(cls)) {
-         Xaddf(pcode, cls, dst, mkimmdatregoper(ins->r));
+         Xaddf(pcode, cls, dst, ref2oper(ins->r));
       } else if (ins->reg-1 == dst.reg) { /* two-address add */
          src = ref2oper(ins->r);
          if (src.t == OIMM && src.imm < 0) /* ADD -imm -> SUB imm, for niceness */
@@ -1059,7 +1167,7 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins) {
             Xadd(pcode, cls, dst, src);
       } else if (isregref(ins->r) && ins->reg-1 == mkregoper(ins->r).reg) {
          /* also two-address after swapping operands */
-         Xadd(pcode, cls, reg2oper(ins->reg-1), mkimmdatregoper(ins->l));
+         Xadd(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l));
       } else { /* three-address add (lea) */
          Oper mem = { OMEM, .base = NOBASE, .index = NOINDEX };
          dst = reg2oper(ins->reg-1);
@@ -1069,11 +1177,12 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins) {
       }
       break;
    case Osub:
+      if (!ins->cls) { Xsubm(pcode, ins->l, ref2oper(ins->r)); break; }
       dst = mkregoper(ins->l);
       if (kisflt(cls)) {
-         Xsubf(pcode, cls, dst, mkimmdatregoper(ins->r));
+         Xsubf(pcode, cls, dst, ref2oper(ins->r));
       } else if (!ins->reg) {
-         Xcmp(pcode, cls, mkregoper(ins->l), mkimmdatregoper(ins->r));
+         Xcmp(pcode, cls, mkregoper(ins->l), ref2oper(ins->r));
       } else if (ins->reg-1 == dst.reg) { /* two-address */
          Xsub(pcode, cls, dst, ref2oper(ins->r));
       } else {
@@ -1083,6 +1192,7 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins) {
       }
       break;
    case Oshl:
+      if (!ins->cls) { Xshlm(pcode, ins->l, ref2oper(ins->r)); break; }
       dst = reg2oper(ins->reg-1);
       src = mkregoper(ins->l);
       if (dst.reg == src.reg)
@@ -1096,24 +1206,37 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins) {
             Xlea(pcode, cls, dst, mkoper(OMEM, .base = NOBASE, .index = src.reg, .shift = sh));
       }
       break;
-   case Osar: X = Xsar; goto ALU2;
-   case Oslr: X = Xshr; goto ALU2;
+   case Osar:
+      if (!ins->cls) { Xsarm(pcode, ins->l, ref2oper(ins->r)); break; }
+      X = Xsar; goto ALU2;
+   case Oslr:
+      if (!ins->cls) { Xshrm(pcode, ins->l, ref2oper(ins->r)); break; }
+      X = Xshr; goto ALU2;
    case Oand:
+      if (!ins->cls) { Xandm(pcode, ins->l, ref2oper(ins->r)); break; }
       if (!ins->reg) {
-         Xtest(pcode, cls, mkregoper(ins->l), mkimmdatregoper(ins->r));
+         Xtest(pcode, cls, mkregoper(ins->l), ref2oper(ins->r));
          break;
       }
       X = Xand;
       goto ALU2;
-   case Oxor: X = Xxor; goto ALU2;
-   case Oior: X = Xior; goto ALU2;
+   case Oxor:
+      if (!ins->cls) { Xxorm(pcode, ins->l, ref2oper(ins->r)); break; }
+      X = Xxor; goto ALU2;
+   case Oior:
+      if (!ins->cls) { Xiorm(pcode, ins->l, ref2oper(ins->r)); break; }
+      X = Xior; goto ALU2;
    ALU2:
       dst = mkregoper(ins->l);
       assert(ins->reg-1 == dst.reg);
-      X(pcode, cls, dst, mkimmdatregoper(ins->r));
+      X(pcode, cls, dst, ref2oper(ins->r));
       break;
-   case Oneg: X1 = Xneg; goto ALU1;
-   case Onot: X1 = Xnot; goto ALU1;
+   case Oneg:
+      if (!ins->cls) { Xnegm(pcode, ins->l); break; }
+      X1 = Xneg; goto ALU1;
+   case Onot:
+      if (!ins->cls) { Xnotm(pcode, ins->l); break; }
+      X1 = Xnot; goto ALU1;
    ALU1:
       dst = mkregoper(ins->l);
       assert(ins->reg-1 == dst.reg);
