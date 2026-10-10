@@ -1267,15 +1267,109 @@ devirt(RegAlloc *ra, Block *blk) {
    return allnops;
 }
 
+/* remove redundant loads/stores of spill slots */
+typedef struct {
+   short regslot[MAXREGS];
+   schar slotreg[MAXSPILL];
+   uchar slotsz[MAXSPILL];
+} SpillCache;
+
+static bool /* -> allnops */
+spillopt(RegAlloc *ra, Block *blk, SpillCache *s) {
+   Function *fn = ra->fn;
+   int base = fn->stksiz; /* spill slots start here (stksiz updated after fini) */
+   bool allnops = 1;
+
+   if (blk->npred != 1 || blk->_pred0 != blk->lprev) {
+      memset(s->regslot, -1, sizeof s->regslot);
+      memset(s->slotreg, -1, sizeof s->slotreg);
+   }
+
+   for (int i = 0; i < blk->ins.n; ++i) {
+      Instr *ins = &instrtab[blk->ins.p[i]];
+      int off, slot, reg, sz;
+
+      if (ins->op == Onop) continue;
+      if (oisloadstore(ins->op) && ins->l.t == RSTACK && !ins->keep
+       && (off = ins->l.i - base) % 8 == 0 && (uint)(slot = off / 8) < ra->maxstk
+       && slot < MAXSPILL) {
+         sz = loadstoresz(ins->op);
+         if (oisload(ins->op) && ins->reg) {
+            reg = ins->reg - 1;
+            if (s->slotreg[slot] == reg && s->slotsz[slot] == sz) { /* hit */
+               ins->op = Onop;
+               continue;
+            }
+            if (s->regslot[reg] >= 0) s->slotreg[s->regslot[reg]] = -1;
+            if (s->slotreg[slot] >= 0) s->regslot[s->slotreg[slot]] = -1;
+            s->slotreg[slot] = reg, s->slotsz[slot] = sz, s->regslot[reg] = slot;
+            allnops = 0;
+            continue;
+         } else if (oisstore(ins->op)) {
+            if (ins->r.t == RREG) {
+               reg = ins->r.i;
+               if (s->slotreg[slot] == reg && s->slotsz[slot] == sz) { /* hit */
+                  ins->op = Onop;
+                  continue;
+               }
+               if (s->regslot[reg] >= 0) s->slotreg[s->regslot[reg]] = -1;
+               if (s->slotreg[slot] >= 0) s->regslot[s->slotreg[slot]] = -1;
+               s->slotreg[slot] = reg, s->slotsz[slot] = sz, s->regslot[reg] = slot;
+            } else {
+               if (s->slotreg[slot] >= 0) s->regslot[s->slotreg[slot]] = -1;
+               s->slotreg[slot] = -1;
+            }
+            allnops = 0;
+            continue;
+         }
+      }
+
+      allnops = 0;
+      /* clobbers */
+      if (ins->op == Ocall || ins->op == Ocall2r) {
+         regset rclob = (gpregset | fpregset) &~ (mctarg->rglob | mctarg->rcallee);
+         for (int r = 0; r < MAXREGS; ++r)
+            if (rstest(rclob, r)) {
+               if (s->regslot[r] >= 0) s->slotreg[s->regslot[r]] = -1;
+               s->regslot[r] = -1;
+            }
+      }
+      if (ins->reg) {
+         reg = ins->reg - 1;
+         if (s->regslot[reg] >= 0) s->slotreg[s->regslot[reg]] = -1;
+         s->regslot[reg] = -1;
+      }
+      if (ins->op == Omove && ins->l.t == RREG) {
+         if (s->regslot[ins->l.i] >= 0) s->slotreg[s->regslot[ins->l.i]] = -1;
+         s->regslot[ins->l.i] = -1;
+      }
+      if (ins->op == Oswap) {
+         for (int j = 0; j < 2; ++j) {
+            if (ins->oper[j].t != RREG) continue;
+            if (s->regslot[ins->oper[j].i] >= 0) s->slotreg[s->regslot[ins->oper[j].i]] = -1;
+            s->regslot[ins->oper[j].i] = -1;
+         }
+      }
+   }
+
+   return allnops;
+}
+
 static void
 fini(RegAlloc *ra) {
    int id = 0;
    Function *fn = ra->fn;
    Block *blk = fn->entry;
+   SpillCache spillcache;
+   bool anyspill = ra->maxstk > 0;
+   if (anyspill)
+      memset(&spillcache, -1, sizeof spillcache);
 
    do {
       blk->id = id++;
       bool allnops = devirt(ra, blk);
+      if (!allnops && anyspill)
+         allnops = spillopt(ra, blk, &spillcache);
       if (allnops && !blk->s2 && blk->npred > 0) { /* remove no-op blocks */
          bool delet = 1;
          for (int i = 0; i < blk->npred; ++i) {
