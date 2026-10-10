@@ -238,6 +238,7 @@ mem2reg(Function *fn) {
          if (oisstore(ins->op)) {
             if (var != DEAD)
                writevar(&sb, var, blk, ins->r);
+            deluse(blk, blk->ins.p[i], ins->r);
             *ins = mkinstr0(Onop,0);
          } else if (var == DEAD) {
             *ins = mkinstr1(Ocopy, ins->cls, UNDREF);
