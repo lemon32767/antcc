@@ -259,7 +259,9 @@ delpred(Block *blk, Block *p) {
    for (int i = 0; i < blk->npred; ++i) {
       if (blkpred(blk, i) == p) {
          for (int j = 0; j < blk->phi.n; ++j) {
-            Ref *args = phiargs(blk->phi.p[j]);
+            int phi = blk->phi.p[j];
+            Ref *args = phiargs(phi);
+            deluse(blk, phi, args[i]);
             for (int k = i; k < blk->npred - 1; ++k) {
                args[k] = args[k + 1];
             }
@@ -293,27 +295,28 @@ newblk(Function *fn) {
 
 void
 freeblk(Function *fn, Block *blk) {
+   if (fn->prop & FNUSE) {
+      for (int i = 0; i < blk->phi.n; ++i) {
+         int ui = blk->phi.p[i];
+         Ref *r = phiargs(ui);
+         for (int j = 0; j < blk->npred; ++j) {
+            deluse(blk, ui, r[j]);
+         }
+      }
+      for (int i = 0; i < blk->ins.n; ++i) {
+         int ui = blk->ins.p[i];
+         Instr *ins = &instrtab[ui];
+         if (ins->l.t == RTMP) deluse(blk, ui, ins->l);
+         if (ins->r.t == RTMP) deluse(blk, ui, ins->r);
+      }
+      for (int i = 0; i < 2; ++i) {
+         if (blk->jmp.arg[i].t == RTMP) deluse(blk, USERJUMP, blk->jmp.arg[i]);
+      }
+   }
    if (blk->npred > 1)
       xbfree(blk->_pred);
    blk->npred = 0;
    blk->_pred = NULL;
-
-   for (int i = 0; i < blk->phi.n; ++i) {
-      int ui = blk->phi.p[i];
-      Ref *r = phiargs(ui);
-      for (int j = 0; j < blk->npred; ++j) {
-         deluse(blk, ui, *r);
-      }
-   }
-   for (int i = 0; i < blk->ins.n; ++i) {
-      int ui = blk->ins.p[i];
-      Instr *ins = &instrtab[ui];
-      if (ins->l.t == RTMP) deluse(blk, ui, ins->l);
-      if (ins->r.t == RTMP) deluse(blk, ui, ins->r);
-   }
-   for (int i = 0; i < 2; ++i) {
-      if (blk->jmp.arg[i].t == RTMP) deluse(blk, USERJUMP, blk->jmp.arg[i]);
-   }
    if (blk->s1) delpred(blk->s1, blk);
    if (blk->s2) delpred(blk->s2, blk);
    vfree(&blk->phi);
