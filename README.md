@@ -174,7 +174,9 @@ The backend performs the following main passes:
       + general arithmetic simplifications, branch simplification
           (`ir_simpl.c`)
       + loop optimizations (`ir_loop.c`)
-        * currently basic loop inversion, loop invariant code motion
+        * currently basic loop inversion, loop invariant code motion, induction variable
+          detection and basic strength reduction
+      + global code motion (`ir_gcm.c`)
 
   - Stack lowering (`ir_stack.c`): `alloca` instructions are deleted and
     corresponding stack slots replaced with calculated stack offsets.

@@ -3,6 +3,7 @@ c thread local (reqs elf refactor)
 c atomics
 c va_arg 2reg structs
 c long double
+c fix statement expressions codegen
 cpp fix strify for str/chr with escapes (current #"\x00" -> "\0" bc rebuilt from parsed lit)
 gnu cast to union
 gnu case range
@@ -38,11 +39,10 @@ gnu __asm__, constraints, reg vars
 BACKEND
 need assembler for gnu asm
 mem2reg remove redundant phis SCC algo
+mem2reg structs
 text assembly output? for debug&nice
 opt loop counted unroll, remove empty
-opt x86 memory args (isel+rega+emit)
 opt regalloc tweak spill costs, better copy coalescing
-opt regalloc peephole spill dead load/store removal
 opt regalloc interval splitting
 opt gvn @ https://doi.org/10.1145/207110.207154
 
