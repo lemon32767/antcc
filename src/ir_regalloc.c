@@ -964,6 +964,12 @@ spill(RegAlloc *ra, LinearScan *s, int *out_reg, regset fixexcl) {
    return tospill;
 }
 
+static bool
+arith2addrok(Instr *ins) {
+   /* this is ugly.. */
+   return opnoper[ins->op] == 1 || (ins->inplace || (target.arch == ISx86_64 && ins->op == Oadd));
+}
+
 static int
 allocfreereg(RegAlloc *ra, LinearScan *s, regset avail) {
    Interval *current = s->current;
@@ -979,7 +985,7 @@ allocfreereg(RegAlloc *ra, LinearScan *s, regset avail) {
    }
    int reg;
    /* for two-address instructions, try to use the reg of left arg */
-   if (ins->op != Ophi && (opnoper[ins->op] == 1 || (opnoper[ins->op] == 2 && ins->inplace))) {
+   if (ins->op != Ophi && arith2addrok(ins)) {
       DBG(" %%%d try %d,%d\n", this, ins->l.t,ins->l.i);
       if (ins->l.t == RREG && rstest(avail, reg = ins->l.i))
          return reg;
