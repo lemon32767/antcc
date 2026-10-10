@@ -658,8 +658,7 @@ buildintervals(RegAlloc *ra) {
          int phi = blk->phi.p[i];
          if (instrtab[phi].op == Onop) continue;
          bsclr(live, phi);
-         for (int i = 0; i < blk->npred; ++i)
-            incrcost(&ra->intertab[phi], blkpred(blk, i));
+         incrcost(&ra->intertab[phi], blk);
       }
 
       /* if b is loop header then
