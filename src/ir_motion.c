@@ -1,6 +1,8 @@
 #include "ir.h"
 #include "u_bits.h"
 
+static bool ispinned(Instr *ins);
+
 /* sink branch condition ins to block end so isel can use cc flags directly */
 static void
 sinkbbcmp(Function *fn, Block *b) {
@@ -8,7 +10,7 @@ sinkbbcmp(Function *fn, Block *b) {
       int jc = b->jmp.arg[0].i;
       ushort *last = &b->ins.p[b->ins.n - 1];
       IRUse *use;
-      if (*last != jc && oisarith(instrtab[jc].op) && (use = instruse[jc]) && use->u == USERJUMP && !use->next) {
+      if (*last != jc && !ispinned(&instrtab[jc]) && (use = instruse[jc]) && use->u == USERJUMP && !use->next) {
          int j, mv;
          for (j = 0, mv = 0; j < b->ins.n; ++j) {
             if (b->ins.p[j] == jc) mv = 1;
