@@ -296,6 +296,8 @@ fixcssa(RegAlloc *ra) {
                continue;
             }
             Ref *args = phiargs(phi);
+            if (args[p].t == RTMP && instrtab[args[p].i].op != Ophi)
+               continue;
             args[p] = insertinstr(n, n->ins.n, mkinstr1(Ocopy, instrtab[phi].cls, args[p]));
          }
       }
