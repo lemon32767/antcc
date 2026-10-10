@@ -611,6 +611,33 @@ deluses(int ins) {
 }
 
 void
+moveinstr(Function *fn, Block *srcb, int srci, Block *tob, int toi) {
+   int t = srcb->ins.p[srci];
+   Instr *ins = &instrtab[t];
+   if (toi == -1)
+      vpush(&tob->ins, t);
+   else
+      vinsert(&tob->ins, toi, t);
+
+   for (int i = srci; i < srcb->ins.n - 1; ++i)
+      srcb->ins.p[i] = srcb->ins.p[i + 1];
+   --srcb->ins.n;
+   if (fn->prop & FNUSE) {
+      /* fixup uselist for ins' operands */
+      for (int oi = 0; oi < opnoper[ins->op]; oi++) {
+         if (ins->oper[oi].t != RTMP) continue;
+         int usee = ins->oper[oi].i;
+         for (IRUse *use = instruse[usee]; use; use = use->next) {
+            if (use->u == t) {
+               assert(use->blk == srcb || use->blk == tob);
+               use->blk = tob;
+            }
+         }
+      }
+   }
+}
+
+void
 delinstr(Block *blk, int idx) {
    int t = blk->ins.p[idx];
    assert(idx >= 0 && idx < blk->ins.n);
@@ -737,6 +764,10 @@ optimize(Function *fn) {
       ipass(fn, "cselim", cselim, iter);
       freearena(fn->passarena);
       redo += ipass(fn, "simpl", simpl, iter);
+      freearena(fn->passarena);
+      filldom(fn);
+      fillloop(fn);
+      pass(fn, "gcm", gcm);
       freearena(fn->passarena);
    } while (redo > 1 && ++iter < fuel);
 }

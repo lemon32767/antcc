@@ -142,7 +142,7 @@ struct Block {
    int npred;
    int visit;
    int inumstart;
-   ushort loopdepth;
+   ushort loopdepth, domdepth;
    Loop *loop;
    union {
       Block *_pred0;
@@ -321,6 +321,7 @@ bool deluse(Block *ublk, int ui, Ref r);
 void deluses(int ins);
 void filluses(Function *);
 void inschoper(Block *, Instr *, int, Ref);
+void moveinstr(Function *, Block *srcb, int srci, Block *tob, int toi);
 void delinstr(Block *, int idx);
 void delphi(Block *, int idx);
 void delnops(Block *blk);
@@ -369,6 +370,7 @@ void sortrpo(Function *);
 void deldeadblks(Function *);
 void filldom(Function *);
 bool dominates(Block *B, Block *b);
+Block *domlca(Block *, Block *);
 
 /** abi0.c **/
 void abi0(Function *);
@@ -397,6 +399,7 @@ void lowerstack(Function *);
 
 /** ir_motion.c **/
 void sinkcond(Function *);
+void gcm(Function *);
 
 /** ir_regalloc.c **/
 void regalloc(Function *);

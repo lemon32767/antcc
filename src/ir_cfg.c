@@ -76,26 +76,26 @@ deldeadblks(Function *fn) {
 /* also blkid */
 void
 filldom(Function *fn) {
-   Block *blk = fn->entry;
+   Block *b = fn->entry;
    int i = 0;
 
    FREQUIRE(FNRPO);
 
    /* Implements 'A Simple, Fast Dominance Algorithm' by K. Cooper, T. Harvey, and K. Kennedy */
-   do blk->id = i++, blk->idom = NULL; while ((blk = blk->lnext) != fn->entry);
+   do b->id = i++, b->idom = NULL; while ((b = b->lnext) != fn->entry);
    fn->entry->idom = fn->entry;
    for (bool changed = 1; changed;) {
       changed = 0;
       do {
          int j;
          Block *new = NULL;
-         if (blk->npred == 0) continue;
-         for (j = 0; j < blk->npred; ++j)
-            if ((new = blkpred(blk, j))->id < blk->id) break;
+         if (b->npred == 0) continue;
+         for (j = 0; j < b->npred; ++j)
+            if ((new = blkpred(b, j))->id < b->id) break;
          assert(new);
-         for (int i = 0; i < blk->npred; ++i) {
+         for (int i = 0; i < b->npred; ++i) {
             if (i == j) continue;
-            Block *p = blkpred(blk, i);
+            Block *p = blkpred(b, i);
             if (p->idom) { /* new = intersect(p, new) */
                while (p != new) {
                   while (p->id > new->id) p = p->idom;
@@ -103,12 +103,17 @@ filldom(Function *fn) {
                }
             }
          }
-         if (blk->idom != new) {
-            blk->idom = new;
+         if (b->idom != new) {
+            b->idom = new;
             changed = 1;
          }
-      } while ((blk = blk->lnext) != fn->entry);
+      } while ((b = b->lnext) != fn->entry);
    }
+
+   fn->entry->domdepth = 0;
+   b = fn->entry->lnext;
+   do b->domdepth = b->idom->domdepth + 1; while ((b = b->lnext) != fn->entry);
+
    fn->prop |= FNBLKID | FNDOM;
 }
 
@@ -122,6 +127,21 @@ dominates(Block *B, Block *b) {
       assert(b->id >= 0);
       if (B->id > b->id) return 0;
    }
+}
+
+/* requires dom, rpo, blkid *
+ * least common ancestor in dom tree */
+Block *
+domlca(Block *a, Block *b) {
+   if (!a) return b;
+   if (!b) return a;
+   while (a->domdepth > b->domdepth)
+      a = a->idom;
+   while (b->domdepth > a->domdepth)
+      b = b->idom;
+   while (a != b)
+      a = a->idom, b = b->idom;
+   return a;
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

@@ -250,6 +250,8 @@ dumpblk(Function *fn, Block *blk) {
       bfmt(out, "\t; idom: @%d", blk->idom->id);
    if (blk->loopdepth)
       bfmt(out, "\t; loop depth: %d", blk->loopdepth);
+   if (fn->prop & FNDOM)
+      bfmt(out, "\t; dom depth: %d", blk->domdepth);
    ioputc(out, '\n');
    for (i = 0; i < blk->phi.n; ++i) {
       Instr *phi = &instrtab[blk->phi.p[i]];

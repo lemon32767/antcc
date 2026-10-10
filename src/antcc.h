@@ -262,6 +262,12 @@ void vresize_(struct vecbase *, uint siz, uint N);
 #define vinit(v, inlbuf, Cap) (vfree(v), vinit_(&(v)->_vb, inlbuf, (Cap), sizeof *(v)->p))
 #define vpush(v, x) (vpush_(&(v)->_vb, sizeof *(v)->p), (v)->p[(v)->n++] = (x))
 #define vpushn(v, xs, N) vpushn_(&(v)->_vb, sizeof *(v)->p, xs, N)
+#define vinsert(v, i, x) do {                                            \
+   uint _i = (i);                                                        \
+   vpush_(&(v)->_vb, sizeof *(v)->p);                                    \
+   memmove(&(v)->p[_i+1], &(v)->p[i], sizeof *(v)->p * ((v)->n - (_i))); \
+   (v)->p[_i] = (x), (v)->n++;                                           \
+} while (0)
 #define vresize(v, N) vresize_(&(v)->_vb, sizeof *(v)->p, N)
 #define DEF_SVEC(T, N, name) \
    T _##name##buf[N];            \

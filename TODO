@@ -44,7 +44,7 @@ opt x86 memory args (isel+rega+emit)
 opt regalloc tweak spill costs, better copy coalescing
 opt regalloc peephole spill dead load/store removal
 opt regalloc interval splitting
-opt gcm gvn @ https://doi.org/10.1145/207110.207154
+opt gvn @ https://doi.org/10.1145/207110.207154
 
 COMPILE w/o patches
 tcl

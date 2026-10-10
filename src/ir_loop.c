@@ -337,29 +337,6 @@ canhoist(Loop *l, int t) {
    return 1;
 }
 
-static void
-moveinstr(Function *fn, Block *srcb, int srci, Block *tob) {
-   int t = srcb->ins.p[srci];
-   Instr *ins = &instrtab[t];
-   vpush(&tob->ins, t);
-   for (int i = srci; i < srcb->ins.n - 1; ++i)
-      srcb->ins.p[i] = srcb->ins.p[i + 1];
-   --srcb->ins.n;
-   if (fn->prop & FNUSE) {
-      /* fixup uselist for ins' operands */
-      for (int oi = 0; oi < opnoper[ins->op]; oi++) {
-         if (ins->oper[oi].t != RTMP) continue;
-         int usee = ins->oper[oi].i;
-         for (IRUse *use = instruse[usee]; use; use = use->next) {
-            if (use->u == t) {
-               assert(use->blk == srcb || use->blk == tob);
-               use->blk = tob;
-            }
-         }
-      }
-   }
-}
-
 static int
 licm(Function *fn, Loop *l) {
    extern int ninstrtab;
@@ -374,7 +351,7 @@ licm(Function *fn, Loop *l) {
          int t = b->ins.p[i];
          if (canhoist(l, t)) {
             ++chg;
-            moveinstr(fn, b, i--, l->prehead);
+            moveinstr(fn, b, i--, l->prehead, -1);
          } else {
             bsset(l->loopdefs, t);
          }
