@@ -3,7 +3,6 @@ c thread local (reqs elf refactor)
 c atomics
 c va_arg 2reg structs
 c long double
-c fix statement expressions codegen
 cpp fix strify for str/chr with escapes (current #"\x00" -> "\0" bc rebuilt from parsed lit)
 gnu cast to union
 gnu case range
@@ -18,6 +17,7 @@ gnu attr
     mode
     section
 gnu pragma
+    push/pop macro
     weak
     clang/GCC diagnostic ....
     visibility
