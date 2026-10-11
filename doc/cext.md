@@ -13,8 +13,11 @@ Other attributes for correctness hints/diagnostics are recognized (`format`,
 ---------------------
 
   - variadic arguments: `__builtin_va_start/copy/end/arg`, and `__builtin_va_list` type
-  - `__builtin_trap`
+  - `__builtin_trap`, `__builtin_unreachable`
   - `__builtin_bswap16/32/64`
+  - `__builtin_constant_p`
+  - `__builtin_expect`
+  - `__builtin_alloca`
 
 Other GNU C language extensions
 -------------------------------
