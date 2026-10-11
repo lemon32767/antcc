@@ -89,10 +89,10 @@ Begin:
          Type ctype;
          /* can't use memory arg in rhs if lhs is memory */
          bool docopy = ins && &ins->l != r && (oisstore(ins->op) || ins->l.t == RADDR || ins->l.t == RSTACK);
-         if (con->cls <= KPTR && (in_range(op, Ocopy, Omove) || op == Ophi))
+         if (con->cls <= KPTR && kisint(cls) && (in_range(op, Ocopy, Omove) || op == Ophi))
             /* in this case we can use movabs */
             return;
-         else if (!docopy || con->cls >= KF32) {
+         else if (!docopy || kisflt(con->cls)) {
             if (con->cls != KF32) {
                wr64le(data, con->i);
                ctype = mktype(con->cls == KF64 ? TYDOUBLE : TYVLONG);
@@ -107,8 +107,9 @@ Begin:
             *r = inscopy(blk, curi, con->cls, *r);
       } else if (op != Omove && ins && isaddrcon(*r,0) && r == &ins->r) {
          *r = inscopy(blk, curi, KPTR, *r);
-      } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls))
+      } else if (in_range(op, Odiv, Ourem) && kisint(ins->cls)) {
          goto DivImm;
+      } else if (kisint(con->cls) && kisflt(cls)) goto FloatFromBits;
    } else if (r->t == RICON && in_range(op, Odiv, Ourem) && kisint(ins->cls) && r == &ins->r) {
    DivImm: /* there is no division by immediate, must be copied to a register */
       *r = inscopy(blk, curi, ins->cls, *r);
@@ -116,6 +117,17 @@ Begin:
       sh = r->i;
    ShiftImm: /* shift immediate is always 8bit */
       *r = mkref(RICON, sh & 255);
+   } else if (r->t == RICON && kisflt(cls)) { /* float from bits */
+      uchar data[8], ksiz, tt;
+   FloatFromBits:
+      if (ins && r != &ins->l && ins->l.t != RTMP && ins->l.t != RREG) {
+         *r = inscopy(blk, curi, ins->cls, *r);
+      } else {
+         s64int val = intconval(*r);
+         if (cls == KF32) wr32le(data, val), ksiz = 4, tt = TYFLOAT;
+         else wr64le(data, val), ksiz = 8, tt = TYDOUBLE;
+         *r = mkdatref(NULL, mktype(tt), ksiz, /*align*/ksiz, data, ksiz, /*deref*/1 , /*funclocal*/1);
+      }
    } else if (r->t == RTMP) {
       /* look for
        *  %t = loadX %ptr
@@ -623,6 +635,8 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi) {
             union { float f; int i; } pun = { fltconval(ins->r) };
             ins->r = mkintcon(KI32, pun.i);
          }
+         ins->op = op = Ostorei32 + (op - Ostoref32);
+      } else if (isnumcon(ins->r)) {
          ins->op = op = Ostorei32 + (op - Ostoref32);
       }
       /* fallthru */
