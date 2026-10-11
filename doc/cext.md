@@ -18,6 +18,7 @@ Other attributes for correctness hints/diagnostics are recognized (`format`,
   - `__builtin_constant_p`
   - `__builtin_expect`
   - `__builtin_alloca`
+  - `__builtin_huge_val*/inf*/nan*/nans*`
 
 Other GNU C language extensions
 -------------------------------

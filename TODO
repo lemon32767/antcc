@@ -25,9 +25,6 @@ gnu bitf layout -> ms_struct/gcc_struct -> [no]-ms-bitfields, #pragma ms_struct
 gnu builtins
     libc https://gcc.gnu.org/onlinedocs/gcc-4.2.4/gcc/Other-Builtins.html#Other-Builtins
         undeclared __builtin_X fallback -> X in libc fn list -> call X
-    huge_val huge_valf huge_valff
-    inf inff infl
-    nan nanf nanl, nans nansf nansl
     ffs* clz* ctz* popcount* parity* (impl in backend new arith insns)
     offsetof
     powi powif powil

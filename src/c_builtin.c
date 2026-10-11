@@ -142,7 +142,8 @@ expect_comp(Function *fn, Expr *ex, bool discard) {
    return compileexpr(fn, &ex->sub[1], discard);
 }
 
-DEF_FNLIKE_SEMA(alloca, mkptrtype(mktype(TYVOID), 0), mktype(TYLONG))
+/* __builtin_alloca */
+DEF_FNLIKE_SEMA(alloca, mkptrtype(mktype(TYVOID), /*qual*/0), mktype(TYLONG))
 static Ref
 alloca_comp(Function *fn, Expr *ex, bool discard) {
    if (discard) return NOREF;
@@ -152,11 +153,53 @@ alloca_comp(Function *fn, Expr *ex, bool discard) {
    return addinstr(fn, alloc);
 }
 
+static void
+libcfallback(CComp *cm, Expr *ex, const char *name, Type ret, const Type *par, int npar) {
+   Type fnty = mkfntype(ret, npar, par, 0, 0);
+   ex->sub[0] = mkexpr(ESYM, ex->span, fnty, .decl = putexterndecl(cm, &ex->span, intern(name), fnty));
+}
+#define DEF_MATH_CONST(name, type,a, val, hasfallback)                            \
+   static bool                                                                    \
+   name##_sema(CComp *cm, Expr *ex) {                                             \
+      Type par[] = { {{0}}, a };                                                  \
+      bool ok = callcheck(&ex->span, countof(par)-1, par+1, ex->narg, ex->sub+1); \
+      ex->ty = mktype(type);                                                      \
+      if (!(hasfallback) || eval(&ex->sub[1], EVFOLD))                            \
+         *ex = mkexpr(ENUMLIT, ex->span, ex->ty, .f = (val));                     \
+      else                                                                        \
+         libcfallback(cm, ex, #name, ex->ty, &ccharptrt, 1);                      \
+      return ok;                                                                  \
+   }                                                                              \
+   static Ref                                                                     \
+   name##_comp(Function *fn, Expr *ex, bool discard) {                            \
+      if (discard) return NOREF;                                                  \
+      return mkfltcon(type2cls[type], (val));                                     \
+   }
+#define bits2d(b) ((union{u64int i; double f;}){(b)}).f
+#define bits2f(b) ((union{uint   i; float  f;}){(b)}).f
+static const Type ccharptrt = {.t=TYPTR, .flag=TFCHLDPRIM|QCONST, .child=TYCHAR};
+DEF_MATH_CONST(huge_val,  TYDOUBLE,, bits2d(0x7ff0000000000000ll), NULL)
+DEF_MATH_CONST(huge_valf, TYFLOAT,,  bits2f(0x7f800000), NULL)
+DEF_MATH_CONST(inf,  TYDOUBLE,, bits2d(0x7ff0000000000000ll), NULL)
+DEF_MATH_CONST(inff, TYFLOAT,,  bits2f(0x7f800000), NULL)
+DEF_MATH_CONST(nan,  TYDOUBLE,ccharptrt, bits2d(0x7ff8000000000000), 1)
+DEF_MATH_CONST(nanf, TYFLOAT,ccharptrt,  bits2f(0x7fc00000), 1)
+DEF_MATH_CONST(nans, TYDOUBLE,ccharptrt, bits2d(0x7ff0000000000001), NULL)
+/* XXX Expr numlit&IRCon store floats as doubles, losing signaling bit... */
+DEF_MATH_CONST(nansf, TYFLOAT,ccharptrt, bits2d(0x7ff0000000000001), NULL)
+/* long double stubs to double */
+DEF_MATH_CONST(huge_vall, TYDOUBLE,, bits2d(0x7ff0000000000000ll), NULL)
+DEF_MATH_CONST(infl, TYDOUBLE,, bits2d(0x7ff0000000000000ll), NULL)
+DEF_MATH_CONST(nanl, TYDOUBLE,ccharptrt, bits2d(0x7ff8000000000000), NULL)
+DEF_MATH_CONST(nansl, TYDOUBLE,ccharptrt, bits2d(0x7ff0000000000001), NULL)
+
 #define LIST_BUILTINS(_) \
    _(va_start) _(va_copy) _(va_end) \
    _(trap) _(bswap16) _(bswap32) _(bswap64) \
-   _(unreachable) _(constant_p) _(expect) \
-   _(alloca)
+   _(unreachable) _(constant_p) _(expect) _(alloca) \
+   _(huge_val) _(huge_valf) _(huge_vall) \
+   _(inf) _(inff) _(infl) \
+   _(nan) _(nanf) _(nanl) _(nans) _(nansf) _(nansl) \
 
 static const struct {
    const char *name;
@@ -189,7 +232,7 @@ builtin_va_arg_comp(Function *fn, const Expr *ex, bool discard) {
 bool
 hasbuiltin(const char *name, uint len) {
    for (int i = 0; i < countof(tab); ++i)
-      if (!strncmp(name, tab[i].name, len))
+      if (!strncmp(name, tab[i].name, len) && !tab[i].name[len])
          return 1;
    if (!strcmp(name, "__builtin_va_arg")) return 1;
    return 0;

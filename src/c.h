@@ -175,6 +175,7 @@ typedef struct Decl {
 extern struct declsbuf {vec_of(Decl);} declsbuf;
 extern Type cvalistty;
 int envadddecl(Env *env, const Decl *d);
+int putexterndecl(CComp *, const Span *, internstr, Type);
 bool assigncheck(Type t, const Expr *src);
 struct Function;
 union Ref expraddr(struct Function *, const Expr *);

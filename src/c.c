@@ -252,6 +252,12 @@ putdecl(CComp *cm, Decl *decl) {
    return envadddecl(cm->env, decl);
 }
 
+int
+putexterndecl(CComp *cm, const Span *span, internstr name, Type ty) {
+   Decl decl = { .ty = ty, .scls = SCEXTERN, .span = *span, .name = name, .sym = name };
+   return putdecl(cm, &decl);
+}
+
 static Decl *
 finddecl(CComp *cm, internstr name) {
    assert(name);
@@ -776,13 +782,10 @@ callexpr(CComp *cm, const Span *span_, const Expr *callee) {
 
    if (callee->t == ESYM && ty.t == IMPLICITSYMTY) { /* implicit function decl.. */
       internstr name = callee->implicitsym;
-      Decl decl = {
-         (ty = mkfntype(mktype(TYINT), 0, NULL, /* kandr */ 1, 0)),
-         .scls = SCEXTERN, .span = span, .name = name, .sym = name
-      };
+      ty = mkfntype(mktype(TYINT), 0, NULL, /* kandr */ 1, 0);
       warn(&span, "call to undeclared function '%s'", name);
-      ((Expr *)callee)->ty = decl.ty;
-      ((Expr *)callee)->decl = putdecl(cm, &decl);
+      ((Expr *)callee)->ty = ty;
+      ((Expr *)callee)->decl = putexterndecl(cm, &span, name, ty);
    }
 
    if (!builtin) {
