@@ -56,7 +56,10 @@ struct Expr {
          bool func : 1, local : 1;
       } ssym; /* ESSYMREF (static symbol addr + off) */
       Init *init; /* EINIT */
-      struct { uint bits; } irref; /* EIRVALUE */
+      struct {
+         struct Block *(*blk)[2];
+         uint bits;
+      } irref; /* EIRVALUE */
       Type ty4sizeof; /* ESIZEOF */
    };
 };

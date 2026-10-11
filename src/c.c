@@ -1088,7 +1088,6 @@ Unary:
    case '(':
       if (match(cm, &tk, '{')) { /* ({ GNU statement expression }) */
          Span span = tk.span;
-         Ref val;
          ex.t = EIRVALUE;
          if (!cm->fn) {
             error(&span, "statement expression not allowed outside function");
@@ -1101,9 +1100,33 @@ Unary:
                }
             } while (bal != 0);
             ex.ty = mktype(TYINT);
+            memset(&ex.irref, 0, sizeof ex.irref);
          } else {
+            /* since exarena is free'd at the end of each stmt, create a new temporary
+             * arena to parse this stuff because loop body statements would free it  */
+            enum { N = 4<<10 };
+            Arena *atmp = allocz(&cm->exarena, sizeof(Arena)+N, 0);
+            atmp->cap = N;
+            /* push arena */
+            Arena *save = cm->exarena;
+            cm->exarena = atmp;
+            /* push new block, current block at parsing time may not be where
+             * this should be compiled to */
+            Block *bsave = cm->fn->curblk;
+            cm->fn->curblk = NULL;
+            ex.irref.blk = allocz(&save, sizeof *ex.irref.blk, 0);
+            useblk(cm->fn, (*ex.irref.blk)[0] = newblk(cm->fn));
+
+            Ref val = NOREF;
+            envdown(cm, &(Env){0});
             block(cm, &val, &ex.ty);
+            envup(cm);
             ex.irref.bits = val.bits;
+            (*ex.irref.blk)[1] = cm->fn->curblk;
+
+            /* restore */
+            cm->fn->curblk = bsave;
+            cm->exarena = save;
          }
          if (expect(cm, ')', NULL)) joinspan(&span.ex, tk.span.ex);
          ex.span = span;
@@ -2007,7 +2030,7 @@ dumpexpr(const Expr *ex, bool prity) {
       [ESETMUL] = "setmul",   [ESETDIV] = "setdiv", [ESETREM] = "setrem",
       [ESETAND] = "setand",   [ESETIOR] = "setior", [ESETXOR] = "setxor",
       [ESETSHL] = "setshl",   [ESETSHR] = "setshr", [EELVIS] = "elvis",
-      [ESEQ] = "seq",       [EIRVALUE] = "irvalue", [ESIZEOF] = "sizeof",
+      [ESEQ] = "seq",         [EIRVALUE] = "irref",   [ESIZEOF] = "sizeof",
    };
    ioputc(&bstderr, '(');
    efmt("%s ", name[ex->t]);
@@ -3457,6 +3480,13 @@ expraddr(Function *fn, const Expr *ex) {
    case ECOND:
       assert(isagg(ex->ty));
       return condexprvalue(fn, ex, 0);
+   case EIRVALUE:
+      assert(!isscalar(ex->ty));
+      if (fn->curblk && ex->irref.blk) {
+         putbranch(fn, (*ex->irref.blk)[0]);
+         useblk(fn, (*ex->irref.blk)[1]);
+      }
+      return (Ref){.bits = ex->irref.bits};
    default:
       assert(!"lvalue?>");
    }
@@ -4334,6 +4364,10 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
       expreffects(fn, &sub[0]);
       return compileexpr(fn, &sub[1], discard);
    case EIRVALUE:
+      if (fn->curblk && ex->irref.blk) {
+         putbranch(fn, (*ex->irref.blk)[0]);
+         useblk(fn, (*ex->irref.blk)[1]);
+      }
       return (Ref){.bits = ex->irref.bits};
    case ESIZEOF:
       return typesizeref(ex->ty4sizeof);
@@ -5380,6 +5414,7 @@ lazyvlaexprfixup(int par0decl, Expr *ex, bool *pure)
          /* use Oparam result directly */
          ex->t = EIRVALUE;
          ex->irref.bits = mkref(RTMP, ex->decl - par0decl).bits;
+         ex->irref.blk = NULL;
       }
       return;
    } else if (ex->t == EINIT) {
