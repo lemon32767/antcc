@@ -4665,6 +4665,13 @@ compcomplexex(Function *fn, const Expr *ex, bool discard) {
    case ESEQ:
       expreffects(fn, &sub[0]);
       return compcomplexex(fn, &sub[1], discard);
+   case EIRVALUE:
+      if (fn->curblk && ex->irref.blk) {
+         putbranch(fn, (*ex->irref.blk)[0]);
+         useblk(fn, (*ex->irref.blk)[1]);
+      }
+      if (discard) return NIL;
+      return complexload(fn, sty, (Ref){.bits = ex->irref.bits}, 0);
    default: assert(!"nyi cmplx expr");
    }
 }
@@ -5223,7 +5230,16 @@ stmt(CComp *cm, Ref *stmtexprval, Type *stmtexprty) {
    ExprStmt:
       stmtterm(cm);
       if (stmtexprty) *stmtexprty = ex.ty;
-      EMITS r = compileexpr(fn, &ex, stmtexprval == NULL);
+      r = NOREF;
+      EMITS {
+         if (stmtexprval == NULL || !iscomplex(ex.ty)) {
+            r = compileexpr(fn, &ex, /*discard*/stmtexprval == NULL);
+         } else { /* just use a temp alloca for complex stmtexpr */
+            Ref2 c = compcomplexex(fn, &ex, /*discard=*/0);
+            r = addinstr(fn, mkalloca(typesize(ex.ty), typealign(ex.ty)));
+            complexstore(fn, typechild(ex.ty), r, c, 0);
+         }
+      }
       if (stmtexprval) *stmtexprval = r;
       break;
    }

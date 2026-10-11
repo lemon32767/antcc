@@ -1,3 +1,4 @@
+/* CFLAGS: -lm */
 /* EXPECT:
 ok
 */
@@ -155,6 +156,16 @@ out3:
    assert(vc == 5);
    vfn();
    assert(vc == 6);
+
+   // complex
+   double complex cz = ({ 1.0 + 2.0 * I; });
+   assert(creal(cz) == 1.0 && cimag(cz) == 2.0);
+   cz = ({ double complex u = 3.0 + 4.0 * I; u * u; });
+   assert(creal(cz) == -7.0 && cimag(cz) == 24.0);
+   assert(creal(({ 5.0 + 6.0 * I; })) == 5.0);
+   float complex cf = ({ 1.0f + 2.0f * I; });
+   assert(crealf(cf) == 1.0f && cimagf(cf) == 2.0f);
+   ({ 1.0 + 2.0 * I; });
 
    puts("ok");
    return 0;
