@@ -32,6 +32,13 @@ steps:
       - ./test/ir/run.sh
     depends_on: [build]
 
+  - name: test-c-testsuite
+    image: debian
+    commands:
+      - apt-get update && apt-get install -y gcc make curl xz-utils python3
+      - ./test/c-testsuite.sh
+    depends_on: [build]
+
   - name: test-external-metalang99
     image: debian
     commands:
