@@ -1128,6 +1128,7 @@ Unary:
             (*ex.irref.blk)[1] = cm->fn->curblk;
 
             /* restore */
+            freearena(&cm->exarena);
             cm->fn->curblk = bsave;
             cm->exarena = save;
          }
