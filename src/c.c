@@ -2146,6 +2146,7 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk) {
       nmaxparam = 1;
       goto Arity;
    case ATTRformat: nmaxparam = 3; goto Arity;
+   case ATTRalloc_size: nmaxparam = 2; goto Arity;
    case ATTRnonnull: /*variadic*/ break;
 
    /* these take no args */
@@ -2153,7 +2154,7 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk) {
    case ATTRalways_inline: case ATTRflatten: case ATTRpure:
    case ATTRconst: case ATTRnothrow: case ATTRmalloc:
    case ATTRmay_alias: case ATTRexternally_visible:
-   case ATTRpacked: case ATTRweak:
+   case ATTRpacked: case ATTRweak: case ATTRformat_arg:
 
    Arity:
       if (nparam > nmaxparam || nparam < nminparam)
