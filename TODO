@@ -16,6 +16,7 @@ gnu attr
     no/common
     mode
     section
+    format_arg, alloc_size
 gnu pragma
     push/pop macro
     weak
