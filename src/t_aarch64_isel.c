@@ -91,6 +91,12 @@ fixarg(Ref *r, Instr *ins, Block *blk, int *curi) {
    enum op op = ins ? ins->op : 0;
    if (isintcon(*r)) {
       s64int x = intconval(*r);
+      if (ins && kisflt(ins->cls) && x != 0) {
+         enum irclass k = ins->cls, ki = KI32 + k-KF32;
+         Ref gpr = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, ki, mkintcon(ki, x)));
+         *r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, k, gpr));
+         return;
+      }
       switch (op) {
       case Ocopy: case Omove:
          if (kisint(ins->cls))
