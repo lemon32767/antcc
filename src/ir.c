@@ -187,8 +187,7 @@ mkdatref(internstr name, Type ctype, uint siz, uint align,
          const void *bytes, uint n, bool deref, bool funclocal) {
    IRDat dat = { .ctype = ctype, .align = align, .siz = siz, .name = name, .section = Srodata };
 
-   if (funclocal && textdataok() && objout.code
-    && align >= 4 && align <= targ_primsizes[TYPTR] && siz <= 16)
+   if (funclocal && textdataok() && align >= 4 && align <= targ_primsizes[TYPTR] && siz <= 16)
       dat.section = Stext;
 
    assert(n <= siz && siz && align);
@@ -202,9 +201,9 @@ mkdatref(internstr name, Type ctype, uint siz, uint align,
       dat.name = name = intern(buf);
    }
    dat.off = objnewdat(name, SLOCAL, dat.section, siz, align);
-   uchar *p = (dat.section == Stext ? objout.textbegin : objout.rodata.p) + dat.off;
+   uchar *p = objsecdata(dat.section, dat.off);
    if (n) memcpy(p, bytes, n);
-   if (dat.section != Stext) memset(p+n, 0, siz - n);
+   memset(p+n, 0, siz - n);
    vpush(&dattab, dat);
    return newxcon(&(IRCon){.isdat = 1, .deref = deref, .dat = dattab.n - 1, .flag = SLOCAL});
 }
@@ -819,8 +818,7 @@ irfini_end(Function *fn) {
    pass(fn, "isel", mctarg->isel);
    pass(fn, "regalloc", regalloc);
    freearena(fn->passarena);
-   if (objout.code)
-      mctarg->emit(fn);
+   mctarg->emit(fn);
 
    freearena(fn->passarena);
    freefn(fn);

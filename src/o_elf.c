@@ -16,13 +16,15 @@ typedef struct {
    uchar  bind : 4,
           type : 4,
           other : 4;
-   ushort shndx;
+   ushort sec;
    u64int value,
           size;
 } Sym;
 static vec_of(Sym) symtab;
 static pmap_of(ushort) symht;
-static uint ntextrel, nrodatarel, ndatarel;
+static uint nlocalsym;
+static uint nreloc[NSECTION];
+static bool secused[NSECTION];
 typedef struct {
    uchar section;
    uchar symflags;
@@ -36,7 +38,7 @@ typedef struct {
 } Reloc;
 static vec_of(Reloc) relocs;
 
-#define O objout
+extern ObjFile objout;
 
 void
 elfinit(void) {
@@ -62,7 +64,7 @@ elfinit(void) {
    }
    vinit(&strs, NULL, 4<<10);
    vpush(&symtab, ((Sym){0}));
-   vpush(&symtab, ((Sym){ .type = STT_FILE, .shndx = SHN_ABS}));
+   vpush(&symtab, ((Sym){ .type = STT_FILE, .sec = SHN_ABS}));
 }
 
 uint
@@ -85,35 +87,18 @@ findsym(internstr s) {
    return idx ? &symtab.p[*idx] : NULL;
 }
 
-enum {
-   TEXT_SHNDX   = 1,
-   RODATA_SHNDX = 2,
-   DATA_SHNDX   = 3,
-   BSS_SHNDX    = 4,
-};
-
-static const char sect2ndx[] = {
-   [Snone] = SHN_UND,
-   [Stext] = TEXT_SHNDX, [Srodata] = RODATA_SHNDX,
-   [Sdata] = DATA_SHNDX, [Sbss] = BSS_SHNDX,
-}, shndx2sect[] = {
-   [SHN_UND] = Snone,
-   [TEXT_SHNDX] = Stext, [RODATA_SHNDX] = Srodata,
-   [DATA_SHNDX] = Sdata, [BSS_SHNDX] = Sbss,
-};
-
 enum section
 elfhassym(internstr nam, uint *value) {
    Sym *sym = findsym(nam);
    if (sym) {
       if (value) *value = sym->value;
-      return shndx2sect[sym->shndx];
+      return sym->sec < NSECTION ? sym->sec : Snone;
    }
    return Snone;
 }
 
 void
-elfaddsym(internstr nam, enum symflags symflags, enum section sect, u64int value, u64int size) {
+elfaddsym(internstr nam, enum symflags symflags, enum section sec, u64int value, u64int size) {
    Sym *sym = findsym(nam), sym0;
    if (!sym) {
       sym = &sym0;
@@ -126,7 +111,8 @@ elfaddsym(internstr nam, enum symflags symflags, enum section sect, u64int value
    if (symflags & SFUNC) sym->type = STT_FUNC;
    else sym->type = STT_OBJECT;
    sym->other = symflags >> SVISOFFST; /*default/internal/hidden/protected*/
-   sym->shndx = sect2ndx[sect];
+   sym->sec = sec;
+   secused[sec] = 1;
    sym->value = value;
    sym->size = size;
    if (sym == &sym0) {
@@ -164,14 +150,10 @@ static const ushort relktab[][NRELOCKIND] = {
 
 void
 elfreloc(internstr sym, enum symflags sf, enum relockind kind, enum section sec, uint off, s64int addend) {
-   switch (sec) {
-   default: assert(0);
-   case Stext:   ++ntextrel; break;
-   case Srodata: ++nrodatarel; break;
-   case Sdata:   ++ndatarel; break;
-   }
+   assert(sec > Snone && sec < NSECTION);
+   ++nreloc[sec];
    assert(kind < NRELOCKIND);
-   assert(sec < (1<<3) && sf < (1<<(SVISOFFST+2)));
+   assert(sf < (1<<(SVISOFFST+2)));
    vpush(&relocs, ((Reloc) { sec, sf, relktab[target.arch][kind], off, addend, .symname = sym }));
 }
 
@@ -272,15 +254,16 @@ elf32putsym(WriteBuf *out, Elf32Sym *sym) {
 }
 
 static void
-putsym(WriteBuf *out, const Sym *sym) {
+putsym(WriteBuf *out, const Sym *sym, const ushort *sec2shndx) {
+   ushort shndx = sym->sec < NSECTION ? sec2shndx[sym->sec] : sym->sec;
    if (targ_64bit) {
       elf64putsym(out, &(Elf64Sym) {
             sym->name, .info = ELF_S_INFO(sym->bind, sym->type), .other = sym->other,
-            .shndx = sym->shndx, .value = sym->value, .size = sym->size });
+            .shndx = shndx, .value = sym->value, .size = sym->size });
    } else {
       elf32putsym(out, &(Elf32Sym) {
             sym->name, .info = ELF_S_INFO(sym->bind, sym->type), .other = sym->other,
-            .shndx = sym->shndx, .value = sym->value, .size = sym->size });
+            .shndx = shndx, .value = sym->value, .size = sym->size });
    }
 }
 
@@ -356,7 +339,7 @@ symcmp(const void *aa, const void *bb) {
    const Sym *l = &symtab.p[*a], *r = &symtab.p[*b];
    int tmp;
    if ((tmp = l->bind - r->bind)) return tmp; /* locals prio */
-   if ((tmp = r->shndx - l->shndx)) return tmp; /* section prio (real sections > SHN_UND) */
+   if ((tmp = r->sec - l->sec)) return tmp; /* section prio (real sections > SHN_UND) */
    return l->name - r->name;
 }
 
@@ -370,20 +353,31 @@ static const bool userelatab[] = { [ISx86_64] = 1, [ISaarch64] = 1 };
 
 void
 elffini(WriteBuf *out) {
-   enum {
-      shnam_text = 1, shnam_rodata = 7, shnam_data = 15, shnam_bss = 21, shnam_shstrtab = 26,
-      shnam_strtab = 36, shnam_symtab = 44, shnam_reltext = 52, shnam_relrodata = 63, shnam_reldata = 76
-   };
    int align = targ_64bit ? 8 : 4;
    bool userela = userelatab[target.arch];
-   char shstrs[] = "\0.text\0.rodata\0.data\0.bss\0.shstrtab\0.strtab\0.symtab\0"
-                   ".rela.text\0.rela.rodata\0.rela.data";
-   if (!userela) {
-      /* .rela -> .rel */
-      memcpy(shstrs + shnam_reltext + 4, ".text\0", 6);
-      memcpy(shstrs + shnam_relrodata + 4, ".rodata\0", 8);
-      memcpy(shstrs + shnam_reldata + 4, ".data\0", 6);
+   uint relxtype = userela ? SHT_RELA : SHT_REL;
+   uint relxsiz = userela ? (targ_64bit ? 24 : 12) : (targ_64bit ? 16 : 8);
+   uint symsiz = targ_64bit ? 24 : 16;
+   ushort sec2shndx[NSECTION] = {0};
+
+   /* build .shstrtab and such */
+   char shstrbuf[(NSECTION*2+3)*20];
+   WriteBuf shstr = MEMBUF(shstrbuf, sizeof shstrbuf);
+   ioputc(&shstr, 0);
+   uint shnam[NSECTION], shnam_rel[NSECTION], shnam_shstr, shnam_strtab, shnam_sym;
+   for (enum section s = Stext; s < NSECTION; ++s) {
+      if (!objout.sec[s].n && !secused[s]) continue;
+      internstr name = objout.sec[s].name;
+      (shnam[s] = shstr.len), bfmt(&shstr, "%s%c", name, 0);
+      if (nreloc[s])
+         (shnam_rel[s] = shstr.len), bfmt(&shstr, ".rel%s%s%c", userela ? "a" : "", name, 0);
+      else
+         shnam_rel[s] = 0;
    }
+   (shnam_shstr = shstr.len), iowrite(&shstr, ".shstrtab", 10);
+   (shnam_strtab = shstr.len), iowrite(&shstr, ".strtab", 8);
+   (shnam_sym = shstr.len), iowrite(&shstr, ".symtab", 8);
+   assert(!shstr.err);
 
    symtab.p[1].name = str2idx(objout.infile);
    /* create a mapping of original symbol index -> sorted symtab index */
@@ -409,57 +403,97 @@ elffini(WriteBuf *out) {
                   .bind = rel->symflags & SWEAK ? STB_WEAK : STB_GLOBAL,
                   .type = STT_NOTYPE,
                   .other = rel->symflags >> SVISOFFST,
-                  .shndx = SHN_UND
+                  .sec = SHN_UND
          }));
          pmap_set(&symht, rel->symname, symtab.n-1);
          rel->symidx = symtab.n-1;
       }
       if (!userela) {
-         uchar *p;
-         switch (rel->section) {
-         default: assert(0);
-         case Sdata:   p = O.data.p + rel->off; break;
-         case Srodata: p = O.rodata.p + rel->off; break;
-         case Stext:   p = O.textbegin + rel->off; break;
-         }
+         uchar *p = objsecdata(rel->section, rel->off);
          if (targ_64bit)
             wr64targ(p, rel->addend);
          else
             wr32targ(p, rel->addend);
       }
    }
-   size_t codesize = alignup(O.code - O.textbegin, align),
-          rodataoff = (targ_64bit ? sizeof hdr.h64 : sizeof hdr.h32) + codesize,
-          rodatasize = O.rodata.n,
-          dataoff = rodataoff + rodatasize,
-          datasize = O.data.n,
-          bsssize = O.nbss,
-          shstrsoff = dataoff + datasize,
-          shstrssize = sizeof(shstrs),
-          strsoff = shstrsoff + shstrssize,
-          strssize = strs.n,
-          symtaboff = alignup(strsoff + strssize, align),
-          symtabsize = symtab.n * (targ_64bit ? 24 : 16),
-          reltextoff = symtaboff + symtabsize,
-          relxsiz = userela ? (targ_64bit ? 24 : 12) : (targ_64bit ? 16 : 8),
-          reltextsize = ntextrel * relxsiz,
-          relrodataoff = reltextoff + reltextsize,
-          relrodatasize = nrodatarel * relxsiz,
-          reldataoff = relrodataoff + relrodatasize,
-          reldatasize = ndatarel * relxsiz;
-   int nlocal = 0;
 
-#define CHECKOFF(s, x) \
-   efmt(s " expect OFF: %u ; ACTUAL %u\n", (uint)(x),(uint)(lseek(out->fd, 0, SEEK_CUR) + out->len))
+   /* for .symtab sh_info (first non-local symbol) */
+   nlocalsym = 0;
+   for (int i = 0; i < symtab.n; ++i)
+      if (symtab.p[i < ndefsym ? sortedsyms[i] : i].bind == STB_LOCAL) ++nlocalsym;
 
+   enum elfsection { ESECTION, ESHSTR, ESTRTAB, ESYMTAB, ERELOC };
+   struct ElfSection {
+      enum elfsection kind;
+      enum section sec;
+      uint name, type, flags, link, info, entsize, align;
+      size_t off, size;
+   } secs[2*NSECTION + 4];
+   int nsec = 0;
+
+   /* (null section) */
+   secs[nsec++] = (struct ElfSection) { .kind = ESECTION };
+
+   /* real sections */
+   for (enum section s = Stext; s < NSECTION; ++s) {
+      ObjSection *osec = &objout.sec[s];
+      if (!osec->n && !secused[s]) continue;
+      uint a = s == Stext ? align : osec->align;
+      sec2shndx[s] = nsec;
+      secs[nsec++] = (struct ElfSection) {
+         .kind = ESECTION, .sec = s, .name = shnam[s],
+         .type = osec->pb ? SHT_PROGBITS : SHT_NOBITS,
+         .flags = SHF_ALLOC | (osec->w ? SHF_WRITE : 0) | (osec->x ? SHF_EXECINSTR : 0),
+         .align = a ? a : 1, .size = osec->n,
+      };
+   }
+
+   /* metasections (.shstr, .strtab, .symtab) */
+   uint shstrndx = nsec;
+   secs[nsec++] = (struct ElfSection) {
+      .kind = ESHSTR, .name = shnam_shstr, .type = SHT_STRTAB,
+      .flags = SHF_STRINGS, .align = 1, .size = shstr.len,
+   };
+   uint strtabndx = nsec;
+   secs[nsec++] = (struct ElfSection) {
+      .kind = ESTRTAB, .name = shnam_strtab, .type = SHT_STRTAB,
+      .flags = SHF_STRINGS, .align = 1, .size = strs.n,
+   };
+   uint symtabndx = nsec;
+   secs[nsec++] = (struct ElfSection) {
+      .kind = ESYMTAB, .name = shnam_sym, .type = SHT_SYMTAB,
+      .flags = SHF_STRINGS, .link = strtabndx, .info = nlocalsym,
+      .entsize = symsiz, .align = align, .size = symtab.n * symsiz,
+   };
+
+   /* reloc sections */
+   for (enum section s = Stext; s < NSECTION; ++s) {
+      if (!nreloc[s]) continue;
+      secs[nsec++] = (struct ElfSection) {
+         .kind = ERELOC, .sec = s, .name = shnam_rel[s], .type = relxtype,
+         .link = symtabndx, .info = sec2shndx[s], .entsize = relxsiz, .align = align,
+         .size = nreloc[s] * relxsiz,
+      };
+   }
+   assert(nsec <= countof(secs));
+
+   /* compute section offsets */
+   uint off = targ_64bit ? sizeof hdr.h64 : sizeof hdr.h32;
+   for (struct ElfSection *s = secs, *end = s + nsec; s != end; ++s) {
+      if (s->type == SHT_NOBITS) continue;
+      if (s->align > 1) off = alignup(off, s->align);
+      s->off = off;
+      off += s->size;
+   }
+   uint shoff = alignup(off, align);
    if (targ_64bit) {
-      hdr.h64.shoff = alignup(reldataoff + reldatasize, align);
-      hdr.h64.shnum = 11;
-      hdr.h64.shstrndx = 5;
+      hdr.h64.shoff = shoff;
+      hdr.h64.shnum = nsec;
+      hdr.h64.shstrndx = shstrndx;
    } else {
-      hdr.h32.shoff = alignup(reldataoff + reldatasize, align);
-      hdr.h32.shnum = 11;
-      hdr.h32.shstrndx = 5;
+      hdr.h32.shoff = shoff;
+      hdr.h32.shnum = nsec;
+      hdr.h32.shstrndx = shstrndx;
    }
 
    /* elf header */
@@ -468,99 +502,38 @@ elffini(WriteBuf *out) {
    else
       elf32puthdr(out, &hdr.h32);
 
-   /* .text progbits */
-   iowrite(out, O.textbegin, codesize);
-
-   /* .rodata progbits */
-   iowrite(out, O.rodata.p, O.rodata.n);
-
-   /* .data progbits */
-   iowrite(out, O.data.p, O.data.n);
-
-   /* section names */
-   iowrite(out, shstrs, sizeof shstrs);
-
-   /* strings */
-   iowrite(out, strs.p, strs.n);
-
-   /* symtab */
-   wordalign(out, align);
-   for (int i = 0; i < symtab.n; ++i) {
-      Sym *sym = &symtab.p[i < ndefsym ? sortedsyms[i] : i];
-      if (sym->bind == STB_LOCAL) ++nlocal;
-      putsym(out, sym);
+   /* section data */
+   for (struct ElfSection *s = secs+1, *end = secs + nsec; s != end; ++s) {
+      if (s->type == SHT_NOBITS) continue;
+      wordalign(out, s->align);
+      switch (s->kind) {
+      case ESECTION: iowrite(out, objout.sec[s->sec].p, s->size); break;
+      case ESHSTR:   iowrite(out, shstr.buf, s->size); break;
+      case ESTRTAB:  iowrite(out, strs.p, s->size); break;
+      case ESYMTAB:
+         for (int j = 0; j < symtab.n; ++j)
+            putsym(out, &symtab.p[j < ndefsym ? sortedsyms[j] : j], sec2shndx);
+         break;
+      case ERELOC:
+         for (int j = 0; j < relocs.n; ++j)
+            if (relocs.p[j].section == s->sec)
+               putreloc(out, &relocs.p[j], userela);
+         break;
+      }
    }
    if (sortedsyms != ssbuf) free(sortedsyms);
 
-   /* rel.* */
-   assert(relocs.n == ntextrel + nrodatarel + ndatarel);
-   for (enum section s = Stext; s <= Sbss; ++s) {
-      for (int i = 0; i < relocs.n; ++i) {
-         Reloc *rel = &relocs.p[i];
-         if (rel->section != s) continue;
-         putreloc(out, rel, userela);
-      }
-   }
-
-   /** Section Headers **/
+   /** section headers **/
    wordalign(out, align);
 #define putshdr(...) if (targ_64bit) elf64putshdr(out, &(Elf64Shdr) { __VA_ARGS__ }); \
                      else            elf32putshdr(out, &(Elf32Shdr) { __VA_ARGS__ });
-   /* §0 null section */
-   putshdr(0);
-   /* §1 .text */
-   putshdr(.name = shnam_text, .type = SHT_PROGBITS,
-           .flags = SHF_ALLOC | SHF_EXECINSTR,
-           .offset = targ_64bit ? hdr.h64.ehsize : hdr.h32.ehsize, .size = codesize,
-           .addralign = align);
-   /* §2 .rodata */
-   putshdr(.name = shnam_rodata, .type = SHT_PROGBITS,
-           .flags = SHF_ALLOC,
-           .offset = rodataoff, .size = rodatasize,
-           .addralign = O.rodataalign,);
-   /* §3 .data */
-   putshdr(.name = shnam_data, .type = SHT_PROGBITS,
-           .flags = SHF_ALLOC | SHF_WRITE,
-           .offset = dataoff, .size = datasize,
-           .addralign = O.dataalign,);
-   /* §4 .bss */
-   putshdr(.name = shnam_bss, .type = SHT_NOBITS,
-           .size = bsssize,
-           .flags = SHF_ALLOC | SHF_WRITE,
-           .addralign = O.bssalign,);
-   /* §5 .shstrtab */
-   putshdr(.name = shnam_shstrtab, .type = SHT_STRTAB,
-           .offset = shstrsoff, .size = shstrssize,
-           .flags = SHF_STRINGS );
-   /* §6 .strtab */
-   putshdr(.name = shnam_strtab, .type = SHT_STRTAB,
-           .offset = strsoff, .size = strssize,
-           .flags = SHF_STRINGS );
-   /* §7 .symtab */
-   putshdr(.name = shnam_symtab, .type = SHT_SYMTAB,
-           .offset = symtaboff, .size = symtabsize,
-           .flags = SHF_STRINGS,
-           .link = 6, /* .strtab */
-           .info = nlocal,
-           .entsize = targ_64bit ? 24 : 16 );
-   /* §8 .rel.text */
-   putshdr(.name = shnam_reltext, .type = SHT_RELA,
-           .offset = reltextoff, .size = reltextsize,
-           .link = 7, /* .symtab */
-           .entsize = relxsiz,
-           .info = TEXT_SHNDX );
-   /* §9 .rel.rodata */
-   putshdr(.name = shnam_relrodata, .type = SHT_RELA,
-           .offset = relrodataoff, .size = relrodatasize,
-           .link = 7, /* .symtab */
-           .entsize = relxsiz,
-           .info = RODATA_SHNDX );
-   /* §10 .rel.data */
-   putshdr(.name = shnam_reldata, .type = SHT_RELA,
-           .offset = reldataoff, .size = reldatasize,
-           .link = 7, /* .symtab */
-           .entsize = relxsiz,
-           .info = DATA_SHNDX );
+   for (struct ElfSection *s = secs, *end = secs + nsec; s != end; ++s) {
+      putshdr(.name = s->name, .type = s->type,
+              .flags = s->flags,
+              .offset = s->off, .size = s->size,
+              .link = s->link, .info = s->info,
+              .addralign = s->align, .entsize = s->entsize);
+   }
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

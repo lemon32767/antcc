@@ -2,15 +2,6 @@
 
 #include "antcc.h"
 
-typedef struct ObjFile {
-   const char *infile, *outfile;
-   uchar *textbegin, *textend;
-   uchar *code;
-   uchar dataalign, rodataalign, bssalign;
-   uint nbss;
-   vec_of(uchar) data, rodata;
-} ObjFile;
-
 enum relockind {
    REL_ABS64,
    REL_ABS32,
@@ -28,13 +19,27 @@ enum relockind {
    REL_LD64_GOT_LO12_NC,
    NRELOCKIND,
 };
-enum section { Snone, Stext, Srodata, Sdata, Sbss };
+enum section { Snone, Stext, Srodata, Sdata, Sbss, NSECTION };
 
-extern ObjFile objout;
+typedef struct ObjSection {
+   internstr name;
+   vec_of(uchar);
+   short align;
+   bool w:1, x:1, pb:1;
+} ObjSection;
+
+typedef struct ObjFile {
+   const char *infile, *outfile;
+   ObjSection sec[NSECTION];
+} ObjFile;
+
 void objini(const char *infile, const char *outfile);
 void objdeffunc(internstr nam, enum symflags, uint off, uint siz);
 enum section objhassym(internstr name, uint *off);
 uint objnewdat(internstr name, enum symflags, enum section, uint siz, uint align);
+uchar *objsecdata(enum section, uint off);
+uchar *objtextinit(void);
+void objtextfini(uchar *pcode);
 void objreloc(internstr sym, enum symflags, enum relockind, enum section, uint off, s64int addend);
 void objfini(bool emit);
 void markfnneeded(internstr);

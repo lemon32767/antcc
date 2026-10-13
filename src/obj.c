@@ -11,17 +11,26 @@ void elfaddsym(internstr, enum symflags, enum section, u64int value, u64int size
 void elfreloc(internstr sym, enum symflags, enum relockind, enum section, uint off, s64int addend);
 void elffini(WriteBuf *);
 
-ObjFile objout;
+ObjFile objout = {
+   .sec = {
+      [Stext]   = { .x = 1, .pb = 1 },
+      [Srodata] = { .pb = 1 },
+      [Sdata]   = { .w = 1, .pb = 1 },
+      [Sbss]    = { .w = 1 },
+   },
+};
 
-enum { NTEXT = 4<<20 /* 4MiB */ };
+static const char *snames[] = {
+   [Stext] = ".text", [Srodata] = ".rodata", [Sdata] = ".data", [Sbss] = ".bss"
+};
 
 void
 objini(const char *infile, const char *outfile) {
    assert(!objout.outfile);
    objout.infile = infile;
    objout.outfile = outfile;
-   objout.code = objout.textbegin = mapzeros(NTEXT);
-   objout.textend = objout.textbegin + NTEXT;
+   for (enum section s = 1; s < NSECTION; ++s)
+      objout.sec[s].name = intern(snames[s]);
 
    switch (mctarg->objkind) {
    case OBJELF: elfinit(); break;
@@ -43,50 +52,55 @@ objhassym(internstr name, uint *off) {
 }
 
 uint
-objnewdat(internstr name, enum symflags sf, enum section sec, uint siz, uint align) {
-   ObjFile *o = &objout;
+objnewdat(internstr name, enum symflags sf, enum section s, uint siz, uint align) {
    uint off;
    assert(align && ispo2(align));
-   switch (sec) {
-   default: assert(0);
-   case Stext:
-      assert(align <= targ_primsizes[TYPTR]);
-      assert(o->textend - siz > o->code);
-      while ((o->code - o->textbegin) & (align - 1)) ++o->code;
-      off = o->code - o->textbegin;
-      o->code += siz;
-      break;
-   case Srodata:
-      if (align > o->rodataalign) o->rodataalign = align;
-      while (o->rodata.n & (align - 1)) vpush(&o->rodata, 0);
-      off = o->rodata.n;
+   ObjSection *sec = &objout.sec[s];
+
+   if (align > sec->align) sec->align = align;
+   if (sec->pb) {
+      while (sec->n & (align - 1)) vpush(sec, 0);
+      off = sec->n;
       if (siz) {
-         vresize(&o->rodata, o->rodata.n + siz);
-         memset(o->rodata.p+off, 0, siz);
+         vresize(sec, sec->n + siz);
+         memset(sec->p + off, 0, siz);
       }
-      break;
-   case Sdata:
-      if (align > o->dataalign) o->dataalign = align;
-      while (o->data.n & (align - 1)) vpush(&o->data, 0);
-      off = o->data.n;
-      if (siz) {
-         vresize(&o->data, o->data.n + siz);
-         memset(o->data.p+off, 0, siz);
-      }
-      break;
-   case Sbss:
-      if (align > o->bssalign) o->bssalign = align;
-      off = alignup(o->nbss, align);
-      o->nbss = off + siz;
-      break;
+   } else {
+      off = alignup(sec->n, align);
+      sec->n = off + siz;
    }
 
    switch (mctarg->objkind) {
    case OBJELF:
-      elfaddsym(name, sf, sec, off, siz);
+      elfaddsym(name, sf, s, off, siz);
       break;
    }
    return off;
+}
+
+uchar *
+objsecdata(enum section s, uint off) {
+   ObjSection *sec = &objout.sec[s];
+   assert(sec->pb && off <= sec->n);
+   return sec->p + off;
+}
+
+uchar *
+objtextinit(void) {
+   enum { HEADROOM = 1<<20 }; /* 1 MiB; MAXINSTR bounds this in practice */
+   ObjSection *txt = &objout.sec[Stext];
+   uint off = txt->n;
+   if ((u64int) off + HEADROOM > txt->_vb.cap)
+      vresize(txt, off + HEADROOM);
+   return txt->p + (txt->n = off);
+}
+
+void
+objtextfini(uchar *pcode) {
+   ObjSection *txt = &objout.sec[Stext];
+   ptrdiff_t actual = pcode - txt->p;
+   assert(actual <= txt->_vb.cap);
+   txt->n = actual;
 }
 
 static pmap_of(uchar) needed_fns;
@@ -124,7 +138,6 @@ objfini(bool emit) {
    case OBJELF: elffini(&out); break;
    }
 
-   munmap(objout.textbegin, NTEXT);
    ioflush(&out);
    close(out.fd);
 }

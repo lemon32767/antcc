@@ -279,11 +279,15 @@ opermatch(enum operpat pat, Oper oper) {
 }
 
 /* code output helpers */
+extern ObjFile objout;
+
 #define B(b) (*(*pcode)++ = (b))
 #define D(xs, N) (memcpy(*pcode, (xs), (N)), (*pcode) += (N))
 #define I16(w) (wr16le(*pcode, (w)), *pcode += 2)
 #define I32(w) (wr32le(*pcode, (w)), *pcode += 4)
 #define DS(S) D(S, sizeof S - 1)
+
+#define objtextbase() (objout.sec[Stext].p)
 
 static internstr curfnsym;
 static uchar *fnstart;
@@ -370,11 +374,11 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper dst, Op
             internstr sym = xcon2sym(mem.con);
             B(/*mod 0*/ (reg & 7) << 3 | RBP);
             if (objhassym(sym, &addr) == Stext && mem.t != OSYMGOT) {
-               I32(addr - (*pcode - objout.textbegin) + disp);
+               I32(addr - (*pcode - objtextbase()) + disp);
             } else {
                enum relockind r = REL_PCREL32;
                if (mem.t == OSYMGOT) r = rex ? REL_GOTPCRELX_REX : REL_GOTPCRELX;
-               objrelocxcon(mem.con, r, Stext, *pcode - objout.textbegin, disp);
+               objrelocxcon(mem.con, r, Stext, *pcode - objtextbase(), disp);
                I32(0);
             }
          } else {
@@ -382,7 +386,7 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper dst, Op
             assert(!ccopt.pic && !ccopt.pie && "cannot encode [RIP-rel + REG] for position independent");
             B(/*mod 0*/ (reg & 7) << 3 | RSP);
             B(mem.cshift << 6 | ((mem.cindex & 7) << 3) | RBP); /* SIB [index*s + disp32] */
-            objrelocxcon(mem.con, REL_ABS32S, Stext, *pcode - objout.textbegin, mem.disp);
+            objrelocxcon(mem.con, REL_ABS32S, Stext, *pcode - objtextbase(), mem.disp);
             I32(0);
          }
       } else {
@@ -459,10 +463,10 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper dst, Op
       if (sym == curfnsym) {
          I32(fnstart - *pcode - 4);
       } else if (objhassym(sym, &addr) == Stext) {
-         I32(addr - (*pcode - objout.textbegin) - 4);
+         I32(addr - (*pcode - objtextbase()) - 4);
       } else {
          enum relockind r = (ccopt.pie|ccopt.pic) ? REL_PLT32 : REL_PCREL32;
-         objrelocxcon(dst.con, r, Stext, *pcode - objout.textbegin, -4);
+         objrelocxcon(dst.con, r, Stext, *pcode - objtextbase(), -4);
          I32(0);
       }
       break;
@@ -877,7 +881,7 @@ static struct BlkAddr {
 
 static void
 Xjcc(uchar **pcode, enum cc cc, Block *dst) {
-   int disp, insaddr = *pcode - objout.textbegin;
+   int disp, insaddr = *pcode - objtextbase();
    bool rel8 = 0;
 
    if (blkaddr[dst->id].resolved) {
@@ -1068,7 +1072,7 @@ Xvaprologue(uchar **pcode, Function *fn, Oper sav) {
    /* save FPRs, but only if al is non zero */
    if (fpr0 < 8) {
       DS("\x84\xC0"); /* TEST al,al */
-      jmpaddr = *pcode - objout.textbegin;
+      jmpaddr = *pcode - objtextbase();
       DS("\x74\xFE"); /* JE rel8 */
    }
    for (int r = 0; r < 8; ++r) {
@@ -1077,8 +1081,8 @@ Xvaprologue(uchar **pcode, Function *fn, Oper sav) {
       sav.disp += 16;
    }
    if (fpr0 < 8) {/* patch relative jump */
-      int off = (*pcode - objout.textbegin) - jmpaddr - 2;
-      objout.textbegin[jmpaddr+1] = off;
+      int off = (*pcode - objtextbase()) - jmpaddr - 2;
+      objtextbase()[jmpaddr+1] = off;
    }
 }
 
@@ -1423,7 +1427,7 @@ calleerestore(uchar **pcode, Function *fn) {
 static void
 nops(uchar **pcode, int align) {
    int rem;
-   while ((rem = (*pcode - objout.textbegin) & (align - 1)) != 0) {
+   while ((rem = (*pcode - objtextbase()) & (align - 1)) != 0) {
       switch (align - rem) {
       case 15: case 14: case 13: case 12: case 11: case 10:
       case 9: B(0x66);
@@ -1442,11 +1446,7 @@ nops(uchar **pcode, int align) {
 enum { STACKREDZONE = 128 };
 
 static void
-emitbin(Function *fn) {
-   Block *blk;
-   uchar **pcode = &objout.code;
-   int npush = 0;
-
+emitbin(Function *fn, uchar **pcode) {
    nops(pcode, 16);
    fnstart = *pcode;
    curfnsym = fn->name;
@@ -1460,7 +1460,7 @@ emitbin(Function *fn) {
       /* push rbp; mov rbp, rsp */
       DS("\x55\x48\x89\xE5");
    }
-   npush = calleesave(pcode, fn);
+   int npush = calleesave(pcode, fn);
 
    /* ensure stack is 16-byte aligned */
    if (frame.usebp) {
@@ -1488,7 +1488,7 @@ emitbin(Function *fn) {
    if (*pcode - fnstart > 6) {
       /* largue prologue -> largue epilogue -> transform to use single exit point */
       Block *exit = NULL;
-      blk = fn->entry->lprev;
+      Block *blk = fn->entry->lprev;
       do {
          if (blk->jmp.t == Jret) {
             if (!exit) {
@@ -1518,16 +1518,16 @@ emitbin(Function *fn) {
 
    blkaddr = allocz(fn->passarena, fn->nblk * sizeof *blkaddr, 0);
 
-   blk = fn->entry;
+   Block *blk = fn->entry;
    do {
       struct BlkAddr *bb = &blkaddr[blk->id];
-      uint bbaddr = *pcode - objout.textbegin;
+      uint bbaddr = *pcode - objtextbase();
       assert(!bb->resolved);
       while (bb->relreloc) {
          uint next;
-         memcpy(&next, objout.textbegin + bb->relreloc, 4);
+         memcpy(&next, objtextbase() + bb->relreloc, 4);
          int disp = bbaddr - bb->relreloc - 4;
-         wr32le(objout.textbegin + bb->relreloc, disp);
+         wr32le(objtextbase() + bb->relreloc, disp);
          bb->relreloc = next;
       }
       bb->resolved = 1;
@@ -1550,14 +1550,16 @@ emitbin(Function *fn) {
          DS("\x0F\x0B"); /* UD2 */
       } else emitbranch(pcode, blk);
    } while ((blk = blk->lnext) != fn->entry);
-   objdeffunc(fn->name, fn->symflags, fnstart - objout.textbegin, *pcode - fnstart);
+   objdeffunc(fn->name, fn->symflags, fnstart - objtextbase(), *pcode - fnstart);
 }
 
 void
 x86_64_emit(Function *fn) {
    fn->stksiz = alignup(fn->stksiz, 8);
    if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
-   emitbin(fn);
+   uchar *code = objtextinit();
+   emitbin(fn, &code);
+   objtextfini(code);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

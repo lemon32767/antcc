@@ -1563,7 +1563,7 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
          }
          p = ip->ddat.p + off;
       } else {
-         p = (ip->sec == Sdata ? objout.data.p : objout.rodata.p) + ip->off + off;
+         p = objsecdata(ip->sec, ip->off + off);
       }
 
       if (ex->t == ENUMLIT) {
@@ -1979,10 +1979,10 @@ initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, enum symflags sym
       if (!nerror) {
          off = objnewdat(sym, symflags, sec, siz = typesize(*ty), align);
          if (siz > 0) {
-            p = sec == Srodata ? objout.rodata.p : objout.data.p;
+            p = objsecdata(sec, off);
             assert(ip->ddat.n <= siz);
-            memcpy(p + off, ip->ddat.p, ip->ddat.n);
-            memset(p + off + ip->ddat.n, 0, siz - ip->ddat.n);
+            memcpy(p, ip->ddat.p, ip->ddat.n);
+            memset(p + ip->ddat.n, 0, siz - ip->ddat.n);
             for (InitReloc *rel = ip->drel; rel; rel = rel->link) {
                objreloc(rel->sym, rel->flag, targ_64bit ? REL_ABS64 : REL_ABS32,
                         sec, off + rel->off, rel->addend);

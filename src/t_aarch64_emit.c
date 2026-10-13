@@ -244,6 +244,10 @@ opermatch(enum operpat pat, enum irclass k, Oper o) {
 }
 
 /* code output helpers */
+extern ObjFile objout;
+
+#define objtextbase() (objout.sec[Stext].p)
+
 #define W32(w) (wr32targ(*pcode, (w)), *pcode += 4)
 
 static uchar *fnstart;
@@ -304,7 +308,7 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper o[3]) {
          goto AImm;
       }
       ins |= o[1].m.base<<5 | (o[0].reg&31);
-      objrelocxcon(o[1].m.con, REL_LD64_GOT_LO12_NC, Stext, *pcode - objout.textbegin, 0);
+      objrelocxcon(o[1].m.con, REL_LD64_GOT_LO12_NC, Stext, *pcode - objtextbase(), 0);
       break;
    case EN_MEMAPREPOST:
       ins |= (o[1].m.disp&0x1FF)<<12 | o[1].m.base<<5 | (o[0].reg&31);
@@ -325,21 +329,21 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper o[3]) {
       break;
    case EN_ADRSYMLO21:
       ins |= o[0].reg;
-      objrelocxcon(o[1].con, REL_ADR_PREL_LO21, Stext, *pcode - objout.textbegin, o[1].cdisp);
+      objrelocxcon(o[1].con, REL_ADR_PREL_LO21, Stext, *pcode - objtextbase(), o[1].cdisp);
       break;
    case EN_ADRSYMPGHI21:
       ins |= o[0].reg;
       objrelocxcon(o[1].con, o[1].t == OSYMGOT ? REL_ADR_GOT_PAGE
                                                : REL_ADR_PREL_PG_HI21,
-                   Stext, *pcode - objout.textbegin, o[1].cdisp);
+                   Stext, *pcode - objtextbase(), o[1].cdisp);
       break;
    case EN_ADDSYMLO12:
       ins |= sf<<31 | o[1].reg<<5 | o[0].reg;
-      objrelocxcon(o[2].con, REL_ADD_ABS_LO12_NC, Stext, *pcode - objout.textbegin, o[2].cdisp);
+      objrelocxcon(o[2].con, REL_ADD_ABS_LO12_NC, Stext, *pcode - objtextbase(), o[2].cdisp);
       break;
    case EN_LDSYMLO19:
       ins |= o[0].reg;
-      objrelocxcon(o[1].con, REL_LD_PREL_LO19, Stext, *pcode - objout.textbegin, o[1].cdisp);
+      objrelocxcon(o[1].con, REL_LD_PREL_LO19, Stext, *pcode - objtextbase(), o[1].cdisp);
       break;
    case EN_FP2R:
       ins |= sf<<22 | (o[1].reg&31)<<5 | (o[0].reg&31);
@@ -551,7 +555,7 @@ DEFINSTR3(Xfstp,
 static void
 Xcall(uchar **pcode, Oper dst) {
    if (in_range(dst.t, OSYM, OSYMGOT)) {
-      objrelocxcon(dst.con, REL_CALL26, Stext, *pcode - objout.textbegin, 0);
+      objrelocxcon(dst.con, REL_CALL26, Stext, *pcode - objtextbase(), 0);
       W32(0x94000000); /* BL <rel26> */
    } else {
       assert(opermatch(PGPRZ, KPTR, dst));
@@ -710,7 +714,7 @@ enum cc {
 
 static void
 Xbcc(uchar **pcode, enum cc cc, Block *dst) {
-   int disp, insaddr = *pcode - objout.textbegin;
+   int disp, insaddr = *pcode - objtextbase();
 
    if (blkaddr[dst->id].resolved) {
       disp = (int)(blkaddr[dst->id].addr - insaddr)/4;
@@ -725,7 +729,7 @@ Xbcc(uchar **pcode, enum cc cc, Block *dst) {
 
 static void
 Xcbcc(uchar **pcode, enum irclass k, uint rt, enum cc cc, Block *dst) {
-   int disp, insaddr = *pcode - objout.textbegin;
+   int disp, insaddr = *pcode - objtextbase();
    if (blkaddr[dst->id].resolved) {
       disp = (int)(blkaddr[dst->id].addr - insaddr)/4;
       assert(disp >= -(1<<18) && disp < (1<<18));
@@ -1120,11 +1124,10 @@ epilogue(uchar **pcode, Function *fn, Frame *frame) {
 }
 
 static void
-emitbin(Function *fn) {
+emitbin(Function *fn, uchar **pcode) {
    Block *blk;
-   uchar **pcode = &objout.code;
 
-   while ((*pcode - objout.textbegin) % 4) ++*pcode;
+   while ((*pcode - objtextbase()) % 4) ++*pcode;
    fnstart = *pcode;
    curfnsym = fn->name;
 
@@ -1168,13 +1171,13 @@ emitbin(Function *fn) {
    blk = fn->entry;
    do {
       struct BlkAddr *bb = &blkaddr[blk->id];
-      uint bbaddr = *pcode - objout.textbegin;
+      uint bbaddr = *pcode - objtextbase();
       assert(!bb->resolved);
       while (bb->relreloc) {
          int disp = (bbaddr - bb->relreloc)/4;
          assert(disp >= -(1<<18) && disp < (1<<18));
-         uint tmp = rd32targ(objout.textbegin + bb->relreloc);
-         wr32le(objout.textbegin + bb->relreloc, (tmp &~ (0x7FFFFu<<5)) | (disp & 0x7FFFF)<<5);
+         uint tmp = rd32targ(objtextbase() + bb->relreloc);
+         wr32le(objtextbase() + bb->relreloc, (tmp &~ (0x7FFFFu<<5)) | (disp & 0x7FFFF)<<5);
          bb->relreloc = tmp>>5 & 0x7FFFF;
       }
       bb->resolved = 1;
@@ -1191,14 +1194,16 @@ emitbin(Function *fn) {
          W32(0xD4200020); /* BRK #0x1 */
       } else emitbranch(pcode, blk);
    } while ((blk = blk->lnext) != fn->entry);
-   objdeffunc(fn->name, fn->symflags, fnstart - objout.textbegin, *pcode - fnstart);
+   objdeffunc(fn->name, fn->symflags, fnstart - objtextbase(), *pcode - fnstart);
 }
 
 void
 aarch64_emit(Function *fn) {
    fn->stksiz = alignup(fn->stksiz, 8);
    if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
-   emitbin(fn);
+   uchar *code = objtextinit();
+   emitbin(fn, &code);
+   objtextfini(code);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

@@ -8,13 +8,8 @@ static WriteBuf *out = &bstdout;
 
 static bool
 prilitdat(const IRDat *dat, const char *prefix) {
-   uchar *p;
-   switch (dat->section) {
-      default: assert(0);
-      case Sdata: p = objout.data.p + dat->off; break;
-      case Srodata: p = objout.rodata.p + dat->off; break;
-      case Stext: p = objout.textbegin + dat->off; break;
-   }
+   uchar *p = objsecdata(dat->section, dat->off);
+   assert(p);
    if (dat->ctype.t == TYARRAY && typechild(dat->ctype).t == TYCHAR && dat->siz-1 < 60 && p[dat->siz-1] == 0) {
       bfmt(out, "%s%'S", prefix, p, dat->siz-1);
    } else if (dat->ctype.t == TYFLOAT) {
@@ -30,13 +25,8 @@ prilitdat(const IRDat *dat, const char *prefix) {
 static void
 pridat(const IRDat *dat) {
    static const char *snames[] = { [Sdata] = ".data", [Srodata] = ".rodata", [Stext] = ".text" };
-   uchar *p;
-   switch (dat->section) {
-      default: assert(0);
-      case Sdata: p = objout.data.p + dat->off; break;
-      case Srodata: p = objout.rodata.p + dat->off; break;
-      case Stext: p = objout.textbegin + dat->off; break;
-   }
+   uchar *p = objsecdata(dat->section, dat->off);
+   assert(p);
    enum {
       MINZERO = 4,
       MAXLINE = 60,

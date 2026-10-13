@@ -388,17 +388,11 @@ tryreadconst(Expr *ex) {
    const struct Decl *decl = &declsbuf.p[ex->decl];
    assert(decl->ty.bits == ex->ty.bits && isarith(ex->ty));
    if ((decl->scls & (SCAUTO|SCREGISTER)) || !decl->sym) return 0;
+   enum section sec;
    uint off;
-   const uchar *dat;
-   switch (objhassym(decl->sym, &off)) {
-   default: return 0;
-   case Stext:
-      dat = objout.textbegin + off;
-      break;
-   case Srodata:
-      dat = objout.rodata.p + off;
-      break;
-   }
+   if (!(sec = objhassym(decl->sym, &off)) || (sec != Stext && sec != Srodata))
+      return 0;
+   const uchar *dat = objsecdata(sec, off);
    int siz = targ_primsizes[scalartypet(decl->ty)];
    ex->t = ENUMLIT;
    enum { F = 1 << 6, S = 1 << 5 };
