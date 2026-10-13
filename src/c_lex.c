@@ -1736,6 +1736,7 @@ tryincludepath(Lexer *lx, const Span *span, char *path, int src_incdiridx, bool 
       lx->inclnerror = nerror;
       lx->inclnwarn = nwarn;
       memcpy(new.save, lx, sizeof *lx);
+      new.pragma = lx->pragma;
       *lx = new;
 
       if (++includedepth == MAXINCLUDE)
@@ -1963,17 +1964,34 @@ ppline(Lexer *lx, Token *tk0) {
    }
 }
 
+static void
+prgskipspace(const char **str, uint *len) {
+   const char *s = *str;
+   uint n = *len;
+   while (n) {
+      if (aisspace(*s)) ++s, --n;
+      else if (n >= 2 && *s == '/' && s[1] == '/') {
+         do ++s, --n; while (n > 0 && *s != '\n');
+      } else if (n >= 2 && *s == '/' && s[1] == '*') {
+         s += 2, n -= 2;
+         while (n >= 2 && !(*s == '*' && s[1] == '/')) ++s, --n;
+         if (n >= 2) s += 2, n -= 2;
+      } else break;
+
+   }
+   *str = s, *len = n;
+}
+
 static bool
 prgstrmatch(const char **str, uint *len, const char *what) {
    if (*len == 0) return !*what;
-   while (aisspace(**str)) ++*str, --*len;
+   prgskipspace(str, len);
    int nwhat = strlen(what);
    if (nwhat <= *len && !memcmp(*str, what, nwhat)) {
       if (nwhat == *len || aissep((*str)[nwhat]) || aissep((*str)[nwhat-1])) {
          *str += nwhat;
          *len -= nwhat;
-         while (*len > 0 && aisspace(**str))
-            ++*str, --*len;
+         prgskipspace(str, len);
          return 1;
       }
    }
@@ -2005,6 +2023,28 @@ pragmaparsenum(const Span *span, const char **str, uint *len, int dfault) {
    return n;
 }
 
+/* read the "-Wxyz" of #pragma diagnostic (stub) */
+static bool
+pragmadiagopt(const Span *span, const char **str, uint *len) {
+   prgskipspace(str, len);
+   if (*len == 0 || **str != '"') {
+      warn(span, "expected string literal after #pragma diagnostic");
+      return *len = 0, 0;
+   }
+   ++*str, --*len;
+   while (*len > 0) {
+      if (**str == '"') {
+         ++*str, --*len;
+         return 1;
+      }
+      if (**str == '\\' && *len >= 2) /* escape */
+         ++*str, --*len;
+      ++*str, --*len;
+   }
+   warn(span, "missing terminating '\"'");
+   return 0;
+}
+
 static void
 handlepragma(Lexer *lx, const Span *span, const char *str, uint len) {
    PragmaState *ps = lx->pragma;
@@ -2014,7 +2054,7 @@ handlepragma(Lexer *lx, const Span *span, const char *str, uint len) {
    } else if (prgstrmatch(&str, &len, "pack")) {
       /* #pragma pack */
       if (*str == '(') ++str, --len;
-      else warn(span, "missing '(' after #pragma pack");
+      else warn(span, "missing '(' after #pragma pack, ignored");
       int align = 0;
       if (prgstrmatch(&str, &len, "push")) {
          if (prgstrmatch(&str, &len, ",") && aisdigit(*str)) {
@@ -2038,18 +2078,41 @@ handlepragma(Lexer *lx, const Span *span, const char *str, uint len) {
          /* #pragma pack(n) */
          align = pragmaparsenum(span, &str, &len, 0);
          ps->pack.stk[ps->pack.top] = pragmapackcheck(span, align);
-      } else {
+      } else if (*str == ')') {
          /* #pragma pack()  -> reset */
          ps->pack.stk[ps->pack.top] = 0;
+      } else {
+         warn(span, "malformed #pragma pack, ignoring");
+         return;
       }
       if (!prgstrmatch(&str, &len, ")")) {
          warn(span, "missing ')' after #pragma pack");
       }
-   } else {
+   } else if (prgstrmatch(&str, &len, "GCC") || prgstrmatch(&str, &len, "clang")) {
+      prgskipspace(&str, &len);
+      if (!prgstrmatch(&str, &len, "diagnostic")) goto Unk;
+      prgskipspace(&str, &len);
+      /* #pragma GCC/clang diagnostic ... */
+      if (prgstrmatch(&str, &len, "push")) {
+         if (ps->diagnostic.top >= countof(ps->diagnostic.stk))
+            error(span, "too many nested pragma diagnostic");
+         else
+            ++ps->diagnostic.top;
+      } else if (prgstrmatch(&str, &len, "pop")) {
+         if (ps->diagnostic.top > 0)
+            --ps->diagnostic.top;
+      } else if (prgstrmatch(&str, &len, "ignored")
+              || prgstrmatch(&str, &len, "warning")
+              || prgstrmatch(&str, &len, "error")) {
+         pragmadiagopt(span, &str, &len);
+      } else {
+         goto Unk;
+      }
+   } else Unk: {
       warn(span, "unknown pragma ignored");
       return;
    }
-   while (len > 0 && aisspace(*str)) ++str, --len;
+   prgskipspace(&str, &len);
    if (len > 0) {
       warn(span, "extra tokens after #pragma");
    }

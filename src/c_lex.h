@@ -93,7 +93,7 @@ typedef struct Token {
 
 typedef struct PragmaState {
    bool weak;
-   struct { schar stk[21], top; } pack, visibility;
+   struct { schar stk[21], top; } pack, visibility, diagnostic;
    internstr weakalias;
 } PragmaState;
 

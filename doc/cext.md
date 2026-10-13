@@ -41,6 +41,7 @@ Preprocessor extensions
 
   - `#include_next`
   - `#pragma once`, `#warning`
+  - `#pragma GCC diagnostic`/`#pragma clang diagnostic` (stub)
   - `__has_include`/`__has_include_next`
   - `__has_attribute`/`__has_builtin`
   - `__COUNTER__`, `__VA_OPT__`, `##__VA_ARGS__` comma swallowing
