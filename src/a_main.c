@@ -584,6 +584,7 @@ compileobjs(void) {
 }
 
 #include <fcntl.h>
+#include <sys/stat.h>
 
 static bool
 hasprog(const char *prog) {
@@ -656,6 +657,20 @@ findlinkargs(CmdArgs *cmd) {
 
 #define ADDCMDARGS(args) if (*args) vpushn(&cmd, args, countof(args))
 
+static bool
+checkldfiles(const char **ldargs, int n) {
+   for (int i = 0; i < n; ++i) {
+      const char *a = ldargs[i];
+      if (*a != '/') continue;
+      struct stat st;
+      if (stat(a, &st) != 0) {
+         warn(NULL, "missing ld file %'s", a);
+         return 0;
+      }
+   }
+   return 1;
+}
+
 static int
 dolink(void) {
    const char *cmdbuf[100];
@@ -692,6 +707,12 @@ dolink(void) {
          ADDCMDARGS(host_ldstartfiles_pie);
       } else {
          ADDCMDARGS(host_ldstartfiles);
+      }
+      if (!checkldfiles(cmd.p, cmd.n)) {
+         note(NULL, "falling back to linking with '%s'", HOST_CC);
+         task.link_with_cc = 1;
+         vfree(&cmd);
+         return dolink();
       }
    }
    vpush(&cmd, "-o");
