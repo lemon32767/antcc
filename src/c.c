@@ -387,7 +387,7 @@ isexprtok(CComp *cm) {
          tk('+'), tk('-'), tk('*'), tk('&'), tk('~'), tk('!'), tk(TKINC), tk(TKDEC),
          tk(TKWsizeof), tk(TKW_Alignof), tk(TKWalignof), tk(TKWtrue), tk(TKWfalse),
          tk('('), tk(TKNUMLIT), tk(TKCHRLIT), tk(TKSTRLIT), tk(TKW_Generic),
-         tk(TKW__builtin_va_arg),
+         tk(TKW__builtin_va_arg), tk(TKW__builtin_offsetof),
 #undef tk
       };
       return tk.t < countof(tks) && tks[tk.t];
@@ -963,6 +963,42 @@ vaargexpr(CComp *cm, Span *span) {
    return ex;
 }
 
+static uint designatorsoffset(CComp *cm, Type, Span *span);
+static Expr
+offsetofexpr(CComp *cm, Span *span) {
+   Token tk;
+   u64int off = 0;
+
+   if (!expect(cm, '(', "after __builtin_offsetof")) goto End;
+
+   Decl decl;
+   decl = pdecl(&(DeclState){DCASTEXPR}, cm);
+   Type ty = decl.ty;
+   bool ok = 1;
+   if (!isagg(ty)) {
+      error(&decl.span, "offsetof type must be an aggregate (%ty)", ty);
+      ok = 0;
+   }
+   if (expect(cm, ',', NULL) && (peek(cm, &tk), expect(cm, TKIDENT, NULL))) {
+      joinspan(&span->ex, tk.span.ex);
+      FieldData fld;
+      if (!getfield(&fld, ty, tk.name) && ok) {
+         error(span, "'%ty' has no such field '%s'", ty, tk.name);
+         ok = 0;
+      } else if (ok && fld.bitsiz) {
+         error(span, "'%ty::%s' is a bit-field", ty, tk.name);
+         ok = 0;
+      }
+      off = fld.off;
+      off += designatorsoffset(cm, fld.t, span);
+   }
+   if (expect(cm, ')', NULL))
+      joinspan(&span->ex, tk.span.ex);
+
+End:
+   return mkexpr(ENUMLIT, *span, mktype(targ_sizetype), .u = off);
+}
+
 static Expr
 genericexpr(CComp *cm, Span *span) {
    Token tk;
@@ -1245,6 +1281,10 @@ Unary:
    case TKW__builtin_va_arg:
       span = tk.span;
       ex = vaargexpr(cm, &span);
+      break;
+   case TKW__builtin_offsetof:
+      span = tk.span;
+      ex = offsetofexpr(cm, &span);
       break;
    case TKW_Generic:
       span = tk.span;
@@ -1798,7 +1838,7 @@ aggdesignator(InitParser *ip, Type ty, internstr name, const Span *span) {
 }
 
 static bool
-designators(InitParser *ip, CComp *cm) {
+designators(InitParser *ip, CComp *cm, bool eql) {
    Token tk;
    Span span;
    bool some = 0;
@@ -1863,7 +1903,7 @@ designators(InitParser *ip, CComp *cm) {
          }
          some = 1;
       } else {
-         if (some) {
+         if (eql && some) {
             expect(cm, '=', NULL);
          }
          return some;
@@ -1936,7 +1976,7 @@ initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, enum symflags sym
       peek(cm, &tk);
       joinspan(&span.ex, tk.span.ex);
       if (tk.t == '[' || tk.t == '.') {
-         designators(ip, cm);
+         designators(ip, cm, /*eql*/1);
       }
       if (match(cm, &tk, '}')) {
          if (ip->cur == ip->buf) break;
@@ -2021,6 +2061,21 @@ initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, enum symflags sym
 
       return mkexpr(EINIT, span, *ty, .init = alloccopy(&cm->exarena, &res, sizeof res, 0));
    }
+}
+
+static uint
+designatorsoffset(CComp *cm, Type ty, Span *span) {
+   InitParser ip[1] = {{.arena = &cm->exarena, .ev = EVSTATICINI}};
+   ip->sub = ip->cur = ip->buf;
+   ip->cur->ty = ty;
+   designators(ip, cm, /*eql*/0);
+   Token tk;
+   peek(cm, &tk);
+   joinspan(&span->ex, tk.span.ex);
+   uint off, bitsiz, bitoff;
+   inimember(ip->sub, ip->sub->idx, &off, &bitsiz, &bitoff);
+   if (bitsiz) error(span, "offset of bit-field");
+   return ip->sub->off + off;
 }
 
 /* debugging */

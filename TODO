@@ -27,7 +27,6 @@ gnu builtins
     libc https://gcc.gnu.org/onlinedocs/gcc-4.2.4/gcc/Other-Builtins.html#Other-Builtins
         undeclared __builtin_X fallback -> X in libc fn list -> call X
     ffs* clz* ctz* popcount* parity* (impl in backend new arith insns)
-    offsetof
     powi powif powil
     types_compatible_p
     choose_expr

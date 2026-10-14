@@ -17,6 +17,7 @@ _(_Static_assert,   STDC11, )
 _(_Thread_local,    STDC11, )
 _(__asm__,          0, )
 _(__attribute__,    0, "__attribute")
+_(__builtin_offsetof, 0, )
 _(__builtin_va_arg, 0, )
 _(__extension__,    0, )
 _(__int128,         0, "__int128__", "__int128_t")
@@ -75,5 +76,5 @@ _(while,            0, )
 # define TKWEND_ TKWwhile
 #endif
 #ifndef TKWMAXLEN_
-# define TKWMAXLEN_ (sizeof "__builtin_va_arg" - 1)
+# define TKWMAXLEN_ (sizeof "__builtin_offsetof" - 1)
 #endif
