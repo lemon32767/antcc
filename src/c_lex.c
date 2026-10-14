@@ -2706,7 +2706,7 @@ addpredefmacros(Arena **tmparena) {
    };
    static const char
       cpredefs[] =
-         "__antcc__\0__STDC__\0__STDC_NO_ATOMICS__\0__STDC_NO_THREADS__\0",
+         "__antcc__\0__STDC__\0__STDC_NO_ATOMICS__\0",
       cstdver[][8] = {
          [STDC89] = "199409L",
          [STDC99] = "199901L",
