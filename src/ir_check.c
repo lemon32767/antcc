@@ -323,6 +323,23 @@ checkblk(Function *fn, Block *b) {
          checkins(fn, ins);
       );
    }
+
+   /* for each suc of b check b in suc.preds */
+   for (int i = 0; i < 2; ++i) {
+      Block *s = (&b->s1)[i];
+      if (!s) continue;
+      int found = 0;
+      for (int j = 0; j < s->npred; ++j)
+         if (blkpred(s, j) == b) ++found;
+      CHECK(found, "block @%d -> @%d but @%d has no matching pred", b->id, s->id, s->id);
+   }
+   /* for each pred of b check b in pred.suc */
+   for (int j = 0; j < b->npred; ++j) {
+      Block *p = blkpred(b, j);
+      if (!p) continue;
+      CHECK(p->s1 == b || p->s2 == b,
+         "block @%d's pred @%d does not have @%d as a suc", b->id, p->id, b->id);
+   }
    checkstate.ins = NULL;
 }
 
