@@ -1455,6 +1455,7 @@ typedef struct InitParser {
       Type ty;
       uint idx;
       uint off;
+      uchar bitsiz, bitoff;
       short prev;
    } buf[32], *cur, *sub;
    Arena **arena;
@@ -1482,6 +1483,15 @@ typedef struct InitParser {
       };
    };
 } InitParser;
+
+static Type
+inimember(InitCur *c, uint idx, uint *off, uint *bitsiz, uint *bitoff) {
+   if (objectp(c->ty))
+      return membertype(off, bitsiz, bitoff, c->ty, idx);
+   *off = 0;
+   *bitsiz = c->bitsiz, *bitoff = c->bitoff;
+   return c->ty;
+}
 
 static void
 excesscheck(InitParser *ip, const Span *span) {
@@ -1659,9 +1669,8 @@ inifocus(InitParser *ip, CComp *cm, const Span *span, uint idx) {
       idx = ip->sub->idx;
    }
    uint off, bitsiz, bitoff;
-   Type targ = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, idx);
+   Type targ = inimember(ip->sub, idx, &off, &bitsiz, &bitoff);
    InitCur *next = iniadvance(ip, ip->cur, span);
-   assert(!bitsiz);
 
    if (isagg(ip->sub->ty) && targ.t == TYARRAY && !typearrlen(targ))
       error(span, "cannot initialize flexible array member");
@@ -1670,6 +1679,8 @@ inifocus(InitParser *ip, CComp *cm, const Span *span, uint idx) {
    next->ty = targ;
    next->idx = 0;
    next->off = ip->sub->off + off;
+   next->bitsiz = bitsiz;
+   next->bitoff = bitoff;
    next->prev = ip->cur - ip->buf;
    ++ip->cur->idx;
    ip->sub = ip->cur = next;
@@ -1695,7 +1706,7 @@ ininext(InitParser *ip, CComp *cm) {
    Expr ex = expr(cm);
 
 Retry:
-   targ = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, ip->sub->idx);
+   targ = inimember(ip->sub, ip->sub->idx, &off, &bitsiz, &bitoff);
 
    if (isagg(ip->sub->ty) && targ.t == TYARRAY && isincomplete(targ)) {
       error(&ex.span, "cannot initialize flexible array member");
@@ -1802,10 +1813,9 @@ designators(InitParser *ip, CComp *cm) {
          joinspan(&span.ex, ex.span.ex);
          peek(cm, &tk);
          if (some) {
-            Type ty = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, ip->sub->idx++);
+            Type ty = inimember(ip->sub, ip->sub->idx++, &off, &bitsiz, &bitoff);
             InitCur *next = iniadvance(ip, ip->sub, &tk.span);
-            assert(!bitsiz);
-            *next = (InitCur) { ty, .off = ip->sub->off + off };
+            *next = (InitCur) { ty, .off = ip->sub->off + off, .bitsiz = bitsiz, .bitoff = bitoff };
             ip->sub = next;
             dumpini(ip);
          }
@@ -1830,9 +1840,9 @@ designators(InitParser *ip, CComp *cm) {
          span = tk.span;
          peek(cm, &tk);
          if (some) {
-            Type ty = membertype(&off, &bitsiz, &bitoff, ip->sub->ty, ip->sub->idx++);
+            Type ty = inimember(ip->sub, ip->sub->idx++, &off, &bitsiz, &bitoff);
             InitCur *next = iniadvance(ip, ip->sub, &tk.span);
-            *next = (InitCur) { ty, .off = ip->sub->off + off };
+            *next = (InitCur) { ty, .off = ip->sub->off + off, .bitsiz = bitsiz, .bitoff = bitoff };
             ip->sub = next;
             dumpini(ip);
          }

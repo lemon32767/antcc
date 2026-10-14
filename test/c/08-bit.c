@@ -2,6 +2,9 @@
 expect 6, -4, 7, -1
        6, -4, 7, -1
 CEFA CDAB3412 AA000000000000FF
+{0, 1}
+{2, 1}
+{1, 2}
 */
 
 int xor(int a) {
@@ -38,6 +41,10 @@ struct s2 bitfcopy2(struct s2 x) {
    return (struct s2){x.a};
 }
 
+struct s1 si1 = { .y = {1} };
+struct s1 si2 = { 2, {1} };
+struct {struct s1 a;} si3 = {{ { {1} }, { {2} } }};
+
 int bswap16(int x) { return __builtin_bswap16(x); }
 int bswap32(int x) { return __builtin_bswap32(x); }
 long long bswap64(long long x) { return __builtin_bswap64(x); }
@@ -56,6 +63,10 @@ int main(int p) {
    printf("expect %d, -4, 7, %d\n", 5+p, (short)((-1|3)^3|555));
    printf("       %d, %d, %lld, %d\n", foo.x, foo.k+=1, foo.h, foo.a);
    printf("%X %X %llX\n", bswap16(0xFACE), bswap32(0x1234ABCD), bswap64(0xFF000000000000AAll));
+
+   printf("{%d, %d}\n", si1.x, si1.y);
+   printf("{%d, %d}\n", si2.x, si2.y);
+   printf("{%d, %d}\n", si3.a.x, si3.a.y);
 
    int x = 42,
        *a = &x,
