@@ -162,6 +162,7 @@ typedef struct Decl {
          isdef : 1,
          isenumconst : 1,
          isbuiltin   : 1;
+   ushort align;
    Span span;
    internstr name;
    Attrs attr;

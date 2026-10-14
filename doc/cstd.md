@@ -13,7 +13,6 @@ A list of **missing** standard C features:
 Stack-allocated VLAs are a stub and actually compile to a fixed size array at the moment (but noone should use them anyway)
 
 ## C11
-  - `_Alignas`
   - atomics
   - `u8".."` string literals
 

@@ -237,6 +237,17 @@ putdecl(CComp *cm, Decl *decl) {
             } else {
                assert(!decl->sym);
             }
+            if (old->align != decl->align) {
+               if (old->align && decl->align) {
+                  error(&decl->span, "redeclaration has different alignment (%d vs %d)",
+                        decl->align, old->align);
+                  note(&old->span, "previous declaration");
+               } else if (decl->isdef ? old->align : decl->align) {
+                  error(&decl->span, "definition must specify alignment like previous declaration");
+                  note(&old->span, "previous declaration");
+               }
+               if (old->align > decl->align) decl->align = old->align;
+            }
             if (old->isdef && !decl->isdef) {
                if (cm->env->up == NULL && old->inlin && !decl->inlin) {
                   /* inline def followed by non-inline decl, must emit */
@@ -347,6 +358,7 @@ typedef struct DeclState {
                         call pdecl() to advance state before checking .more */
         tagdecl : 1, /* declarator is a tagged type */
         empty   : 1; /* nothing decl (';') */
+   ushort align;
    Attrs attr;
 } DeclState;
 static Decl pdecl(DeclState *st, CComp *cm);
@@ -372,7 +384,7 @@ isdecltok(CComp *cm) {
          kw(int), kw(char), kw(_Bool), kw(bool), kw(__int128), kw(__uint128_t),
          kw(struct), kw(union), kw(enum),
          kw(__typeof__), kw(typeof), kw(typeof_unqual),
-         kw(__attribute__)
+         kw(__attribute__), kw(_Alignas)
 #undef kw
       };
       return ((uint)tk.t-TKWBEGIN_) < countof(kws) && kws[tk.t-TKWBEGIN_];
@@ -2236,9 +2248,9 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk) {
    case ATTRaligned:
       if (nparam > 1) goto BadArgs;
       else if (nparam == 1) {
-         if (isint(params[0].ty) && eval2xintcon(&params[0])) {
-            if (!ispo2(params[0].u))
-               error(&params[0].span, "alignment is not a power of 2");
+         if (eval2xintcon(&params[0])) {
+            if (params[0].u && (!ispo2(params[0].u) || params[0].u > CMAXALIGN))
+               error(&params[0].span, "invalid alignment %'ld", params[0].i);
             else
                attr->align = params[0].i;
          } else {
@@ -2329,7 +2341,8 @@ attrcheckctx(const Span *span, Attrs *attr, char c /*f/v/t*/) {
 static uint
 declalign(const Decl *d) {
    int talign = typealign(d->ty);
-   return d->attr.align > talign ? d->attr.align : talign;
+   int dalign = d->attr.align > d->align ? d->attr.align : d->align;
+   return dalign > talign ? dalign : talign;
 }
 
 /* parse, collecting fields and creating the tagged type, but don't populate with size/layout information */
@@ -2403,10 +2416,10 @@ parseagg(CComp *cm, enum typetag tt, internstr name, int id) {
                        decl.ty.t == TYUNION ? "union" : "struct");
                }
             }
-            if (hasattr(&decl.attr, ATTRpacked) && !hasattr(&decl.attr, ATTRaligned))
-               f.f.align = 1;
-            else if (hasattr(&decl.attr, ATTRaligned))
+            if (hasattr(&decl.attr, ATTRaligned) || decl.align)
                f.f.align = declalign(&decl);
+            else if (hasattr(&decl.attr, ATTRpacked))
+               f.f.align = 1;
             vpush(&fld, f);
             td.anyconst |= decl.qual & QCONST;
             if (isagg(decl.ty)) {
@@ -2704,11 +2717,26 @@ tagtype(CComp *cm, enum toktag kind) {
 }
 
 static void
-declcheckattr(Decl *decl) {
+declcheckattr(Decl *decl, enum declkind dk) {
    char c = decl->scls == SCTYPEDEF ? 't'
           : decl->ty.t == TYFUNC ? 'f'
           : 'v';
    attrcheckctx(&decl->span, &decl->attr, c);
+   if (decl->align) {
+      const char *thing = NULL;
+      if (decl->scls == SCTYPEDEF)
+         thing = "typedef";
+      else if (decl->ty.t == TYFUNC)
+         thing = "function";
+      else if (dk == DFUNCPARAM || dk == DFUNCPARAMOLD)
+         thing = "parameter";
+      else if (decl->scls == SCREGISTER)
+         thing = "'register' variable";
+      else if (!isincomplete(decl->ty) && decl->ty.t != TYFUNC
+               && decl->align < typealign(decl->ty))
+         error(&decl->span, "alignment specifiers cannot reduce alignment");
+      if (thing) error(&decl->span, "cannot specify alignment of %s", thing);
+   }
 }
 
 static Type
@@ -2723,6 +2751,33 @@ ptypeof(CComp *cm) {
    }
    expect(cm, ')', NULL);
    return ty;
+}
+
+static uint
+alignasspec(CComp *cm) {
+   expect(cm, '(', NULL);
+   uint align = 0;
+   if (isdecltok(cm)) {
+      /* _Alignas ( <type-name> )  */
+      DeclState st = {DCASTEXPR};
+      Decl decl = pdecl(&st, cm);
+      align = typealign(decl.ty);
+      if (!align) {
+         error(&decl.span, "invalid type '%ty' for _Alignas", decl.ty);
+      } else assert(align <= CMAXALIGN && ispo2(align));
+   } else {
+      /* _Alignas ( <const-expr> )  */
+      Expr ex = expr(cm);
+      if (!eval2xintcon(&ex)) {
+         error(&ex.span, "alignment is not an integer constant");
+      } else if (ex.u && (!ispo2(ex.u) || ex.u > CMAXALIGN)) {
+         error(&ex.span, "invalid alignment %'ld", ex.i);
+      } else {
+         align = ex.u;
+      }
+   }
+   expect(cm, ')', NULL);
+   return align;
 }
 
 static bool
@@ -2754,6 +2809,7 @@ declspec(DeclState *st, CComp *cm, Span *pspan) {
    } arith = 0;
    Span span = {0};
    Type ty = st->base;
+   uint aligns;
    bool properdecl = st->kind == DFUNCVAR || st->kind == DTOPLEVEL;
 
    for (bool first = 1;; first = 0) {
@@ -2784,7 +2840,11 @@ declspec(DeclState *st, CComp *cm, Span *pspan) {
          break;
 
       /* alignment-specifier */
-      case TKW_Alignas: assert(!"nyi alignas"); break;
+      case TKW_Alignas:
+         lex(cm, &tk);
+         aligns = alignasspec(cm);
+         if (aligns && aligns > st->align) st->align = aligns;
+         continue;
 
       /* type-qualifier */
       case TKWconst: st->qual |= QCONST; break;
@@ -3162,8 +3222,8 @@ typedef struct LazyVLA {
 } LazyVLA;
 
 static Decl
-declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0) {
-   Decl decl = { st->base, st->scls, .qual = st->qual, .span = span0, .attr = attr0 };
+declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0, uint align) {
+   Decl decl = { st->base, st->scls, .qual = st->qual, .span = span0, .attr = attr0, .align = align };
    DeclList list = { &list, &list }, *l;
    Span namespan = {0};
    st->downfnenv = 0;
@@ -3372,11 +3432,12 @@ pdecl(DeclState *st, CComp *cm) {
       /* indicate bitfield */
       decl = (Decl) { st->base, st->scls, st->qual, .span = decl.span, .attr = st->attr };
       st->bitf = 1;
+      if (st->align) error(&decl.span, "cannot specify alignment for bit-field");
       return decl;
    }
    decl.attr = st->attr;
    attrspec(cm, &decl.attr);
-   decl = declarator(st, cm, decl.span, decl.attr);
+   decl = declarator(st, cm, decl.span, decl.attr, st->align);
    bool funcdefok = st->funcdef && first;
    st->funcdef = 0;
    if (attrspec(cm, &decl.attr)) funcdefok = 0;
@@ -3397,7 +3458,7 @@ pdecl(DeclState *st, CComp *cm) {
       attrspec(cm, &decl.attr);
    }
 
-   declcheckattr(&decl);
+   declcheckattr(&decl, st->kind);
    if (properdecl && match(cm, &tk, '=')) {
       st->varini = 1;
       goto End;
@@ -3417,6 +3478,7 @@ pdecl(DeclState *st, CComp *cm) {
       }
    } else if (st->kind == DFIELD && match(cm, &tk, ':')) {
       st->bitf = 1;
+      if (st->align) error(&decl.span, "cannot specify alignment for bit-field");
       goto End;
    }
 
@@ -5361,6 +5423,8 @@ localdecl(CComp *cm, bool forini) {
          static int staticid;
          bool put = 0;
          bool dynarr = 0;
+         uint dalign = declalign(&decl);
+         bool statik = decl.scls & (SCSTATIC | SCEXTERN);
 
          switch (decl.scls) {
          case SCTHREADLOCAL|SCSTATIC: case SCSTATIC:
@@ -5377,8 +5441,7 @@ localdecl(CComp *cm, bool forini) {
             }
             decl.scls = SCAUTO;
             /* fallthru */
-         case SCAUTO:
-         case SCREGISTER:
+         case SCAUTO: case SCREGISTER:
             if (decl.ty.t == TYFUNC) {
                error(&decl.span, "declaring variable '%s' with function type '%ty'", decl.name, decl.ty);
                goto Err;
@@ -5387,10 +5450,14 @@ localdecl(CComp *cm, bool forini) {
                goto Err;
             }
             decl.id = -1;
+            if (!statik && dalign > 16) {
+               warn(&decl.span, "alignment of automatic variable clamped to 16");
+               dalign = 16;
+            }
             if (!nerror) {
                Instr alloca;
                if (!isvla(decl.ty)) {
-                  alloca = mkalloca(typesize(decl.ty), declalign(&decl));
+                  alloca = mkalloca(typesize(decl.ty), dalign);
                } else {
                   warn(&decl.span, "stack-allocated variable-length array...");
                   alloca = mkinstr1(Oallocav, KPTR, typesizeref(decl.ty));
@@ -5402,9 +5469,8 @@ localdecl(CComp *cm, bool forini) {
             if (st.varini) {
                int d = putdecl(cm, &decl);
                Type ty = decl.ty;
-               bool statik = decl.scls & (SCSTATIC | SCEXTERN);
                if (isvla(ty)) error(&decl.span, "cannot use initializer list with VLA");
-               ini = initializer(cm, &ty, declalign(&decl), statik ? EVSTATICINI : EVFOLD,
+               ini = initializer(cm, &ty, dalign, statik ? EVSTATICINI : EVFOLD,
                                  declsymflags(&decl), decl.qual, statik ? decl.sym : NULL);
                declsbuf.p[d].ty = ty;
                put = 1;
@@ -5412,7 +5478,7 @@ localdecl(CComp *cm, bool forini) {
                if (!statik) {
                   /* fix alloca for actual size, for implicitly sized arrays */
                   assert(!isincomplete(ty));
-                  EMITS instrtab[decl.id] = mkalloca(typesize(ty), declalign(&decl));
+                  EMITS instrtab[decl.id] = mkalloca(typesize(ty), dalign);
 
                   if (!initcheck(ty, &ini)) {
                      Span span = decl.span;
@@ -5447,7 +5513,7 @@ localdecl(CComp *cm, bool forini) {
                   error(&decl.span, "definition of static variable with incomplete type");
                else
                   objnewdat(decl.sym, declsymflags(&decl), decl.scls & SCTHREADLOCAL ? Stbss : Sbss,
-                            typesize(decl.ty), declalign(&decl));
+                            typesize(decl.ty), dalign);
             }
             break;
          case SCTYPEDEF:

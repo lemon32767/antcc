@@ -68,6 +68,8 @@ static_assert(sizeof(Type) == 4);
 #define isvla(ty)      ((ty).flag & TFVLA)
 #define mktype(...)   ((Type) {{ __VA_ARGS__ }})
 
+#define CMAXALIGN (1<<14)
+
 typedef struct {
    internstr name;
    union { s64int i; u64int u; };
@@ -76,7 +78,7 @@ typedef struct {
 typedef struct {
    Type t;
    union {
-      uchar align; /* before layouting */
+      ushort align; /* before layouting */
       uint off; /* after */
    };
    bool bitf;
@@ -110,7 +112,7 @@ typedef struct TypeData {
       uint vlasizeref; /* vla, Ref.bits */
       struct {
          short nmemb; /* functions, aggregates, enums */
-         uchar align;
+         ushort align;
          union {
             struct { /* function */
                bool kandr : 1, variadic : 1;
