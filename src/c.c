@@ -159,15 +159,20 @@ envitertagged(Tagged **l, Env *env) {
 static bool
 redeclarationok(const Decl *old, Decl *new) {
    bool takeoldscls = 0;
+   uchar oldscls = old->scls, newscls = new->scls;
    if (old->attr.visib && new->attr.visib && (old->attr.visib != new->attr.visib))
       return 0;
-   if (old->scls != new->scls) {
-      if (old->scls == SCSTATIC && (new->scls &~ SCEXTERN) == SCNONE)
+   /* § 6.7.1.3 _Thread_local shall be present on every declaration of an object */
+   if ((oldscls & SCTHREADLOCAL) != (newscls & SCTHREADLOCAL))
+      return 0;
+   oldscls &= ~SCTHREADLOCAL, newscls &= ~SCTHREADLOCAL;
+   if (oldscls != newscls) {
+      if (oldscls == SCSTATIC && (newscls &~ SCEXTERN) == SCNONE)
          takeoldscls = 1;
       else
          return 0;
    }
-   switch (old->scls) {
+   switch (oldscls) {
    case SCSTATIC:
    case SCEXTERN:
       if (typescompat(&new->ty, old->ty, new->ty)) {
@@ -203,7 +208,7 @@ putdecl(CComp *cm, Decl *decl) {
       } else for (old = NULL; enviterdecl(&old, env);) {
          if (decl->name == old->name) {
          Match:
-            if ((cm->env->up != NULL && decl->scls == SCSTATIC) || (old->isdef && decl->isdef)) {
+            if ((cm->env->up != NULL && (decl->scls & SCSTATIC)) || (old->isdef && decl->isdef)) {
                error(&decl->span, "redefinition of '%s'", decl->name);
                note(&old->span, "previously defined here");
                break;
@@ -247,7 +252,7 @@ putdecl(CComp *cm, Decl *decl) {
             break;
          }
       }
-      if (decl->scls != SCEXTERN) break;
+      if (!(decl->scls & SCEXTERN)) break;
    }
    return envadddecl(cm->env, decl);
 }
@@ -1929,7 +1934,7 @@ initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, enum symflags sym
          vresize(&ip->ddat, typesize(*ty));
          memset(ip->ddat.p, 0, typesize(*ty));
       } else {
-         ip->sec = qual & QCONST ? Srodata : Sdata;
+         ip->sec = symflags & STLS ? Stdata : qual & QCONST ? Srodata : Sdata;
          if (!nerror)
             ip->off = objnewdat(sym, symflags, ip->sec, typesize(*ty), align);
       }
@@ -2021,7 +2026,9 @@ initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, enum symflags sym
          *ty = mkarrtype(typechild(*ty), ty->flag & TFCHLDQUAL, len);
       }
    Dynfix:
-      if (qual & QCONST && (ip->drel == NULL || rodatarelocok()))
+      if (symflags & STLS)
+         sec = Stdata;
+      else if (qual & QCONST && (ip->drel == NULL || rodatarelocok()))
          sec = Srodata;
       else
          sec = Sdata;
@@ -2718,6 +2725,15 @@ ptypeof(CComp *cm) {
    return ty;
 }
 
+static bool
+sclscompatible(uchar old, uchar new) {
+   if (!old) return 1;
+   /* §6.7.1.2 _Thread_local may appear with static or extern */
+   if (old == SCTHREADLOCAL && (new == SCSTATIC || new == SCEXTERN)) return 1;
+   if (new == SCTHREADLOCAL && (old == SCSTATIC || old == SCEXTERN)) return 1;
+   return 0;
+}
+
 static void
 declspec(DeclState *st, CComp *cm, Span *pspan) {
    Token tk;
@@ -2878,6 +2894,8 @@ declspec(DeclState *st, CComp *cm, Span *pspan) {
       if ((!properdecl && scls && !(paramp && scls == SCREGISTER))
        || (scls == SCAUTO && st->kind == DTOPLEVEL)) {
          error(&tk.span, "storage class specifier %'tk is not allowed here", &tk);
+      } else if (scls && !sclscompatible(st->scls, scls)) {
+         error(&tk.span, "invalid combination of storage class specifiers");
       } else {
          st->scls |= scls;
       }
@@ -2888,10 +2906,6 @@ declspec(DeclState *st, CComp *cm, Span *pspan) {
 End:
    if (pspan) *pspan = span;
 
-   if (st->scls && properdecl) {
-      if (popcnt(st->scls) > 1)
-         error(&span, "invalid combination of storage class specifiers");
-   }
    if (st->base.t && arith) {
       /* combining arith type specifiers and other types */
    Bad:
@@ -3368,6 +3382,8 @@ pdecl(DeclState *st, CComp *cm) {
    if (attrspec(cm, &decl.attr)) funcdefok = 0;
    if (decl.ty.t != TYFUNC && st->fninline)
       error(&decl.span, "`inline' used on non-function declaration");
+   if (decl.ty.t == TYFUNC && (decl.scls & SCTHREADLOCAL))
+      error(&decl.span, "function cannot be 'thread local'");
    /*if (decl.ty.t != TYFUNC && st->fnnoreturn)
       error(&decl.span, "`_Noreturn' used on non-function declaration");*/
    if (st->kind == DTOPLEVEL || st->kind == DFUNCVAR) {
@@ -3423,7 +3439,8 @@ End:
 static inline enum symflags
 declsymflags(const Decl *decl) {
    enum symflags sf = 0;
-   if (decl->scls == SCSTATIC) sf |= SLOCAL;
+   if (decl->scls & SCSTATIC) sf |= SLOCAL;
+   if (decl->scls & SCTHREADLOCAL) sf |= STLS;
    if (decl->ty.t == TYFUNC) sf |= SFUNC;
    if (hasattr(&decl->attr, ATTRweak)) sf |= SWEAK;
    if (decl->inlin) sf |= SC99INLFN;
@@ -3488,7 +3505,7 @@ expraddr(Function *fn, const Expr *ex) {
    case ESYM:
       decl = &declsbuf.p[ex->decl];
       assert(decl != NULL);
-      switch (decl->scls) {
+      switch (decl->scls &~ SCTHREADLOCAL) {
       case SCAUTO: case SCREGISTER:
          assert(decl->id >= 0);
          return mkref(RTMP, decl->id);
@@ -5346,7 +5363,7 @@ localdecl(CComp *cm, bool forini) {
          bool dynarr = 0;
 
          switch (decl.scls) {
-         case SCSTATIC:
+         case SCTHREADLOCAL|SCSTATIC: case SCSTATIC:
             if (forini)
                error(&decl.span, "static declaration in 'for' loop initializer");
             if (!decl.sym)
@@ -5417,31 +5434,35 @@ localdecl(CComp *cm, bool forini) {
                               scalarcvt(fn, ty, ini.ty, exprvalue(fn, &ini)), decl.qual & QVOLATILE);
                      }
                   }
-               } else if (decl.scls == SCEXTERN) {
+               } else if (decl.scls & SCEXTERN) {
                   Span span = decl.span;
                   joinspan(&span.ex, ini.span.ex);
                   error(&span, "block local 'extern' variable cannot have an initializer");
                }
-            } else if (decl.scls == SCSTATIC) {
+            } else if (decl.scls & SCSTATIC) {
                /* zero-initialized static */
                if (decl.ty.t == TYARRAY && isincomplete(decl.ty))
                   error(&decl.span, "definition of variable with array type needs size or initializer");
                else if (isincomplete(decl.ty))
                   error(&decl.span, "definition of static variable with incomplete type");
                else
-                  objnewdat(decl.sym, SLOCAL, Sbss, typesize(decl.ty), declalign(&decl));
+                  objnewdat(decl.sym, declsymflags(&decl), decl.scls & SCTHREADLOCAL ? Stbss : Sbss,
+                            typesize(decl.ty), declalign(&decl));
             }
             break;
          case SCTYPEDEF:
             if (forini)
                error(&decl.span, "typedef in 'for' loop initializer");
             break;
-         case SCEXTERN:
+         case SCTHREADLOCAL|SCEXTERN: case SCEXTERN:
             if (!decl.sym) decl.sym = decl.name;
             if (forini)
                error(&decl.span, "extern declaration in 'for' loop initializer");
             if (st.varini) goto Initz;
             break;
+         case SCTHREADLOCAL:
+            error(&decl.span, "function-scope thread local must be 'static' or 'extern'");
+            goto Err;
          default: assert(0);
          }
          if (st.funcdef) {
@@ -5625,9 +5646,9 @@ tldecl(CComp *cm) {
          continue;
       }
       if (st.empty) break;
-      if (!decl->scls) {
+      if (!(decl->scls & ~SCTHREADLOCAL)) {
          noscls = 1;
-         decl->scls = SCEXTERN;
+         decl->scls |= SCEXTERN;
       }
       if (!decl->sym) decl->sym = decl->name;
       decl->isdef = st.varini;
@@ -5691,13 +5712,13 @@ tldecl(CComp *cm) {
                                    declsymflags(decl), decl->qual, decl->sym);
             decl = &declsbuf.p[idecl];
             decl->ty = decl->ty;
-            if (decl->scls == SCEXTERN && !noscls) {
+            if ((decl->scls & SCEXTERN) && !noscls) {
                Span span = decl->span;
                joinspan(&span.ex, ini.span.ex);
                warn(&span, "'extern' variable has initializer");
             }
             pdecl(&st, cm);
-         } else if (decl->ty.t != TYFUNC && decl->scls != SCTYPEDEF && (decl->scls != SCEXTERN || noscls)) {
+         } else if (decl->ty.t != TYFUNC && decl->scls != SCTYPEDEF && !((decl->scls & SCEXTERN) && !noscls)) {
             /* tentative definitions */
             if (!objhassym(decl->sym, NULL)) {
                uint size = typesize(decl->ty);
@@ -5712,7 +5733,7 @@ tldecl(CComp *cm) {
                   } else assert(0);
                }
                if (size) {
-                  objnewdat(decl->sym, declsymflags(decl), Sbss,
+                  objnewdat(decl->sym, declsymflags(decl), decl->scls & SCTHREADLOCAL ? Stbss : Sbss,
                             size, declalign(decl));
                }
             }

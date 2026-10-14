@@ -1,5 +1,6 @@
 #include "t_x86-64.h"
 #include "u_endian.h"
+#include "obj.h"
 
 enum flag {
    ZF = 1 << 0,
@@ -38,7 +39,9 @@ static int iflagsrc = -1;
 #define inscopy(blk, pcuri, k, r) insertinstr((blk), (*(pcuri))++, mkinstr1(Ocopy, k, (r)))
 static void
 picfixsym(Ref *r, Block *blk, int *curi) {
-   if (!ccopt.pic || !isaddrcon(*r,0)) return;
+   if (!isaddrcon(*r,0)) return;
+   enum symaccess a = mctarg->symaccess(r->i);
+   if (a == SYMDIRECT || a == SYMTLSLOCAL) return;
    *r = inscopy(blk, curi, KPTR, *r);
 }
 
@@ -363,13 +366,14 @@ fuseaddr(Ref *r, Block *blk, int *curi) {
    if (isaddrcon(*r,1) || r->t == RSTACK) return 1;
    if (!aadd(&addr, blk, curi, *r, 0)) return 0;
 
-   if (isaddrcon(addr.base,0) && (ccopt.pic || (ccopt.pie && addr.index.bits) || (contab.p[addr.base.i].flag & SFUNC))) {
+   if (isaddrcon(addr.base,0)
+    && (mctarg->symaccess(addr.base.i) != SYMDIRECT || (ccopt.pie && addr.index.bits))) {
       /* pic needs to load from GOT */
       /* pie cannot encode RIP-relative address with index register */
-      /*     first load symbol address into a temp register */
-      Ref temp = mkaddr((IRAddr){.base = addr.base, .disp = ccopt.pic ? 0 : addr.disp});
+      /* same for TLS */
+      /* materialize the symbol alone so that emit() can load via GOT*/
+      Ref temp = mkaddr((IRAddr){.base = addr.base, .disp = 0});
       addr.base = inscopy(blk, curi, KPTR, temp);
-      if (!ccopt.pic) addr.disp = 0;
    }
 
    if (!addr.base.bits) {

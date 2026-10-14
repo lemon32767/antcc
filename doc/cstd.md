@@ -14,7 +14,7 @@ Stack-allocated VLAs are a stub and actually compile to a fixed size array at th
 
 ## C11
   - `_Alignas`
-  - Multithreading support (`_Thread_local`, atomics)
+  - atomics
   - `u8".."` string literals
 
 ## C23

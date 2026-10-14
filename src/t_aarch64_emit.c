@@ -46,10 +46,7 @@ typedef struct Oper {
 #define reg2oper(r) (assert((uint)(r) <= V(31)), mkoper(OREG, .reg = (r)))
 
 static inline bool usegot(int c) {
-   const IRCon *con = &contab.p[c];
-   return ((ccopt.pic | ccopt.pie) || (con->flag & SFUNC))
-       && !con->deref && !con->isdat
-       && !(con->flag & SLOCAL);
+   return mctarg->symaccess(c) == SYMGOT;
 }
 
 typedef struct Frame {
@@ -634,6 +631,37 @@ imm_or_reg(uchar **pcode, enum irclass cls, enum operpat pat, s64int imm) {
 }
 
 static void
+gentlsaddr(uchar **pcode, Oper dst, int con, int cdisp) {
+   assert(dst.t == OREG);
+   if (mctarg->symaccess(con) == SYMTLSLOCAL) {
+      /* local-exec
+       *    mrs dst, tpidr_el0
+       *    add dst, dst, #:tprel_hi12:sym, lsl #12
+       *    add dst, dst, #:tprel_lo12_nc:sym */
+      W32(0xD53BD040 | dst.reg); /* MRS Xd, tpidr_el0 */
+      objrelocxcon(con, REL_TLSLE_ADD_TPREL_HI12, Stext, *pcode - objtextbase(), cdisp);
+      W32(0x91400000 | dst.reg<<5 | dst.reg);
+      objrelocxcon(con, REL_TLSLE_ADD_TPREL_LO12_NC, Stext, *pcode - objtextbase(), cdisp);
+      W32(0x91000000 | dst.reg<<5 | dst.reg);
+   } else {
+      /* initial-exec
+       *    adrp dst, :gottprel:sym
+       *    ldr  dst, [dst, #:gottprel_lo12:sym]
+       *    mrs  tmp, tpidr_el0
+       *    add  dst, dst, tmp */
+      assert(mctarg->symaccess(con) == SYMTLSGOT);
+      objrelocxcon(con, REL_TLSIE_ADR_GOTTPREL_PAGE21, Stext, *pcode - objtextbase(), 0);
+      W32(0x90000000 | dst.reg); /* ADRP Xd, :gottprel:sym */
+      objrelocxcon(con, REL_TLSIE_LD64_GOTTPREL_LO12_NC, Stext, *pcode - objtextbase(), 0);
+      W32(0xF9400000 | dst.reg<<5 | dst.reg); /* LDR Xd, [Xn, #:gottprel_lo12:sym] */
+      W32(0xD53BD040 | RMEMSCRATCH); /* MRS Xscratch, tpidr_el0 */
+      W32(0x8B000000 | RMEMSCRATCH<<16 | dst.reg<<5 | dst.reg); /* ADD Xd, Xn, Xscratch */
+      if (cdisp)
+         Xadd(pcode, KPTR, dst, dst, imm_or_reg(pcode, KPTR, PU12SL12, cdisp));
+   }
+}
+
+static void
 gencopy(uchar **pcode, enum irclass cls, Oper dst, Ref val) {
    assert(dst.t == OREG);
    assert(cls);
@@ -659,7 +687,9 @@ gencopy(uchar **pcode, enum irclass cls, Oper dst, Ref val) {
          Xfmov(pcode, cls, dst, REGZR);
       else assert(0);
    } else if (in_range(src.t, OSYM, OSYMGOT)) {
-      if ((ccopt.pic|ccopt.pie) || src.t == OSYMGOT || !(contab.p[src.con].flag & SLOCAL)) {
+      if (contab.p[src.con].flag & STLS) {
+         gentlsaddr(pcode, dst, src.con, src.cdisp);
+      } else if ((ccopt.pic|ccopt.pie) || src.t == OSYMGOT || !(contab.p[src.con].flag & SLOCAL)) {
          Xadrp(pcode, KPTR, dst, src);
          if (src.t == OSYM) {
             Xadd(pcode, KPTR, dst, dst, src);

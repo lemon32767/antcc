@@ -109,6 +109,7 @@ elfaddsym(internstr nam, enum symflags symflags, enum section sec, u64int value,
    else if (symflags & SWEAK) sym->bind = STB_WEAK;
    else sym->bind = STB_GLOBAL;
    if (symflags & SFUNC) sym->type = STT_FUNC;
+   else if (symflags & STLS) sym->type = STT_TLS;
    else sym->type = STT_OBJECT;
    sym->other = symflags >> SVISOFFST; /*default/internal/hidden/protected*/
    sym->sec = sec;
@@ -131,6 +132,8 @@ static const ushort relktab[][NRELOCKIND] = {
       [REL_PLT32]   = 4, /* R_X86_64_PLT32 */
       [REL_GOTPCRELX]     = 41, /* R_X86_64_GOTPCRELX */
       [REL_GOTPCRELX_REX] = 42, /* R_X86_64_REX_GOTPCRELX */
+      [REL_TPOFF32]  = 23, /* R_X86_64_TPOFF32 */
+      [REL_GOTTPOFF] = 22, /* R_X86_64_GOTTPOFF */
    },
    [ISaarch64] = {
       [REL_ABS64]   = 257, /* R_AARCH64_ABS64 */
@@ -145,6 +148,10 @@ static const ushort relktab[][NRELOCKIND] = {
       [REL_ADD_ABS_LO12_NC] = 277, /* R_AARCH64_ADD_ABS_LO12_NC */
       [REL_ADR_GOT_PAGE] = 311, /* R_AARCH64_ADR_GOT_PAGE */
       [REL_LD64_GOT_LO12_NC] = 312, /* R_AARCH64_LD64_GOT_LO12_NC */
+      [REL_TLSLE_ADD_TPREL_HI12] = 549, /* R_AARCH64_TLSLE_ADD_TPREL_HI12 */
+      [REL_TLSLE_ADD_TPREL_LO12_NC] = 551, /* R_AARCH64_TLSLE_ADD_TPREL_LO12_NC */
+      [REL_TLSIE_ADR_GOTTPREL_PAGE21] = 541, /* R_AARCH64_TLSIE_ADR_GOTTPREL_PAGE21 */
+      [REL_TLSIE_LD64_GOTTPREL_LO12_NC] = 542, /* R_AARCH64_TLSIE_LD64_GOTTPREL_LO12_NC */
    }
 };
 
@@ -443,7 +450,10 @@ elffini(WriteBuf *out) {
       secs[nsec++] = (struct ElfSection) {
          .kind = ESECTION, .sec = s, .name = shnam[s],
          .type = osec->pb ? SHT_PROGBITS : SHT_NOBITS,
-         .flags = SHF_ALLOC | (osec->w ? SHF_WRITE : 0) | (osec->x ? SHF_EXECINSTR : 0),
+         .flags = SHF_ALLOC
+                | (SHF_WRITE &- osec->w)
+                | (SHF_EXECINSTR &- osec->x)
+                | (SHF_TLS &- osec->tls),
          .align = a ? a : 1, .size = osec->n,
       };
    }

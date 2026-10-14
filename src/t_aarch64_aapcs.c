@@ -1,4 +1,5 @@
 #include "t_aarch64.h"
+#include "obj.h"
 
 /* Ref: https://github.com/ARM-software/abi-aa/blob/2025Q4/aapcs64/aapcs64.rst */
 
@@ -285,6 +286,17 @@ static const char aarch64_rnames[][6] = {
    "V16","V17","V18","V19","V20","V21","V22","V23","V24","V25","V26","V27","V28","V29","V30","V31",
 };
 
+static int
+symaccess(int con) {
+   const IRCon *c = &contab.p[con];
+   if (c->flag & STLS)
+      return (c->flag & SLOCAL && !ccopt.pic) ? SYMTLSLOCAL : SYMTLSGOT;
+   if (((ccopt.pic | ccopt.pie) || (c->flag & SFUNC))
+    && !c->deref && !c->isdat && !(c->flag & SLOCAL))
+      return SYMGOT;
+   return SYMDIRECT;
+}
+
 const MCTarg t_aarch64_aapcs = {
    .gpr0 = R0, .ngpr = 31,
    .gprscratch = R(16), .fprscratch = V(31),
@@ -300,6 +312,7 @@ const MCTarg t_aarch64_aapcs = {
    .abiarg = abiarg,
    .vastart = vastart,
    .vaarg = vaarg,
+   .symaccess = symaccess,
    .isel = aarch64_isel,
    .emit = aarch64_emit,
 };

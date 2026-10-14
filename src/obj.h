@@ -10,6 +10,8 @@ enum relockind {
    REL_PLT32,
    REL_GOTPCRELX,
    REL_GOTPCRELX_REX,
+   REL_TPOFF32,
+   REL_GOTTPOFF,
    REL_CALL26,
    REL_ADR_PREL_LO21,
    REL_ADR_PREL_PG_HI21,
@@ -17,15 +19,26 @@ enum relockind {
    REL_LD_PREL_LO19,
    REL_ADR_GOT_PAGE,
    REL_LD64_GOT_LO12_NC,
+   REL_TLSLE_ADD_TPREL_HI12,
+   REL_TLSLE_ADD_TPREL_LO12_NC,
+   REL_TLSIE_ADR_GOTTPREL_PAGE21,
+   REL_TLSIE_LD64_GOTTPREL_LO12_NC,
    NRELOCKIND,
 };
-enum section { Snone, Stext, Srodata, Sdata, Sbss, NSECTION };
+enum section { Snone, Stext, Srodata, Sdata, Sbss, Stdata, Stbss, NSECTION };
+
+enum symaccess {
+   SYMDIRECT,
+   SYMGOT,
+   SYMTLSLOCAL,
+   SYMTLSGOT,
+};
 
 typedef struct ObjSection {
    internstr name;
    vec_of(uchar);
    short align;
-   bool w:1, x:1, pb:1;
+   bool w:1, x:1, pb:1, tls:1;
 } ObjSection;
 
 typedef struct ObjFile {
@@ -44,5 +57,6 @@ void objreloc(internstr sym, enum symflags, enum relockind, enum section, uint o
 void objfini(bool emit);
 void markfnneeded(internstr);
 bool fnisneeded(internstr);
+#define objrelocxcon(xc, ...) objreloc(xcon2sym(xc), contab.p[xc].flag, __VA_ARGS__)
 
 /* vim:set ts=3 sw=3 expandtab: */

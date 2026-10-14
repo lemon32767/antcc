@@ -25,6 +25,7 @@ typedef struct Oper {
       int disp; /* OMEM, OSYM */
       int imm; /* OIMM */
    };
+   uchar seg; /* OMEM, OSYM */
 } Oper;
 #define mkoper(t, ...) ((Oper){(t), __VA_ARGS__})
 #define reg2oper(R) (assert((uint)(R) <= XMM15), mkoper(OREG, .reg = (R)))
@@ -128,6 +129,13 @@ mkimmdatregoper(Ref r) {
    return ref2oper(r);
 }
 
+static inline uchar
+memsymseg(int con) {
+   enum symaccess a = mctarg->symaccess(con);
+   assert(a != SYMTLSGOT); /* cannot be in an OMEM; gencopy only */
+   return a == SYMTLSLOCAL ? 0x64 : 0;
+}
+
 static Oper
 mkmemoper(Ref r) {
    if (r.t == RTMP) {
@@ -144,7 +152,8 @@ mkmemoper(Ref r) {
          return mkoper(OSYM, .con = addr->base.i,
                              .cindex = addr->index.bits ? mkregoper(addr->index).reg : NOINDEX,
                              .cshift = addr->shift,
-                             .disp = addr->disp);
+                             .disp = addr->disp,
+                             .seg = memsymseg(addr->base.i));
       } else if (isintcon(addr->base)) {
          assert(!addr->disp);
          return mkoper(OMEM, .base = NOBASE,
@@ -155,7 +164,8 @@ mkmemoper(Ref r) {
          assert(!addr->shift);
          return mkoper(OSYM, .con = addr->index.i,
                              .cindex = addr->base.bits ? mkregoper(addr->base).reg : NOINDEX,
-                             .disp = addr->disp);
+                             .disp = addr->disp,
+                             .seg = memsymseg(addr->index.i));
       }
       int base = NOBASE, index = NOINDEX, disp = addr->disp;
       if (addr->base.t == RREG) base = addr->base.i;
@@ -173,7 +183,7 @@ mkmemoper(Ref r) {
                           .shift = addr->shift);
    } else if (r.t == RXCON) {
       assert(!contab.p[r.i].cls);
-      return mkoper(OSYM, .con = r.i, .cindex = NOINDEX);
+      return mkoper(OSYM, .con = r.i, .cindex = NOINDEX, .seg = memsymseg(r.i));
    } else {
       return mkoper(OMEM, .base = isregref(r) ? ref2oper(r).reg : NOBASE,
                           .index = NOINDEX,
@@ -188,10 +198,10 @@ opereql(Oper a, Oper b) {
    case OREG: return a.reg == b.reg;
    case OIMM: return a.imm == b.imm;
    case OMEM:
-      return a.base == b.base && a.index == b.index && a.shift == b.shift && a.disp == b.disp;
+      return a.base == b.base && a.index == b.index && a.shift == b.shift && a.disp == b.disp && a.seg == b.seg;
    case OSYM:
    case OSYMGOT:
-      return a.cindex == b.cindex && a.cshift == b.cshift && a.con == b.con && a.disp == b.disp;
+      return a.cindex == b.cindex && a.cshift == b.cshift && a.con == b.con && a.disp == b.disp && a.seg == b.seg;
    default: assert(0);
    }
 }
@@ -229,11 +239,11 @@ enum operenc {
    EN_R = 1,  /* reg with /r */
    EN_RR,     /* reg, reg with /r */
    EN_RRX,    /* reg, reg with /r (inverted) */
-   EN_MR,     /* mem, reg with /r */
-   EN_RM,     /* reg, mem with /r */
-   EN_M,      /* mem */
    EN_RI8,    /* reg, imm8 with /0 */
    EN_RI32,   /* reg, imm32 with /0 */
+   EN_M,      /* mem */
+   EN_MR,     /* mem, reg with /r */
+   EN_RM,     /* reg, mem with /r */
    EN_MI8,    /* mem, imm8 with /x */
    EN_MI16,   /* mem, imm16 with /x */
    EN_MI32,   /* mem, imm32 with /x */
@@ -244,6 +254,7 @@ enum operenc {
    EN_R32,    /* rel32 */
    NOPERENC,
 };
+#define hasmemoper(enc) in_range((enc), EN_M, EN_MI32)
 typedef struct EncDesc {
    uchar psiz; /* subset of {1,2,4,8} */
    uchar ptd, pts; /* bitsets of enum operpat */
@@ -314,6 +325,9 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper dst, Op
    opc = (uchar *)en->opc;
    nopc = en->nopc;
    /* mandatory prefixes go before REX */
+   uchar seg;
+   if ((seg = dst.seg | src.seg))
+      B(seg);
    if (*opc == 0x66 || *opc == 0xF2 || *opc == 0xF3)
       B(*opc++), --nopc;
    int rex = in_range(k, KI64, KPTR) << 3; /* REX.W */
@@ -366,7 +380,14 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper dst, Op
 
       if (mem.t == OSYM || mem.t == OSYMGOT) {
          D(opc, nopc);
-         if (mem.cindex == NOINDEX) {
+         if (mem.t == OSYM && mctarg->symaccess(mem.con) == SYMTLSLOCAL) {
+            /* local-exec TLS: absolute %fs:disp32 (R_X86_64_TPOFF32) */
+            uchar idx = mem.cindex == NOINDEX ? RSP : mem.cindex;
+            B(/*mod 0*/ (reg & 7) << 3 | RSP);
+            B(mem.cshift << 6 | ((idx & 7) << 3) | RBP); /* SIB [idx*s + disp32] */
+            objrelocxcon(mem.con, REL_TPOFF32, Stext, *pcode - objtextbase(), mem.disp);
+            I32(0);
+         } else if (mem.cindex == NOINDEX) {
             /* %rip(var) */
             static uchar offs[NOPERENC] = { [EN_MI8] = 1, [EN_MI16] = 2, [EN_MI32] = 4 };
             uint addr;
@@ -378,6 +399,7 @@ encode(uchar **pcode, const EncDesc *tab, int ntab, enum irclass k, Oper dst, Op
             } else {
                enum relockind r = REL_PCREL32;
                if (mem.t == OSYMGOT) r = rex ? REL_GOTPCRELX_REX : REL_GOTPCRELX;
+               if (contab.p[mem.con].flag & STLS) r = REL_GOTTPOFF; /* initial-exec TLS */
                objrelocxcon(mem.con, r, Stext, *pcode - objtextbase(), disp);
                I32(0);
             }
@@ -961,16 +983,6 @@ flagslivep(Block *blk, int curi) {
    return 1;
 }
 
-static bool
-shouldusegot(int con) {
-   IRCon *xcon = &contab.p[con];
-   if ((ccopt.pic || (xcon->flag & SFUNC)) && (xcon->flag & (SLOCAL|SFUNC)) != (SLOCAL|SFUNC))
-      return 1;
-   if (ccopt.pic && objhassym(xcon2sym(con), NULL) != Stext)
-      return 1;
-   return 0;
-}
-
 /* Copy dst = val, with some peephole optimizations */
 static void
 gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val) {
@@ -1016,7 +1028,7 @@ gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val
       }
       /* normal (not 2-address) case */
    Lea:
-      if (isaddrcon(addr->base,0) && shouldusegot(addr->base.i)) {
+      if (isaddrcon(addr->base,0) && mctarg->symaccess(addr->base.i) != SYMDIRECT) {
          assert(!addr->disp && !addr->index.bits);
          val = addr->base;
          goto GOTLoad;
@@ -1028,10 +1040,17 @@ gencopy(uchar **pcode, enum irclass cls, Block *blk, int curi, Oper dst, Ref val
       /* dst = 0 -> xor dst, dst; but only if it is ok to clobber flags */
       Xxor(pcode, kisint(cls) ? KI32 : cls, dst, dst);
    } else if (isaddrcon(val,0)) {
-      if (shouldusegot(val.i)) {
+      if (mctarg->symaccess(val.i) != SYMDIRECT) {
       GOTLoad:
          /* for  mov reg, [rip(sym@GOTPCREL)] */
          Xmov(pcode, cls, dst, mkoper(OSYMGOT, .con = val.i, .cindex = NOINDEX));
+         if (contab.p[val.i].flag & STLS) {
+            bool saveflags = flagslivep(blk, curi);
+            if (saveflags) B(0x9C); /* pushf */
+            /* ADD reg, QWORD PTR fs:0 */
+            Xadd(pcode, KI64, dst, mkoper(OMEM, .base = NOBASE, .index = NOINDEX, .seg = 0x64));
+            if (saveflags) B(0x9D); /* popf */
+         }
       } else {
          /* for  lea reg, [rip(sym)] */
          Xlea(pcode, cls, dst, mkoper(OSYM, .con = val.i, .cindex = NOINDEX));

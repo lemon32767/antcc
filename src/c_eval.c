@@ -83,12 +83,12 @@ staticaddrof(Expr *ex, enum evalmode mode) {
    Expr ret = { .ty = mkptrtype(ex->ty, ex->qual), .span = ex->span };
    if (ex->t == ESYM && ex->ty.t < NTYPETAG) {
       const Decl *decl = &declsbuf.p[ex->decl];
-      if (decl->sym && (decl->scls & (SCAUTO|SCREGISTER)) == 0) {
+      if (decl->sym && (decl->scls & (SCAUTO|SCREGISTER|SCTHREADLOCAL)) == 0) {
          ret.t = ESSYMREF;
          ret.ssym.sym = decl->sym;
          ret.ssym.off = 0;
          ret.ssym.func = decl->ty.t == TYFUNC;
-         ret.ssym.local = (decl->scls == SCSTATIC || decl->isdef);
+         ret.ssym.local = (decl->scls & SCSTATIC) || decl->isdef;
       }
    } else if (ex->t == EDEREF && eval(ex->sub, EVSTATICINI)) {
       ret = *ex->sub;

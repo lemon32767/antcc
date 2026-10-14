@@ -155,6 +155,8 @@ enum {
    STT_FUNC,
    STT_SECTION,
    STT_FILE,
+   STT_COMMON,
+   STT_TLS,
 };
 
 enum {

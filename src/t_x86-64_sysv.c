@@ -1,4 +1,5 @@
 #include "t_x86-64.h"
+#include "obj.h"
 
 static int classify(uchar cls[2], const TypeData *td, uint off);
 
@@ -282,6 +283,17 @@ vaarg(Function *fn, Block *blk, int *curi) {
    }
 }
 
+static int
+symaccess(int con) {
+   IRCon *c = &contab.p[con];
+   if (c->flag & STLS)
+      return (c->flag & SLOCAL && !ccopt.pic) ? SYMTLSLOCAL : SYMTLSGOT;
+   if ((ccopt.pic && objhassym(xcon2sym(con), NULL) != Stext)
+    || ((ccopt.pic || (c->flag & SFUNC)) && (c->flag & (SLOCAL|SFUNC)) != (SLOCAL|SFUNC)))
+      return SYMGOT;
+   return SYMDIRECT;
+}
+
 static const char x86_64_rnames[][6] = {
 #define R(r) #r,
    LIST_REGS(R)
@@ -300,6 +312,7 @@ const MCTarg t_x86_64_sysv = {
    .abiarg = abiarg,
    .vastart = vastart,
    .vaarg = vaarg,
+   .symaccess = symaccess,
    .isel = x86_64_isel,
    .emit = x86_64_emit
 };

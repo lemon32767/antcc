@@ -251,6 +251,7 @@ typedef struct MCTarg {
    int (*abiarg)(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType);
    void (*vastart)(Function *, Block *, int *curi);
    void (*vaarg)(Function *, Block *, int *curi);
+   int (*symaccess)(int con);
    void (*isel)(Function *);
    void (*emit)(Function *);
 } MCTarg;
@@ -296,7 +297,6 @@ Ref mksymref(internstr, enum symflags);
 Ref mkdatref(internstr sym, Type ctype, uint siz, uint align,
                    const void *, uint n, bool deref, bool funclocal);
 internstr xcon2sym(int ref);
-#define objrelocxcon(xc, ...) objreloc(xcon2sym(xc), contab.p[xc].flag, __VA_ARGS__)
 Instr mkalloca(uint siz, uint align);
 Ref mkcallarg(IRType ret, uint narg, int vararg);
 #define mkintrin(B, C, N) mkinstr2(Ointrin, C, mkref(RICON, B), mkcallarg((IRType){{0}},N,-1))

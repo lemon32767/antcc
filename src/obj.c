@@ -17,11 +17,14 @@ ObjFile objout = {
       [Srodata] = { .pb = 1 },
       [Sdata]   = { .w = 1, .pb = 1 },
       [Sbss]    = { .w = 1 },
+      [Stdata]  = { .w = 1, .pb = 1, .tls = 1 },
+      [Stbss]   = { .w = 1, .tls = 1 },
    },
 };
 
 static const char *snames[] = {
-   [Stext] = ".text", [Srodata] = ".rodata", [Sdata] = ".data", [Sbss] = ".bss"
+   [Stext] = ".text", [Srodata] = ".rodata", [Sdata] = ".data", [Sbss] = ".bss",
+   [Stdata] = ".tdata", [Stbss] = ".tbss",
 };
 
 void
