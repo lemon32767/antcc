@@ -358,14 +358,28 @@ wordalign(WriteBuf *out, int align) {
 
 static const bool userelatab[] = { [ISx86_64] = 1, [ISaarch64] = 1 };
 
+static uint
+minalign(enum section s) {
+   if (target.arch == ISaarch64 && (s == Stdata || s == Stbss)) {
+      /* bionic requires p_align >= 64 for TLS; not sure about others.. */
+      return target.os == OSandroid ? 64 : 16;
+   }
+   return targ_64bit ? 8 : 4;
+}
+static uint
+aligns(enum section s, uint a) {
+   uint min = minalign(s);
+   return a < min ? min : a;
+}
+
 void
 elffini(WriteBuf *out) {
-   int align = targ_64bit ? 8 : 4;
    bool userela = userelatab[target.arch];
    uint relxtype = userela ? SHT_RELA : SHT_REL;
    uint relxsiz = userela ? (targ_64bit ? 24 : 12) : (targ_64bit ? 16 : 8);
    uint symsiz = targ_64bit ? 24 : 16;
    ushort sec2shndx[NSECTION] = {0};
+   uint elfalign = minalign(0);
 
    /* build .shstrtab and such */
    char shstrbuf[(NSECTION*2+3)*20];
@@ -445,7 +459,6 @@ elffini(WriteBuf *out) {
    for (enum section s = Stext; s < NSECTION; ++s) {
       ObjSection *osec = &objout.sec[s];
       if (!osec->n && !secused[s]) continue;
-      uint a = s == Stext ? align : osec->align;
       sec2shndx[s] = nsec;
       secs[nsec++] = (struct ElfSection) {
          .kind = ESECTION, .sec = s, .name = shnam[s],
@@ -454,7 +467,7 @@ elffini(WriteBuf *out) {
                 | (SHF_WRITE &- osec->w)
                 | (SHF_EXECINSTR &- osec->x)
                 | (SHF_TLS &- osec->tls),
-         .align = a ? a : 1, .size = osec->n,
+         .align = aligns(s, osec->align), .size = osec->n,
       };
    }
 
@@ -473,7 +486,7 @@ elffini(WriteBuf *out) {
    secs[nsec++] = (struct ElfSection) {
       .kind = ESYMTAB, .name = shnam_sym, .type = SHT_SYMTAB,
       .flags = SHF_STRINGS, .link = strtabndx, .info = nlocalsym,
-      .entsize = symsiz, .align = align, .size = symtab.n * symsiz,
+      .entsize = symsiz, .align = elfalign, .size = symtab.n * symsiz,
    };
 
    /* reloc sections */
@@ -481,7 +494,7 @@ elffini(WriteBuf *out) {
       if (!nreloc[s]) continue;
       secs[nsec++] = (struct ElfSection) {
          .kind = ERELOC, .sec = s, .name = shnam_rel[s], .type = relxtype,
-         .link = symtabndx, .info = sec2shndx[s], .entsize = relxsiz, .align = align,
+         .link = symtabndx, .info = sec2shndx[s], .entsize = relxsiz, .align = elfalign,
          .size = nreloc[s] * relxsiz,
       };
    }
@@ -495,7 +508,7 @@ elffini(WriteBuf *out) {
       s->off = off;
       off += s->size;
    }
-   uint shoff = alignup(off, align);
+   uint shoff = alignup(off, elfalign);
    if (targ_64bit) {
       hdr.h64.shoff = shoff;
       hdr.h64.shnum = nsec;
@@ -534,7 +547,7 @@ elffini(WriteBuf *out) {
    if (sortedsyms != ssbuf) free(sortedsyms);
 
    /** section headers **/
-   wordalign(out, align);
+   wordalign(out, elfalign);
 #define putshdr(...) if (targ_64bit) elf64putshdr(out, &(Elf64Shdr) { __VA_ARGS__ }); \
                      else            elf32putshdr(out, &(Elf32Shdr) { __VA_ARGS__ });
    for (struct ElfSection *s = secs, *end = secs + nsec; s != end; ++s) {

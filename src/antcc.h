@@ -147,7 +147,8 @@ void cpp0undef(const char *name);
 enum mcarch {
    ISxxx,
    ISx86_64,
-   ISaarch64
+   ISaarch64,
+   NUM_MC_ARCH,
 };
 enum mcos {
    OSunknown,

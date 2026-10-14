@@ -1074,8 +1074,7 @@ allocspillslots(RegAlloc *ra, LinearScan *s) {
 static bool
 isstoreimm(Ref r) {
    if (r.t == RTMP) return 1; /* register OK */
-   if (isintcon(r)) switch (target.arch) {
-   case ISxxx: assert(0);
+   if (isintcon(r)) switch (target.arch) { default: assert(0);
    /* TODO don't hard code this architecture dependent dispatch */
    case ISx86_64: return concls(r) == KI32; /* x86: MOV [addr], imm32 */
    case ISaarch64: return r.i == 0; /* arm doesn't have STR <imm>, but has zero register */
