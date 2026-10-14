@@ -5264,9 +5264,9 @@ stmt(CComp *cm, Ref *stmtexprval, Type *stmtexprty) {
             fn->curblk = NULL;
          } else if (label && label->usespan.ex.len != 0) {
             /* append to relocs list */
-            Block *next = label->blk;
-            label->blk = fn->curblk;
             EMITS {
+               Block *next = label->blk;
+               label->blk = fn->curblk;
                fn->curblk->s1 = next;
                fn->curblk = NULL;
             }
