@@ -940,7 +940,7 @@ expecteol(Lexer *lx, const char *ppname) {
    Token tk;
    assert(!lx->macstk);
    if (lex0(lx, &tk, 0) != '\n' && tk.t != TKEOF) {
-      (ccopt.pedant ? error : warn)(&tk.span, "extra tokens after #%s", ppname);
+      warn(&tk.span, "extra tokens after #%s", ppname);
       ppskipline(lx);
    }
 }
@@ -1577,7 +1577,7 @@ Switch:
    }
    if (!prec) { /* not a sub expr */
       if (elex(lx, &tk) != '\n' && tk.t != TKEOF) {
-         error(&tk.span, "extra tokens after preprocessor expression");
+         warn(&tk.span, "extra tokens after preprocessor expression");
          ppskipline(lx);
       }
    }
@@ -1957,7 +1957,7 @@ ppline(Lexer *lx, Token *tk0) {
       span.sl.len = span.ex.len = 1;
       ppskipline(lx);
       if (!ext)
-         (ccopt.pedant ? error : warn)(&span, "extra tokens after #line");
+         warn(&span, "extra tokens after #line");
    } else if (tk.t != '\n' && tk.t != TKEOF) {
       if (ext) ppskipline(lx);
       else expecteol(lx, "line");
@@ -2654,6 +2654,25 @@ mac__has_include_next(Lexer *lx, Token *tk, const Token *args, int narg) {
 }
 
 static void
+mac__has_featext(Lexer *lx, Token *tk, const Token *args, int narg) {
+   const char *feat;
+   uint nfeat;
+   tk->t = TKNUMLIT, tk->len = 1;
+   if (narg >= 1) {
+      if (isppident(args[0]))
+         feat = args[0].s, nfeat = args[0].len;
+      else goto Bad;
+      if (narg != 1)
+         error(&args[1].span, "expected `)' after '%tk'", &args[0]);
+   } else Bad: {
+      error(narg ? &args[0].span : &tk->span, "'__has_feature' requires an identifier");
+   }
+   /* stub */
+   (void)feat, (void)nfeat;
+   tk->s = "0";
+}
+
+static void
 putdefs1(const char *s) {
    if (s) for (; *s; s += strlen(s) + 1) putdef1(s);
 }
@@ -2675,6 +2694,8 @@ addpredefmacros(Arena **tmparena) {
       { "__COUNTER__", { .predef = 1, .special = 1, .handler = mac__counter__ }},
       { "__has_builtin", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_builtin }},
       { "__has_attribute", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_attribute }},
+      { "__has_feature", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_featext }},
+      { "__has_extension", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_featext }},
       { "__has_include", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_include }},
       { "__has_include_next", { .predef = 1, .nparam = 1, .fnlike = 1, .special = 1, .handlerfn = mac__has_include_next }},
       { "__STDC_VERSION__", { .predef = 1, .single = &tok_stdc }},
