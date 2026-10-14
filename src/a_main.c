@@ -361,6 +361,11 @@ optparse(char **args) {
                vpush(&task.linkargs, temp);
             }
          }
+      } else if (!strcmp(arg, "soname") || !strcmp(arg, "rpath")) {
+         const char *so = *++args;
+         if (!so) fatal(NULL, "missing argument to `%s`", arg-1);
+         vpush(&task.linkargs, arg-1);
+         vpush(&task.linkargs, so);
       } else if (!strcmp(arg, "v") || !strcmp(arg, "-verbose")) {
          task.verbose = 1;
       } else if (!strcmp(arg, "c")) {
