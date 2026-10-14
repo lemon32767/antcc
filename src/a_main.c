@@ -395,6 +395,11 @@ optparse(char **args) {
       } else if (*arg == 'D' || *arg == 'U') {
          const char *def = arg[1] ? arg+1 : *++args;
          if (!def) fatal(NULL, "macro name missing after `-%c`", *arg);
+         if (!strcmp(arg, "DPIC")) {
+            /* HACK: GNU libtool falls back to -DPIC for unknown compilers instead of trying
+             * to use -fPIC... deal with this by treating -DPIC as also doing -fpic */
+            ccopt.pic = 1;
+         }
          predef(*arg == 'U', def);
       } else if (*arg == 'I' || !strcmp(arg, "-include-directory")) {
          cinclord = CINCL_I;
