@@ -328,6 +328,7 @@ optparse(char **args) {
          vpush(&task.linkargs, "-lpthread");
       } else if (!strcmp(arg, "shared")) {
          task.outft = OFTdll;
+         ccopt.pic = 1;
       } else if (!strcmp(arg, "static")) {
          task.outft = OFTstatic;
       } else if (!strcmp(arg, "static-pie")) {
