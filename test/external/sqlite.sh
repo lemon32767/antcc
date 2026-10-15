@@ -13,6 +13,6 @@ V=1 make
 
 if [ x"$1" = xtest ] && command -v tclsh >/dev/null 2>&1; then
     ## needs tcl; is also very intensive
-    ## N.B. tcl needs __attribute__((packed)) epoll. with __GNUC__ it also needs -> weak attr <-
+    ## N.B. tcl needs __attribute__((packed)) epoll. with __GNUC__ it fails for some attrs syntax
     V=1 make devtest
 fi

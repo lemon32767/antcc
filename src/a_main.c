@@ -304,7 +304,8 @@ optparse(char **args) {
 
             /* flags 'supported' by default, no need to warn as unrecognized */
             static const char okcgflags[] =
-               "wrapv\0no-strict-aliasing\0no-jump-tables\0no-builtin\0signed-bitfields\0";
+               "wrapv\0no-strict-aliasing\0no-jump-tables\0no-builtin\0signed-bitfields\0"
+               "no-common\0input-charset=UTF-8\0";
 
             if (stroneof(arg+1, badcgflags)) /* error here helps AC configure scripts */
                error(NULL, "unsupported command-line option: `%s`", arg-1);
