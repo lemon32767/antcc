@@ -10,7 +10,7 @@
 static int
 lexc(CComp *cm, Token *tk) {
    Token tk2, tk_[1];
-   int t = lex(cm->lx, tk ? tk : tk_);
+   int t = lex(cm->lx, tk = tk ? tk : tk_);
    if (t == TKSTRLIT && peek(cm, &tk2) == TKSTRLIT && tk2.wide == tk->wide) {
       /* 5.1.1.2 Translation phase 6: concatenate adjacent string literal tokens */
       DEF_SVEC(char, 200, rest);
@@ -43,7 +43,7 @@ lexc(CComp *cm, Token *tk) {
       }
       vfree(&rest);
    }
-   if (ccopt.pedant && in_range(t, TKWBEGIN_, TKWEND_) && (tk = tk ? tk : tk_)->extwarn) {
+   if (ccopt.pedant && in_range(t, TKWBEGIN_, TKWEND_) && tk->extwarn) {
       static BitSet already[BSSIZE(TKWEND_-TKWBEGIN_+1)];
       if (!bstest(already, t-TKWBEGIN_)) {
          bsset(already, t-TKWBEGIN_);

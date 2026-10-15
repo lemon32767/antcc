@@ -13,11 +13,7 @@
 
 static inline uchar
 next(Lexer *lx) {
-Re:
-   if (lx->cur >= lx->end) {
-      lx->eof = 1;
-      return 0;
-   }
+Re:;
    uchar c = *lx->cur++;
    if (c == '\n') {
       ++lx->curline;
@@ -27,6 +23,11 @@ Re:
       ++lx->cur;
       lx->curlineoff = lx->cur - lx->dat;
       goto Re;
+   } else if (unlikely(c == 0)) {
+      if (lx->cur >= lx->end) {
+         lx->eof = 1;
+         lx->cur = lx->end;
+      }
    }
    return c;
 }
@@ -57,14 +58,14 @@ match(Lexer *lx, uchar c) {
 }
 
 static inline bool
-aissep(int c) {
-   static const bool tab[] = {
+aissep(uchar c) {
+   static const bool tab[256] = {
       /* nonprint, spaces, punct (except $ and _) */
       1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,
       1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
       0,0,0,0,0,0,0,1,1,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,
    };
-   return (uint)c < countof(tab) && tab[c];
+   return tab[c];
 }
 
 internstr _intern_hashed(const char *, uint, size_t h);
@@ -2351,10 +2352,10 @@ lex_nopragma(Lexer *lx, Token *tk) {
    int t;
 
 Begin:
-   assert(tk && tk != &lx->peektok);
+   //assert(tk && tk != &lx->peektok);
    if (lx->peektok.t) {
       *tk = lx->peektok;
-      memset(&lx->peektok, 0, sizeof lx->peektok);
+      lx->peektok.t = 0;
       return tk->t;
    }
 
@@ -2426,6 +2427,30 @@ Begin:
    return exit(1),0;
 }
 
+static int
+lex_Pragma(Lexer *lx, Token *tk) {
+   static const char e[] = "'_Pragma' takes a parenthesized string literal";
+   if (lex_nopragma(lx, tk) != '(') {
+      error(&tk->span, e);
+   } else if (lex_nopragma(lx, tk) != TKSTRLIT) {
+      error(&tk->span, e);
+      if (lex_nopragma(lx, tk) != ')') return tk->t;
+   } else {
+      const char *s1 = tk->s;
+      uint len1 = tk->len;
+      bool handled = 0;
+      if (!preprocessonly || prgstrmatch(&s1, &len1, "once")) {
+         handlepragma(lx, &tk->span, tk->s, tk->len);
+         handled = 1;
+      }
+      if (lex_nopragma(lx, tk) != ')') error(&tk->span, e);
+      if (!handled) {
+         return tk->t = TKPPPRAGMA, tk->pragmakind = 1;
+      }
+   }
+   return 0;
+}
+
 int
 lex(Lexer *lx, Token *tk_) {
    Token tkx[1], *tk;
@@ -2433,27 +2458,9 @@ lex(Lexer *lx, Token *tk_) {
    int t;
 Again:
    t = lex_nopragma(lx, tk);
-   if (t == TKW_Pragma) {
-      static const char e[] = "'_Pragma' takes a parenthesized string literal";
-      if (lex_nopragma(lx, tk) != '(') {
-         error(&tk->span, e);
-      } else if (lex_nopragma(lx, tk) != TKSTRLIT) {
-         error(&tk->span, e);
-         if (lex_nopragma(lx, tk) != ')') return tk->t;
-      } else {
-         const char *s1 = tk->s;
-         uint len1 = tk->len;
-         bool handled = 0;
-         if (!preprocessonly || prgstrmatch(&s1, &len1, "once")) {
-            handlepragma(lx, &tk->span, tk->s, tk->len);
-            handled = 1;
-         }
-         if (lex_nopragma(lx, tk) != ')') error(&tk->span, e);
-         if (!handled) {
-            return tk->t = TKPPPRAGMA, tk->pragmakind = 1;
-         }
-      }
-      goto Again;
+   if (unlikely(t == TKW_Pragma)) {
+      t = lex_Pragma(lx, tk);
+      if (!t) goto Again;
    }
    return t;
 }
