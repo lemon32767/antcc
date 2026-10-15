@@ -22,7 +22,7 @@ ObjFile objout = {
    },
 };
 
-static const char *snames[] = {
+const char *objsecnames[] = {
    [Stext] = ".text", [Srodata] = ".rodata", [Sdata] = ".data", [Sbss] = ".bss",
    [Stdata] = ".tdata", [Stbss] = ".tbss",
 };
@@ -33,7 +33,7 @@ objini(const char *infile, const char *outfile) {
    objout.infile = infile;
    objout.outfile = outfile;
    for (enum section s = 1; s < NSECTION; ++s)
-      objout.sec[s].name = intern(snames[s]);
+      objout.sec[s].name = intern(objsecnames[s]);
 
    switch (mctarg->objkind) {
    case OBJELF: elfinit(); break;

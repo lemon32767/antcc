@@ -24,7 +24,7 @@ prilitdat(const IRDat *dat, const char *prefix) {
 
 static void
 pridat(const IRDat *dat) {
-   extern ObjFile objout;
+   extern const char *objsecnames[];
    uchar *p = objsecdata(dat->section, dat->off);
    assert(p);
    enum {
@@ -33,7 +33,7 @@ pridat(const IRDat *dat) {
    };
    int npri = 0;
    int strbegin = 0, nstr = 0;
-   bfmt(out, "%s %ty %y(align %d, size %d):\n\t", objout.sec[dat->section].name, dat->ctype, dat->name, dat->align, dat->siz);
+   bfmt(out, "%s %ty %y(align %d, size %d):\n\t", objsecnames[dat->section], dat->ctype, dat->name, dat->align, dat->siz);
    if (!prilitdat(dat, "lit: ")) {
       for (int i = 0; i < dat->siz; ++i) {
          int c = p[i];
