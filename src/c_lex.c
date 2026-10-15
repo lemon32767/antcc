@@ -14,18 +14,18 @@
 static inline uchar
 next(Lexer *lx) {
 Re:
-   if (lx->idx >= lx->ndat) {
+   if (lx->cur >= lx->end) {
       lx->eof = 1;
       return 0;
    }
-   uchar c = lx->dat[lx->idx++];
+   uchar c = *lx->cur++;
    if (c == '\n') {
       ++lx->curline;
-      lx->curlineoff = lx->idx;
-   } else if (unlikely(c == '\\') && lx->dat[lx->idx] == '\n') {
+      lx->curlineoff = lx->cur - lx->dat;
+   } else if (unlikely(c == '\\') && *lx->cur == '\n') {
       ++lx->curline;
-      ++lx->idx;
-      lx->curlineoff = lx->idx;
+      ++lx->cur;
+      lx->curlineoff = lx->cur - lx->dat;
       goto Re;
    }
    return c;
@@ -35,7 +35,7 @@ static inline uchar
 peek(Lexer *lx, int off) {
    //assert((uint) off < 2);
 Re:;
-   const uchar *p = lx->dat + lx->idx + off;
+   const uchar *p = lx->cur + off;
    uchar c = *p;
    if (unlikely(c == '\\') && p[1] == '\n') {
       off += 2;
@@ -199,18 +199,18 @@ readstrchrlit(Lexer *lx, Token *tk, char delim, int wide) {
    int c, i;
    DEF_SVEC(uchar, 200, b);
    Span span = {0};
-   uint n, beginoff, idx;
-   beginoff = idx = lx->idx;
+   uint n;
+   const uchar *beg = lx->cur, *last = lx->cur;
 
    while ((c = next(lx)) != delim) {
       static uint wmax[] = {0xFF, 0xFFFF, 0xFFFFFFFFu};
       if (c == '\n' || lx->eof) {
       Noterm:
-         span.sl = (Span0) { idx, lx->idx - idx, lx->fileid };
+         span.sl = (Span0) { last - lx->dat, lx->cur - last, lx->fileid };
          error(&span, "missing terminating %c character", delim);
          break;
       } else if (c == '\\') {
-         span.sl = (Span0) { idx, lx->idx - idx, lx->fileid };
+         span.sl = (Span0) { last - lx->dat, lx->cur - last, lx->fileid };
          switch (c = next(lx)) {
          case '\n': case TKEOF:
             goto Noterm;
@@ -244,7 +244,7 @@ readstrchrlit(Lexer *lx, Token *tk, char delim, int wide) {
                else            n = n<<4 | (10 + (c|0x20)-'a');
             } while (aisxdigit(peek(lx, 0)));
             if (n > wmax[wide]) {
-               span.sl.len = lx->idx - span.sl.off;
+               span.sl.len = lx->cur - (lx->dat + span.sl.off);
                error(&span, "hex escape sequence out of range");
             }
             c = n;
@@ -257,14 +257,14 @@ readstrchrlit(Lexer *lx, Token *tk, char delim, int wide) {
                   n = n<<3 | ((c = next(lx))-'0');
                }
                if (n > wmax[wide]) {
-                  span.sl.len = lx->idx - span.sl.off;
+                  span.sl.len = lx->cur - (lx->dat + span.sl.off);
                   error(&span, "octal escape sequence out of range");
                }
                c = n;
                break;
             }
          Badescseq:
-            span.sl.len = lx->idx - span.sl.off;
+            span.sl.len = lx->cur - (lx->dat + span.sl.off);
             error(&span, "invalid escape sequence");
          }
       }
@@ -278,17 +278,17 @@ readstrchrlit(Lexer *lx, Token *tk, char delim, int wide) {
          int n = utf8enc(p, c);
          vpushn(&b, p, n);
       }
-      idx = lx->idx;;
+      last = lx->cur;
    }
    if (delim == '"') {
       tk->t = TKSTRLIT;
       tk->len = b.n;
    } else {
       if (b.n == 0) {
-         span.sl = (Span0) { idx, lx->idx - idx, lx->fileid };
+         span.sl = (Span0) { last - lx->dat, lx->cur - last, lx->fileid };
          error(&span, "empty character literal");
       } else if (b.n > targ_primsizes[TYINT]) {
-         span.sl = (Span0) { idx, lx->idx - idx, lx->fileid };
+         span.sl = (Span0) { last - lx->dat, lx->cur - last, lx->fileid };
          error(&span, "multicharacter literal too long");
       }
       tk->t = TKCHRLIT;
@@ -300,9 +300,9 @@ readstrchrlit(Lexer *lx, Token *tk, char delim, int wide) {
          tk->ws16 = utf8to16(&tk->len, lx->tmparena, b.p, b.n);
       else
          tk->ws32 = utf8to32(&tk->len, lx->tmparena, b.p, b.n);
-   } else if (lx->idx - beginoff == tk->len + 1) {
+   } else if (lx->cur - beg == tk->len + 1) {
       tk->litlit = 1;
-      tk->s = (char *)&lx->dat[beginoff];
+      tk->s = (char *)beg;
    } else {
       tk->litlit = 0;
       vpush(&b, 0);
@@ -317,23 +317,22 @@ readheadername(Lexer *lx, Token *tk, char delim) {
    int c;
    DEF_SVEC(uchar, 200, b);
    Span span = {0};
-   uint beginoff, idx;
-   beginoff = idx = lx->idx;
+   const uchar *beg = lx->cur, *last = lx->cur;
 
    while ((c = next(lx)) != delim) {
       if (c == '\n' || lx->eof) {
-         span.sl = (Span0) { idx, lx->idx - idx, lx->fileid };
+         span.sl = (Span0) { last - lx->dat, lx->cur - last, lx->fileid };
          error(&span, "missing terminating %c character", delim);
          break;
       }
       vpush(&b, c);
-      idx = lx->idx;;
+      last = lx->cur;
    }
    tk->t = delim == '"' ? TKPPHDRQ : TKPPHDRH;
    tk->len = b.n;
-   if (lx->idx - beginoff == tk->len + 1) {
+   if (lx->cur - beg == tk->len + 1) {
       tk->litlit = 1;
-      tk->s = (char *)&lx->dat[beginoff];
+      tk->s = (char *)beg;
    } else {
       tk->litlit = 0;
       vpush(&b, 0);
@@ -357,10 +356,11 @@ isppnum(char prev, char c) {
 enum { MAXLITLEN = 256 }; /* maximum length of num literals and identifiers */
 static int
 lex0(Lexer *lx, Token *tk, bool includeheader) {
-   int idx,q;
+   int q;
+   const uchar *beg;
    bool space = 0;
 Begin:
-   idx = lx->idx;
+   beg = lx->cur;
    uchar c = next(lx);
    uchar pk[2];
    switch (c) {
@@ -410,7 +410,7 @@ Begin:
       if (match(lx, '/')) {
          /* // single line comment */
          const uchar *p;
-         for (p = lx->dat + lx->idx; (c = *p) != '\n'; ++p) {
+         for (p = lx->cur; (c = *p) != '\n'; ++p) {
             if (!c) break;
             if (unlikely(c == '\\' && p[1] == '\n')) {
                ++lx->curline;
@@ -418,12 +418,12 @@ Begin:
             }
          }
          ++lx->curline;
-         lx->idx = p - lx->dat + 1;
-         lx->curlineoff = lx->idx;
+         lx->cur = p + 1;
+         lx->curlineoff = lx->cur - lx->dat;
          RET(lx->eof ? TKEOF : '\n');
       } else if (match(lx, '*')) {
          // /* multi line comment */
-         const uchar *p = lx->dat + lx->idx;
+         const uchar *p = lx->cur;
          for (int st = 0;; ++p) {
             c = *p;
             if (c == '*') st = 512;
@@ -436,14 +436,14 @@ Begin:
             if (c == '\n') {
                ++lx->curline;
             } else if (!c) {
-               lx->idx = p - lx->dat;
-               Span span = {{ idx, lx->idx - idx, lx->fileid }};
+               lx->cur = p;
+               Span span = {{ beg - lx->dat, lx->cur - beg, lx->fileid }};
                fatal(&span, "unterminated comment");
             }
          }
          ++p;
-         lx->idx = p - lx->dat;
-         lx->curlineoff = lx->idx;
+         lx->cur = p;
+         lx->curlineoff = lx->cur - lx->dat;
          goto Begin;
       }
       RET(c);
@@ -505,21 +505,21 @@ Begin:
          buf[0] = c;
          for (; isppnum(c, peek(lx, 0)); ++n) {
             if (n >= MAXLITLEN) TooLong: {
-               fatal(&(Span){{idx, lx->idx - idx, lx->fileid}}, "token is too long");
+               fatal(&(Span){{beg - lx->dat, lx->cur - beg, lx->fileid}}, "token is too long");
             }
             buf[n] = c = next(lx);
          }
          tk->len = n;
-         if (n == lx->idx - idx) {
+         if (n == lx->cur - beg) {
             tk->litlit = 1;
-            tk->s = (char *)&lx->dat[idx];
+            tk->s = (char *)beg;
          } else {
             tk->litlit = 0;
             tk->s = alloccopy(lx->tmparena, buf, n, 1);
          }
          RET(TKNUMLIT);
       } else if (c == '_' || aisalpha(c) || c == '$' || c > 127) {
-         const char *p = (char *)&lx->dat[idx];
+         const char *p = (char *)beg;
          size_t n = 0, hash = 0;
          for (; !aissep(p[n]); ++n)
             hash = HASH_STEP(hash, p[n]);
@@ -535,23 +535,23 @@ Begin:
          } else {
             if (n >= MAXLITLEN) goto TooLong;
             tk->name = _intern_hashed(p, n, hash);
-            lx->idx = idx + n;
+            lx->cur = beg + n;
          }
          tk->len = n;
          tk->blue = 0;
          RET(TKIDENT);
       }
       /* fallthru */
-   case 0: if (lx->idx >= lx->ndat) RET(TKEOF);
+   case 0: if (lx->cur >= lx->end) RET(TKEOF);
 #undef TK2
    }
-   fatal(&(Span) {{ idx, lx->idx - idx, lx->fileid }},
-         "unexpected character %'c at offset %d", c, idx);
+   fatal(&(Span) {{ beg - lx->dat, lx->cur - beg, lx->fileid }},
+         "unexpected character %'c at offset %d", c, (uint)(beg - lx->dat));
 End:
    tk->space = space;
    tk->span.sl.file = lx->fileid;
-   tk->span.sl.off = idx;
-   tk->span.sl.len = lx->idx - idx;
+   tk->span.sl.off = beg - lx->dat;
+   tk->span.sl.len = lx->cur - beg;
    tk->span.ex = tk->span.sl;
    return tk->t;
 #undef RET
@@ -718,7 +718,7 @@ lxfatal(Lexer *lx, const Span *span, const char *fmt, ...) {
    }
    for (Lexer *sv = lx->save; sv; sv = sv->save) {
       int line;
-      const char *f = getfilepos(&line, NULL, sv->fileid, sv->idx-2);
+      const char *f = getfilepos(&line, NULL, sv->fileid, (uint)(sv->cur - sv->dat) - 2);
       note(NULL, "in file included from %s:%d", f, line);
    }
    if (!fmt || span) efmt("Aborting due to previous error.\n");
@@ -734,7 +734,7 @@ ppskipline(Lexer *lx) {
          bool done = 0;
          while (!((c = peek(lx, 0)) == '*' && peek(lx, 1) == '/')) {
             if (lx->eof) {
-               Span span = {{ lx->idx, lx->idx - lx->idx, lx->fileid }};
+               Span span = {{ (uint)(lx->cur - lx->dat), 0, lx->fileid }};
                lxfatal(lx, &span, "unterminated comment");
             }
             done = c == '\n';
@@ -1036,7 +1036,7 @@ tryexpand(Lexer *lx, Token *tk) {
          for (;;) { /* skip whitespace and comments */
             if (aisspace(t = peek(lx, 0))) next(lx);
             else if (t == '/') {
-               int idx = lx->idx;
+               const uchar *beg = lx->cur;
                switch (peek(lx, 1)) {
                case '/':
                   while (!lx->eof && next(lx) != '\n') ;
@@ -1045,7 +1045,7 @@ tryexpand(Lexer *lx, Token *tk) {
                   next(lx), next(lx);
                   while (peek(lx, 0) != '*' || peek(lx, 1) != '/') {
                      if (lx->eof) {
-                        Span span = {{ idx, lx->ndat - idx, lx->fileid }};
+                        Span span = {{ beg - lx->dat, lx->end - beg, lx->fileid }};
                         lxfatal(lx, &span, "unterminated comment");
                      }
                      next(lx);
@@ -1956,11 +1956,11 @@ ppline(Lexer *lx, Token *tk0) {
       }
    }
    if (lineno) {
-      setfileline(lx->fileid, lx->idx, lineno, file);
+      setfileline(lx->fileid, (uint)(lx->cur - lx->dat), lineno, file);
       lx->virtlines = 1;
    }
    if (lx->macstk) {
-      span.sl.off = span.ex.off = lx->idx;
+      span.sl.off = span.ex.off = (uint)(lx->cur - lx->dat);
       span.sl.len = span.ex.len = 1;
       ppskipline(lx);
       if (!ext)
@@ -2132,18 +2132,18 @@ pppragma(Lexer *lx, Token *tk) {
    char buf[999];
    uint len = 0;
    uint linebeginoff = tk->span.sl.off;
-   uint beginoff = lx->idx;
+   const uchar *beg = lx->cur;
    int c;
    while (aisspace((c = next(lx))) && c != '\n' && !lx->eof) /*ltrim*/
-      beginoff = lx->idx;
-   uint endoff = beginoff;
+      beg = lx->cur;
+   const uchar *end = beg;
    if (c != '\n' && !lx->eof) do {
       if (len < countof(buf))
          buf[len++] = c;
-      endoff = lx->idx;
+      end = lx->cur;
    } while ((c = next(lx)) != '\n' && !lx->eof);
    Span span = tk->span;
-   span.sl.len = lx->idx - linebeginoff;
+   span.sl.len = (uint)(lx->cur - lx->dat) - linebeginoff;
    span.ex = span.sl;
    if (len == countof(buf))
       warn(&span, "#pragma truncated from %d to %d bytes", span.sl.len, len);
@@ -2157,9 +2157,9 @@ pppragma(Lexer *lx, Token *tk) {
       tk->t = TKPPPRAGMA;
       tk->pragmakind = 0;
       tk->len = len;
-      if (endoff - beginoff == tk->len) {
+      if (end - beg == tk->len) {
          tk->litlit = 1;
-         tk->s = (char *)&lx->dat[beginoff];
+         tk->s = (char *)beg;
       } else {
          tk->litlit = 0;
          tk->s = alloccopy(lx->tmparena, buf, len, 1);
@@ -2170,9 +2170,9 @@ pppragma(Lexer *lx, Token *tk) {
 static void
 ppdiag(Lexer *lx, const Span *span0, bool err) {
    const uchar *p = getfile(lx->fileid)->p;
-   uint off = lx->idx, end;
+   uint off = lx->cur - lx->dat, end;
    ppskipline(lx);
-   end = lx->idx;
+   end = lx->cur - lx->dat;
    while (off < end && aisspace(p[off])) ++off;
    (err ? error : warn)(span0, "%S", p + off, end - off);
 }
@@ -2404,7 +2404,7 @@ Begin:
             Lexer *sv = lx->save;
             if (sv->inclnerror != nerror || sv->inclnwarn != nwarn) {
                int line;
-               const char *f = getfilepos(&line, NULL, sv->fileid, sv->idx-2);
+               const char *f = getfilepos(&line, NULL, sv->fileid, (uint)(sv->cur - sv->dat) - 2);
                note(NULL, "in file included from %s:%d", f, line);
             }
             memcpy(lx, sv, sizeof *lx);
@@ -2527,7 +2527,7 @@ cpp0undef(const char *name) {
 static void
 mac__file__(Lexer *lx, Token *tk) {
    tk->t = TKSTRLIT;
-   tk->s = getfilename(lx->fileid, lx->idx);
+   tk->s = getfilename(lx->fileid, lx->cur - lx->dat);
    tk->wide = 0;
    tk->len = strlen(tk->s);
 }
@@ -2738,9 +2738,11 @@ addpredefmacros(Arena **tmparena) {
       Lexer lx[1] = {0};
       lx->fileid = getpredeffile(&f, "<command line>");
       assert(!f->p);
-      lx->ndat = f->n = ppcmdline.len;
+      f->n = ppcmdline.len;
       ppcmdappendf("%S", "\0\0\0\0\0\0", 6);
       lx->dat = f->p = (uchar *)ppcmdline.buf;
+      lx->cur = lx->dat;
+      lx->end = lx->dat + f->n;
       lx->tmparena = tmparena;
       lx->firstdirective = 1;
       while (lex(lx, NULL) != TKEOF) ;
@@ -2776,7 +2778,8 @@ initlexer(Lexer *lx, const char **err, const char *file) {
    markfileseen(fileid);
 
    lx->dat = f->p;
-   lx->ndat = f->n;
+   lx->cur = f->p;
+   lx->end = f->p + f->n;
    lx->tmparena = &tmparena;
    lx->firstdirective = 1;
    lx->nppcnd0 = nppcnd;

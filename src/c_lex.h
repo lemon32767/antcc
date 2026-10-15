@@ -101,10 +101,8 @@ extern int nerror, nwarn;
 typedef struct Lexer {
    struct Lexer *save;
    short fileid;
-   const uchar *dat;
+   const uchar *dat, *cur, *end;
    PragmaState *pragma;
-   uint ndat;
-   uint idx;
    uint curlineoff;
    uint curline;
    struct MacroStack *macstk;
