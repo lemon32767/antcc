@@ -6,7 +6,7 @@
 typedef struct SSABuilder {
    Arena **arena;
    struct Var {
-      uchar cls, ext;
+      uchar cls;
       ushort i;
       Ref curdefs[]; /* map blk -> def */
    } **vars;
@@ -17,7 +17,7 @@ typedef struct SSABuilder {
 } SSABuilder;
 typedef struct Var Var;
 
-static Ref readvar(SSABuilder *, Var *, enum irclass, Block *);
+static Ref readvar(SSABuilder *, Var *, Block *);
 
 static Ref
 deltrivialphis(SSABuilder *sb, Var *var, Block *blk, Ref phiref) {
@@ -67,11 +67,11 @@ deltrivialphis(SSABuilder *sb, Var *var, Block *blk, Ref phiref) {
 }
 
 static Ref
-addphiargs(SSABuilder *sb, Var *var, enum irclass cls, Block *blk, Ref phiref) {
+addphiargs(SSABuilder *sb, Var *var, Block *blk, Ref phiref) {
    Ref *args = phiargs(phiref.i);
    for (int i = 0; i < blk->npred; ++i) {
       Block *pred = blkpred(blk, i);
-      args[i] = readvar(sb, var, cls, pred);
+      args[i] = readvar(sb, var, pred);
       adduse(blk, phiref.i, args[i]);
    }
    instrtab[phiref.i].r.bits = 0;
@@ -86,15 +86,15 @@ writevar(SSABuilder *sb, Var *var, Block *blk, Ref val) {
 
 enum { RPENDINGPHI = 7 };
 static Ref
-readvarrec(SSABuilder *sb, Var *var, enum irclass cls, Block *blk) {
+readvarrec(SSABuilder *sb, Var *var, Block *blk) {
    Ref val;
    assert(blk->npred > 0);
    if (!bstest(sb->sealed, blk->id)) { /* unsealed block */
       /* add pending phi */
-      val = insertphi(blk, cls);
+      val = insertphi(blk, var->cls);
       instrtab[val.i].r = mkref(RPENDINGPHI, var->i);
    } else if (blk->npred == 1) { /* trivial case when block has a single predecessor */
-      val = readvar(sb, var, cls, blkpred(blk, 0));
+      val = readvar(sb, var, blkpred(blk, 0));
    } else if (!bstest(sb->marked, blk->id)) {
       /* Marker Algorithm to optimize the common case where a control flow join doesn't
        * need a phi function for the variable: mark the block in case we recursively reach
@@ -104,7 +104,7 @@ readvarrec(SSABuilder *sb, Var *var, enum irclass cls, Block *blk) {
       bsset(sb->marked, blk->id);
       for (int i = 0; i < blk->npred; ++i) {
          Block *pred = blkpred(blk, i);
-         Ref it = readvar(sb, var, cls, pred);
+         Ref it = readvar(sb, var, pred);
          if (!bstest(sb->marked, blk->id)) {
             /* recursion reached this blk again, use its phi */
             /* must have called writevar */
@@ -117,9 +117,9 @@ readvarrec(SSABuilder *sb, Var *var, enum irclass cls, Block *blk) {
       bsclr(sb->marked, blk->id);
    } else { /* reached block while recursing */
    AddPhi:
-      val = insertphi(blk, cls);
+      val = insertphi(blk, var->cls);
       writevar(sb, var, blk, val);
-      val = addphiargs(sb, var, cls, blk, val);
+      val = addphiargs(sb, var, blk, val);
       bsclr(sb->marked, blk->id);
       return val;
    }
@@ -128,12 +128,12 @@ readvarrec(SSABuilder *sb, Var *var, enum irclass cls, Block *blk) {
 }
 
 static Ref
-readvar(SSABuilder *sb, Var *var, enum irclass cls, Block *blk) {
+readvar(SSABuilder *sb, Var *var, Block *blk) {
    if (var->curdefs[blk->id].bits)
       return var->curdefs[blk->id];
    if (blk->npred == 0) /* entry block, var is read before being written to */
       return UNDREF;
-   return readvarrec(sb, var, cls, blk);
+   return readvarrec(sb, var, blk);
 }
 
 static bool
@@ -152,7 +152,7 @@ Recur:
    for (int i = 0; i < blk->phi.n; ++i) {
       Instr *ins = &instrtab[blk->phi.p[i]];
       if (ins->r.t == RPENDINGPHI)
-         addphiargs(sb, sb->vars[ins->r.i], ins->cls, blk, mkref(RTMP, blk->phi.p[i]));
+         addphiargs(sb, sb->vars[ins->r.i], blk, mkref(RTMP, blk->phi.p[i]));
    }
    if (blk->s1 && !blk->s2) {
       blk = blk->s1;
@@ -188,7 +188,6 @@ mem2reg(Function *fn) {
    /* gather variables */
    do {
       for (int i = 0; i < blk->ins.n; ++i) {
-         enum op ext = Ocopy;
          enum irclass k = 0;
          int sz = 0;
          int var = blk->ins.p[i], nwrite = 0, nread = 0;
@@ -204,7 +203,6 @@ mem2reg(Function *fn) {
                ++nwrite;
                sz = loadstoresz(m->op);
                k = loadstorecls(m->op);
-               if (sz < 4) ext = load2ext(m->op);
             } else if (oisstore(m->op) && m->l.bits == mkref(RTMP, var).bits
               && (!sz || sz == loadstoresz(m->op))) {
                ++nread;
@@ -213,7 +211,6 @@ mem2reg(Function *fn) {
          }
          if (nwrite && nread) { /* vars with no reads or no writes are dead */
             Var *v = allocz(sb.arena, sizeof *v + sb.nblk*sizeof *v->curdefs, 0);
-            v->ext = ext;
             v->cls = k;
             v->i = var;
             sb.vars[var] = v;
@@ -230,23 +227,28 @@ mem2reg(Function *fn) {
 
    /* perform SSA construction */
    do {
-      for (int i = 0; i < blk->ins.n; ++i) {
-         Instr *ins = &instrtab[blk->ins.p[i]];
+      for (int i = 0, t; i < blk->ins.n; ++i) {
+         Instr *ins = &instrtab[t = blk->ins.p[i]];
          Var *var;
          if (!oisloadstore(ins->op)) continue;
          if (ins->l.t != RTMP || !(var = sb.vars[ins->l.i])) continue;
          if (oisstore(ins->op)) {
-            if (var != DEAD)
-               writevar(&sb, var, blk, ins->r);
-            deluse(blk, blk->ins.p[i], ins->r);
-            *ins = mkinstr0(Onop,0);
+            if (var != DEAD && loadstorecls(ins->op) != var->cls) { /* needs a bit cast */
+               *ins = mkinstr1(Ocopy, var->cls, ins->r);
+               writevar(&sb, var, blk, mkref(RTMP, t));
+            } else {
+               if (var != DEAD)
+                  writevar(&sb, var, blk, ins->r);
+               deluse(blk, blk->ins.p[i], ins->r);
+               *ins = mkinstr0(Onop,0);
+            }
          } else if (var == DEAD) {
             *ins = mkinstr1(Ocopy, ins->cls, UNDREF);
-         } else {
+         } else { /* load */
             enum irclass k = ins->cls;
-            enum op ext = var->ext;
-            Ref val = readvar(&sb, var, k, blk);
+            Ref val = readvar(&sb, var, blk);
             adduse(blk, blk->ins.p[i], val);
+            enum op ext = loadstoresz(ins->op) < 4 ? load2ext(ins->op) : Ocopy;
             if (ext != Ocopy && isnumcon(val)) {
                /* fold constant expression */
                val = irunop(NULL, ext, k, val);

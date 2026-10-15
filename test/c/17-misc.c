@@ -58,6 +58,28 @@ int array_const_decay(const char x[3], int i) {
    return x[i];
 }
 
+typedef unsigned long long wideuint;
+wideuint tw(wideuint x) { return x; }
+#define NAN_START 0x7FF8
+double MakeNaN(int signum, wideuint tags) { // from TCL
+   union {
+      wideuint iv;
+      double dv;
+   } theNaN;
+
+   theNaN.iv = tags;
+   theNaN.iv &= (((wideuint) 1) << 51) - 1;
+   if (signum) {
+      theNaN.iv |= ((wideuint) (0x8000 | NAN_START)) << 48;
+   } else {
+      theNaN.iv |= ((wideuint) NAN_START) << 48;
+   }
+   if (*g_131) {
+      theNaN.iv = tw(theNaN.iv);
+   }
+   return theNaN.dv;
+}
+
 extern int printf(const char *, ...);
 #include <assert.h>
 #include <string.h>

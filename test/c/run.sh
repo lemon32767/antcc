@@ -1,6 +1,7 @@
 #!/bin/sh
 
 cd $(dirname "$0")
+export ANTCC_IRCHECK=1
 ANTCC="../../antcc $CFLAGS"
 ntest=0
 npass=0
