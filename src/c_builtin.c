@@ -147,7 +147,7 @@ DEF_FNLIKE_SEMA(alloca, mkptrtype(mktype(TYVOID), /*qual*/0), mktype(TYLONG))
 static Ref
 alloca_comp(Function *fn, Expr *ex, bool discard) {
    if (discard) return NOREF;
-   Ref siz = compileexpr(fn, &ex->sub[1], discard);
+   Ref siz = scalarcvt(fn, mktype(targ_sizetype), ex->sub[1].ty, compileexpr(fn, &ex->sub[1], 0));
    Instr alloc = isintcon(siz) ? mkalloca(intconval(siz), 16)
                                : mkinstr1(Oallocav, KPTR, siz);
    return addinstr(fn, alloc);
