@@ -552,6 +552,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi) {
       insertinstr(blk, (*curi)++, mkinstr2(Omove, ins->cls, mkref(RREG, RDX), mkref(RREG, RDX)));
       fixarg(&ins->r, ins, blk, curi); /* make sure rhs is memory or reg */
       ins->l = mkref(RREG, RAX);
+      ins->inplace = 1;
       ins->keep = 1;
       if (op == Orem) ins->op = Odiv;
       else if (op == Ourem) ins->op = Oudiv;

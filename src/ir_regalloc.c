@@ -483,6 +483,15 @@ defreg(RegAlloc *ra, int reg, int pos) {
    return 0;
 }
 
+static void
+clobregs(RegAlloc *ra, regset rs, int pos) {
+   FixInterval *fxit = alloc(ra->arena, sizeof *fxit, 0);
+   fxit->next = ra->fixed;
+   fxit->range = (Range){pos, pos};
+   fxit->rs = rs;
+   ra->fixed = fxit;
+}
+
 /* lifetime interval construction */
 static void
 buildintervals(RegAlloc *ra) {
@@ -593,13 +602,8 @@ buildintervals(RegAlloc *ra) {
                   defreg(ra, reg, pos);
                }
             }
-            if (rclob) {
-               FixInterval *fxit = alloc(ra->arena, sizeof *fxit, 0);
-               fxit->next = ra->fixed;
-               fxit->range = (Range){pos, pos};
-               fxit->rs = rclob;
-               ra->fixed = fxit;
-            }
+            if (rclob)
+               clobregs(ra, rclob, pos);
             for (int j = call->narg - 1; j >= 0; --j) {
                ABIArg abi = call->abiarg[j];
                if (!abi.isstk) {
@@ -1117,6 +1121,11 @@ devirt(RegAlloc *ra, Block *blk) {
       int nargref = 0;
       int nspill = 0;
 
+      if (ins->op == Omove && ins->r.t == RREG && ins->l.bits == ins->r.bits) {
+         /* this is a opaque reg clobber marker - keep for spillopt to see */
+         if (ra->maxstk > 0) continue;
+      }
+
       /** devirtualize operands **/
       for (int i = 0; i < opnoper[ins->op]; ++i) {
          Ref *r = &ins->oper[i];
@@ -1325,8 +1334,14 @@ spillopt(RegAlloc *ra, Block *blk, SpillCache *s) {
          }
       }
 
-      allnops = 0;
+      if (!(ins->op == Omove && ins->l.bits == ins->r.bits))
+         allnops = 0;
       /* clobbers */
+      if (ins->reg) {
+         reg = ins->reg - 1;
+         if (s->regslot[reg] >= 0) s->slotreg[s->regslot[reg]] = -1;
+         s->regslot[reg] = -1;
+      }
       if (ins->op == Ocall || ins->op == Ocall2r) {
          regset rclob = (gpregset | fpregset) &~ (mctarg->rglob | mctarg->rcallee);
          for (int r = 0; r < MAXREGS; ++r)
@@ -1334,17 +1349,10 @@ spillopt(RegAlloc *ra, Block *blk, SpillCache *s) {
                if (s->regslot[r] >= 0) s->slotreg[s->regslot[r]] = -1;
                s->regslot[r] = -1;
             }
-      }
-      if (ins->reg) {
-         reg = ins->reg - 1;
-         if (s->regslot[reg] >= 0) s->slotreg[s->regslot[reg]] = -1;
-         s->regslot[reg] = -1;
-      }
-      if (ins->op == Omove && ins->l.t == RREG) {
+      } else if ((ins->op == Omove || ins->inplace) && ins->l.t == RREG) {
          if (s->regslot[ins->l.i] >= 0) s->slotreg[s->regslot[ins->l.i]] = -1;
          s->regslot[ins->l.i] = -1;
-      }
-      if (ins->op == Oswap) {
+      } else if (ins->op == Oswap) {
          for (int j = 0; j < 2; ++j) {
             if (ins->oper[j].t != RREG) continue;
             if (s->regslot[ins->oper[j].i] >= 0) s->slotreg[s->regslot[ins->oper[j].i]] = -1;
