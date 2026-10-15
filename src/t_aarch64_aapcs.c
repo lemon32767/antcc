@@ -265,9 +265,7 @@ vaarg(Function *fn, Block *blk, int *curi) {
       putbranch(fn, end);
    }
    assert(end->npred == 2);
-   vpush(&end->ins, 0);
-   memmove(end->ins.p+1, end->ins.p, (end->ins.n-1)*sizeof *end->ins.p);
-   end->ins.p[0] = var;
+   vinsert(&end->ins, 0, var);
    Ref phi = insertphi(end, KPTR);
    memcpy(phiargs(phi.i), args, sizeof args);
    fn->prop &= ~FNUSE;

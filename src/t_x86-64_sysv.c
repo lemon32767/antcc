@@ -265,9 +265,7 @@ vaarg(Function *fn, Block *blk, int *curi) {
          putbranch(fn, merge);
       }
       assert(merge->npred == 2);
-      vpush(&merge->ins, 0);
-      memmove(merge->ins.p+1, merge->ins.p, (merge->ins.n-1)*sizeof *merge->ins.p);
-      merge->ins.p[0] = var;
+      vinsert(&merge->ins, 0, var);
       phi = insertphi(merge, KPTR);
       memcpy(phiargs(phi.i), args, sizeof args);
       if (!ty.isagg) {

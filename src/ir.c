@@ -500,15 +500,8 @@ newinstr(Block *at, Instr ins) {
 Ref
 insertinstr(Block *blk, int idx, Instr ins) {
    int new = newinstr(blk, ins);
-   if (idx == blk->ins.n) vpush(&blk->ins, new);
-   else {
-      assert(idx >= 0 && idx < blk->ins.n);
-      vpush_(&blk->ins._vb, sizeof *blk->ins.p);
-      vresize(&blk->ins, blk->ins.n);
-      for (int i = blk->ins.n++; i > idx; --i)
-         blk->ins.p[i] = blk->ins.p[i - 1];
-      blk->ins.p[idx] = new;
-   }
+   assert(idx >= 0 && idx <= blk->ins.n);
+   vinsert(&blk->ins, idx, new);
    return mkref(RTMP, new);
 }
 
