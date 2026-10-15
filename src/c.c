@@ -4359,7 +4359,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
       ty = cvtarith(sub[0].ty, sub[1].ty);
       if (!ty.t) ty.t = TYPTR;
       if (!iscomplex(ty) || discard) {
-         if (isint(ty) && isunsigned(ty) && in_range(op, Olth, Ogte))
+         if (isunsigned(ty) && in_range(op, Olth, Ogte))
             op += Oulth - Olth;
          l = compileexpr(fn, &sub[0], discard);
          r = compileexpr(fn, &sub[1], discard);
@@ -4368,7 +4368,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
          r = scalarcvt(fn, ty, sub[1].ty, r);
          cls = type2cls[ty.t];
          return irbinop(fn, op, cls, l, r);
-      } else {
+      } else { /* complex */
          assert(op == Oequ || op == Oneq);
          Type base = typechild(ty);
          Ref2 z1 = cvt2complex(fn, base, &sub[0]),
