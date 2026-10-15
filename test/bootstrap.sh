@@ -33,9 +33,15 @@ done
 src=$(find src/ -name '*.c')
 
 mkdir -p build/
-echo "== Stage 0 (compiling with $cc) =="
-X $cc -w -o build/antcc0 $src
-echo
+if [ "$1" = "--skip0" ]; then
+    stat >/dev/null 2>&1 antcc || (echo "$0: error: "$1" but no antcc; run 'make'"; exit 1)
+    echo "(Using make-built antcc as stage 0)"
+    X cp antcc build/antcc0
+else
+    echo "== Stage 0 (compiling with $cc) =="
+    X $cc -w -o build/antcc0 $src
+    echo
+fi
 echo "== Stage 1 (compiling with stage 0 output) =="
 X build/antcc0 $opt $cflags -o build/antcc1 $src
 X $chk build/antcc1

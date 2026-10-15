@@ -21,7 +21,7 @@ J=6
 make $mktgt -j$J
 
 for o in '' -O0 -O1 -O2; do
-    CFLAGS=$o ./test/bootstrap.sh
+    CFLAGS=$o ./test/bootstrap.sh --skip0
 done
 
 ./test/c/run.sh
