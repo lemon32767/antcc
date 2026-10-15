@@ -5,8 +5,9 @@ cd "$(dirname "$0")"
 ver=3530200
 get "https://sqlite.org/2026/sqlite-src-$ver.zip" sqlite-src-$ver
 cd sqlite-src-$ver
-##export CC_FOR_BUILD=$CC ##miscompilation in sqlite's fuzzer and some of its build tools?
-CCACHE=none CC="$(realpath ../../../antcc)" ./configure
+export CC="$(realpath ../../../antcc)"
+export CC_FOR_BUILD=$CC
+CCACHE=none ./configure
 make clean ##clean-tool-zip clean-sanity-check
 V=1 make
 
