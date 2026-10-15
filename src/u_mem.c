@@ -36,7 +36,7 @@ xrealloc(void *p, size_t n) {
 
 /** string interning **/
 internstr
-intern_(const char *s, uint len) {
+_intern_hashed(const char *s, uint len, size_t h) {
    static uint N, n;
    static struct Ht {
       internstr s;
@@ -50,15 +50,18 @@ intern_(const char *s, uint len) {
       arena = (void *)amem.m, arena->cap = sizeof amem.m - sizeof(Arena);
    }
 
-   for (size_t h = len ? hashb(0, s, len) : hashs(0, s), i = h;;) {
+Lookup:
+   for (size_t i = h;; ++i) {
       i &= N - 1;
       if (!ht[i].s) { /* insert */
          if (n < N/4*3 /*load factor 75%*/) {
             ++n;
             ht[i].h = h;
-            ht[i].s = alloccopy(&arena, s, (len ? len : strlen(s))+1, 1);
-            if (len) ((char *)ht[i].s)[len] = 0;
-            return ht[i].s;
+            char *p = (char *)alloc(&arena, len+2, 1) + 1;
+            p[-1] = 0; /* tag */
+            memcpy(p, s, len);
+            p[len] = 0;
+            return ht[i].s = (internstr) p;
          }
          /* resize */
          size_t nnew = N * 2;
@@ -73,15 +76,17 @@ intern_(const char *s, uint len) {
          ht = new;
          N = nnew;
          i = h;
-         continue;
-      } else if (h == ht[i].h) {
-         if (!len && !strcmp(s, &ht[i].s->c))
-            return ht[i].s;
-         else if (len && !strncmp(s, &ht[i].s->c, len) && ht[i].s[len].c == 0)
-            return ht[i].s;
+         goto Lookup;
+      } else if (h == ht[i].h && !strncmp(s, &ht[i].s->c, len) && ht[i].s[len].c == 0) {
+         return ht[i].s;
       }
-      ++i;
    }
+}
+
+internstr
+internn(const char *s, uint len) {
+   size_t h = len ? hashb(HASH_INIT, s, len) : hashs(HASH_INIT, s, &len);
+   return _intern_hashed(s, len, h);
 }
 
 /** vec **/

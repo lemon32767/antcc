@@ -838,7 +838,7 @@ getpredeffile(MemFile **pf, const char *name) {
    uint h, id, n = countof(fileht);
 
    uid.dev = -11;
-   uid.ino = hashs(0, name);
+   uid.ino = hashs(HASH_INIT, name, NULL);
    for (id = h = uid.dev ^ uid.ino;; ++id) {
       id &= countof(fileht) - 1;
       f = fileht[id];
@@ -871,7 +871,7 @@ openfile(const char **err, MemFile **pf, const char *path) {
    if (*path == '@' && path[1] == ':') {
       uid.dev = -1;
       uid.str = path;
-      h = hashs(0, path+2);
+      h = hashs(HASH_INIT, path+2, NULL);
    } else {
       if (stat(path, &st) != 0) {
          *err = strerror(errno);

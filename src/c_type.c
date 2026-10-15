@@ -29,7 +29,7 @@ const char *const primtypenames[] = {
 
 static ushort
 hashtd(const TypeData *td) {
-   uint h = td->t*33;
+   uint h = HASH_STEP(HASH_INIT, td->t);
    bool t;
    switch (td->t) {
    case TYARRAY:

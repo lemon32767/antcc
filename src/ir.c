@@ -115,7 +115,7 @@ newaddr(const IRAddr *addr) {
       naddrht *= 2;
       for (int i = 0; i < addrtab.n; ++i) { /* rehash */
          const IRAddr *addr = &addrtab.p[i];
-         for (uint h = hashb(0, addr, sizeof *addr), j = h;; ++j) {
+         for (uint h = hashb(HASH_INIT, addr, sizeof *addr), j = h;; ++j) {
             if (!addrht[j &= naddrht - 1]) {
                addrht[j] = i+1;
                break;
@@ -123,7 +123,7 @@ newaddr(const IRAddr *addr) {
          }
       }
    }
-   for (uint h = hashb(0, addr, sizeof *addr), i = h;; ++i) {
+   for (uint h = hashb(HASH_INIT, addr, sizeof *addr), i = h;; ++i) {
       i &= naddrht - 1;
       if (!addrht[i]) {
          vpush(&addrtab, *addr);

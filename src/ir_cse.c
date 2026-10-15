@@ -27,7 +27,7 @@ static uint ninsht;
 
 static inline size_t
 hashins(const Instr *ins) {
-   return hashb(0, ins, sizeof *ins);
+   return hashb(HASH_INIT, ins, sizeof *ins);
 }
 
 enum { MAXBLOCKDIST = 3 };

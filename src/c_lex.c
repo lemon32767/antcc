@@ -1,6 +1,7 @@
 #include "c_lex.h"
 #include "version.h"
 #include "u_bits.h"
+#include "u_hash.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -28,12 +29,11 @@ Re:
       goto Re;
    }
    return c;
-
 }
 
 static inline uchar
 peek(Lexer *lx, int off) {
-   assert((uint) off < 2);
+   //assert((uint) off < 2);
 Re:;
    const uchar *p = lx->dat + lx->idx + off;
    uchar c = *p;
@@ -67,6 +67,7 @@ aissep(int c) {
    return (uint)c < countof(tab) && tab[c];
 }
 
+internstr _intern_hashed(const char *, uint, size_t h);
 
 enum typetag
 parsenumlit(u64int *outi, double *outf, const Token *tk, bool ispp) {
@@ -503,10 +504,8 @@ Begin:
          int n = 1;
          buf[0] = c;
          for (; isppnum(c, peek(lx, 0)); ++n) {
-            if (n >= MAXLITLEN) {
-            TooLong:
-               fatal(&(Span) {{ idx, lx->idx - idx, lx->fileid }},
-                     "token is too long");
+            if (n >= MAXLITLEN) TooLong: {
+               fatal(&(Span){{idx, lx->idx - idx, lx->fileid}}, "token is too long");
             }
             buf[n] = c = next(lx);
          }
@@ -520,18 +519,26 @@ Begin:
          }
          RET(TKNUMLIT);
       } else if (c == '_' || aisalpha(c) || c == '$' || c > 127) {
-         uchar buf[MAXLITLEN];
-         int n = 1;
-         buf[0] = c;
-         for (; !aissep(peek(lx, 0)); ++n) {
-            if (n >= MAXLITLEN) {
-               goto TooLong;
+         const char *p = (char *)&lx->dat[idx];
+         size_t n = 0, hash = 0;
+         for (; !aissep(p[n]); ++n)
+            hash = HASH_STEP(hash, p[n]);
+         if (unlikely(!n || (p[n] == '\\' && p[n+1] == '\n'))) {
+            /* has backslash-newline, slow path */
+            char buf[MAXLITLEN];
+            n = 1, buf[0] = c;
+            for (; !aissep(peek(lx, 0)); ++n) {
+               if (n >= MAXLITLEN) goto TooLong;
+               buf[n] = c = next(lx);
             }
-            buf[n] = c = next(lx);
+            tk->name = internn(buf, n);
+         } else {
+            if (n >= MAXLITLEN) goto TooLong;
+            tk->name = _intern_hashed(p, n, hash);
+            lx->idx = idx + n;
          }
-         tk->blue = 0;
          tk->len = n;
-         tk->name = intern_((char *)buf, n);
+         tk->blue = 0;
          RET(TKIDENT);
       }
       /* fallthru */
@@ -2234,7 +2241,7 @@ identkeyword(Token *tk) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-braces"
 #endif
-   static const struct {
+   static struct {
       const char *s;
       struct Kw { uchar t, cstd : 4, ext : 1; } kw;
       const char *alias[2];
@@ -2246,25 +2253,27 @@ identkeyword(Token *tk) {
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
-   static pmap_of(struct Kw) kwmap;
-   if (!kwmap.v) {
-      pmap_init(&kwmap, 128);
+   static bool init;
+   if (!init) {
       for (int i = 0; i < countof(kwtab); ++i) {
-         struct Kw kw = kwtab[i].kw;
+         struct Kw *kw = &kwtab[i].kw;
          /* allow future keywords but only if they begin with _ */
-         if (kw.cstd <= ccopt.cstd || kwtab[i].s[0] == '_') {
-            kw.ext = kw.cstd > ccopt.cstd;
-            pmap_set(&kwmap, intern(kwtab[i].s), kw);
+         if (kw->cstd <= ccopt.cstd || kwtab[i].s[0] == '_') {
+            kw->ext = kw->cstd > ccopt.cstd;
+            _intern_tag(intern(kwtab[i].s)) = i + 1;
          }
          for (const char *const *palias = kwtab[i].alias, *const *end = palias+2;
-              palias != end && *palias; ++palias)
-         {
-            pmap_set(&kwmap, intern(*palias), kw);
+               palias != end && *palias; ++palias) {
+            _intern_tag(intern(*palias)) = i + 1;
          }
       }
+      init = 1;
    }
-   struct Kw *kw = pmap_get(&kwmap, tk->name);
-   if (kw) {
+
+   assert(tk->t == TKIDENT);
+   int tag = _intern_tag(tk->name);
+   if (tag) {
+      struct Kw *kw = &kwtab[tag - 1].kw;
       tk->t = kw->t;
       tk->extwarn = kw->ext;
    }
@@ -2407,7 +2416,7 @@ Begin:
             break;
          } else {
             if (nppcnd == lx->nppcnd0) lx->inclguard = NULL;
-            if (t == TKIDENT) identkeyword(tk);
+            if (tk->t == TKIDENT) identkeyword(tk);
             if (!inclerror) return tk->t;
          }
       }

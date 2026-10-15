@@ -3451,7 +3451,7 @@ pdecl(DeclState *st, CComp *cm) {
       if (match(cm, NULL, TKW__asm__) && expect(cm, '(', NULL)) {
          if (peek(cm, NULL) == TKSTRLIT) {
             lex(cm, &tk);
-            decl.sym = intern_(tk.s, tk.len);
+            decl.sym = internn(tk.s, tk.len);
          } else expect(cm, TKSTRLIT, "asm symbol name");
          expect(cm, ')', NULL);
       }

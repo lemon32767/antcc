@@ -2,16 +2,20 @@
 
 #include <stddef.h>
 
+#define HASH_INIT 0
+#define HASH_STEP(h, c) ((unsigned char)(c) + (h)*65599)
+
 static inline size_t
-hashs(size_t h, const char *s) {
-   while (*s) h = (unsigned char)*s++ + h*65599;
+hashs(size_t h, const char *s, unsigned *pn) {
+   unsigned n = 0;
+   for (; *s; ++n, ++s) h = HASH_STEP(h, *s);
+   if (pn) *pn = n;
    return h;
 }
 
 static inline size_t
 hashb(size_t h, const void *d, size_t n) {
-   const unsigned char *b = d;
-   while (n--) h = *b++ + h*65599;
+   for (const unsigned char *b = d; n--; ++b) h = HASH_STEP(h, *b);
    return h;
 }
 
