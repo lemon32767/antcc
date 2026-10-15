@@ -14,7 +14,6 @@ Stack-allocated VLAs are a stub and actually compile to a fixed size array at th
 
 ## C11
   - atomics
-  - `u8".."` string literals
 
 ## C23
   - Decimal floating-point types (`_Decimal32`, `_Decimal64`, and `_Decimal128`)

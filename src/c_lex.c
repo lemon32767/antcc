@@ -493,12 +493,12 @@ Begin:
       if (aisdigit(pk[0])) goto Numlit;
       RET(c);
    case 'L':
-      if (match(lx, (q = '\'')) || match(lx, (q = '"'))) {
+      if (unlikely(match(lx, (q = '\'')) || match(lx, (q = '"')))) {
          tk->wideuni = 0;
          readstrchrlit(lx, tk, q, strchrLwidth());
          goto End;
       }
-      /* fallthru */
+      goto Ident;
    default:
       if (aisdigit(c)) Numlit: {
          uchar buf[MAXLITLEN];
@@ -519,7 +519,7 @@ Begin:
             tk->s = alloccopy(lx->tmparena, buf, n, 1);
          }
          RET(TKNUMLIT);
-      } else if (c == '_' || aisalpha(c) || c == '$' || c > 127) {
+      } else if (c == '_' || aisalpha(c) || c == '$' || c > 127) Ident: {
          const char *p = (char *)beg;
          size_t n = 0, hash = 0;
          for (; !aissep(p[n]); ++n)
@@ -537,6 +537,11 @@ Begin:
             if (n >= MAXLITLEN) goto TooLong;
             tk->name = _intern_hashed(p, n, hash);
             lx->cur = beg + n;
+         }
+         if (unlikely(c == 'u' && n == 2 && p[1] == '8' && (match(lx, q = '\'') || match(lx, q = '\"')))) {
+            /* u8"lit" */
+            readstrchrlit(lx, tk, q, 0);
+            goto End;
          }
          tk->len = n;
          tk->blue = 0;
