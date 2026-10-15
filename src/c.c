@@ -242,7 +242,7 @@ putdecl(CComp *cm, Decl *decl) {
                   error(&decl->span, "redeclaration has different alignment (%d vs %d)",
                         decl->align, old->align);
                   note(&old->span, "previous declaration");
-               } else if (decl->isdef ? old->align : decl->align) {
+               } else if (decl->isdef && old->align) {
                   error(&decl->span, "definition must specify alignment like previous declaration");
                   note(&old->span, "previous declaration");
                }
