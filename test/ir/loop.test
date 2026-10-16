@@ -1,0 +1,159 @@
+source [file dirname $argv0]/common.tcl
+
+set prog { typedef unsigned long long u64int; typedef long long s64int;
+   s64int oadd(void) {
+      s64int s = 0;
+      for (int i = 0; i < 10; ++i)
+         s += i + 5;
+      return s;
+   }
+
+   s64int shl3(void) {
+      s64int s = 0;
+      for (int i = 0; i < 10; ++i)
+         s += i << 3;
+      return s;
+   }
+
+   s64int muloff(void) {
+      s64int s = 0;
+      for (int i = 0; i < 10; ++i)
+         s += i * 3 + 1;
+      return s;
+   }
+
+   s64int mulneg(void) {
+      s64int s = 0;
+      for (int i = 0; i < 10; ++i)
+         s += i * -3;
+      return s;
+   }
+
+   s64int down2(void) {
+      s64int s = 0;
+      for (int i = 20; i > 0; i -= 2)
+         s += i;
+      return s;
+   }
+}
+
+set out [c+out {-O1 -dloop -dfilter=oadd} $prog]
+asserteq "offset init" [regexp -all {phi @[0-9]+ 5,} $out] 1
+asserteq "offset trips" [regexp -all {trips=10\M} $out] 1
+set out [c+out {-O1 -dloop -dfilter=shl3} $prog]
+asserteq "shl stride" [regexp -all {= add %[0-9]+, 8\M} $out] 1
+asserteq "shl trips" [regexp -all {trips=10\M} $out] 1
+set out [c+out {-O1 -dloop -dfilter=muloff} $prog]
+asserteq "mul+offset init" [regexp -all {phi @[0-9]+ 1,} $out] 1
+asserteq "mul+offset stride" [regexp -all {= add %[0-9]+, 3\M} $out] 1
+asserteq "mul+offset trips" [regexp -all {trips=10\M} $out] 1
+set out [c+out {-O1 -dloop -dfilter=mulneg} $prog]
+asserteq "negative scale stride" [regexp -all {= add %[0-9]+, -3\M} $out] 1
+asserteq "negative scale trips" [regexp -all {trips=10\M} $out] 1
+set out [c+out {-O1 -dloop -dfilter=down2} $prog]
+asserteq "descending stride 2" [regexp -all {= add %[0-9]+, -2\M} $out] 1
+asserteq "descending stride 2 trips" [regexp -all {trips=10\M} $out] 1
+
+# loop iv correctness, overflow, widen soundness
+set prog { typedef unsigned long long u64int; typedef long long s64int;
+
+   u64int wrap(void) {
+      u64int s = 0;
+      unsigned i = 0xFFFFFFF0u;
+      do {
+         s += (u64int)i;
+         i += 16u;
+      } while (i < 0x10u);
+      return s;
+   }
+
+   u64int uw(void) {
+      u64int s = 0;
+      for (unsigned i = 0; i < 10; ++i)
+         s += (u64int)i;
+      return s;
+   }
+
+   s64int wred(void) {
+      s64int s = 0;
+      for (int i = 0; i < 10; ++i)
+         s += i;
+      return s;
+   }
+
+   s64int wreddown(void) {
+      s64int s = 0;
+      for (int i = 10; i > 0; --i)
+         s += i;
+      return s;
+   }
+
+   s64int uwrap(void) {
+      s64int s = 0;
+      for (int i = -5; i < 5; ++i)
+         s += (unsigned)i;
+      return s;
+   }
+
+   s64int wscale(void) {
+      s64int s = 0;
+      for (int i = 2; i < 10; i += 2)
+         s += i * 3;
+      return s;
+   }
+
+   s64int parr(int *p, int n) {
+      s64int s = 0;
+      for (int i = 0; i < n; ++i)
+         s += p[i];
+      return s;
+   }
+
+   s64int biginit(void) {
+      s64int s = 0;
+      for (int i = 1<<30; i < (1<<30)+100; ++i)
+         s += i;
+      return s;
+   }
+
+   s64int wcnt(void) {
+      s64int s = 0;
+      for (unsigned i = 101; (long)(int)(i * 1024u) < 200000; i += 2097051u) {
+         s += i;
+         if (i > 2000000000u) return s;
+      }
+      return s;
+   }
+}
+set out [c+out {-O1 -dafter=loopopt -dfilter=wrap} $prog]
+asserteq "wrapping widen kept" [regexp -all {\mextu32\M} $out] 1
+set out [c+out {-O1 -dafter=loopopt -dfilter=uw} $prog]
+asserteq "unsigned widen kept" [regexp -all {\mextu32\M} $out] 1
+set out [c+out {-O1 -dloop -dfilter=uwrap} $prog]
+asserteq "extu32 crossing zero kept" [regexp -all {= extu32\M} $out] 1
+asserteq "crossing zero trips" [regexp -all {trips=10\M} $out] 1
+
+set out [c+out {-O1 -dloop -dfilter=wred} $prog]
+asserteq "ascending widen reduced" [regexp -all {= exts32\M} $out] 0
+asserteq "ascending trips" [regexp -all {trips=10\M} $out] 1
+set out [c+out {-O1 -dloop -dfilter=wreddown} $prog]
+asserteq "descending widen reduced" [regexp -all {= exts32\M} $out] 0
+asserteq "descending trips" [regexp -all {trips=10\M} $out] 1
+
+set out [c+out {-O1 -dloop -dfilter=wscale} $prog]
+asserteq "scaled init" [regexp -all {phi @[0-9]+ 6,} $out] 1
+asserteq "scaled stride" [regexp -all {= add %[0-9]+, 6\M} $out] 1
+asserteq "scaled trips" [regexp -all {trips=4\M} $out] 1
+
+set out [c+out {-O1 -dafter=loopopt -dfilter=biginit} $prog]
+asserteq "bound guard keeps widen" [regexp -all {\mexts32\M} $out] 1
+
+set out [c+out {-O1 -dafter=loopopt -dfilter=wcnt} $prog]
+asserteq "widen counter kept" [regexp -all {= exts32\M} $out] 1
+
+# need add !nsw for this
+#set out [c+out {-O1 -dafter=loopopt -dfilter=parr} $prog]
+#asserteq "pointer index freed of mul" [regexp -all {=\smul\s|\sshl\s} $out] 0
+#asserteq "pointer increments by elemsize" [regexp -all {ptr %[0-9]+ = add %[0-9]+, 4} $out] 1
+
+# vim:set ts=3 sw=3 expandtab:
