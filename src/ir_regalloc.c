@@ -88,13 +88,12 @@ typedef struct {
       uchar k; /* enum irclass */
       uchar stat; /* enum pmstat */
       Alloc dst, src;
-   } pmove[MAXREGS];
+   } *pmove;
 } PMState;
 
 static void
 pmadd(PMState *pms, enum irclass k, Alloc dst, Alloc src) {
    if (dst.bits == src.bits) return;
-   assert(pms->npmove < MAXREGS);
    pms->pmove[pms->npmove++] = (struct PMove) { k, PMTOMOVE, dst, src };
 }
 
@@ -231,9 +230,13 @@ lowerphis(RegAlloc *ra, Block *blk, Block *suc) {
          break;
    assert(predno < suc->npred);
 
+   DEF_SVEC(struct PMove, 64, pmovebuf);
    PMState pms;
    pms.fn = ra->fn;
    pms.npmove = 0;
+   if (suc->phi.n > pmovebuf._vb.cap)
+      vresize(&pmovebuf, suc->phi.n);
+   pms.pmove = pmovebuf.p;
    /* ensure phi args go to the same slot as phi with parallel copies */
    for (int i = 0; i < suc->phi.n; ++i) {
       Instr *phi = &instrtab[suc->phi.p[i]];
@@ -272,6 +275,7 @@ lowerphis(RegAlloc *ra, Block *blk, Block *suc) {
       pmadd(&pms, phi->cls, to, from);
    }
    if (n) emitpm(&pms, n);
+   vfree(&pmovebuf);
 }
 
 /* generate copies for phi operands to transform into conventional-SSA
