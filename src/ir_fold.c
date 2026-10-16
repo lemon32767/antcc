@@ -52,8 +52,8 @@ foldint(enum op op, enum irclass k, Ref lr, Ref rr) {
    case Oior:  x = l.u | r.u; break;
    case Oxor:  x = l.u ^ r.u; break;
    case Oshl:  x = l.u << (r.u & (w ? 63 : 31)); break;
-   case Oslr:  x = w ? l.u >> (r.u&63) : (int)l.s >> (r.u&31); break;
-   case Osar:  x = w ? l.s >> (r.u&63) : (int)l.s >> (r.u&31); break;
+   case Oslr:  x = w ? l.u >> (r.u&63) : (uint)l.u >> (r.u&31); break;
+   case Osar:  x = w ? l.s >> (r.u&63) :  (int)l.s >> (r.u&31); break;
    case Oequ:  x = l.s == r.s; break;
    case Oneq:  x = l.s != r.s; break;
    case Olth:  x = l.s < r.s; break;
