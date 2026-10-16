@@ -20,12 +20,13 @@ static regset gpregset, fpregset;
 
 /* an allocated physical register or stack slot */
 enum { ADEAD, AREG, ASTACK };
-typedef union { struct { ushort t : 2, a : 14; }; ushort bits; } Alloc;
+enum { ALLOCSLOTBITS = 14 };
+typedef union { struct { ushort t : 2, a : ALLOCSLOTBITS; }; ushort bits; } Alloc;
 #define afree() ((Alloc) { .t=ADEAD })
 #define areg(r) ((Alloc) { .t=AREG, .a=(r) })
 #define astack(s) ((Alloc) { .t=ASTACK, .a=(s) })
 
-enum { MAXSPILL = 512 };
+enum { MAXSPILL = 1024 };
 
 /* half-closed instr range [from, to) */
 typedef struct { ushort from, to; } Range;
@@ -69,16 +70,16 @@ typedef struct RegAlloc {
    Interval *inters; /* unhandled intervals linked list */
    FixInterval *fixed; /* linked list of fixed intervals, always sorted */
 
-   BitSet freestk[BSSIZE(MAXSPILL)]; /* free stack slots */
-   int maxstk, /* highest stack slot used */
-       stktop;
+   int stktop4, /* next free 4-byte spill slot */
+       stktop8; /* ditto for 8-byte slot, in 4-byte units */
    bool debug;
 } RegAlloc;
 
 #define stkslotref(fn, off) mkref(RSTACK, (fn)->stksiz + (off))
 
 /* Parallel moves algorithm from QBE
- * <https://c9x.me/git/qbe.git/tree/rega.c?id=e493a7f23352f51acc0a1e12284ab19d7894488a#n201> */
+ * <https://c9x.me/git/qbe.git/tree/rega.c?id=e493a7f23352f51acc0a1e12284ab19d7894488a#n201>
+ * itself from "Tilting at Windmills with Coq" https://xavierleroy.org/publi/parallel-move.pdf */
 
 enum pmstat { PMTOMOVE, PMMOVING, PMDONE };
 typedef struct {
@@ -120,11 +121,11 @@ emitmove(Function *fn, enum irclass k, Alloc dst, Alloc src, Block *blk, int cur
       else
          reg = kisint(k) ? mctarg->gprscratch : mctarg->fprscratch;
       mv.reg = reg+1;
-      mv.l = stkslotref(fn, src.a*8);
+      mv.l = stkslotref(fn, src.a*4);
       insertinstr(blk, curi++, mv);
    } else reg = src.a;
    if (dst.t == ASTACK) {
-      mv = mkinstr2(cls2store[k], 0, stkslotref(fn, dst.a*8), mkref(RREG, reg));
+      mv = mkinstr2(cls2store[k], 0, stkslotref(fn, dst.a*4), mkref(RREG, reg));
       insertinstr(blk, curi, mv);
    }
 }
@@ -761,8 +762,7 @@ sortintervals(Interval *head, size_t n) {
 
 typedef struct {
    Interval *actives[2], *inactives[2]; /* gpr set and fpr set */
-   Interval **active, **inactive,
-             *spilled, **spilled_tail;
+   Interval **active, **inactive;
    regset freeregs;
    Interval *current;
    int pos;
@@ -773,7 +773,6 @@ static void expire(RegAlloc *, LinearScan *);
 static regset findavailregs(RegAlloc *, LinearScan *, regset *out_fixexcl);
 static int allocfreereg(RegAlloc *, LinearScan *, regset avail);
 static Interval *spill(RegAlloc *, LinearScan *, int *out_reg, regset fixexcl);
-static void allocspillslots(RegAlloc *, LinearScan *);
 
 static void
 linearscan(RegAlloc *ra) {
@@ -782,13 +781,10 @@ linearscan(RegAlloc *ra) {
    /* sort intervals */
    Interval *unhandled = sortintervals(ra->inters, ra->intercount);
 
-   memset(ra->freestk, 0xFF, sizeof ra->freestk);
-
    /* LINEAR SCAN */
    LinearScan s = {
       .freeregs = (gpregset | fpregset) &~ (mctarg->rglob | (1ull<<mctarg->gprscratch) | (1ull<<mctarg->fprscratch))
    };
-   s.spilled_tail = &s.spilled;
    for (Interval *current = unhandled, *unext; current; current = unext) {
       unext = current->next;
       s.pos = intervalbeg(s.current = current);
@@ -807,7 +803,6 @@ linearscan(RegAlloc *ra) {
          reg = allocfreereg(ra, &s, avail);
       } else { /* no regs left, must spill */
          Interval *tospill = spill(ra, &s, &reg, fixexcl);
-         assert(s.spilled != NULL);
          if (tospill == current) {
             DBG("spilled %%%d\n", this);
             continue;
@@ -837,8 +832,6 @@ linearscan(RegAlloc *ra) {
       }
       DBG("\n");
    }
-
-   allocspillslots(ra, &s);
 }
 
 static void
@@ -940,6 +933,26 @@ findavailregs(RegAlloc *ra, LinearScan *s, regset *out_fixexcl) {
    return avail & ~excl;
 }
 
+/* keeps 4/8 byte spill slots packed */
+static Alloc
+allocstk(RegAlloc *ra, enum irclass k) {
+   int s;
+   assert(ra->stktop8 < (1<<ALLOCSLOTBITS) && "stack frame too big");
+   if (cls2siz[k] == 8) {
+      s = ra->stktop8;
+      if (ra->stktop4 == s)
+         ra->stktop4 += 2;
+      ra->stktop8 += 2;
+   } else {
+      s = ra->stktop4;
+      if (ra->stktop4 == ra->stktop8)
+         ra->stktop4 += 1, ra->stktop8 += 2;
+      else
+         ra->stktop4 = ra->stktop8;
+   }
+   return astack(s);
+}
+
 static Interval *
 spill(RegAlloc *ra, LinearScan *s, int *out_reg, regset fixexcl) {
    Interval *current = s->current;
@@ -957,22 +970,11 @@ spill(RegAlloc *ra, LinearScan *s, int *out_reg, regset fixexcl) {
       lnk = &it->next;
    }
 
-   /* insert in spilled, keep sorted */
-   if (ptospill) {
+   if (ptospill)
       *ptospill = tospill->next; /* remove from active */
-      int from = intervalbeg(tospill);
-      lnk = &s->spilled;
-      /* XXX potentially slow linear search */
-      while (*lnk && intervalbeg(*lnk) < from)
-         lnk = &(*lnk)->next;
-      tospill->next = *lnk;
-      *lnk = tospill;
-   } else { /* tospill == current, so we can just append and keep it sorted */
-      *s->spilled_tail = tospill;
-      tospill->next = NULL;
-   }
-   if (!tospill->next) /* update spilled list tail */
-      s->spilled_tail = &tospill->next;
+
+   int t = interval2temp(tospill);
+   tospill->alloc = allocstk(ra, insrescls(instrtab[t]));
    return tospill;
 }
 
@@ -1024,64 +1026,6 @@ allocfreereg(RegAlloc *ra, LinearScan *s, regset avail) {
    return lowestsetbit(avail);
 }
 
-static Alloc
-allocstk(RegAlloc *ra) {
-   uint s = 0;
-   if (bsiter(&s, ra->freestk, BSSIZE(MAXSPILL))) {
-      bsclr(ra->freestk, s);
-      if (ra->stktop < s) ra->stktop = s+1;
-   } else {
-      s = ra->stktop++;
-   }
-   if (ra->maxstk < s+1) ra->maxstk = s+1;
-   return astack(s);
-}
-
-static void
-freestk(RegAlloc *ra, int slot) {
-   DBG("FREE stk %d\n",slot);
-   if (slot < MAXSPILL)
-      bsset(ra->freestk, slot);
-   else if (slot == ra->stktop - 1)
-      --ra->stktop;
-}
-
-static Alloc
-allocstkend(RegAlloc *ra) {
-   return astack(ra->maxstk++);
-}
-
-static void
-allocspillslots(RegAlloc *ra, LinearScan *s) {
-   /* allocate stack slots for spilled intervals
-    * this is like another (simplified) linear scan pass */
-   Interval *active = NULL;
-   int prevpos = -1;
-   if (s->spilled) DBG("spilled:\n");
-   for (Interval *current = s->spilled, *next; current; current = next) {
-      int pos = intervalbeg(current);
-      DBG("  %%%zd: [%d,%d)\n", interval2temp(current), pos, intervalend(current));
-      assert(pos >= prevpos && "unsorted spilled?");
-      prevpos = pos;
-      /* Expire old intervals */
-      Interval **lnk, *it, *lnext;
-      for (lnk = &active, it = *lnk; (lnext = it ? it->next : 0), it; it = lnext) {
-         /* ends before position? */
-         if (intervalend(it) <= pos) {
-            /* move from active to handled */
-            *lnk = lnext;
-            freestk(ra, it->alloc.a);
-         } else lnk = &it->next;
-      }
-      /* allocate a stack slot for current and move to active */
-      current->alloc = allocstk(ra);
-      DBG("    got stk%d\n", current->alloc.a);
-      next = current->next;
-      current->next = active;
-      active = current;
-   }
-}
-
 static bool
 isstoreimm(Ref r) {
    if (r.t == RTMP) return 1; /* register OK */
@@ -1114,7 +1058,6 @@ devirt(RegAlloc *ra, Block *blk) {
    bool allnops = 1;
    Function *fn = ra->fn;
    Alloc spillsave[4] = {0};
-   memset(ra->freestk, 0, BSSIZE(MAXSPILL) * sizeof *ra->freestk);
 
    for (int curi = 0; curi < blk->ins.n; ++curi) {
       int temp = blk->ins.p[curi];
@@ -1130,7 +1073,7 @@ devirt(RegAlloc *ra, Block *blk) {
 
       if (ins->op == Omove && ins->r.t == RREG && ins->l.bits == ins->r.bits) {
          /* this is a opaque reg clobber marker - keep for spillopt to see */
-         if (ra->maxstk > 0) continue;
+         if (ra->stktop8 > 0) continue;
       }
 
       /** devirtualize operands **/
@@ -1156,15 +1099,15 @@ devirt(RegAlloc *ra, Block *blk) {
                assert(r == &ins->r && ins->l.t == RREG);
                ins->reg = ins->l.i+1;
                ins->op = cls2load[instrtab[r->i].cls];
-               ins->l = stkslotref(fn, alloc->a*8);
+               ins->l = stkslotref(fn, alloc->a*4);
                ins->r = NOREF;
             } else if (alloc->t == ASTACK && ins->op == Ocopy && r == &ins->l && ins->reg && kisint(ins->cls) == kisint(instrtab[r->i].cls)) {
                /* [reg] = copy [stk] -> [reg] = load [stk] */
                ins->op = cls2load[instrtab[r->i].cls];
-               ins->l = stkslotref(fn, alloc->a*8);
+               ins->l = stkslotref(fn, alloc->a*4);
             } else if (alloc->t == ASTACK && canusememoper(ins, r)) {
                /* can use spilled ref directly as a memory operand */
-               *r = stkslotref(fn, alloc->a*8);
+               *r = stkslotref(fn, alloc->a*4);
             } else if (alloc->t == ASTACK) {
                /* ref was spilled, gen load to scratch register and use it */
                Instr ld = {.cls = insrescls(instrtab[r->i])};
@@ -1189,13 +1132,13 @@ devirt(RegAlloc *ra, Block *blk) {
                   if (rstest(fn->regusage, reg) || rstest(mctarg->rcallee, reg)) {
                      dosave = 1;
                      if (!spillsave[nspill-1].t)
-                        spillsave[nspill-1] = allocstkend(ra);
+                        spillsave[nspill-1] = allocstk(ra, KI64);
                      emitmove(fn, isgpr(reg) ? KPTR : KF64, spillsave[nspill-1], areg(reg), blk, curi++);
                   }
                }
                ld.reg = reg+1;
                ld.op = cls2load[ld.cls];
-               ld.l = stkslotref(fn, alloc->a*8);
+               ld.l = stkslotref(fn, alloc->a*4);
                insertinstr(blk, curi++, ld);
                *r = mkref(RREG, reg);
                if (nspill > 0 && dosave) {
@@ -1224,7 +1167,7 @@ devirt(RegAlloc *ra, Block *blk) {
          if (ins->op == Ocopy && (ins->l.t == RREG || isstoreimm(ins->l))) {
             ins->op = store;
             ins->r = ins->l;
-            ins->l = stkslotref(fn, alloc->a*8);
+            ins->l = stkslotref(fn, alloc->a*4);
          } else {
             bool dosave = 0;
             int reg = kisint(insrescls(*ins)) ? mctarg->gprscratch : mctarg->fprscratch;
@@ -1240,14 +1183,14 @@ devirt(RegAlloc *ra, Block *blk) {
                if (rstest(fn->regusage, reg) || rstest(mctarg->rcallee, reg)) {
                   dosave = 1;
                   if (!spillsave[nspill-1].t)
-                     spillsave[nspill-1] = allocstkend(ra);
+                     spillsave[nspill-1] = allocstk(ra, KI64);
                   emitmove(fn, isgpr(reg) ? KPTR : KF64, spillsave[nspill-1], areg(reg), blk, curi++);
                   curi0 = curi;
                }
             }
             ins->reg = reg+1;
             insertinstr(blk, ++curi,
-                  mkinstr2(store, 0, stkslotref(fn, alloc->a*8), mkref(RREG, reg)));
+                  mkinstr2(store, 0, stkslotref(fn, alloc->a*4), mkref(RREG, reg)));
             if (nspill > 0 && dosave) {
                emitmove(fn, isgpr(reg) ? KPTR : KF64, areg(reg),
                      spillsave[nspill-1], blk, ++curi);
@@ -1290,7 +1233,6 @@ typedef struct {
    schar slotreg[MAXSPILL];
    uchar slotsz[MAXSPILL];
 } SpillCache;
-
 static bool /* -> allnops */
 spillopt(RegAlloc *ra, Block *blk, SpillCache *s) {
    Function *fn = ra->fn;
@@ -1308,7 +1250,7 @@ spillopt(RegAlloc *ra, Block *blk, SpillCache *s) {
 
       if (ins->op == Onop) continue;
       if (oisloadstore(ins->op) && ins->l.t == RSTACK && !(ins->f&INSKEEP)
-       && (off = ins->l.i - base) % 8 == 0 && (uint)(slot = off / 8) < ra->maxstk
+       && (off = ins->l.i - base) % 4 == 0 && (uint)(slot = off / 4) < ra->stktop8
        && slot < MAXSPILL) {
          sz = loadstoresz(ins->op);
          if (oisload(ins->op) && ins->reg) {
@@ -1377,7 +1319,7 @@ fini(RegAlloc *ra) {
    Function *fn = ra->fn;
    Block *blk = fn->entry;
    SpillCache spillcache;
-   bool anyspill = ra->maxstk > 0;
+   bool anyspill = ra->stktop8 > 0;
    if (anyspill)
       memset(&spillcache, -1, sizeof spillcache);
 
@@ -1499,7 +1441,7 @@ regalloc(Function *fn) {
 
    /* devirtualize & final cleanup */
    fini(&ra);
-   fn->stksiz += ra.maxstk*8;
+   fn->stksiz += ra.stktop8*4;
    if (fn->stksiz > 1<<24) error(NULL, "'%s' stack frame too big", fn->name);
 
    for (Interval *it = ra.intertab; ra.intercount > 0; ++it) {
