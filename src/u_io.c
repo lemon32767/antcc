@@ -617,12 +617,12 @@ vbfmt(WriteBuf *out, const char *fmt, va_list ap) {
          }
          break;
       case 'g': /* graphics rendition (color) */
-         if (!ccopt.nocolor) n += bwriteS(buf, "\033[");
+         if (buf->color) n += bwriteS(buf, "\033[");
          while (*fmt++ != '.') {
-            if (ccopt.nocolor) continue;
+            if (!buf->color) continue;
             n += bputc(buf, fmt[-1]);
          }
-         if (!ccopt.nocolor) n += bputc(buf, 'm');
+         if (buf->color) n += bputc(buf, 'm');
          break;
       case 'M': /* cc mode */
          iowrite(buf, &"C89\0C99\0C11\0C23"[ccopt.cstd*4], 3);
@@ -1049,17 +1049,18 @@ void
 vdiag(const Span *span, enum diagkind kind, const char *fmt, va_list ap) {
    /* to avoid concurrent invocations of the compiler mixing up the diagnostics
     * in the unbuffered stderr output, use a separate buffer here and write()
-    * it all out bypassing stdio */
+    * it all out bypassing stdio/stderr */
    static char ebuf[4096];
    static WriteBuf out = FDBUF(ebuf, sizeof ebuf, STDERR_FILENO);
    static int depth = 0; /* needed for nested note() calls */
-
    static const char *label[] = { "error", "warning", "note" };
    static const char color[][8] = { "%g1;31.", "%g1;35.", "%g1;36." };
+
    int line, col;
    MemFile *f;
    const Span0 *loc;
 
+   out.color = bstderr.color;
    bool stub = kind == DGSTUB;
    if (stub) kind = DGERROR;
 

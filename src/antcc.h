@@ -102,7 +102,6 @@ enum cstd {
 typedef struct CCOption {
    enum cstd cstd;
    bool pedant;
-   bool nocolor;
    bool pie, pic;
    bool werror;
    bool wnone;
@@ -312,6 +311,7 @@ typedef struct WriteBuf {
    };
    bool err;
    bool isfp;
+   bool color;
 } WriteBuf;
 
 /* read-only file mapping that is at least 1 page larger than the real file

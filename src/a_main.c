@@ -881,13 +881,14 @@ cc1(const char *out, const char *in) {
    return !!nerror;
 }
 
-static void
-detectcolor(void) {
+static bool
+detectcolor(int fd) {
    const char *s;
-   if (!isatty(STDERR_FILENO)
+   if (!isatty(fd)
     || ((s = getenv("NO_COLOR")) && *s)
     || ((s = getenv("TERM")) && !strcmp(s, "dumb")))
-      ccopt.nocolor = 1;
+      return 0;
+   return 1;
 }
 
 static void
@@ -944,7 +945,8 @@ main(int argc, char **argv) {
 
    ioinit();
    /* setup defaults */
-   detectcolor();
+   bstdout.color = detectcolor(STDOUT_FILENO);
+   bstderr.color = detectcolor(STDERR_FILENO);
    sysinclpaths();
    ccopt.cstd = STDC11;
    ccopt.dbg.out = &bstdout;
