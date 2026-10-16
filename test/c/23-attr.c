@@ -9,6 +9,8 @@ alignof algn2=16
 sizeof packedwaligned=16
 foo[:lo4] 0
 bar[:lo4] 0
+pos 4
+AA=7
 */
 
 #if !__has_attribute(noreturn)
@@ -54,10 +56,22 @@ struct __attribute__((packed)) {
 char __attribute((aligned(16))) sfoo[] = "aaa";
 char __attribute((aligned(16))) sbar[] = "bbb";
 
+enum at { AA __attribute__((deprecated)) = 7, AB };
+
+int __attribute__((noinline)) add1(int x) { return x + 1; }
+
+int nested(int x) {
+   int (*f)(int) __attribute__((unused)) = add1;
+   int (__attribute__((unused)) *g)(int) = f;
+   return g(x);
+}
+
 #include <stdio.h>
 #include <stdint.h>
 
 int main(){
+   int r = 0;
+   int t = AA;
    printf("sizeof packed4i1i4f=%d\n", (int)sizeof(struct packed4i1i4f));
    printf("sizeof packfield=%d\n", (int)sizeof(struct packfield));
    printf("sizeof packenum=%d\n", (int)sizeof(enum packenum));
@@ -68,4 +82,14 @@ int main(){
    printf("sizeof packedwaligned=%d\n", (int)sizeof(packedwaligned));
    printf("foo[:lo4] %d\n", (int)(intptr_t)sfoo &0xF);
    printf("bar[:lo4] %d\n", (int)(intptr_t)sbar &0xF);
+lab: __attribute__((unused));
+   switch (t) {
+   case AA:
+      r = nested(1);
+      __attribute__((fallthrough));
+   case AB:
+      r = r + (AB - 6);
+   }
+   printf("pos %d\n", r);
+   printf("AA=%d\n", AA);
 }

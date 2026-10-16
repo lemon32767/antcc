@@ -140,6 +140,7 @@ enum storageclass {
    _(aligned,            0, 1, 1)   \
    _(transparent_union,  0, 0, 1)   \
    _(may_alias,          0, 0, 1)   \
+   _(fallthrough,        0, 0, 0)   \
 
 enum attr {
    ATTRxxx,

@@ -2252,6 +2252,7 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk) {
    case ATTRconst: case ATTRnothrow: case ATTRmalloc:
    case ATTRmay_alias: case ATTRexternally_visible:
    case ATTRpacked: case ATTRweak: case ATTRformat_arg:
+   case ATTRfallthrough:
 
    Arity:
       if (nparam > nmaxparam || nparam < nminparam)
@@ -2572,6 +2573,7 @@ parseenum(CComp *cm, internstr name, const Span *span, int id, enum typetag base
       Decl decl = {0};
       peek(cm, &tk);
       expect(cm, TKIDENT, NULL);
+      attrspec(cm, &decl.attr);
       if (match(cm, NULL, '=') || (peek(cm, NULL) == TKNUMLIT && !expect(cm, '=', NULL))) {
          Expr ex = expr(cm);
          if (eval2xintcon(&ex)) {
@@ -3084,13 +3086,16 @@ cvqual(CComp *cm) {
 }
 
 static void
-decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan) {
+decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan, Attrs *attr) {
    Token tk;
    DeclList *ptr, node;
 
+   attrspec(cm, attr);
    while (match(cm, &tk, '*')) {
       node.t = TYPTR;
       node.qual = cvqual(cm);
+      while (attrspec(cm, attr))
+         node.qual |= cvqual(cm);
       node.span = tk.span;
       declinsert(list, &node);
       joinspan(&span->ex, tk.span.ex);
@@ -3099,6 +3104,7 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
    switch (peek(cm, &tk)) {
    case '(':
       lex(cm, &tk);
+      attrspec(cm, attr);
       if (isdecltok(cm)) {
          goto Func;
       } else if (match(cm, &tk, ')')) {
@@ -3114,7 +3120,7 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
          joinspan(&span->ex, tk.span.ex);
          break;
       } else {
-         decltypes(cm, list, name, span, namespan);
+         decltypes(cm, list, name, span, namespan, attr);
          expect(cm, ')', NULL);
          joinspan(&span->ex, tk.span.ex);
       }
@@ -3139,8 +3145,11 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
          bool statik = 0;
          if (in_range(peek(cm, &tk), TKWBEGIN_, TKWEND_)) {
             node.qual = cvqual(cm);
+            attrspec(cm, attr);
             statik = match(cm, NULL, TKWstatic);
-            node.qual |= cvqual(cm);
+            do
+               node.qual |= cvqual(cm);
+            while (attrspec(cm, attr));
          }
          (void)statik; /* stub */
 
@@ -3249,7 +3258,7 @@ declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0, uint align) {
       }
    }
 
-   decltypes(cm, &list, st->kind == DCASTEXPR ? NULL : &decl.name, &decl.span, &namespan);
+   decltypes(cm, &list, st->kind == DCASTEXPR ? NULL : &decl.name, &decl.span, &namespan, &decl.attr);
    if (!decl.name && st->kind != DCASTEXPR && st->kind != DFUNCPARAM) {
       if (list.prev == &list) lex(cm, NULL);
       error(&decl.span, "expected `(', `*' or identifier");
@@ -5098,6 +5107,7 @@ stmt(CComp *cm, Ref *stmtexprval, Type *stmtexprty) {
       } else if (tk.t == TKIDENT && match(cm, NULL, ':')) {
          /* <label> ':' */
          deflabel(cm, &tk.span, tk.name);
+         attrspec(cm, &(Attrs){0});
       } else {
          assert(tk.t == TKIDENT);
          /* kludge for no backtracking and no lookahead */
@@ -5390,6 +5400,10 @@ stmt(CComp *cm, Ref *stmtexprval, Type *stmtexprty) {
       }
       stmtterm(cm);
       break;
+   case TKW__attribute__:
+      attrspec(cm, &(Attrs){0});
+      stmtterm(cm);
+      break;
    default:
       ex = exprparse(cm, 1, NULL, EFROMSTMT);
    ExprStmt:
@@ -5422,10 +5436,19 @@ localdecl(CComp *cm, bool forini) {
    const bool doemit = fn->curblk;
    DeclState st = { DFUNCVAR };
 
+   if (peek(cm, NULL) == TKW__attribute__) {
+      Attrs attr = {0};
+      attrspec(cm, &attr);
+      if (!forini && match(cm, NULL, ';')) /* null stmt */
+         return;
+      mergeattr(&st.attr, &attr); /* feeds declaration */
+   }
+
    if (!forini && match(cm, &tk, TKIDENT)) {
       if (match(cm, NULL, ':')) {
          /* <label> ':' */
          deflabel(cm, &tk.span, tk.name);
+         attrspec(cm, &(Attrs){0});
          stmt(cm, NULL, NULL);
          return;
       }

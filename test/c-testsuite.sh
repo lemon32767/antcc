@@ -11,7 +11,6 @@ skip () {
     case "$(basename "$1")" in
     00204.c) ;; # nyi: va_arg for 2reg struct
     00206.c) ;; # pp: push/pop macro
-    00210.c) ;; # c: attr in function type parsing issues
     00216.c) ;; # ext: struct cast, init flexible arr, range [a ... b] = ..
     *) return 1
     esac
