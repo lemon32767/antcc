@@ -153,7 +153,7 @@ Begin:
          if (!oisarith(ins->op)) return; /* barrier */
       }
       if (!load || loadstorecls(load->op) != cls || loadstoresz(load->op) != cls2siz[cls]
-       || load->keep)
+       || (load->f&INSKEEP))
          return;
       Ref ptr = load->l;
       IRAddr m;
@@ -168,7 +168,7 @@ Begin:
       /* turn into
        *   <op> ..., *kX [%ptr]
        */
-      ins->inplace = 1;
+      ins->f |= INS2ADDR;
       *r = mkaddr(m);
       load->op = Onop;
    } else if (r->t == RSTACK) {
@@ -220,9 +220,9 @@ selcall(Function *fn, Instr *ins, Block *blk, int *curi) {
    }
    if (call->argstksiz) {
       Ref disp = mkref(RICON, argstksiz);
-      insertinstr(blk, iarg--, (Instr){Osub, KPTR, .keep=1, .reg = RSP+1, .l=mkref(RREG,RSP), .r=disp});
+      insertinstr(blk, iarg--, (Instr){Osub, KPTR, .f=INSKEEP, .reg = RSP+1, .l=mkref(RREG,RSP), .r=disp});
       ++*curi;
-      insertinstr(blk, *curi+1, (Instr){Oadd, KPTR, .keep=1, .reg = RSP+1, .l=mkref(RREG,RSP), .r=disp});
+      insertinstr(blk, *curi+1, (Instr){Oadd, KPTR, .f=INSKEEP, .reg = RSP+1, .l=mkref(RREG,RSP), .r=disp});
    }
    if (isimm32(ins->l))
       ins->l = mkaddr((IRAddr){.base = ins->l});
@@ -232,7 +232,7 @@ selcall(Function *fn, Instr *ins, Block *blk, int *curi) {
    if (call->vararg >= 0) {
       /* variadic calls write number of sse regs used to AL */
       insertinstr(blk, (*curi)++,
-            (Instr){Omove, KI32, .keep = 1, .l = mkref(RREG, RAX), .r = mkref(RICON, nsse)});
+            (Instr){Omove, KI32, .f = INSKEEP, .l = mkref(RREG, RAX), .r = mkref(RICON, nsse)});
    }
    cls = ins->cls;
    ins->cls = 0;
@@ -326,7 +326,7 @@ aadd(IRAddr *out, Block *blk, int *curi, Ref r, bool recurring) {
                }
             } else assert(n1 <= 2 && n2 == 0);
             out->disp = off;
-            ins->skip = 1;
+            ins->f |= INSSKIP;
          } else return 0;
       } else if (ins->op == Ocopy && ins->l.t == RADDR) {
          const IRAddr *adr2 = &addrtab.p[ins->l.i];
@@ -336,10 +336,10 @@ aadd(IRAddr *out, Block *blk, int *curi, Ref r, bool recurring) {
          out->base = ins->l;
       } else if (ins->op == Ocopy && isintcon(ins->l)) {
          if (!aimm(out, intconval(ins->l))) return 0;
-         ins->skip = 1;
+         ins->f |= INSSKIP;
       } else if (ins->op == Oshl) {
          if (!ascale(out, ins->l, ins->r)) goto Ref;
-         ins->skip = 1;
+         ins->f |= INSSKIP;
       } else goto Ref;
    } else if (isnumcon(r)) {
       assert(isintcon(r));
@@ -439,7 +439,7 @@ tryfusememwrite(Block *blk, Instr *store, int *curi) {
    int i, t;
    for (i = *curi - 1; i > 0; --i) {
       oper = &instrtab[t = blk->ins.p[i]];
-      if (oper->op == Onop || oper->skip) continue;
+      if (oper->op == Onop || (oper->f&INSSKIP)) continue;
       if (t != val.i || !oisarith(oper->op) || oper->l.t != RTMP) return;
       temp = oper->l;
       break;
@@ -458,7 +458,7 @@ tryfusememwrite(Block *blk, Instr *store, int *curi) {
    if (i < 0) return;
    if (!issingleuse(temp.i)) return;
    if (loadstoresz(load->op) != loadstoresz(store->op)) return;
-   if (load->keep || store->keep) return;
+   if ((load->f&INSKEEP) || (store->f&INSKEEP)) return;
    enum irclass k = oper->cls;
    if (cls2siz[load->cls] != cls2siz[k] || cls2siz[k] != cls2siz[loadstorecls(store->op)]) return;
    if (!canfusememop(oper->op, k)) return;
@@ -552,8 +552,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi) {
       insertinstr(blk, (*curi)++, mkinstr2(Omove, ins->cls, mkref(RREG, RDX), mkref(RREG, RDX)));
       fixarg(&ins->r, ins, blk, curi); /* make sure rhs is memory or reg */
       ins->l = mkref(RREG, RAX);
-      ins->inplace = 1;
-      ins->keep = 1;
+      ins->f |= INS2ADDR | INSKEEP;
       if (op == Orem) ins->op = Odiv;
       else if (op == Ourem) ins->op = Oudiv;
       insertinstr(blk, (*curi)++, *ins); /* duplicate ins to reuse tmp ref */
@@ -570,7 +569,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi) {
        if (isintcon(ins->l)) {
          /* sub imm, x -> sub x, imm; neg x */
          fixarg(&ins->l, ins, blk, curi);
-         ins->inplace = 1;
+         ins->f |= INS2ADDR;
          Instr sub = *ins;
          rswap(sub.l, sub.r);
          ins->op = op = Oneg;
@@ -614,7 +613,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi) {
       if (!(op == Oadd && kisint(ins->cls))) /* 3-address add is lea */
       if (!(op == Omul && kisint(ins->cls) && isimm32(ins->r))) /* for (I)MUL r,r/m,imm */
       if (!(op == Oshl && ins->r.t == RICON && ins->r.i <= 3)) /* can be lea */
-         ins->inplace = 1;
+         ins->f |= INS2ADDR;
       if (iscon(ins->l) || ins->l.t == RSTACK) {
          fixarg(&ins->l, ins, blk, curi);
          ins->l = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, ins->cls, ins->l));
@@ -623,7 +622,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi) {
    case Omove:
          fixarg(&ins->r, ins, blk, curi);
       if (op == Oadd && isaddrcon(ins->r,1)) /* no 3-address add if rhs is mem */
-         ins->inplace = 1;
+         ins->f |= INS2ADDR;
       break;
    case Oloads8: case Oloadu8: case Oloads16: case Oloadu16:
    case Oloads32: case Oloadu32: case Oloadi64: case Oloadf32: case Oloadf64:
@@ -686,7 +685,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi) {
       fixarg(&ins->l, ins, blk, curi);
       break;
    case Obswap16: case Obswap32: case Obswap64:
-      ins->inplace = 1;
+      ins->f |= INS2ADDR;
       if (ins->l.t != RTMP) {
          ins->l = insertinstr(blk, *curi, mkinstr1(Ocopy, ins->cls, ins->l));
          fixarg(&instrtab[ins->l.i].l, ins, blk, curi);
@@ -721,7 +720,7 @@ seljmp(Function *fn, Block *blk) {
       }
       if (iflagsrc == c.i             /*           test                   cmp              */
        && (oiscmp(instrtab[c.i].op) || instrtab[c.i].op == Oand || instrtab[c.i].op == Osub)) {
-         instrtab[c.i].keep = 1;
+         instrtab[c.i].f |= INSKEEP;
       } else {
          if (kisflt(instrtab[c.i].cls) || !(opflags[instrtab[c.i].op] & ZF) || blk->ins.n == 0 || c.i != blk->ins.p[blk->ins.n - 1]) {
             Instr *ins;
@@ -731,10 +730,10 @@ seljmp(Function *fn, Block *blk) {
             if (kisflt(ins->cls)) {
                ins->r = insertinstr(blk, curi, mkinstr1(Ocopy, ins->cls, ZEROREF));
             }
-            ins->keep = 1;
+            ins->f |= INSKEEP;
          } else if (instrtab[c.i].op == Oadd) {
             /* prevent a 3-address add whose flag results are used from becoming a LEA */
-            instrtab[c.i].inplace = 1;
+            instrtab[c.i].f |= INS2ADDR;
          }
       }
    } else if (blk->jmp.t == Jret) {

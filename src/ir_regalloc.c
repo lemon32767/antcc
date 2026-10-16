@@ -101,7 +101,7 @@ pmadd(PMState *pms, enum irclass k, Alloc dst, Alloc src) {
 #define mkmove(k, rd, rs) mkinstr2(Omove, k, mkref(RREG, rd), mkref(RREG, rs))
 static void
 emitmove(Function *fn, enum irclass k, Alloc dst, Alloc src, Block *blk, int curi) {
-   Instr mv = {.keep = 1};
+   Instr mv = {.f = INSKEEP};
    int reg;
    if (dst.t == AREG && src.t == AREG) {
       insertinstr(blk, curi, mkmove(k, dst.a, src.a));
@@ -156,7 +156,8 @@ pmrec(PMState *pms, int i, Block *blk, int curi, enum irclass *k) {
    Swap:
       if (pm->src.t == AREG && pm->dst.t == AREG) {
          insertinstr(blk, curi,
-               (Instr){Oswap, *k, .keep=1, .l = mkref(RREG, pm->dst.a), .r = mkref(RREG, pm->src.a)});
+               (Instr){Oswap, *k, .f=INSKEEP,
+                        .l = mkref(RREG, pm->dst.a), .r = mkref(RREG, pm->src.a)});
       } else if (pm->src.t != pm->dst.t) {
          Alloc reg, stk, regtmp;
          if (pm->src.t == AREG)
@@ -167,7 +168,8 @@ pmrec(PMState *pms, int i, Block *blk, int curi, enum irclass *k) {
          regtmp = areg(kisint(*k) ? mctarg->gprscratch : mctarg->fprscratch);
          emitmove(pms->fn, *k, regtmp, stk, blk, curi++);
          insertinstr(blk, curi++,
-               (Instr){Oswap, *k, .keep=1, .l = mkref(RREG, reg.a), .r = mkref(RREG, regtmp.a)});
+               (Instr){Oswap, *k, .f=INSKEEP,
+                        .l = mkref(RREG, reg.a), .r = mkref(RREG, regtmp.a)});
          emitmove(pms->fn, *k, stk, regtmp, blk, curi++);
       } else {
          /* FIXME using scratch gpr and fpr for this is hackish */
@@ -561,7 +563,8 @@ buildintervals(RegAlloc *ra) {
           */
          reghint = ins && ins->op == Ocopy && ins->l.t == RREG ? ins->l.i : -1;
          if (!intervaldef(ra, out, blk, pos, reghint)) {
-            if (insrescls(*ins) && ins->op != Omove && !ins->keep && !(ins->op == Ocopy && ins->l.t == RREG)) {
+            if (insrescls(*ins) && ins->op != Omove && !(ins->f&INSKEEP)
+              && !(ins->op == Ocopy && ins->l.t == RREG)) {
                /* dead */
                *ins = mkinstr0(Onop,0);
             }
@@ -575,7 +578,7 @@ buildintervals(RegAlloc *ra) {
                usereg(ra, ins->l.i, blk, pos);
                assert(defreg(ra, ins->l.i, pos));
             } else if (!defreg(ra, ins->l.i, pos)) {
-               if (ins->keep) { /* clobber here */
+               if (ins->f&INSKEEP) { /* clobber here */
                   usereg(ra, ins->l.i, blk, pos);
                   assert(defreg(ra, ins->l.i, pos));
                } else {
@@ -639,7 +642,7 @@ buildintervals(RegAlloc *ra) {
             Ref r = queue[--nqueue];
 
             /* do not allocate a reg for a cmp op used as branch argument, since it's a pseudo op */
-            if (curi == blk->ins.n && blk->jmp.t == Jb && r.t == RTMP && instrtab[r.i].keep)
+            if (curi == blk->ins.n && blk->jmp.t == Jb && r.t == RTMP && (instrtab[r.i].f&INSKEEP))
                continue;
 
             if (r.t == RTMP) {
@@ -912,7 +915,7 @@ findavailregs(RegAlloc *ra, LinearScan *s, regset *out_fixexcl) {
       }
    }
    /* for 2-address instrs, exclude reg from 2nd arg (unless arg#1 == arg#2) */
-   if (ins->inplace && opnoper[ins->op] == 2) {
+   if ((ins->f&INS2ADDR) && opnoper[ins->op] == 2) {
       int xreg;
       if (ins->r.t == RREG) rsset(&excl, ins->r.i);
       else if (ins->r.t == RTMP && (xreg = instrtab[ins->r.i].reg)) {
@@ -972,7 +975,7 @@ spill(RegAlloc *ra, LinearScan *s, int *out_reg, regset fixexcl) {
 static bool
 arith2addrok(Instr *ins) {
    /* this is ugly.. */
-   return opnoper[ins->op] == 1 || (ins->inplace || (target.arch == ISx86_64 && ins->op == Oadd));
+   return opnoper[ins->op] == 1 || ((ins->f&INS2ADDR) || (target.arch == ISx86_64 && ins->op == Oadd));
 }
 
 static int
@@ -1093,10 +1096,10 @@ canusememoper(Instr *ins, Ref *r) {
    if (r != &ins->r || !kisint(ins->cls)) return 0;
    switch (ins->op) {
    case Oadd: /* two-address only, lea can't */
-      return ins->reg && ins->inplace;
+      return ins->reg && (ins->f&INS2ADDR);
    case Osub: case Oand: case Oior: case Oxor:
       /* !reg means a cmp/test, also can take mem oper */
-      return !ins->reg || ins->inplace;
+      return !ins->reg || (ins->f&INS2ADDR);
    }
    return 0;
 }
@@ -1247,7 +1250,7 @@ devirt(RegAlloc *ra, Block *blk) {
             }
          }
       }
-      if (!ins->reg && insrescls(*ins) && ins->op != Omove && !ins->keep && !oisstore(ins->op)) {
+      if (!ins->reg && insrescls(*ins) && ins->op != Omove && !(ins->f&INSKEEP) && !oisstore(ins->op)) {
          /* dead */
       Nop:
         ins->op = Onop;
@@ -1260,7 +1263,7 @@ devirt(RegAlloc *ra, Block *blk) {
       } else if (ins->op != Onop) {
          allnops = 0;
       }
-      if (ins->inplace && ins->l.t == RREG && ins->reg && ins->reg-1 != ins->l.i) {
+      if ((ins->f&INS2ADDR) && ins->l.t == RREG && ins->reg && ins->reg-1 != ins->l.i) {
          /* fixup in-place (two-address) instructions */
          allnops = 0;
          insertinstr(blk, curi0, mkmove(ins->cls, ins->reg-1, ins->l.i));
@@ -1268,7 +1271,7 @@ devirt(RegAlloc *ra, Block *blk) {
          ins->l.i = ins->reg-1;
       }
       if (!ins->reg && in_range(ins->op, Oloads8, Oloadf64)) {
-         assert(ins->keep);
+         assert(ins->f&INSKEEP);
          ins->reg = kisint(ins->cls) ? mctarg->gprscratch+1 : mctarg->fprscratch+1;
       }
    }
@@ -1300,7 +1303,7 @@ spillopt(RegAlloc *ra, Block *blk, SpillCache *s) {
       int off, slot, reg, sz;
 
       if (ins->op == Onop) continue;
-      if (oisloadstore(ins->op) && ins->l.t == RSTACK && !ins->keep
+      if (oisloadstore(ins->op) && ins->l.t == RSTACK && !(ins->f&INSKEEP)
        && (off = ins->l.i - base) % 8 == 0 && (uint)(slot = off / 8) < ra->maxstk
        && slot < MAXSPILL) {
          sz = loadstoresz(ins->op);
@@ -1349,7 +1352,7 @@ spillopt(RegAlloc *ra, Block *blk, SpillCache *s) {
                if (s->regslot[r] >= 0) s->slotreg[s->regslot[r]] = -1;
                s->regslot[r] = -1;
             }
-      } else if ((ins->op == Omove || ins->inplace) && ins->l.t == RREG) {
+      } else if ((ins->op == Omove || (ins->f&INS2ADDR)) && ins->l.t == RREG) {
          if (s->regslot[ins->l.i] >= 0) s->slotreg[s->regslot[ins->l.i]] = -1;
          s->regslot[ins->l.i] = -1;
       } else if (ins->op == Oswap) {

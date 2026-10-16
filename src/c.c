@@ -3670,7 +3670,7 @@ genload(Function *fn, Type t, Ref ref, bool volatyl) {
    default: assert(0);
    }
    ins.l = ref;
-   ins.keep = volatyl;
+   ins.f = INSVOLATILE &- volatyl;
    return addinstr(fn, ins);
 }
 
@@ -3688,7 +3688,7 @@ genstore(Function *fn, Type t, Ref ptr, Ref val, bool volatyl) {
    }
    ins.l = ptr;
    ins.r = val;
-   ins.keep = volatyl;
+   ins.f = INSVOLATILE &- volatyl;
    return addinstr(fn, ins);
 }
 

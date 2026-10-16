@@ -119,12 +119,17 @@ enum intrin {
 #undef _
 };
 
+enum insflags {
+   INSSKIP  = 1<<4, /* ignore during codegen: forms part of one machine instruction */
+   INSKEEP  = 1<<5, /* for codegen, keep instr even if result seems unused */
+   INS2ADDR = 1<<6, /* set by isel for instructions which modify its first arg in place */
+   INSVOLATILE = INSKEEP, /* for load/stores */
+};
+
 typedef struct Instr {
    uchar op,
-         cls; /* operation data class; also result class except for cmp ops (always i32) */
-   uchar skip : 1, /* ignore during codegen: forms part of one machine instruction */
-         keep : 1; /* for codegen, keep instr even if result seems unused */
-   uchar inplace : 1; /* set (by isel) for instructions which modify its first arg in place */
+         cls, /* operation data class; also result class except for cmp ops (always i32) */
+         f; /* enum insflags */
    uchar reg; /* 0 -> no reg; else reg + 1 */
    union { /* operands */
       struct { Ref l, r; };

@@ -212,8 +212,8 @@ dumpinstr(WriteBuf *buf, const Instr *ins) {
    if (oisalloca(ins->op) && ins->l.t == RICON) {
       bfmt(buf, " \t; %d bytes", ins->l.i << (ins->op - Oalloca1));
    }
-   if (ins->keep) bfmt(buf, " !keep");
-   if (ins->inplace) bfmt(buf, " !inplace");
+   if (ins->f&INSKEEP) bfmt(buf, oisloadstore(ins->op) ? " !volatile" : " !keep");
+   if (ins->f&INS2ADDR) bfmt(buf, " !inplace");
 }
 
 void

@@ -194,11 +194,11 @@ mem2reg(Function *fn) {
          Instr *ins = &instrtab[var];
 
          /* find allocas only used in loads/stores of uniform size */
-         if (!oisalloca(ins->op) || ins->keep/*!volatile*/) continue;
+         if (!oisalloca(ins->op) || (ins->f&INSKEEP)) continue;
          for (IRUse *use = instruse[var]; use; use = use->next) {
             if (use->u == USERJUMP) goto Skip;
             Instr *m = &instrtab[use->u];
-            if (m->keep) /*volatile*/ goto Skip;
+            if (m->f&INSVOLATILE) goto Skip;
             if (oisload(m->op) && (!sz || sz == loadstoresz(m->op))) {
                ++nwrite;
                sz = loadstoresz(m->op);

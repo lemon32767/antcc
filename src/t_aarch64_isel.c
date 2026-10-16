@@ -208,9 +208,9 @@ selcall(Function *fn, Instr *ins, Block *blk, int *curi) {
    }
    if (call->argstksiz) {
       Ref disp = mkref(RICON, argstksiz);
-      insertinstr(blk, iarg--, (Instr){Osub, KPTR, .keep=1, .reg = SP+1, .l=mkref(RREG,SP), .r=disp});
+      insertinstr(blk, iarg--, (Instr){Osub, KPTR, .f=INSKEEP, .reg = SP+1, .l=mkref(RREG,SP), .r=disp});
       ++*curi;
-      insertinstr(blk, *curi+1, (Instr){Oadd, KPTR, .keep=1, .reg = SP+1, .l=mkref(RREG,SP), .r=disp});
+      insertinstr(blk, *curi+1, (Instr){Oadd, KPTR, .f=INSKEEP, .reg = SP+1, .l=mkref(RREG,SP), .r=disp});
    }
    if (isimm32(ins->l))
       ins->l = mkaddr((IRAddr){.base = ins->l});
@@ -274,18 +274,18 @@ aadd(IRAddr *addr, Block *blk, int *curi, Ref r, uint siz/*1,2,4,8*/) {
       if (ins->op == Oadd) {
          if (!aadd(addr, blk, curi, ins->l, siz)) goto Ref;
          if (!aadd(addr, blk, curi, ins->r, siz)) goto Ref;
-         ins->skip = 1;
+         ins->f |= INSSKIP;
       } else if (ins->op == Osub) {
          if (!aadd(addr, blk, curi, ins->l, siz)) goto Ref;
          if (!isintcon(ins->r)) goto Ref;
          if (!aimm(addr, -intconval(ins->r))) goto Ref;
-         ins->skip = 1;
+         ins->f |= INSSKIP;
       } else if (ins->op == Oshl) {
          if (!ascale(addr, ins->l, ins->r, siz)) goto Ref;
-         ins->skip = 1;
+         ins->f |= INSSKIP;
       } else if (ins->op == Ocopy) {
          if (!aadd(addr, blk, curi, ins->l, siz)) goto Ref;
-         ins->skip = 1;
+         ins->f |= INSSKIP;
       } else goto Ref;
    } else if (isnumcon(r)) {
       assert(isintcon(r));
@@ -539,12 +539,12 @@ seljmp(Function *fn, Block *blk) {
          sel(fn, &instrtab[c.i], blk, &curi);
       }
       if (iflagsrc == c.i && oiscmp(instrtab[c.i].op)) {
-         instrtab[c.i].keep = 1;
+         instrtab[c.i].f |= INSKEEP;
       } else {
          enum irclass k = insrescls(instrtab[c.i]);
          blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr2(Oneq, k, c, kisint(k) ? ZEROREF : mkfltcon(k, 0)));
          Instr *ins = &instrtab[blk->jmp.arg[0].i];
-         ins->keep = 1;
+         ins->f |= INSKEEP;
       }
    } else if (blk->jmp.t == Jret) {
       if (blk->jmp.arg[0].bits) {

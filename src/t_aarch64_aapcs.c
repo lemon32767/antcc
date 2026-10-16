@@ -179,7 +179,7 @@ vastart(Function *fn, Block *blk, int *curi) {
       assert(instrtab[rsave.i].op == Oalloca16);
    } else {
       rsave = insertinstr(fn->entry, 0, mkalloca(vrtop, 16));
-      insertinstr(fn->entry, 1, (Instr){Oxvaprologue, 0, .keep=1, .l=rsave});
+      insertinstr(fn->entry, 1, (Instr){Oxvaprologue, 0, .f=INSKEEP, .l=rsave});
    }
    /* set ap->gr_top */
    *ins = mkinstr2(Oadd, KPTR, ap, mkref(RICON, VL_GR_TOP_OFF));

@@ -700,7 +700,7 @@ killdead(int t) {
    Instr *ins = &instrtab[t];
    if (ins->op == Onop || ins->op == Ophi)
       return 0; /* phis are removed via delphi() only */
-   if (ins->keep || (!oisarith(ins->op) && ins->op != Ocopy)) /* pure? */
+   if ((ins->f&INSKEEP) || (!oisarith(ins->op) && ins->op != Ocopy)) /* pure? */
       return 0;
    for (IRUse *u = instruse[t]; u; u = u->next)
       if (u->u == USERJUMP || instrtab[u->u].op != Onop) /* live use? */

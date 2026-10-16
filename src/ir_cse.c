@@ -3,7 +3,7 @@
 
 static inline bool
 pure(const Instr *ins) {
-   return oisarith(ins->op) || (oisload(ins->op) && !ins->keep);
+   return oisarith(ins->op) || (oisload(ins->op) && !(ins->f&INSVOLATILE));
 }
 
 static inline bool
