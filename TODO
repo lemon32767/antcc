@@ -33,6 +33,7 @@ gnu builtins
 gnu __asm__, constraints, reg vars
 
 BACKEND
+tail calls and TCO
 need assembler for gnu asm
 mem2reg remove redundant phis SCC algo
 mem2reg structs
