@@ -6,19 +6,32 @@ static int nextdat;
 
 static WriteBuf *out = &bstdout;
 
+/* syntax highlighting */
+#define H    "%g."
+#define HKWD "%g34."
+#define HTYP "%g36."
+#define HCOM "%g90."
+#define HSYM "%g33."
+#define HCON "%g32."
+#define HREF ""
+#define HBLK "%g35."
+
 static bool
-prilitdat(const IRDat *dat, const char *prefix) {
+prilitdat(const IRDat *dat, const char *prefix, bool hl) {
    uchar *p = objsecdata(dat->section, dat->off);
    assert(p);
+   int c = out->color;
+   out->color = hl;
    if (dat->ctype.t == TYARRAY && typechild(dat->ctype).t == TYCHAR && dat->siz-1 < 60 && p[dat->siz-1] == 0) {
-      bfmt(out, "%s%'S", prefix, p, dat->siz-1);
+      bfmt(out, prefix), bfmt(out, HCON"%'S"H, p, dat->siz-1);
    } else if (dat->ctype.t == TYFLOAT) {
-      bfmt(out, "%s%f", prefix, rdf32targ(p));
+      bfmt(out, prefix), bfmt(out, HCON"%f"H, rdf32targ(p));
    } else if (dat->ctype.t == TYDOUBLE) {
-      bfmt(out, "%s%f", prefix, rdf64targ(p));
+      bfmt(out, prefix), bfmt(out, HCON"%f"H, rdf64targ(p));
    } else if (dat->ctype.t == TYVLONG) {
-      bfmt(out, "%s0x%lx", prefix, rd64targ(p));
+      bfmt(out, prefix), bfmt(out, HCON"0x%lx"H, rd64targ(p));
    } else return 0;
+   out->color = c;
    return 1;
 }
 
@@ -33,8 +46,10 @@ pridat(const IRDat *dat) {
    };
    int npri = 0;
    int strbegin = 0, nstr = 0;
-   bfmt(out, "%s %ty %y(align %d, size %d):\n\t", objsecnames[dat->section], dat->ctype, dat->name, dat->align, dat->siz);
-   if (!prilitdat(dat, "lit: ")) {
+   bfmt(out, "%s "HTYP"%ty"H" "HSYM"%y"H"("HKWD"align"H" "HCON"%d"H
+             ", "HKWD"size"H" "HCON"%d"H"):\n\t",
+         objsecnames[dat->section], dat->ctype, dat->name, dat->align, dat->siz);
+   if (!prilitdat(dat, HKWD"lit"H": ", 1)) {
       for (int i = 0; i < dat->siz; ++i) {
          int c = p[i];
          if (npri > MAXLINE) {
@@ -45,14 +60,14 @@ pridat(const IRDat *dat) {
             if (!nstr++) strbegin = i;
          } else {
             if (nstr) {
-               npri += bfmt(out, "asc %'S,", p+strbegin, nstr);
+               npri += bfmt(out, HKWD"asc "HCON"%'S"H",", p+strbegin, nstr);
                nstr = 0;
-               bfmt(out, "b ");
+               bfmt(out, HKWD"b "H);
             }
-            npri += bfmt(out, "%d,", c);
+            npri += bfmt(out, HCON"%d"H",", c);
          }
       }
-      if (nstr) npri += bfmt(out, "asc %'S,", p+strbegin, nstr);
+      if (nstr) npri += bfmt(out, HKWD"asc "HCON"%'S"H",", p+strbegin, nstr);
    }
    bfmt(out, "\n");
 }
@@ -64,14 +79,15 @@ const char *clsname[] = {
 static int
 prityp(WriteBuf *buf, IRType typ) {
    if (!typ.isagg)
-      return bfmt(buf, clsname[typ.cls]);
+      return bfmt(buf, HTYP"%s"H, clsname[typ.cls]);
    else {
       const TypeData *td = &typedata[typ.dat];
       const char *tag = td->t == TYSTRUCT ? "struct" : "union";
+      int n = bfmt(buf, HKWD"%s"H, tag);
       if (tagtypetags[td->id])
-         return bfmt(buf, "%s.%s.%d", tag, tagtypetags[td->id], td->id);
+         return n + bfmt(buf, HTYP".%s.%d"H, tagtypetags[td->id], td->id);
       else
-         return bfmt(buf, "%s.%d", tag, td->id);
+         return n + bfmt(buf, HTYP".%d"H, td->id);
    }
 }
 
@@ -93,7 +109,7 @@ dumpref(WriteBuf *buf, enum op o, Ref ref) {
       else
          return bfmt(buf, "??");
    case RTMP:
-      n = bfmt(buf, "%%%d", ref.i);
+      n = bfmt(buf, HREF"%%%d"H, ref.i);
       if (instrtab[ref.i].reg)
          n += bfmt(buf, "(%s)", mctarg->rnames[instrtab[ref.i].reg-1]);
       break;
@@ -102,32 +118,35 @@ dumpref(WriteBuf *buf, enum op o, Ref ref) {
       break;
    case RICON:
       if (o == Ointrin)
-         n = bfmt(buf, "\"%s\"", intrinname[ref.i]);
+         n = bfmt(buf, HCON"%'s"H, intrinname[ref.i]);
       else
-         n = bfmt(buf, "%d", ref.i);
+         n = bfmt(buf, HCON"%d"H, ref.i);
       break;
    case RXCON:
       con = &contab.p[ref.i];
       if (con->deref) n += bfmt(buf, "*[");
       if (con->issym || con->isdat) {
-         n += bfmt(buf, "$%y", xcon2sym(ref.i));
+         n += bfmt(buf, HSYM"$%y"H, xcon2sym(ref.i));
          if (con->isdat) {
             IRDat *dat = &dattab.p[con->dat];
-            if (prilitdat(dat, " (= ")) {
+
+            bfmt(buf, HCOM);
+            if (prilitdat(dat, " #;(", 0)) {
                if (isscalar(dat->ctype)) {
                   WriteBuf tmp = MEMBUF((char [1]){0}, 1);
                   bfmt(&tmp, "%ty", dat->ctype);
                   ioputc(buf, *tmp.buf), ++n;
                }
-               ioputc(buf, ')'), ++n;
+               n += bfmt(buf, ")");
             }
+            bfmt(buf, H);
          }
       } else switch (con->cls) {
-      case KI32: n += bfmt(buf, "%d", (int)con->i); break;
-      case KI64: n += bfmt(buf, "%ld", con->i); break;
-      case KPTR: n += bfmt(buf, "%'lx", con->i); break;
-      case KF32: n += bfmt(buf, "%fs", con->f); break;
-      case KF64: n += bfmt(buf, "%fd", con->f); break;
+      case KI32: n += bfmt(buf, HCON"%d"H, (int)con->i); break;
+      case KI64: n += bfmt(buf, HCON"%ld"H, con->i); break;
+      case KPTR: n += bfmt(buf, HCON"%'lx"H, con->i); break;
+      case KF32: n += bfmt(buf, HCON"%fs"H, con->f); break;
+      case KF64: n += bfmt(buf, HCON"%fd"H, con->f); break;
       default: assert(0);
       }
       if (con->deref) n += bfmt(buf, "]");
@@ -139,17 +158,17 @@ dumpref(WriteBuf *buf, enum op o, Ref ref) {
          const IRAddr *addr = &addrtab.p[ref.i];
          bool k = 0;
          if (addr->cls)
-            n += bfmt(buf, "*%s ", clsname[addr->cls]);
+            n += bfmt(buf, "*"HTYP"%s"H" ", clsname[addr->cls]);
          n += bfmt(buf, "[");
          if ((k = addr->base.bits)) n += dumpref(buf, 0, addr->base);
          if (addr->index.bits) {
             if (k) n += bfmt(buf, " + %r", addr->index);
             if (addr->shift)
-               n += bfmt(buf, " * %d", 1<<addr->shift);
+               n += bfmt(buf, " * "HCON"%d"H, 1<<addr->shift);
             k = 1;
          }
          if (k && addr->disp) {
-            n += bfmt(buf, " %c %d", "-+"[addr->disp > 0], addr->disp < 0 ? -addr->disp : addr->disp);
+            n += bfmt(buf, " %c "HCON"%d"H, "-+"[addr->disp > 0], addr->disp < 0 ? -addr->disp : addr->disp);
          }
          assert(k);
          n += bfmt(buf, "]");
@@ -186,20 +205,20 @@ void
 dumpinstr(WriteBuf *buf, const Instr *ins) {
    int i;
    if (ins->op == Omove) {
-      bfmt(buf, "move %s ", clsname[ins->cls]);
+      bfmt(buf, HKWD"move"H" "HTYP"%s"H" ", clsname[ins->cls]);
    } else {
       enum irclass cls = insrescls(*ins);
       if (ins->reg) {
          if (cls)
-            bfmt(buf, "%s ", clsname[cls]);
-         bfmt(buf, "(%%%d)%s = ", ins - instrtab, mctarg->rnames[ins->reg - 1]);
+            bfmt(buf, HTYP"%s"H" ", clsname[cls]);
+         bfmt(buf, HREF"(%%%d)%s"H" = ", ins - instrtab, mctarg->rnames[ins->reg - 1]);
       } else if (cls) {
-         bfmt(buf, "%s %%%d", clsname[cls], ins - instrtab);
+         bfmt(buf, HTYP"%s"H" "HREF"%%%d"H, clsname[cls], ins - instrtab);
          bfmt(buf, " = ");
       }
-      bfmt(buf, "%s ", opnames[ins->op]);
+      bfmt(buf, HKWD"%s "H, opnames[ins->op]);
       if (oiscmp(ins->op))
-         bfmt(buf, "%s ", clsname[ins->cls]);
+         bfmt(buf, HTYP"%s"H" ", clsname[ins->cls]);
    }
    for (i = 0; i < opnoper[ins->op]; ++i) {
       if (i) bfmt(buf, ", ");
@@ -210,10 +229,10 @@ dumpinstr(WriteBuf *buf, const Instr *ins) {
       }
    }
    if (oisalloca(ins->op) && ins->l.t == RICON) {
-      bfmt(buf, " \t; %d bytes", ins->l.i << (ins->op - Oalloca1));
+      bfmt(buf, " \t"HCOM"; %d bytes"H, ins->l.i << (ins->op - Oalloca1));
    }
-   if (ins->f&INSKEEP) bfmt(buf, oisloadstore(ins->op) ? " !volatile" : " !keep");
-   if (ins->f&INS2ADDR) bfmt(buf, " !inplace");
+   if (ins->f&INSKEEP) bfmt(buf, HKWD"%s"H, oisloadstore(ins->op) ? " !volatile" : " !keep");
+   if (ins->f&INS2ADDR) bfmt(buf, HKWD" !inplace"H);
 }
 
 void
@@ -228,20 +247,21 @@ void
 dumpblk(Function *fn, Block *blk) {
    static const char *jnames[] = { 0, "b", "ret", "trap" };
    int i;
-   bfmt(out, "  @%d:", blk->id);
+   bfmt(out, "  "HBLK"@%d:"H, blk->id);
    if (blk->npred) {
-      bfmt(out, " \t; preds:");
+      bfmt(out, " \t"HCOM"; preds:");
       for (i = 0; i < blk->npred; ++i) {
          if (i) ioputc(out, ',');
          bfmt(out, " @%d", blkpred(blk, i)->id);
       }
+      bfmt(out, H);
    }
    if (fn->prop & FNDOM && blk->idom)
-      bfmt(out, "\t; idom: @%d", blk->idom->id);
+      bfmt(out, "\t"HCOM"; idom: @%d"H, blk->idom->id);
    if (blk->loopdepth)
-      bfmt(out, "\t; loop depth: %d", blk->loopdepth);
+      bfmt(out, "\t"HCOM"; loop depth: %d"H, blk->loopdepth);
    if (fn->prop & FNDOM)
-      bfmt(out, "\t; dom depth: %d", blk->domdepth);
+      bfmt(out, "\t"HCOM"; dom depth: %d"H, blk->domdepth);
    ioputc(out, '\n');
    for (i = 0; i < blk->phi.n; ++i) {
       Instr *phi = &instrtab[blk->phi.p[i]];
@@ -252,12 +272,12 @@ dumpblk(Function *fn, Block *blk) {
          else
             bfmt(out, " |> ");
       }
-      bfmt(out, "    %s ", clsname[phi->cls]);
-      if (!phi->reg) bfmt(out, "%%%d = %s ", blk->phi.p[i], opnames[phi->op]);
-      else bfmt(out, "(%%%d)%s = %s ", phi - instrtab, mctarg->rnames[phi->reg-1], opnames[phi->op]);
+      bfmt(out, "    "HTYP"%s"H" ", clsname[phi->cls]);
+      if (!phi->reg) bfmt(out, HREF"%%%d"H" = "HKWD"%s "H, blk->phi.p[i], opnames[phi->op]);
+      else bfmt(out, "(%%%d)%s = "HKWD"%s"H" ", phi - instrtab, mctarg->rnames[phi->reg-1], opnames[phi->op]);
       for (int i = 0; i < blk->npred; ++i) {
          if (i) bfmt(out, ", ");
-         bfmt(out, "@%d ", blkpred(blk, i)->id);
+         bfmt(out, HBLK"@%d "H, blkpred(blk, i)->id);
          dumpref1(0, refs[i]);
       }
       ioputc(out, '\n');
@@ -270,7 +290,7 @@ dumpblk(Function *fn, Block *blk) {
    }
    if (prinums)
       bfmt(out, "%-4d", blk->inumstart + 1 + i);
-   bfmt(out, "    %s ", jnames[blk->jmp.t]);
+   bfmt(out, "    "HKWD"%s"H" ", jnames[blk->jmp.t]);
    if (blk->jmp.t == Jret && blk->jmp.arg[0].bits && !fn->nabiret && (isagg(fn->retty) || iscomplex(fn->retty))) {
       /* un-lowered struct return */
       dumpref1(0, mktyperef(mkirtype(fn->retty)));
@@ -282,8 +302,8 @@ dumpblk(Function *fn, Block *blk) {
       dumpref1(0, blk->jmp.arg[i]);
    }
    if (i && blk->s1) bfmt(out, ", ");
-   if (blk->s1 && blk->s2) bfmt(out, "@%d, @%d", blk->s1->id, blk->s2->id);
-   else if (blk->s1) bfmt(out, "@%d", blk->s1->id);
+   if (blk->s1 && blk->s2) bfmt(out, HBLK"@%d"H", "HBLK"@%d"H, blk->s1->id, blk->s2->id);
+   else if (blk->s1) bfmt(out, HBLK"@%d"H, blk->s1->id);
    bfmt(out, "\n");
 }
 
@@ -296,9 +316,9 @@ irdump(Function *fn) {
       while (nextdat < dattab.n) pridat(&dattab.p[nextdat++]);
    }
 
-   bfmt(out, "function %s : %ty\n", fn->name, fn->fnty);
+   bfmt(out, HKWD"function"H" "HSYM"%y"H" : "HTYP"%ty"H"\n", fn->name, fn->fnty);
    if (fn->abiarg || fn->nabiret) {
-      bfmt(out, "abi: (");
+      bfmt(out, HKWD"abi:"H" (");
       for (int i = 0; i < fn->nabiarg; ++i) {
          if (i > 0) bfmt(out, ", ");
          if (!fn->abiarg[i].isstk) {
