@@ -9,6 +9,7 @@ pure(const Instr *ins) {
 static inline bool
 insequ(const Instr *a, const Instr *b) {
    if (a->op != b->op) return 0;
+   if (a->f != b->f) return 0;
    enum op op = a->op;
    switch (opnoper[op]) {
    default: assert(0);
