@@ -944,6 +944,19 @@ ppostfixopers(CComp *cm, Expr *ex) {
             *ex = mkexpr(EGETF, span, fld.t, .qual = ex->qual | fld.qual, .sub = exprdup(cm, ex),
                         .fld = { fld.off, fld.bitsiz, fld.bitoff });
          }
+         if (ex->fld.bitsiz) {
+            ex->fld.sext = issigned(ex->ty);
+            /* per C11 §6.3.1.1p2; unsigned bitfields promote to 'int' when all values
+             * are representable, never 'unsigned int' */
+            if (fld.bitsiz < 8*targ_primsizes[TYINT] && scalartypet(fld.t) == TYUINT) {
+               ex->ty.t = TYINT;
+               /* N.B. doing this arithmetic promotion eagerly here
+                * changes behavior for _Generic (such an unsigned bitfield expr
+                * matches int and not unsigned). It shouldn't matter in
+                * practice: clang and gcc already diverge for
+                * _Generic(bitfield), it's kind of underspecified */
+            }
+         }
       }
       continue;
    }
@@ -3838,7 +3851,7 @@ scalarcvt(Function *fn, Type to, Type from, Ref ref) {
 }
 
 static Ref
-narrow(Function *fn, enum irclass to, Type t, Ref ref, uint bitsiz) {
+narrow(Function *fn, enum irclass to, Type t, Ref ref, const ExprGetFld *fld) {
    enum typetag tt = scalartypet(t);
    assert(isscalar(t));
    if (targ_primsizes[tt] < cls2siz[to]) {
@@ -3854,12 +3867,12 @@ narrow(Function *fn, enum irclass to, Type t, Ref ref, uint bitsiz) {
       }
       ref = irunop(fn, op, to, ref);
    }
-   if (bitsiz) {
-      assert(kisint(to) && isintt(tt) && bitsiz < 8*targ_primsizes[tt]);
-      if (!issignedt(tt)) {
-         ref = irbinop(fn, Oand, to, ref, mkintcon(to, (1ull<<bitsiz)-1));
+   if (fld && fld->bitsiz) {
+      assert(kisint(to) && isintt(tt) && fld->bitsiz < 8*targ_primsizes[tt]);
+      if (!fld->sext) {
+         ref = irbinop(fn, Oand, to, ref, mkintcon(to, (1ull<<fld->bitsiz)-1));
       } else {
-         uint sh = 8*cls2siz[to] - bitsiz;
+         uint sh = 8*cls2siz[to] - fld->bitsiz;
          ref = irbinop(fn, Oshl, to, ref, mkref(RICON, sh));
          ref = irbinop(fn, Osar, to, ref, mkref(RICON, sh));
       }
@@ -4091,7 +4104,7 @@ genbitfload(Function *fn, Ref *tmpval, const Type ty, Ref *addr,
    *addr = irbinop(fn, Oadd, KPTR, *addr, mkintcon(KI32, off));
    tmp = genload(fn, ty, *addr, volatyl);
    if (tmpval) *tmpval = tmp;
-   if (!issigned(ty)) {
+   if (!fld->sext) {
       /* shift right and mask */
       tmp = irbinop(fn, Oslr, k, tmp, mkref(RICON, bitoff));
       if (bitsiz < 8*typesize(ty)) {
@@ -4176,11 +4189,11 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
 
    Type ty;
    Ref l, r, q, adr;
-   uint bitsiz;
    enum op op;
    int swp;
    enum irclass cls = type2cls[scalartypet(ex->ty)];
    Expr *sub = ex->sub;
+   ExprGetFld *exfld;
 
    switch (ex->t) {
    case ENUMLIT:
@@ -4218,7 +4231,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
          r = complex2scalar(fn, ex->ty, sub);
       }
       if (isint(ex->ty) && (typesize(ex->ty) < typesize(sub->ty) || issigned(ex->ty) != issigned(sub->ty)))
-         return narrow(fn, type2cls[scalartypet(ex->ty)], ex->ty, r, 0);
+         return narrow(fn, type2cls[scalartypet(ex->ty)], ex->ty, r, NULL);
       return r;
    case ENEG:
       op = Oneg;
@@ -4303,8 +4316,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
          r = typesizeref(typechild(ex->ty));
       else
          r = isflt(ex->ty) ? mkfltcon(type2cls[ex->ty.t], 1.0) : mkref(RICON, 1);
-      bitsiz = 0;
-      if (sub->t == EGETF && (bitsiz = sub->fld.bitsiz)) {
+      if (sub->t == EGETF && sub->fld.bitsiz) {
          Ref tmp;
          adr = expraddr(fn, &sub->sub[0]);
          l = genbitfload(fn, &tmp, sub->ty, &adr, &sub->fld, sub->qual & QVOLATILE);
@@ -4324,20 +4336,22 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
          r = typesizeref(typechild(ex->ty));
       else
          r = isflt(ex->ty) ? mkfltcon(type2cls[ex->ty.t], 1.0) : mkref(RICON, 1);
-      if (sub[0].t == EGETF && (bitsiz = sub->fld.bitsiz)) {
+      if (sub[0].t == EGETF && sub->fld.bitsiz) {
          Ref tmp;
+         exfld = &sub->fld;
          adr = expraddr(fn, &sub[0].sub[0]);
          l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
          q = irbinop(fn, op, cls, l, r);
          genbitfstore(fn, sub[0].ty, adr, &sub[0].fld, tmp, q, sub[0].qual & QVOLATILE);
       } else {
+         exfld = NULL;
          adr = expraddr(fn, sub);
          l = genload(fn, sub->ty, adr, sub->qual & QVOLATILE);
          q = irbinop(fn, op, cls, l, r);
          genstore(fn, sub->ty, adr, q, sub[0].qual & QVOLATILE);
       }
       if (discard) return NOREF;
-      return narrow(fn, cls, ex->ty, q, 0);
+      return narrow(fn, cls, ex->ty, q, exfld);
    case EEQU:
       op = Oequ;
       goto Cmp;
@@ -4381,17 +4395,18 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
    case ESET:
       assert(isscalar(ex->ty));
       q = scalarcvt(fn, sub[0].ty, sub[1].ty, exprvalue(fn, &sub[1]));
-      if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
+      if (sub[0].t == EGETF && sub[0].fld.bitsiz) {
          /* bit-field */
+         exfld = &sub[0].fld;
          adr = expraddr(fn, &sub[0].sub[0]);
          genbitfstore(fn, ex->ty, adr, &sub[0].fld, NOREF, q, sub[0].qual & QVOLATILE);
       } else {
-         bitsiz = 0;
+         exfld = NULL;
          adr = expraddr(fn, &sub[0]);
          genstore(fn, ex->ty, adr, q, sub[0].qual & QVOLATILE);
       }
       if (discard) return NOREF;
-      return narrow(fn, cls, sub[0].ty, q, bitsiz);
+      return narrow(fn, cls, sub[0].ty, q, exfld);
    case ESETMUL:
       op = Omul;
       goto Compound;
@@ -4428,10 +4443,11 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
          op = op - Odiv + Oudiv;
       }
       r = exprvalue(fn, &sub[1]);
-      if (sub[0].t == EGETF && (bitsiz = sub[0].fld.bitsiz)) {
+      if (sub[0].t == EGETF && sub[0].fld.bitsiz) {
          /* bit-field */
-         Ref tmp;
+         exfld = &sub[0].fld;
          adr = expraddr(fn, &sub[0].sub[0]);
+         Ref tmp;
          l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
          l = scalarcvt(fn, ty, sub[0].ty, l);
          r = scalarcvt(fn, ty, sub[1].ty, r);
@@ -4439,7 +4455,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
          q = scalarcvt(fn, sub[0].ty, ty, q);
          genbitfstore(fn, sub[0].ty, adr, &sub[0].fld, tmp, q, sub[0].qual & QVOLATILE);
       } else {
-         bitsiz = 0;
+         exfld = NULL;
          adr = expraddr(fn, &sub[0]);
          l = genload(fn, ex->ty, adr, sub[0].qual & QVOLATILE);
          if ((op != Oadd && op != Osub) || cls != KPTR) {
@@ -4453,11 +4469,11 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
          genstore(fn, ex->ty, adr, q, sub[0].qual & QVOLATILE);
       }
       if (discard) return NOREF;
-      return narrow(fn, cls, ex->ty, q, bitsiz);
+      return narrow(fn, cls, ex->ty, q, exfld);
    case ECALL:
       r = compilecall(fn, ex);
       if (isint(ex->ty))
-         return narrow(fn, cls, ex->ty, r, 0);
+         return narrow(fn, cls, ex->ty, r, NULL);
       return r;
    case ECOND:
       for (bool c; knowntruthy(&c, &ex->sub[0]);) {

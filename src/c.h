@@ -37,6 +37,7 @@ struct Expr {
          struct ExprGetFld {
             uint off;
             uchar bitsiz, bitoff;
+            bool sext;
          } fld; /* EGETF */
       };
       u64int u; s64int i; double f; /* ENUMLIT */

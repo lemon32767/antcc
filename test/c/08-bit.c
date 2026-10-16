@@ -5,6 +5,8 @@ CEFA CDAB3412 AA000000000000FF
 {0, 1}
 {2, 1}
 {1, 2}
+((unsigned:4)15 < -1) = 0
+++s.a = 0, --s.a = 15
 */
 
 int xor(int a) {
@@ -67,6 +69,10 @@ int main(int p) {
    printf("{%d, %d}\n", si1.x, si1.y);
    printf("{%d, %d}\n", si2.x, si2.y);
    printf("{%d, %d}\n", si3.a.x, si3.a.y);
+
+   struct S { unsigned a:4; } s = {15};
+   printf("((unsigned:4)15 < -1) = %d\n", (s.a < -1));
+   s.a = 15; printf("++s.a = %d, ", ++s.a); s.a = 0; printf("--s.a = %d\n", --s.a);
 
    int x = 42,
        *a = &x,
