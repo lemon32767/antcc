@@ -363,15 +363,16 @@ licm(Function *fn, Loop *l) {
 enum ivkind { IVBASIC, IVDERIVOFFSET, IVDERIVSCALED, IVDERIVWIDEN };
 typedef struct IndVar {
    struct IndVar *next;
-   Ref value, _init, _stride;
+   Ref value, _init;
+   int stride;
    struct IndVar *base;
    uchar kind;
    uchar cls;
    schar mark;
    union {
       Ref phinext;
-      Ref offset;
-      Ref scale;
+      Ref off;
+      int scale;
       enum op op;
    };
 } IndVar;
@@ -380,24 +381,8 @@ static bool
 isconstinit(IndVar *iv) {
    if (iv->_init.bits) return isintcon(iv->_init);
    if (iv->kind != IVBASIC && !isconstinit(iv->base)) return 0;
-   switch (iv->kind) {
-   case IVDERIVOFFSET: return isintcon(iv->offset);
-   case IVDERIVSCALED: return isintcon(iv->scale);
-   case IVDERIVWIDEN:  return 1;
-   }
-   return 0;
-}
-
-static bool
-isconststride(IndVar *iv) {
-   if (iv->_stride.bits) return isintcon(iv->_stride);
-   if (iv->kind != IVBASIC && !isconststride(iv->base)) return 0;
-   switch (iv->kind) {
-   case IVDERIVOFFSET: return 1;
-   case IVDERIVSCALED: return isintcon(iv->scale);
-   case IVDERIVWIDEN:  return 1;
-   }
-   return 0;
+   if (iv->kind == IVDERIVOFFSET) return isintcon(iv->off);
+   return 1;
 }
 
 static int
@@ -405,13 +390,13 @@ dfmtiv(WriteBuf *b, void *p) {
    IndVar *iv = p;
    static const char kinds[][10] = {"basic", "offset", "scaled", "widen"};
    int n = bfmt(b, "[%sIV %k ", kinds[iv->kind], iv->cls);
-   n += bfmt(b, "%r(%s) {%r,+,%r}", iv->value, opnames[instrtab[iv->value.i].op],
-                                          iv->_init, iv->_stride);
+   n += bfmt(b, "%r(%s) {%r,+,%d}", iv->value, opnames[instrtab[iv->value.i].op],
+                                          iv->_init, iv->stride);
    if (iv->kind != IVBASIC) bfmt(b, " base=%r", iv->base->value);
    switch (iv->kind) {
    case IVBASIC: n += bfmt(b, " phinext=%r(%s)", iv->phinext, opnames[instrtab[iv->phinext.i].op]); break;
-   case IVDERIVOFFSET: n += bfmt(b, " offset=%r", iv->offset); break;
-   case IVDERIVSCALED: n += bfmt(b, " scale=%r", iv->scale); break;
+   case IVDERIVOFFSET: n += bfmt(b, " offset=%r", iv->off); break;
+   case IVDERIVSCALED: n += bfmt(b, " scale=%d", iv->scale); break;
    }
    n += bfmt(b, "]");
    return n;
@@ -424,27 +409,17 @@ ivinitv(Function *fn, Loop *l, IndVar *iv) {
    if (fn) fn->curblk = l->prehead;
    switch (iv->kind) { default: assert(0);
    case IVDERIVOFFSET:
-      return iv->_init = irbinop(fn, Oadd, iv->cls, ivinitv(fn, l, iv->base), iv->offset);
+      iv->_init = irbinop(fn, Oadd, iv->cls, ivinitv(fn, l, iv->base), iv->off);
+      break;
    case IVDERIVSCALED:
-      return iv->_init = irbinop(fn, Omul, iv->cls, ivinitv(fn, l, iv->base), iv->scale);
+      iv->_init = irbinop(fn, Omul, iv->cls, ivinitv(fn, l, iv->base), mkintcon(iv->cls, iv->scale));
+      break;
    case IVDERIVWIDEN:
-      return iv->_init = irunop(fn, iv->op, iv->cls, ivinitv(fn, l, iv->base));
+      iv->_init = irunop(fn, iv->op, iv->cls, ivinitv(fn, l, iv->base));
+      break;
    }
-}
-
-static Ref
-ivstridev(Function *fn, Loop *l, IndVar *iv) {
-   if (iv->_stride.bits) return iv->_stride;
-   assert(iv->kind != IVBASIC);
-   if (fn) fn->curblk = l->prehead;
-   switch (iv->kind) { default: assert(0);
-   case IVDERIVOFFSET:
-      return iv->_stride = ivstridev(fn, l, iv->base);
-   case IVDERIVSCALED:
-      return iv->_stride = irbinop(fn, Omul, iv->cls, ivstridev(fn, l, iv->base), iv->scale);
-   case IVDERIVWIDEN:
-      return iv->_stride = irunop(fn, Oexts32, iv->cls, ivstridev(fn, l, iv->base));
-   }
+   if (!fn) assert(isintcon(iv->_init));
+   return iv->_init;
 }
 
 static inline bool
@@ -464,10 +439,10 @@ matchbasiciv(Loop *l, IndVar *iv, int phi) {
    /* NOTE: purposely only match RICON, small int const strides; for now */
    if (ins->op == Oadd && ins->l.bits == phiref.bits && ins->r.t == RICON && ins->r.i != 0) {
       /* i + K */
-      iv->_stride = ins->r;
+      iv->stride = ins->r.i;
    } else if (ins->op == Osub && ins->l.bits == phiref.bits && ins->r.t == RICON && ins->r.i != 0) {
       /* i - K */
-      iv->_stride = mkintcon(ins->cls, -(u64int)intconval(ins->r));
+      iv->stride = -ins->r.i;
    } else {
       return 0;
    }
@@ -515,7 +490,8 @@ matchderivediv(Loop *l, IndVar *iv, int t) {
    Instr *ins = &instrtab[t];
    iv->cls = ins->cls;
    iv->value = mkref(RTMP, t);
-   iv->_init = iv->_stride = NOREF;
+   iv->_init = NOREF;
+   iv->stride = 0;
    IndVar *base;
    enum op op = ins->op;
    Ref x;
@@ -523,27 +499,35 @@ matchderivediv(Loop *l, IndVar *iv, int t) {
                    || (invariant(l, x = ins->l) && (base = getiv(l, ins->r))))) {
       /* 'base + offset' | 'offset + base' */
       iv->kind = IVDERIVOFFSET;
-      iv->_stride = base->_stride;
-      iv->offset = x;
-   } else if (op == Omul && invariant(l, ins->r) && (base = getiv(l, ins->l))) {
+      iv->stride = base->stride;
+      iv->off = x;
+   } else if (op == Osub && ins->r.t == RICON && (base = getiv(l, ins->l))) {
+      /* base - offset */
+      iv->kind = IVDERIVOFFSET;
+      iv->stride = base->stride;
+      iv->off = mkintcon(iv->cls, -ins->r.i);
+   } else if (op == Omul && ins->r.t == RICON && (base = getiv(l, ins->l))) {
       /* base * scale */
+      iv->scale = ins->r.i;
+   Scaled:
       iv->kind = IVDERIVSCALED;
-      iv->scale = ins->r;
-   } else if (op == Oshl && (ins->r.t == RICON && ins->r.i < 8*cls2siz[iv->cls]) && (base = getiv(l, ins->l))) {
+      s64int stride = (s64int) base->stride * iv->scale;
+      if ((iv->stride = stride) != stride) return 0;
+   } else if (op == Oshl && (ins->r.t == RICON && (uint)ins->r.i < 30) && (base = getiv(l, ins->l))) {
       /* base << shift */
-      iv->kind = IVDERIVSCALED;
-      iv->scale = mkintcon(iv->cls, 1ull << intconval(ins->r));
+      iv->scale = 1 << ins->r.i;
+      goto Scaled;
    } else if (in_range(op, Oexts32, Oextu32) && (base = getiv(l, ins->l))) {
       /* e.g. (long) base */
       /* XXX ensure base can't overflow for correctness */
       iv->kind = IVDERIVWIDEN;
+      iv->stride = base->stride;
       iv->op = ins->op;
    } else {
      return 0;
    }
    iv->base = base;
    if (isconstinit(iv)) ivinitv(NULL, l, iv);
-   if (isconststride(iv)) ivstridev(NULL, l, iv);
    return 1;
 }
 
@@ -582,20 +566,26 @@ typedef struct Counted {
 } Counted;
 
 static enum { IVDOWN = -1, IVUP = 1 }
-ivdir(Function *fn, Loop *l, IndVar *iv) {
-   if (!isintcon(ivstridev(fn, l, iv))) return 0;
-   s64int s = intconval(ivstridev(fn, l, iv));
-   return s < 0 ? IVDOWN : s > 0 ? IVUP : 0;
+ivdir(IndVar *iv) {
+   assert(iv->stride != 0);
+   return iv->stride < 0 ? IVDOWN : 1;
 }
+
+static bool wideniv_isaffine(Loop *l, IndVar *w);
 
 static Ref
 safemaxtrips(Function *fn, Loop *l, IndVar *iv, Ref limit, bool inverted) {
    /* check no overflow possible, conservative, works for either IV direction */
-   Ref initv = ivinitv(fn, l, iv), stridev = ivstridev(fn, l, iv);
-   if (!kisint(iv->cls) || !isintcon(initv) || !isintcon(limit) || !isintcon(stridev))
+   Ref initv = ivinitv(fn, l, iv);
+   if (!kisint(iv->cls) || !isintcon(initv) || !isintcon(limit))
       return NOREF;
 
-   s64int init = intconval(initv), lim = intconval(limit), s = intconval(stridev), lower, upper;
+   /* check any widened IVs possibly nested in the counter */
+   for (IndVar *w = iv; w->kind != IVBASIC; w = w->base)
+      if (w->kind == IVDERIVWIDEN && !wideniv_isaffine(l, w))
+         return NOREF;
+
+   s64int init = intconval(initv), lim = intconval(limit), s = iv->stride, lower, upper;
    int dir;
    if (s > 0) lower = init, upper = lim, dir = 1;
    else lower = lim, upper = init, s = -s, dir = -1;
@@ -615,9 +605,10 @@ safemaxtrips(Function *fn, Loop *l, IndVar *iv, Ref limit, bool inverted) {
 
 static bool
 detectcounted(Function *fn, Loop *l) {
+   l->counted = NULL;
    Counted ct[1];
    /* TODO flipped s1/s2 */
-   if (l->head->s2 && !inloop(l, l->head->s2)) {
+   if (l->head != l->latch && l->head->s2 && !inloop(l, l->head->s2)) {
       ct->inverted = 0;
       ct->limitcheck = l->head->jmp.arg[0];
    } else if (l->latch->s2 && !inloop(l, l->latch->s2)) {
@@ -630,11 +621,11 @@ detectcounted(Function *fn, Loop *l) {
    Instr *cmp = &instrtab[ct->limitcheck.i];
 
    IndVar *iv;
-   if (cmp->op == Olth && (iv = getiv(l, cmp->l)) && invariant(l, cmp->r) && ivdir(fn, l, iv) == IVUP) {
+   if (cmp->op == Olth && (iv = getiv(l, cmp->l)) && invariant(l, cmp->r) && ivdir(iv) == IVUP) {
       /* i < limit; i += K */
       ct->limit = cmp->r;
       ct->trips = safemaxtrips(fn, l, iv, ct->limit, ct->inverted);
-   } else if (cmp->op == Ogth && (iv = getiv(l, cmp->l)) && invariant(l, cmp->r) && ivdir(fn, l, iv) == IVDOWN) {
+   } else if (cmp->op == Ogth && (iv = getiv(l, cmp->l)) && invariant(l, cmp->r) && ivdir(iv) == IVDOWN) {
       /* i > limit; i -= K */
       ct->limit = cmp->r;
       ct->trips = safemaxtrips(fn, l, iv, ct->limit, ct->inverted);
@@ -644,20 +635,63 @@ detectcounted(Function *fn, Loop *l) {
    if (!ct->trips.bits)
       return 0;
    Ref initv = ivinitv(fn, l, iv);
-   dbgp(fn, "limitcheck init = %r, limit = %r\n", initv, ct->limit);
+   dbgp(fn, "limitcheck iv=%r, init=%r, limit=%r\n", iv->value, initv, ct->limit);
    ct->counter = iv;
    l->counted = alloccopy(fn->passarena, ct, sizeof ct, 0);
    return 1;
 }
 
-/* iv is a candidate for strength reduction when there are non trivial (offset)
- * operations in the iv chain */
+static inline bool
+isinvertedcounter(IndVar *c) {
+   /* loopinv creates a new counter offset from the original base IV by one iteration */
+   return c->kind == IVDERIVOFFSET && c->off.t == RICON && c->off.i == c->stride;
+}
+
+/* check widened IV: if the base IV can wrap, that makes the widened IV not
+ * affine and unsound to reduce. rely on counted loop no-overflow proof:
+ * if base IV is the loop counter, cannot overflow. otherwise compute the
+ * IV's widened bounds from base init, stride and trip count and check that they fit */
 static bool
-shouldreduce(IndVar *iv) {
-   for (; iv->kind != IVBASIC; iv = iv->base)
+wideniv_isaffine(Loop *l, IndVar *w) {
+   assert(w->kind == IVDERIVWIDEN && (w->op == Oexts32 || w->op == Oextu32));
+   /* TODO with nsw flag check base IV value has nsw -> return OK */
+   Counted *ct = l->counted;
+   if (!ct) return 0;
+   IndVar *base = w->base, *c = ct->counter;
+   /* direct counter check */
+   if (base == c || (isinvertedcounter(c) && base == c->base)) {
+      if (w->op == Oextu32 /* zero extension additionally needs the base IV to be non-negative */
+       && !(isintcon(base->_init) && intconval(base->_init) >= 0 && base->stride > 0))
+         return 0;
+      return 1;
+   }
+   /* calculate bounds for a constant trip count and check */
+   if (!isintcon(ct->trips)) return 0;
+   if (!isconstinit(base) || !base->stride) return 0;
+   s64int n = intconval(ct->trips), binit = intconval(ivinitv(NULL, l, base)),
+          s = base->stride;
+   if (n <= 0) return 0;
+   s64int blast = binit + (n - 1) * s;
+   s64int lo = binit, hi = blast;
+   if (s < 0) lo = blast, hi = binit;
+   return w->op == Oexts32 ? (lo >= -(1LL<<31) && hi < (1LL<<31))
+                           : (lo >= 0 && hi < (1LL<<32));
+}
+
+/* iv is a candidate for strength reduction when there are non trivial (offset)
+ * operations in the iv chain
+ * must also check widened IV for soundness */
+static bool
+shouldreduce(Loop *l, IndVar *iv) {
+   bool should = 0;
+   for (; iv->kind != IVBASIC; iv = iv->base) {
       if (iv->kind != IVDERIVOFFSET)
-         return 1;
-   return 0;
+         should = 1;
+      if (iv->kind == IVDERIVWIDEN) {
+         if (!wideniv_isaffine(l, iv)) return 0;
+      }
+   }
+   return should;
 }
 
 /* kill t if nothing live consumes it, then retry what it consumes */
@@ -707,16 +741,15 @@ ivsimpl(Function *fn, Loop *l) {
    int change = 0;
    int budget = MAXNEWPHI;
    for (IndVar *iv = l->iv0; iv && budget > 0; iv = iv->next) {
-      if (!iv->mark || iv->kind == IVBASIC || !shouldreduce(iv))
+      if (!iv->mark || iv->kind == IVBASIC || !shouldreduce(l, iv))
          continue;
       --budget;
       dbgp(fn, "needed iv: %r\n", iv->value);
       Ref newphi = insertphi(l->head, iv->cls);
       Ref init = phiargs(newphi.i)[0] = ivinitv(fn, l, iv);
-      Ref stride = ivstridev(fn, l, iv);
       fn->curblk = l->latch;
-      dbgp(fn, " --> {%r,+,%r}=%r\n", init, stride, newphi);
-      Ref update = phiargs(newphi.i)[1] = irbinop(fn, Oadd, iv->cls, newphi, stride);
+      dbgp(fn, " --> {%r,+,%d}=%r\n", init, iv->stride, newphi);
+      Ref update = phiargs(newphi.i)[1] = irbinop(fn, Oadd, iv->cls, newphi, mkintcon(iv->cls, iv->stride));
       adduse(l->head, newphi.i, init);
       adduse(l->head, newphi.i, update);
       replcuses(iv->value, newphi, NULL, REPLC_ALL);
@@ -783,7 +816,7 @@ loopopt(Function *fn) {
       changed += licm(fn, l);
       findindvars(fn, l);
       if (detectcounted(fn, l)) {
-         dbgp(fn, "counted loop with %r trips; @%d-@%d\n", l->counted->trips, l->head->id, l->end->id);
+         dbgp(fn, "counted loop with trips=%r; @%d-@%d\n", l->counted->trips, l->head->id, l->end->id);
       }
       changed += ivsimpl(fn, l);
       if ((dbgp)(fn)) {
