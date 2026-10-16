@@ -1,0 +1,44 @@
+source [file dirname $argv0]/common.tcl
+
+# many phis, >64 parallel moves on one edge.
+set prog {
+   int pmove_many(int n) {
+      int a0=0, a1=0, a2=0, a3=0, a4=0, a5=0, a6=0, a7=0, a8=0, a9=0, a10=0, a11=0, a12=0, a13=0, a14=0, a15=0, a16=0, a17=0, a18=0, a19=0, a20=0, a21=0, a22=0, a23=0, a24=0, a25=0, a26=0, a27=0, a28=0, a29=0, a30=0, a31=0, a32=0, a33=0, a34=0, a35=0, a36=0, a37=0, a38=0, a39=0, a40=0, a41=0, a42=0, a43=0, a44=0, a45=0, a46=0, a47=0, a48=0, a49=0, a50=0, a51=0, a52=0, a53=0, a54=0, a55=0, a56=0, a57=0, a58=0, a59=0, a60=0, a61=0, a62=0, a63=0, a64=0, a65=0, a66=0, a67=0, a68=0, a69=0, a70=0, a71=0, a72=0, a73=0, a74=0, a75=0, a76=0, a77=0, a78=0, a79=0, a80=0, a81=0, a82=0, a83=0, a84=0, a85=0, a86=0, a87=0, a88=0, a89=0, a90=0, a91=0, a92=0, a93=0, a94=0, a95=0, a96=0, a97=0, a98=0, a99=0;
+#define X(q,i) q##i += n + i;
+      while (n--) {
+         X(a,0) X(a,1) X(a,2) X(a,3) X(a,4) X(a,5) X(a,6) X(a,7) X(a,8) X(a,9) X(a,10) X(a,11) X(a,12) X(a,13) X(a,14) X(a,15)
+         X(a,16) X(a,17) X(a,18) X(a,19) X(a,20) X(a,21) X(a,22) X(a,23) X(a,24) X(a,25) X(a,26) X(a,27) X(a,28) X(a,29) X(a,30) X(a,31)
+         X(a,32) X(a,33) X(a,34) X(a,35) X(a,36) X(a,37) X(a,38) X(a,39) X(a,40) X(a,41) X(a,42) X(a,43) X(a,44) X(a,45) X(a,46) X(a,47)
+         X(a,48) X(a,49) X(a,50) X(a,51) X(a,52) X(a,53) X(a,54) X(a,55) X(a,56) X(a,57) X(a,58) X(a,59) X(a,60) X(a,61) X(a,62) X(a,63)
+         X(a,64) X(a,65) X(a,66) X(a,67) X(a,68) X(a,69) X(a,70) X(a,71) X(a,72) X(a,73) X(a,74) X(a,75) X(a,76) X(a,77) X(a,78) X(a,79)
+         X(a,80) X(a,81) X(a,82) X(a,83) X(a,84) X(a,85) X(a,86) X(a,87) X(a,88) X(a,89) X(a,90) X(a,91) X(a,92) X(a,93) X(a,94) X(a,95)
+         X(a,96) X(a,97) X(a,98) X(a,99)
+      }
+      return a0+a1+a2+a3+a4+a5+a6+a7+a8+a9+a10+a11+a12+a13+a14+a15+a16+a17+a18+a19+a20+a21+a22+a23+a24+a25+a26+a27+a28+a29+a30+a31+a32+a33+a34+a35+a36+a37+a38+a39+a40+a41+a42+a43+a44+a45+a46+a47+a48+a49+a50+a51+a52+a53+a54+a55+a56+a57+a58+a59+a60+a61+a62+a63+a64+a65+a66+a67+a68+a69+a70+a71+a72+a73+a74+a75+a76+a77+a78+a79+a80+a81+a82+a83+a84+a85+a86+a87+a88+a89+a90+a91+a92+a93+a94+a95+a96+a97+a98+a99;
+   }
+}
+
+set out [c+out {-O1 -dfilter=pmove_many -dafter=regalloc} $prog]
+asserteq "pmove many moves" [expr {[regexp -all {= (copy|swap)} $out] > 64}] 1
+
+# mixed int/float phis, slot reuse may cross class
+set prog {   int pmove_mixed(int n) {
+      int a0=0, a1=0, a2=0, a3=0, a4=0, a5=0, a6=0, a7=0, a8=0, a9=0, a10=0, a11=0, a12=0, a13=0, a14=0, a15=0, a16=0, a17=0, a18=0, a19=0, a20=0, a21=0, a22=0, a23=0, a24=0, a25=0, a26=0, a27=0, a28=0, a29=0, a30=0, a31=0, a32=0, a33=0, a34=0, a35=0, a36=0, a37=0, a38=0, a39=0, a40=0, a41=0, a42=0, a43=0, a44=0, a45=0, a46=0, a47=0, a48=0, a49=0, a50=0, a51=0, a52=0, a53=0, a54=0, a55=0, a56=0, a57=0, a58=0, a59=0;
+      double d0=0, d1=0, d2=0, d3=0, d4=0, d5=0, d6=0, d7=0, d8=0, d9=0, d10=0, d11=0, d12=0, d13=0, d14=0, d15=0, d16=0, d17=0, d18=0, d19=0, d20=0, d21=0, d22=0, d23=0, d24=0, d25=0, d26=0, d27=0, d28=0, d29=0, d30=0, d31=0, d32=0, d33=0, d34=0, d35=0, d36=0, d37=0, d38=0, d39=0, d40=0, d41=0, d42=0, d43=0, d44=0, d45=0, d46=0, d47=0, d48=0, d49=0, d50=0, d51=0, d52=0, d53=0, d54=0, d55=0, d56=0, d57=0, d58=0, d59=0;
+      while (n--) {
+#define X(q,i) q##i += n + i;
+         X(a,0) X(a,1) X(a,2) X(a,3) X(a,4) X(a,5) X(a,6) X(a,7) X(a,8) X(a,9) X(a,10) X(a,11) X(a,12) X(a,13) X(a,14) X(a,15)
+         X(a,16) X(a,17) X(a,18) X(a,19) X(a,20) X(a,21) X(a,22) X(a,23) X(a,24) X(a,25) X(a,26) X(a,27) X(a,28) X(a,29) X(a,30) X(a,31)
+         X(a,32) X(a,33) X(a,34) X(a,35) X(a,36) X(a,37) X(a,38) X(a,39) X(a,40) X(a,41) X(a,42) X(a,43) X(a,44) X(a,45) X(a,46) X(a,47)
+         X(a,48) X(a,49) X(a,50) X(a,51) X(a,52) X(a,53) X(a,54) X(a,55) X(a,56) X(a,57) X(a,58) X(a,59) X(d,0) X(d,1) X(d,2) X(d,3)
+         X(d,4) X(d,5) X(d,6) X(d,7) X(d,8) X(d,9) X(d,10) X(d,11) X(d,12) X(d,13) X(d,14) X(d,15) X(d,16) X(d,17) X(d,18) X(d,19)
+         X(d,20) X(d,21) X(d,22) X(d,23) X(d,24) X(d,25) X(d,26) X(d,27) X(d,28) X(d,29) X(d,30) X(d,31) X(d,32) X(d,33) X(d,34) X(d,35)
+         X(d,36) X(d,37) X(d,38) X(d,39) X(d,40) X(d,41) X(d,42) X(d,43) X(d,44) X(d,45) X(d,46) X(d,47) X(d,48) X(d,49) X(d,50) X(d,51)
+         X(d,52) X(d,53) X(d,54) X(d,55) X(d,56) X(d,57) X(d,58) X(d,59)
+      }
+      return (int)(a0+a1+a2+a3+a4+a5+a6+a7+a8+a9+a10+a11+a12+a13+a14+a15+a16+a17+a18+a19+a20+a21+a22+a23+a24+a25+a26+a27+a28+a29+a30+a31+a32+a33+a34+a35+a36+a37+a38+a39+a40+a41+a42+a43+a44+a45+a46+a47+a48+a49+a50+a51+a52+a53+a54+a55+a56+a57+a58+a59+d0+d1+d2+d3+d4+d5+d6+d7+d8+d9+d10+d11+d12+d13+d14+d15+d16+d17+d18+d19+d20+d21+d22+d23+d24+d25+d26+d27+d28+d29+d30+d31+d32+d33+d34+d35+d36+d37+d38+d39+d40+d41+d42+d43+d44+d45+d46+d47+d48+d49+d50+d51+d52+d53+d54+d55+d56+d57+d58+d59);
+   }
+}
+
+set out [c+out {-O1 -dfilter=pmove_mixed -dafter=regalloc} $prog]
+asserteq "pmove many mixed moves" [expr {[regexp -all {= (copy|swap)} $out] > 64}] 1
