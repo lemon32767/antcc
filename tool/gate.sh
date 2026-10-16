@@ -28,4 +28,5 @@ done
 ./test/ir/run.sh
 ./test/external/lua.sh
 ./test/external/qbe.sh
+./test/external/bdwgc.sh
 ./test/external/sqlite.sh test

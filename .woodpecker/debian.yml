@@ -59,3 +59,10 @@ steps:
       - apt-get update && apt-get install -y gcc make curl xz-utils
       - ./test/external/qbe.sh
     depends_on: [build]
+
+  - name: test-external-bdwgc
+    image: debian
+    commands:
+      - apt-get update && apt-get install -y gcc make curl unzip
+      - ./test/external/bdwgc.sh
+    depends_on: [build]
