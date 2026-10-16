@@ -135,7 +135,7 @@ enum storageclass {
    _(deprecated,         1, 1, 1)   \
    _(common,             0, 1, 0)   \
    _(nocommon,           0, 1, 0)   \
- /*_(mode,               0, 1, 0)*/ \
+   _(mode,               0, 1, 1)   \
    _(packed,             0, 1, 1)   \
    _(aligned,            0, 1, 1)   \
    _(transparent_union,  0, 0, 1)   \
@@ -151,6 +151,7 @@ enum attr {
 typedef struct Attrs {
    ushort align,
           visib;
+   char  mode[2];
    BitSet set[1];
 } Attrs;
 #define setattr(attrs,A) bsset((attrs)->set, (A))

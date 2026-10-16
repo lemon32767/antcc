@@ -190,6 +190,7 @@ redeclarationok(const Decl *old, Decl *new) {
 static void
 mergeattr(Attrs *to, const Attrs *src) {
    bsunion(to->set, src->set, countof(to->set));
+   if (hasattr(src, ATTRmode)) memcpy(to->mode, src->mode, sizeof to->mode);
    if (src->align > to->align) to->align = src->align;
    if (!to->visib) to->visib = src->visib;
    else assert(!src->visib || src->visib == to->visib);
@@ -2236,7 +2237,9 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk) {
       joinspan(&span.ex, tk->span.ex);
    }
 
+   const char *mode;
    int nminparam = 0, nmaxparam = 0;
+   uint n;
    switch (a) {
    case ATTRxxx: break;
    case ATTRused: case ATTRunused: case ATTRwarn_unused_result: case ATTRdeprecated:
@@ -2255,9 +2258,11 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk) {
    case ATTRfallthrough:
 
    Arity:
-      if (nparam > nmaxparam || nparam < nminparam)
+      if (nparam > nmaxparam || nparam < nminparam) {
       BadArgs:
          warn(&span, "wrong number of arguments for attribute '%s'", aname);
+         bsclr(attr->set, a);
+      }
       break;
    case ATTRaligned:
       if (nparam > 1) goto BadArgs;
@@ -2272,8 +2277,25 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk) {
          }
       }
       break;
+   case ATTRmode:
+      memset(attr->mode, 0, 2);
+      if (nparam != 1) goto BadArgs;
+      if (params[0].t == ESYM && params[0].ty.t == IMPLICITSYMTY) mode = &params[0].implicitsym->c;
+      else if (params[0].t == ESYM) mode = &declsbuf.p[params[0].decl].name->c;
+      else {
+         error(&params[0].span, "'mode' requires an identifier");
+         bsclr(attr->set, ATTRmode);
+         break;
+      }
+      n = strlen(mode);
+      if (n > 4 && !memcmp(mode, "__", 2) && !memcmp(mode+n-2, "__", 2))
+         mode += 2, n -= 4;
+      if (n==4 && !memcmp(mode, "word", 4)) memcpy(attr->mode, ".w", 2);
+      else if (n==4 && !memcmp(mode, "byte", 4)) memcpy(attr->mode, ".b", 2);
+      else if (n==7 && !memcmp(mode, "pointer", 7)) memcpy(attr->mode, ".p", 2);
+      else if (n==2) memcpy(attr->mode, mode, 2);
+      break;
    /* these can't be safely ignored */
-   //case ATTRmode:
    case ATTRsection:
    case ATTRconstructor:
    case ATTRdestructor:
@@ -2291,7 +2313,7 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk) {
          break;
       }
       const void *s = params[0].s.p;
-      uint n = params[0].s.n;
+      n = params[0].s.n;
       enum symflags v = 0;
       if (n == 7 && !memcmp(s, "default", n)) {}
       else if (n == 6 && !memcmp(s, "hidden", n)) v = SVHIDDEN;
@@ -2732,6 +2754,51 @@ tagtype(CComp *cm, enum toktag kind) {
 }
 
 static void
+type4gnumode(const Span *span, Type *ty, char mode[2]) {
+   static const struct {
+      char m[2], k, sz;
+   } modes[] = {
+      {".b",'i',1},
+      {"QI",'i',1}, {"HI",'i',2}, {"SI",'i', 4}, {"DI",'i', 8}, {"TI",'i',16},
+      {"SF",'f',4}, {"DF",'f',8}, /*stub*/{"XF",'f',10}, {"TF",'f',16},
+      {"SC",'c',4}, {"DC",'c',8}, /*stub*/{"XC",'c',10}, {"TC",'c',16},
+   };
+   int k, sz;
+   if (!memcmp(mode, ".w", 2) || !memcmp(mode, ".p", 2)) { /* word, pointer */
+      k = 'i', sz = targ_primsizes[TYPTR];
+      goto Check;
+   }
+   for (int i = 0; i < countof(modes); ++i) {
+      if (!memcmp(modes[i].m, mode, 2)) {
+         k = modes[i].k, sz = modes[i].sz;
+      Check:
+         if (isint(*ty) != (k == 'i')) {
+            error(span, "mode '%S' invalid for type '%ty'", mode, 2, *ty);
+            return;
+         }
+         if (k == 'i') {
+            for (int sgn = issigned(*ty), t = TYSCHAR; isintt(t); ++t) {
+               if (t != TYCHAR && targ_primsizes[t] == sz && issignedt(t) == sgn) {
+                  ty->t = t;
+                  return;
+               }
+            }
+         } else {
+            for (int t = TYFLOAT; t <= TYLDOUBLE; ++t) {
+               if (targ_primsizes[t] == sz) {
+                  if (k == 'c') t += TYCOMPLEXF - TYFLOAT;
+                  ty->t = t;
+                  return;
+               }
+            }
+         }
+         break;
+      }
+   }
+   error(span, "invalid or unsupported mode '%S'", mode, 2);
+}
+
+static void
 declcheckattr(Decl *decl, enum declkind dk) {
    char c = decl->scls == SCTYPEDEF ? 't'
           : decl->ty.t == TYFUNC ? 'f'
@@ -2751,6 +2818,11 @@ declcheckattr(Decl *decl, enum declkind dk) {
                && decl->align < typealign(decl->ty))
          error(&decl->span, "alignment specifiers cannot reduce alignment");
       if (thing) error(&decl->span, "cannot specify alignment of %s", thing);
+   }
+   if (hasattr(&decl->attr, ATTRmode)) {
+      type4gnumode(&decl->span, &decl->ty, decl->attr.mode);
+      bsclr(decl->attr.set, ATTRmode);
+      memset(decl->attr.mode, 0, sizeof decl->attr.mode);
    }
 }
 

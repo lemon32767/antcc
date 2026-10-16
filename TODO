@@ -14,7 +14,6 @@ gnu attr
     x aligned (nulladic, check can only increase, permit >255)
     cleanup
     no/common
-    mode
     section
 gnu pragma
     push/pop macro

@@ -5,6 +5,7 @@ GNU-like attribute [syntax](https://gcc.gnu.org/onlinedocs/gcc-4.2.1/gcc/Attribu
 
   - `aligned(alignment)`, `packed`
   - `noreturn` (treated as C11 `_Noreturn`)
+  - `mode`
 
 Other attributes for correctness hints/diagnostics are recognized (`format`,
 `nonnull`, etc) but discarded.
