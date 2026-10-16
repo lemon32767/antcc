@@ -5748,19 +5748,17 @@ tldecl(CComp *cm) {
          int idecl = -1;
          assert(st.downfnenv);
          if (decl->name) {
-            /* lift params from fn env to put fn in tl env first, then reinsert */
+            /* shift +1 body env containing params and insert fn into tlenv */
             int n = td->nmemb;
             Env *e = cm->env;
             assert(e->ndecl == n);
-            Decl parbuf[32], *par = &declsbuf.p[e->decl];
-            if (n < countof(parbuf)) par = memcpy(parbuf, par, n * sizeof *par);
-            else par = alloccopy(&cm->exarena, par, n*sizeof *par, 0);
+            vresize(&declsbuf, declsbuf.n+1), --declsbuf.n;
+            memmove(&declsbuf.p[e->decl+1], &declsbuf.p[e->decl], n * sizeof *declsbuf.p);
             envup(cm);
             idecl = putdecl(cm, decl);
-            memset(e, 0, sizeof *e);
             envdown(cm, e);
-            for (int i = 0; i < n; ++i)
-               putdecl(cm, &par[i]);
+            e->ndecl = n;
+            declsbuf.n = e->decl + n;
             decl = &declsbuf.p[idecl];
          } else {
             /* had e.g. 'int () {...}' */
