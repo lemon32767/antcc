@@ -298,7 +298,7 @@ static const char x86_64_rnames[][6] = {
 #undef R
 };
 
-const MCTarg t_x86_64_sysv = {
+MCTarg t_x86_64_sysv = {
    .gpr0 = RAX, .ngpr = R15 - RAX + 1,
    .gprscratch = R11, .fprscratch = XMM15,
    .fpr0 = XMM0, .nfpr = XMM15 - XMM0 + 1,

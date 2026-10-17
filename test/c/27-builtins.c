@@ -15,6 +15,31 @@ isnan(__builtin_nanf("")) = 1
 isnan(NNAN) = 1
 isnan(__builtin_nan(t ? "" : "x")) = 1
 isnan(__builtin_nanf("q"+t)) = 1
+__builtin_clz(0) = 32
+__builtin_clz(1) = 31
+__builtin_clz(-1) = 0
+__builtin_ctz(1u << 31) = 31
+__builtin_clrsb(0) = 31
+__builtin_clrsb(-1) = 31
+__builtin_clrsb(1) = 30
+__builtin_ctzll(1ull << 40) = 40
+__builtin_clrsbll(-1) = 63
+__builtin_popcount(0) = 0
+__builtin_popcount(-1) = 32
+__builtin_popcount(0x80000000u) = 1
+__builtin_popcountll(~0ull) = 64
+__builtin_parity(7) = 1
+__builtin_parityll(~0ull) = 0
+__builtin_clz(x) = 8
+__builtin_ctz(x) = 20
+__builtin_clrsb(n) = 28
+__builtin_popcount(x) = 4
+__builtin_parity(x) = 0
+__builtin_clzll(w) = 23
+__builtin_ctzll(w) = 40
+__builtin_clrsbll(w) = 22
+__builtin_popcountll(w) = 1
+__builtin_parityll(w) = 1
 */
 
 #include <stdio.h>
@@ -58,4 +83,22 @@ int main(int t) {
     prid(isnan(NNAN));
     prid(isnan(__builtin_nan(t ? "" : "x")));
     prid(isnan(__builtin_nanf("q"+t)));
+
+    prid(__builtin_clz(0)), prid(__builtin_clz(1)), prid(__builtin_clz(-1)),
+    prid(__builtin_ctz(1u << 31));
+    prid(__builtin_clrsb(0)), prid(__builtin_clrsb(-1)), prid(__builtin_clrsb(1));
+    prid(__builtin_ctzll(1ull << 40));
+    prid(__builtin_clrsbll(-1));
+    prid(__builtin_popcount(0)), prid(__builtin_popcount(-1)), prid(__builtin_popcount(0x80000000u));
+    prid(__builtin_popcountll(~0ull));
+    prid(__builtin_parity(7)), prid(__builtin_parityll(~0ull));
+
+    int x = t ? 0x00f00000 : 1;
+    long long w = t ? (1ll << 40) : 1;
+    int n = t ? 5 : 6;
+    prid(__builtin_clz(x)), prid(__builtin_ctz(x));
+    prid(__builtin_clrsb(n));
+    prid(__builtin_popcount(x)), prid(__builtin_parity(x));
+    prid(__builtin_clzll(w)), prid(__builtin_ctzll(w)), prid(__builtin_clrsbll(w)),
+    prid(__builtin_popcountll(w)), prid(__builtin_parityll(w));
 }

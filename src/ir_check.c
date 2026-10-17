@@ -177,6 +177,7 @@ checkins(Function *fn, const Instr *ins) {
       break;
 
    case Onot: case Obswap16: case Obswap32: case Obswap64:
+   case Octz: case Oclz: case Opopcnt: case Oclrsb:
       /* Int a -> a */
    case Oudiv: case Orem: case Ourem: case Oand: case Oior: case Oxor:
    case Oulth: case Ougth: case Oulte: case Ougte:

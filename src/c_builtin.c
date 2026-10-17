@@ -193,6 +193,38 @@ DEF_MATH_CONST(infl, TYDOUBLE,, bits2d(0x7ff0000000000000ll), NULL)
 DEF_MATH_CONST(nanl, TYDOUBLE,ccharptrt, bits2d(0x7ff8000000000000), NULL)
 DEF_MATH_CONST(nansl, TYDOUBLE,ccharptrt, bits2d(0x7ff0000000000001), NULL)
 
+#define DEF_BITOPt(cname, tt, x, ...)                              \
+   DEF_FNLIKE_SEMA(cname, mktype(TYINT), mktype(tt))               \
+   static Ref cname##_comp(Function *fn, Expr *ex, bool discard) { \
+      if (discard) return NOREF;                                   \
+      enum irclass k = type2cls[tt];                               \
+      Ref x = compileexpr(fn, &ex->sub[1], 0);                     \
+          x = scalarcvt(fn, mktype(tt), ex->sub[1].ty, x);         \
+      __VA_ARGS__                                                  \
+   }
+#define DEF_BITOP(f, x, ...)                \
+   DEF_BITOPt(f, TYINT, x, __VA_ARGS__)     \
+   DEF_BITOPt(f##l, TYLONG, x, __VA_ARGS__) \
+   DEF_BITOPt(f##ll, TYVLONG, x, __VA_ARGS__)
+DEF_BITOP(ctz, x, return irunop(fn, Ocopy, KI32, irunop(fn, Octz, k, x));)
+DEF_BITOP(clz, x, return irunop(fn, Ocopy, KI32, irunop(fn, Oclz, k, x));)
+DEF_BITOP(popcount, x, return irunop(fn, Ocopy, KI32, irunop(fn, Opopcnt, k, x));)
+DEF_BITOP(clrsb, x, return irunop(fn, Ocopy, KI32, irunop(fn, Oclrsb, k, x));)
+DEF_BITOP(ffs, x,
+   /* TODO cmov */
+   Block *t = newblk(fn), *f = newblk(fn), *e = newblk(fn);
+   putcondbranch(fn, irbinop(fn, Oneq, k, x, ZEROREF), t, f);
+   useblk(fn, t);
+   Ref r[2] = {irunop(fn, Ocopy, KI32, irunop(fn, Octz, k, x)), mkintcon(k, -1)};
+   putbranch(fn, e);
+   useblk(fn, f), putbranch(fn, e);
+   useblk(fn, e);
+   return irbinop(fn, Oadd, KI32, addphi(fn, KI32, r), mkref(RICON, 1));
+)
+DEF_BITOP(parity, x,
+   Ref popcnt = irunop(fn, Ocopy, KI32, irunop(fn, Opopcnt, k, x));
+   return irbinop(fn, Oand, KI32, popcnt, mkref(RICON, 1));)
+
 #define LIST_BUILTINS(_) \
    _(va_start) _(va_copy) _(va_end) \
    _(trap) _(bswap16) _(bswap32) _(bswap64) \
@@ -200,6 +232,9 @@ DEF_MATH_CONST(nansl, TYDOUBLE,ccharptrt, bits2d(0x7ff0000000000001), NULL)
    _(huge_val) _(huge_valf) _(huge_vall) \
    _(inf) _(inff) _(infl) \
    _(nan) _(nanf) _(nanl) _(nans) _(nansf) _(nansl) \
+   _(ctz) _(ctzl) _(ctzll) _(clz) _(clzl) _(clzll) \
+   _(popcount) _(popcountl) _(popcountll) _(clrsb) _(clrsbl) _(clrsbll) \
+   _(ffs) _(ffsl) _(ffsll) _(parity) _(parityl) _(parityll)
 
 static const struct {
    const char *name;

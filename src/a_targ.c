@@ -1,7 +1,7 @@
 #include "antcc.h"
 #include "c_type.h"
 
-extern const struct MCTarg t_x86_64_sysv, t_aarch64_aapcs;
+extern struct MCTarg t_x86_64_sysv, t_aarch64_aapcs;
 static const struct Targ {
    struct { enum mcarch arch; uint oss, abis; };
    struct { uchar longsize, vlongsize, ptrsize, valistsize; };

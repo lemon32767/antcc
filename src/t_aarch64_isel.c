@@ -434,6 +434,20 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi) {
       ins->l = tmp;
       ins->r = mkref(RICON, 16);
       break;
+   case Octz: case Oclz: case Oclrsb:
+      regarg(&ins->l, ins->cls, blk, curi);
+      break;
+   case Opopcnt:
+      /* cnt+addv is SIMD: copy to FP, popcnt, copy back */
+      if (kisint(ins->cls)) {
+         tmp = insertinstr(blk, (*curi), mkinstr1(Ocopy, cls = (ins->cls == KI32 ? KF32 : KF64), ins->l));
+         fixarg(&instrtab[tmp.i].l, &instrtab[tmp.i], blk, curi), ++*curi;
+         tmp = insertinstr(blk, (*curi)++, mkinstr1(Opopcnt, cls, tmp));
+         *ins = mkinstr1(Ocopy, ins->cls, tmp);
+      } else {
+         regarg(&ins->l, ins->cls, blk, curi);
+      }
+      break;
    case Oadd:
       if (isnumcon(ins->l)) {
          /* swap to have const in rhs */

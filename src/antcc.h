@@ -42,17 +42,6 @@ void _assertfmt(const char *file, int line, const char *func, const char *expr);
 #define assert(x) (void)(!(x) ? _assertfmt(__FILE__,__LINE__,__func__,#x), *(volatile int *)0 : 0)
 #endif
 
-#if HAS_BUILTIN(popcountll)
-#define popcnt(x) __builtin_popcountll(x)
-#else
-static inline uint
-popcnt(u64int x) {
-   uint n = 0;
-   while (x) n += x&1, x >>= 1;
-   return n;
-}
-#endif
-
 static inline bool
 ispo2(u64int x) {
    return (x != 0) & ((x & (x - 1)) == 0);

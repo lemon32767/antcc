@@ -589,6 +589,35 @@ DEFINSTR2(Xrev,
    {4  , {PGPRZ, PGPRZ}, 0x5AC00800, EN_ARITH2R},
    {  8, {PGPRZ, PGPRZ}, 0xDAC00C00, EN_ARITH2R},
 )
+DEFINSTR2(Xrbit,
+   {4  , {PGPRZ, PGPRZ}, 0x5AC00000, EN_ARITH2R},
+   {  8, {PGPRZ, PGPRZ}, 0xDAC00000, EN_ARITH2R},
+)
+DEFINSTR2(Xclz,
+   {4  , {PGPRZ, PGPRZ}, 0x5AC01000, EN_ARITH2R},
+   {  8, {PGPRZ, PGPRZ}, 0xDAC01000, EN_ARITH2R},
+)
+DEFINSTR2(Xcls,
+   {4  , {PGPRZ, PGPRZ}, 0x5AC01400, EN_ARITH2R},
+   {  8, {PGPRZ, PGPRZ}, 0xDAC01400, EN_ARITH2R},
+)
+static void
+Xcnt(uchar **pcode, enum irclass k, Oper d, Oper n) {
+   /* CNT Vd.8B/16B, Vn.8B/16B */
+   assert(k == KF32 || k == KF64);
+   assert(opermatch(PFPR, k, d) && opermatch(PFPR, k, n));
+   uint q = k == KF64;
+   W32(0x0E205800 | q<<30 | (n.reg&31)<<5 | (d.reg&31));
+}
+
+static void
+Xaddv8(uchar **pcode, enum irclass k, Oper d, Oper n) {
+   /* ADDV Bd, Vn.8B/16B */
+   assert(k == KF32 || k == KF64);
+   assert(opermatch(PFPR, k, d) && opermatch(PFPR, k, n));
+   uint q = k == KF64;
+   W32(0x0E31B800 | q<<30 | (n.reg&31)<<5 | (d.reg&31));
+}
 
 static void
 genmovimm(uchar **pcode, enum irclass cls, Oper dst, u64int u) {
@@ -937,6 +966,23 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins) {
       break;
    case Obswap32: case Obswap64:
       Xrev(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l));
+      break;
+   case Octz: /* CTZ x ==> CLZ(RBIT(x)) */
+      Xrbit(pcode, cls, dst = reg2oper(ins->reg-1), o1 = ref2oper(ins->l));
+      o1 = dst;
+      goto Clz;
+   case Oclz:
+      dst = reg2oper(ins->reg-1), o1 = ref2oper(ins->l);
+   Clz:
+      Xclz(pcode, cls, dst, o1);
+      break;
+   case Oclrsb:
+      Xcls(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l));
+      break;
+   case Opopcnt:
+      assert(kisflt(cls));
+      Xcnt(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l));
+      Xaddv8(pcode, cls, reg2oper(ins->reg-1), reg2oper(ins->reg-1));
       break;
    case Oadd: X3 = kisint(cls) ? Xadd : Xfadd; goto ALU3;
    case Osub: X3 = kisint(cls) ? Xsub : Xfsub; goto ALU3;

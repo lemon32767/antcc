@@ -1,5 +1,6 @@
 #include "ir.h"
 #include "u_endian.h"
+#include "u_bits.h"
 #include <limits.h>
 
 #ifdef __clang__
@@ -37,6 +38,10 @@ foldint(enum op op, enum irclass k, Ref lr, Ref rr) {
    case Obswap16: x = bswap16(l.u); break;
    case Obswap32: x = bswap32(l.u); break;
    case Obswap64: x = bswap64(l.u); break;
+   case Octz:    x = l.u ? ctz_nonzero(l.u) : 32<<w; break;
+   case Oclz:    x = bclz(32<<w, l.u); break;
+   case Oclrsb:  x = bclrsb(32<<w, l.s); break;
+   case Opopcnt: x = popcnt(w ? l.u : (uint)l.u); break;
    case Oadd:  x = l.u + r.u; break;
    case Osub:  x = l.u - r.u; break;
    case Omul:  x = l.u * r.u; break;

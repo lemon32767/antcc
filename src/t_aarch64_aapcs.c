@@ -295,7 +295,7 @@ symaccess(int con) {
    return SYMDIRECT;
 }
 
-const MCTarg t_aarch64_aapcs = {
+MCTarg t_aarch64_aapcs = {
    .gpr0 = R0, .ngpr = 31,
    .gprscratch = R(16), .fprscratch = V(31),
    .fpr0 = V0, .nfpr = 32,
@@ -306,6 +306,7 @@ const MCTarg t_aarch64_aapcs = {
    .rglob = BIT(FP) | BIT(LR) | BIT(SP),
    .rnames = aarch64_rnames,
    .objkind = OBJELF,
+   .feat = MFEATPOPCNT,
    .abiret = abiret,
    .abiarg = abiarg,
    .vastart = vastart,

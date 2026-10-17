@@ -207,6 +207,8 @@ irunop(Function *fn, enum op op, enum irclass k, Ref a) {
       break;
    case Obswap16: case Obswap32: case Obswap64:
       break;
+   case Octz: case Oclz: case Opopcnt: case Oclrsb:
+      break;
    default: assert(!"unop?");
    }
    return fn ? addinstr(fn, mkinstr1(op, k, a)) : NOREF;

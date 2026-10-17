@@ -854,7 +854,6 @@ static const EncDesc imul3_imm8tab[] = {
    {4|8, PGPR, PGPR, O("\x69"), EN_RR}, /* IMUL r32/64, r32/64, (imm32) */
    {4|8, PGPR, PMEM, O("\x69"), EN_RM}, /* IMUL r32/64, m32/64, (imm32) */
 };
-#undef O
 static void
 Ximul(uchar **pcode, enum irclass k, Oper dst, Oper s1, Oper s2) {
    if (opereql(dst, s1) && s2.t != OIMM) {
@@ -870,6 +869,20 @@ Ximul(uchar **pcode, enum irclass k, Oper dst, Oper s1, Oper s2) {
       I32(s2.imm);
    }
 }
+DEFINSTR2(Xbsf,
+   {4|8, PGPR, PGPR, O("\x0F\xBC"), EN_RR}, /* BSF r32/64,r32/64 */
+   {4|8, PGPR, PMEM, O("\x0F\xBC"), EN_RM}, /* BSF r32/64,m32/64 */
+)
+DEFINSTR2(Xbsr,
+   {4|8, PGPR, PGPR, O("\x0F\xBD"), EN_RR}, /* BSR r32/64,r32/64 */
+   {4|8, PGPR, PMEM, O("\x0F\xBD"), EN_RM}, /* BSR r32/64,m32/64 */
+)
+DEFINSTR2(Xpopcnt,
+   {4|8, PGPR, PGPR, O("\xF3\x0F\xB8"), EN_RR}, /* POPCNT r32/64,r32/64 */
+   {4|8, PGPR, PMEM, O("\xF3\x0F\xB8"), EN_RM}, /* POPCNT r32/64,m32/64 */
+)
+
+#undef O
 
 enum cc {
    CCO   = 0x0, /* OF = 1*/
@@ -1277,6 +1290,12 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins) {
       }
       break;
    case Obswap32: case Obswap64: X1 = Xbswap; goto ALU1;
+   case Oclz: /* clz(x) = bsr(x) ^ (N-1) */
+      Xbsr(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l));
+      Xxor(pcode, cls, reg2oper(ins->reg-1), mkoper(OIMM, .imm = 8*cls2siz[cls]-1));
+      break;
+   case Octz: Xbsf(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l)); break;
+   case Opopcnt: Xpopcnt(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l)); break;
    case Omul:
       if (kisint(cls))
          Ximul(pcode, cls, reg2oper(ins->reg-1), ref2oper(ins->l), ref2oper(ins->r));

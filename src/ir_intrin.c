@@ -44,6 +44,48 @@ intrin(Block *blk, int *curi, enum intrin in, Arg *args, int narg, IRType ret) {
    assert(0);
 }
 
+static void
+insrtcall1(Function *fn, Instr *ins, Block *b, int *i, enum irclass k, const char *f,
+           enum irclass argk, Ref arg) {
+   insertinstr(b, (*i)++, mkarginstr(cls2type(argk), arg));
+   ins->op = Ocall, ins->cls = k;
+   inschoper(b, ins, 0, mksymref(intern(f), SFUNC));
+   inschoper(b, ins, 1, mkcallarg(cls2type(k), 1, -1));
+   abi0_call(fn, ins, b, i);
+}
+
+static void
+arithlower(Function *fn, Instr *ins, Block *b, int *curi) {
+   enum irclass k = ins->cls;
+   switch (ins->op) {
+   case Opopcnt:
+      if (!(mctarg->feat&MFEATPOPCNT)) {
+         Ref x = ins->l;
+         if (k == KI32 && targ_64bit)
+            x = insertinstr(b, (*curi)++, mkinstr1(Oextu32, k = KI64, x));
+         insrtcall1(fn, ins, b, curi, KI32, k == KI32 ? "__popcountsi2" : "__popcountdi2", k, x);
+      }
+      break;
+   case Oclrsb: 
+      if (target.arch != ISaarch64) {
+         /* clrsb(x) = clz(((x*2) ^ (x >> (N-1))) | 1) */
+         int N = cls2siz[k]*8;
+         Ref x = ins->l, t, w;
+         t = insertinstr(b, (*curi)++, mkinstr2(Oshl, k, x, mkref(RICON, 1)));
+         w = insertinstr(b, (*curi)++, mkinstr2(Osar, k, x, mkref(RICON, N-1)));
+         t = insertinstr(b, (*curi)++, mkinstr2(Oxor, k, t, w));
+         t = insertinstr(b, (*curi)++, mkinstr2(Oior, k, t, mkref(RICON, 1)));
+         ins->op = Oclz;
+         inschoper(b, ins, 0, t);
+      }
+      break;
+   }
+}
+
+static const bool mayneedlower[NOPER] = {
+   [Oclrsb]=1, [Opopcnt]=1,
+};
+
 void
 lowerintrin(Function *fn) {
    Block *blk = fn->entry;
@@ -65,6 +107,8 @@ lowerintrin(Function *fn) {
             else
                abi0_call(fn, ins, blk, &i);
             svec_reset(args);
+         } else if (mayneedlower[ins->op]) {
+            arithlower(fn, ins, blk, &i);
          }
       }
       assert(args.n == 0);

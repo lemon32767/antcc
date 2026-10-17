@@ -2,6 +2,41 @@
 
 #include "antcc.h"
 
+#if HAS_BUILTIN(ctzll)
+#define ctz_nonzero(x) __builtin_ctzll(x)
+#else
+static inline uint
+ctz_nonzero(u64int x) {
+   assert(x);
+   uint n = 0;
+   while ((x&1) == 0) ++n, x >>= 1;
+   return n;
+}
+#endif
+static inline uint
+bclz(uint N, u64int x) {
+   if (N < 64) x &= ((1ULL<<N) - 1);
+   if (!x) return N;
+   uint n = 0;
+   while ((x >> (N-1 - n) & 1) == 0) ++n;
+   return n;
+}
+static inline uint
+bclrsb(uint N, s64int x) {
+   if (N < 64) x = (s64int)((u64int)x << (64-N)) >> (64-N);
+   return bclz(N, x ^ (x >> (N-1))) - 1;
+}
+#if HAS_BUILTIN(popcountll)
+#define popcnt(x) __builtin_popcountll(x)
+#else
+static inline uint
+popcnt(u64int x) {
+   uint n = 0;
+   while (x) n += x&1, x >>= 1;
+   return n;
+}
+#endif
+
 static inline bool
 bstest(const BitSet *bs, uint i) {
    return bs[i/BSNBIT].u >> i%BSNBIT & 1;

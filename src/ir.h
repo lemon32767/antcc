@@ -231,6 +231,9 @@ typedef struct MCTarg {
          nfpr; /* fpr count */
    regset rcallee, /* callee-saved */
           rglob;   /* globally live (never used for regalloc) */
+   enum mcfeat {
+      MFEATPOPCNT = 1<<0,
+   } feat;
    const char (*rnames)[6];
    enum objkind objkind;
    /* abiret: lower return type:
@@ -278,8 +281,8 @@ extern struct contab {vec_of(IRCon);} contab;
 extern struct addrtab {vec_of(IRAddr);} addrtab;
 extern int visitmark;
 #define mkinstr0(O, C) ((Instr) { .op = (O), .cls = (C), .reg=0 })
-#define mkinstr1(O, C, x) ((Instr) { .op = (O), .cls = (C), .reg=0, .l = x})
-#define mkinstr2(O, C, x,y) ((Instr) { .op = (O), .cls = (C), .reg=0, .l = x, .r = y})
+#define mkinstr1(O, C, ...) ((Instr) { .op = (O), .cls = (C), .reg=0, .l = __VA_ARGS__})
+#define mkinstr2(O, C, x,...) ((Instr) { .op = (O), .cls = (C), .reg=0, .l = x, .r = __VA_ARGS__})
 #define mkarginstr(ty, x) mkinstr2(Oarg, 0, mktyperef(ty), (x))
 void irinit(Function *);
 void irfini(Function *);

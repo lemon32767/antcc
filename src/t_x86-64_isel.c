@@ -32,6 +32,10 @@ static const uchar opflags[NOPER] = {
    [Oulth] = ZF|CLOBF, [Ougth] = ZF|CLOBF,
    [Oulte] = ZF|CLOBF, [Ougte] = ZF|CLOBF,
    [Ocall] = CLOBF,
+
+   [Octz] = CLOBF, /* BSF sets ZF based on input, TZCNT does something else. can't model that */
+   [Oclz] = CLOBF, /* ditto.. */
+   [Opopcnt] = CLOBF, /* sets ZF based on input also.. */
 };
 
 static int iflagsrc = -1;
@@ -614,6 +618,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi) {
       if (!(op == Omul && kisint(ins->cls) && isimm32(ins->r))) /* for (I)MUL r,r/m,imm */
       if (!(op == Oshl && ins->r.t == RICON && ins->r.i <= 3)) /* can be lea */
          ins->f |= INS2ADDR;
+   ALU_notinplace:
       if (iscon(ins->l) || ins->l.t == RSTACK) {
          fixarg(&ins->l, ins, blk, curi);
          ins->l = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, ins->cls, ins->l));
@@ -692,6 +697,8 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi) {
          ++*curi;
       }
       break;
+   case Octz: case Oclz: case Opopcnt:
+      goto ALU_notinplace;
    case Oxvaprologue:
       fuseaddr(&ins->l, blk, curi);
       assert(ins->l.t == RSTACK);
