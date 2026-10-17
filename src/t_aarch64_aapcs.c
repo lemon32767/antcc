@@ -233,20 +233,20 @@ vaarg(Function *fn, Block *blk, int *curi) {
       end->npred = 0;
       useblk(fn, blk);
       poffs = irbinop(fn, Oadd, KPTR, ap, mkref(RICON, xr_offs_off));
-      offs = addinstr(fn, mkinstr1(Oloads32, KI64, poffs)); /* offs = ap->Xr_offs */
+      offs = addinstr(fn, mkinstr1(Oloads32, KI32, poffs)); /* offs = ap->Xr_offs */
       tmp = irbinop(fn, Olth, KI32, offs, ZEROREF); /* reg save area empty? */
       putcondbranch(fn, tmp, newblk(fn), on_stack = newblk(fn));
       useblk(fn, blk->s1);
       /* XXX alignof > 8 */
-      tmp = irbinop(fn, Oadd, KI64, offs, mkref(RICON, nreg*regwidth)); /* offs + nreg*W */
+      tmp = irbinop(fn, Oadd, KI32, offs, mkref(RICON, nreg*regwidth)); /* offs + nreg*W */
       addinstr(fn, mkinstr2(Ostorei32, 0, poffs, tmp));
-      tmp = irbinop(fn, Ogth, KI64, tmp, ZEROREF);
+      tmp = irbinop(fn, Ogth, KI32, tmp, ZEROREF);
       putcondbranch(fn, tmp, on_stack, regsave1 = newblk(fn)); /* overflowed reg save area? */
       useblk(fn, regsave1);
       /* XXX big endian */
       tmp = irbinop(fn, Oadd, KPTR, ap, mkref(RICON, xr_top_off));
       tmp = addinstr(fn, mkinstr1(Oloadi64, KPTR, tmp));
-      tmp = irbinop(fn, Oadd, KPTR, tmp, offs); /* ap->Xr_top + offs */
+      tmp = irbinop(fn, Oadd, KPTR, tmp, irunop(fn, Oexts32, KI64, offs)); /* ap->Xr_top + offs */
       args[0] = tmp;
       putbranch(fn, end);
    } else {
