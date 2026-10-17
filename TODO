@@ -32,6 +32,7 @@ gnu builtins
 gnu __asm__, constraints, reg vars
 
 BACKEND
+stack lifetimes, alloca reuse
 tail calls and TCO
 need assembler for gnu asm
 mem2reg remove redundant phis SCC algo
