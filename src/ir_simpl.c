@@ -163,6 +163,16 @@ doins(Instr *ins, Block *blk, int *curi) {
    return 0;
 }
 
+static bool
+knownnonnull(Ref r) {
+   if (r.t == RSTACK) return 1;
+   if (r.t == RTMP) {
+      enum op op = instrtab[r.i].op;
+      return oisalloca(op) || op == Oallocav;
+   }
+   return 0;
+}
+
 static void
 jmpfind(Block **final, Block **pblk) {
    Block **p2 = &final[(*pblk)->id];
@@ -288,12 +298,15 @@ simpl(Function *fn) {
          }
       }
 
-      if (blk->s2 && isintcon(blk->jmp.arg[0])) {
+      int cond = isintcon(blk->jmp.arg[0]) ? !!intconval(blk->jmp.arg[0])
+               : knownnonnull(blk->jmp.arg[0]) ? 1 : -1;
+      if (blk->s2 && cond >= 0) {
          /* simplify known conditional branch */
-         Block *s = intconval(blk->jmp.arg[0]) ? blk->s1 : blk->s2;
+         Block *s = cond ? blk->s1 : blk->s2;
          delpred(s == blk->s1 ? blk->s2 : blk->s1, blk);
          cleancfg = 1;
          blk->s1 = s, blk->s2 = NULL;
+         deluse(blk, USERJUMP, blk->jmp.arg[0]);
          blk->jmp.arg[0] = NOREF;
          if (blk->s1 && !blk->s2 && blk->s1->npred == 1 && blk->s1->phi.n == 0) {
             mergeblks(fn, blk, blk->s1);
