@@ -318,7 +318,7 @@ optparse(char **args) {
       } else if (!strcmp(arg, "no-pie")) {
          ccopt.pie = 0;
          setpie = 1;
-      } else if (!strcmp(arg, "march=native") || !memcmp(arg, "mtune=", 6)) {
+      } else if (!strncmp(arg, "march=", 6) || !strncmp(arg, "mtune=", 6)) {
          /* ignore */
       } else if (stroneof(arg, "target\0-target\0")) {
          const char *s = *++args;
@@ -335,7 +335,7 @@ optparse(char **args) {
       } else if (!strcmp(arg, "static-pie")) {
          task.outft = OFTstatic;
          ccopt.pie = setpie = 1;
-      } else if (!memcmp(arg, "Wl,", 3)) {
+      } else if (!strncmp(arg, "Wl,", 3)) {
          if (task.link_with_cc) {
             vpush(&task.linkargs, arg-1);
          } else {
@@ -409,15 +409,15 @@ optparse(char **args) {
       CIncl:
          if (!incpath) fatal(NULL, "missing path after `%s`", arg-1);
          addinclpath(cinclord, incpath);
-      } else if (!memcmp(arg, "iquote", 6)) {
+      } else if (!strncmp(arg, "iquote", 6)) {
          cinclord = CINCL_iquote;
          incpath = arg[6] ? arg+6 : *++args;
          goto CIncl;
-      } else if (!memcmp(arg, "isystem", 7)) {
+      } else if (!strncmp(arg, "isystem", 7)) {
          cinclord = CINCL_isystem;
          incpath = arg[7] ? arg+7 : *++args;
          goto CIncl;
-      } else if (!memcmp(arg, "idirafter", 9)) {
+      } else if (!strncmp(arg, "idirafter", 9)) {
          cinclord = CINCL_idirafter;
          incpath = arg[9] ? arg+9 : *++args;
          goto CIncl;
@@ -431,7 +431,7 @@ optparse(char **args) {
             if (!p) fatal(NULL, "missing path after `-M%c`", *arg);
          }
          /* TODO depfiles */
-      } else if (!memcmp(arg, "-dependency-file", 16)) { /* -MF synonym */
+      } else if (!strncmp(arg, "-dependency-file", 16)) { /* -MF synonym */
          arg += 15;
          *arg = 'F';
          goto Deps;

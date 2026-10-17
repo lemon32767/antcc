@@ -70,12 +70,37 @@ proc asserteq {label actual expected} {
     }
 }
 
+set ::arithops {
+    neg not cvtf32s cvtf32u cvtf32f64 cvtf64s cvtf64u cvtf64f32
+    cvts32f cvtu32f cvts64f cvtu64f
+    exts8 extu8 exts16 extu16 exts32 extu32 bswap16 bswap32 bswap64
+    ctz clz popcnt clrsb
+    add sub mul div udiv rem urem and ior xor shl sar slr
+    equ neq lth gth lte gte ulth ugth ulte ugte
+    copy
+}
+
 proc findarithins {f {prog_ ""}} {
     if {$prog_ eq ""} {
         set prog_ $::prog
     }
+    global cflags arithops
+    set out [c+out [concat "-dfilter=$f" $cflags] $prog_]
+    set res {}
+    foreach line [split $out \n] {
+        if {![regexp {= (\m\w+\M)} $line -> op]} continue
+        if {[lsearch -exact $arithops $op] < 0} continue
+        lappend res $op
+    }
+    return $res
+}
+
+proc findcalls {f {prog_ ""}} {
+    if {$prog_ eq ""} {
+        set prog_ $::prog
+    }
     global cflags
-    set matches [regexp -inline -all {= \m(\w{3,4})\M} [c+out [concat "-dfilter=$f" $cflags] $prog_]]
+    set matches [regexp -inline -all {= call \$(\w+)} [c+out [concat "-dfilter=$f" $cflags] $prog_]]
     return [lmap {x0 x1} $matches {set x1}]
 }
 
@@ -83,12 +108,12 @@ proc findarithwithrhs {f {prog_ ""}} {
     if {$prog_ eq ""} {
         set prog_ $::prog
     }
-    global cflags
+    global cflags arithops
     set out [c+out [concat "-dfilter=$f" $cflags] $prog_]
     set matches [regexp -inline -all {= (\m\w+\M)[^,]*,\s*(\S+)} $out]
     set res {}
     foreach {full ins rhs} $matches {
-        if {$ins eq "param"} continue
+        if {[lsearch -exact $arithops $ins] < 0} continue
         lappend res [list $ins $rhs]
     }
     return $res

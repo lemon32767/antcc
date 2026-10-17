@@ -1,0 +1,29 @@
+source [file dirname $argv0]/common.tcl
+
+set prog {
+    int clz(int x) { return __builtin_clz(x); }
+    int ctz(int x) { return __builtin_ctz(x); }
+    int clrsb(int x) { return __builtin_clrsb(x); }
+    int clrsbll(long long x) { return __builtin_clrsbll(x); }
+    int popcount(int x) { return __builtin_popcount(x); }
+    int popcountll(long long x) { return __builtin_popcountll(x); }
+}
+
+set cflags {-dafter=copyopt}
+asserteq "clz op" [findarithins clz] clz
+asserteq "ctz op" [findarithins ctz] ctz
+
+set cflags {-dbefore=lowerintrin}
+asserteq "clrsb op" [lsearch -all -inline -exact -not [findarithins clrsb] copy] clrsb
+set cflags {-dafter=lowerintrin -target x86_64-linux-gnu}
+asserteq "clrsb lowering" [lsearch -all -inline -exact -not [findarithins clrsb] copy] {shl sar xor ior clz}
+asserteq "clrsbll sign shift" [lsearch -all -inline -exact [findarithwithrhs clrsbll] {sar 63}] {{sar 63}}
+
+set cflags {-dafter=isel -target x86_64-linux-gnu}
+asserteq "clrsb gone after isel" [lsearch -all -inline -exact -not [findarithins clrsb] copy] {shl sar xor ior clz}
+
+set cflags {-dafter=lowerintrin -target x86_64-linux-gnu -march=generic}
+asserteq "popcount lowered" [findarithins popcount] {extu32 copy}
+asserteq "popcount runtime call" [findcalls popcount] __popcountdi2
+asserteq "popcountll lowered" [findarithins popcountll] copy
+asserteq "popcountll runtime call" [findcalls popcountll] __popcountdi2
