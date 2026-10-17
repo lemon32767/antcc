@@ -18,8 +18,10 @@ set prog {
    }
 }
 
-set out [c+out {-O1 -dfilter=pmove_many -dafter=regalloc} $prog]
-asserteq "pmove many moves" [expr {[regexp -all {= (copy|swap)} $out] > 64}] 1
+
+set out [c+out {-O1 -dfilter=pmove_many -dregalloc} $prog]
+## the real regression test is the compiler not crashing with an assert, but gotta check smth here
+asserteq "pmove many moves" [expr {[regexp -all {phi move} $out] > 64}] 1
 
 # mixed int/float phis, slot reuse may cross class
 set prog {   int pmove_mixed(int n) {
@@ -40,5 +42,5 @@ set prog {   int pmove_mixed(int n) {
    }
 }
 
-set out [c+out {-O1 -dfilter=pmove_mixed -dafter=regalloc} $prog]
-asserteq "pmove many mixed moves" [expr {[regexp -all {= (copy|swap)} $out] > 64}] 1
+set out [c+out {-O1 -dfilter=pmove_mixed -dregalloc} $prog]
+asserteq "pmove many mixed moves" [expr {[regexp -all {phi move} $out] > 64}] 1
