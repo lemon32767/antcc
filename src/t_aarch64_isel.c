@@ -153,6 +153,7 @@ fixarg(Ref *r, Instr *ins, Block *blk, int *curi) {
    } else if (r->t != RTMP) Reg: {
       enum irclass k;
       if (r->t == RTMP) k = insrescls(instrtab[r->i]);
+      else if (r->t == RSTACK || r->t == RADDR) k = KPTR;
       else if (op == Oarg) {
          IRType ty = ref2type(ins->l);
          k = ty.isagg ? KPTR : ty.cls;
