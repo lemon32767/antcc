@@ -774,7 +774,6 @@ enum cc {
 static void
 Xbcc(uchar **pcode, enum cc cc, Block *dst) {
    int disp, insaddr = *pcode - objtextbase();
-
    if (blkaddr[dst->id].resolved) {
       disp = (int)(blkaddr[dst->id].addr - insaddr)/4;
       assert(disp >= -(1<<18) && disp < (1<<18));
@@ -1243,18 +1242,21 @@ emitbin(Function *fn, uchar **pcode) {
    }
 
    blkaddr = allocz(fn->passarena, fn->nblk * sizeof *blkaddr, 0);
+   for (int i = 0; i < fn->nblk; ++i)
+      blkaddr[i].relreloc = -1u;
 
    blk = fn->entry;
    do {
       struct BlkAddr *bb = &blkaddr[blk->id];
       uint bbaddr = *pcode - objtextbase();
       assert(!bb->resolved);
-      while (bb->relreloc) {
+      while (bb->relreloc != -1u) {
          int disp = (bbaddr - bb->relreloc)/4;
          assert(disp >= -(1<<18) && disp < (1<<18));
          uint tmp = rd32targ(objtextbase() + bb->relreloc);
+         uint prev = tmp>>5 & 0x7FFFF;
          wr32le(objtextbase() + bb->relreloc, (tmp &~ (0x7FFFFu<<5)) | (disp & 0x7FFFF)<<5);
-         bb->relreloc = tmp>>5 & 0x7FFFF;
+         bb->relreloc = prev == 0x7FFFF ? -1u : prev;
       }
       bb->resolved = 1;
       bb->addr = bbaddr;
