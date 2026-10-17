@@ -97,24 +97,27 @@ DEF_FNLIKE_SEMA(bswap16, mktype(TYUSHORT), mktype(TYUSHORT))
 static Ref
 bswap16_comp(Function *fn, Expr *ex, bool discard) {
    assert(isint(ex->ty));
-   return irunop(fn, Obswap16, KI32, scalarcvt(fn, ex->ty, ex->sub[1].ty,
-            compileexpr(fn, &ex->sub[1], 0)));
+   Ref x = compileexpr(fn, &ex->sub[1], discard);
+   if (discard) return NOREF;
+   return irunop(fn, Obswap16, KI32, scalarcvt(fn, ex->ty, ex->sub[1].ty, x));
 }
 /* __builtin_bswap32 */
 DEF_FNLIKE_SEMA(bswap32, mktype(TYUINT), mktype(TYUINT))
 static Ref
 bswap32_comp(Function *fn, Expr *ex, bool discard) {
    assert(isint(ex->ty));
-   return irunop(fn, Obswap32, KI32, scalarcvt(fn, ex->ty, ex->sub[1].ty,
-            compileexpr(fn, &ex->sub[1], 0)));
+   Ref x = compileexpr(fn, &ex->sub[1], discard);
+   if (discard) return NOREF;
+   return irunop(fn, Obswap32, KI32, scalarcvt(fn, ex->ty, ex->sub[1].ty, x));
 }
 /* __builtin_bswap64 */
 DEF_FNLIKE_SEMA(bswap64, mktype(TYUVLONG), mktype(TYUVLONG))
 static Ref
 bswap64_comp(Function *fn, Expr *ex, bool discard) {
    assert(isint(ex->ty));
-   return irunop(fn, Obswap64, KI64, scalarcvt(fn, ex->ty, ex->sub[1].ty,
-            compileexpr(fn, &ex->sub[1], 0)));
+   Ref x = compileexpr(fn, &ex->sub[1], discard);
+   if (discard) return NOREF;
+   return irunop(fn, Obswap64, KI64, scalarcvt(fn, ex->ty, ex->sub[1].ty, x));
 }
 
 /* __builtin_constant_p */
@@ -146,8 +149,9 @@ expect_comp(Function *fn, Expr *ex, bool discard) {
 DEF_FNLIKE_SEMA(alloca, mkptrtype(mktype(TYVOID), /*qual*/0), mktype(TYLONG))
 static Ref
 alloca_comp(Function *fn, Expr *ex, bool discard) {
+   Ref r = compileexpr(fn, &ex->sub[1], discard);
    if (discard) return NOREF;
-   Ref siz = scalarcvt(fn, mktype(targ_sizetype), ex->sub[1].ty, compileexpr(fn, &ex->sub[1], 0));
+   Ref siz = scalarcvt(fn, mktype(targ_sizetype), ex->sub[1].ty, r);
    Instr alloc = isintcon(siz) ? mkalloca(intconval(siz), 16)
                                : mkinstr1(Oallocav, KPTR, siz);
    return addinstr(fn, alloc);
@@ -196,10 +200,10 @@ DEF_MATH_CONST(nansl, TYDOUBLE,ccharptrt, bits2d(0x7ff0000000000001), NULL)
 #define DEF_BITOPt(cname, tt, x, ...)                              \
    DEF_FNLIKE_SEMA(cname, mktype(TYINT), mktype(tt))               \
    static Ref cname##_comp(Function *fn, Expr *ex, bool discard) { \
-      if (discard) return NOREF;                                   \
       enum irclass k = type2cls[tt];                               \
-      Ref x = compileexpr(fn, &ex->sub[1], 0);                     \
-          x = scalarcvt(fn, mktype(tt), ex->sub[1].ty, x);         \
+      Ref x = compileexpr(fn, &ex->sub[1], discard);               \
+      if (discard) return NOREF;                                   \
+      x = scalarcvt(fn, mktype(tt), ex->sub[1].ty, x);             \
       __VA_ARGS__                                                  \
    }
 #define DEF_BITOP(f, x, ...)                \
@@ -215,7 +219,7 @@ DEF_BITOP(ffs, x,
    Block *t = newblk(fn), *f = newblk(fn), *e = newblk(fn);
    putcondbranch(fn, irbinop(fn, Oneq, k, x, ZEROREF), t, f);
    useblk(fn, t);
-   Ref r[2] = {irunop(fn, Ocopy, KI32, irunop(fn, Octz, k, x)), mkintcon(k, -1)};
+   Ref r[2] = {irunop(fn, Ocopy, KI32, irunop(fn, Octz, k, x)), mkintcon(KI32, -1)};
    putbranch(fn, e);
    useblk(fn, f), putbranch(fn, e);
    useblk(fn, e);
