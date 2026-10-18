@@ -116,6 +116,10 @@ static struct Task {
    enum outft { OFTexe, OFTstatic, OFTdll, OFTobj, OFTasm, OFTc } outft;
    const char *out;
    const char *targ;
+   const char *crosscc;
+   const char *sysroot;
+   const char *bindir;
+   const char *musllibdir;
    vec_of(InFile) inf;
    char **runargs;
    vec_of(const char *) linkargs;
@@ -318,6 +322,10 @@ optparse(char **args) {
          const char *s = *++args;
          if (!s) fatal(NULL, "missing target name");
          task.targ = s;
+      } else if ((x = optval(arg, "-sysroot"))) {
+         task.sysroot = x;
+      } else if (!strcmp(arg, "-sysroot")) {
+         if (!(task.sysroot = *++args)) fatal(NULL, "missing argument to `%s`", arg-1);
       } else if (!strcmp(arg, "pthread")) {
          cpp0define("_REENTRANT", NULL);
          vpush(&task.linkargs, "-lpthread");
@@ -342,7 +350,11 @@ optparse(char **args) {
                vpush(&task.linkargs, larg);
             }
          }
-      } else if (strchr("zLlB", *arg)) {
+      } else if (*arg == 'B') {
+         const char *x = arg[1] ? arg+1 : *++args;
+         if (!x) fatal(NULL, "missing argument to `-B`");
+         task.bindir = x;
+      } else if (strchr("zLl", *arg)) { /* linker passthru */
          const char *x = arg[1] ? arg+1 : *++args;
          if (!x) fatal(NULL, "missing argument to `%S`", arg-1, 2);
          if (*arg == 'z') {
@@ -592,16 +604,34 @@ compileobjs(void) {
 #include <sys/stat.h>
 
 static bool
+iscrosscc(void) {
+   return target.os != HOST_OS || target.arch != HOST_ARCH || target.abi != HOST_ABI;
+}
+
+static bool
+isfile(const char *p) {
+   struct stat st;
+   return stat(p, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static bool
+isdir(const char *p) {
+   struct stat st;
+   return stat(p, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static bool
 hasprog(const char *prog) {
    pid_t p;
    if ((p = fork()) < 0) {
       return 0;
    } else if (p == 0) {
       int nulfd = open("/dev/null", O_WRONLY);
-      if (nulfd < 0) return 0;
-      for (int fd = 0; fd <= 2; ++fd) {
-         dup2(fd, nulfd);
-         close(fd);
+      if (nulfd >= 0) {
+         for (int fd = 0; fd <= 2; ++fd)
+            dup2(nulfd, fd);
+         if (nulfd > 2)
+            close(nulfd);
       }
       const char *cmd[] = {prog, NULL};
       if (execvp(*cmd, (char **)cmd)) {
@@ -615,29 +645,72 @@ hasprog(const char *prog) {
    return WIFEXITED(wstat) && WEXITSTATUS(wstat) < 125;
 }
 
-static bool
-iscrosscc(void) {
-   return target.os != HOST_OS || target.arch != HOST_ARCH || target.abi != HOST_ABI;
+/* e.g. aarch64-linux-gnu-gcc, or <prefix>/bin/<target>-gcc with -B */
+static const char *
+findcrosscc(void) {
+   if (task.crosscc) return task.crosscc;
+   static const char *const ccs[] = {"cc", "gcc", "clang"};
+   for (int i = 0; i < countof(ccs); ++i) {
+      char buf[1024];
+      if (task.bindir) {
+         uint n = snfmt(buf, sizeof buf, "%s/bin/%s-%s", task.bindir, task.targ, ccs[i]);
+         if (n < sizeof buf && hasprog(buf))
+            return task.crosscc = alloccopy(&globarena, buf, n, 1);
+      }
+      uint n = snfmt(buf, sizeof buf, "%s-%s", task.targ, ccs[i]);
+      if (n < sizeof buf && hasprog(buf))
+         return task.crosscc = alloccopy(&globarena, buf, n, 1);
+   }
+   return NULL;
+}
+
+static const char *
+findsysroot(const char *cc) {
+   size_t len = 0;
+   int fds[2], st, wst;
+   if (pipe(fds) != 0) return NULL;
+   pid_t p = fork();
+   if (p < 0) return close(fds[0]), close(fds[1]), NULL;
+   else if (p == 0) {
+      /* cc -print-sysroot 2>/dev/null 2>&1 */
+      int nulfd;
+      close(fds[0]), dup2(fds[1], STDOUT_FILENO), close(fds[1]);
+      if ((nulfd = open("/dev/null", O_WRONLY)) >= 0) {
+         dup2(nulfd, STDERR_FILENO), close(nulfd);
+      }
+      execvp(cc, (char *[3]){(char *)cc, "-print-sysroot"});
+      _exit(127);
+   }
+   close(fds[1]);
+   char stdoutbuf[4096];
+   do {
+      ssize_t n = read(fds[0], stdoutbuf + len, sizeof stdoutbuf - 1 - len);
+      if (n > 0) len += n;
+      else if (n < 0 && errno == EINTR) continue;
+      else break;
+   } while (len < sizeof stdoutbuf-1);
+   stdoutbuf[len] = 0;
+
+   close(fds[0]);
+   while ((wst = waitpid(p, &st, 0)) < 0 && errno == EINTR) {}
+   if (wst < 0) return NULL;
+   while (len && (stdoutbuf[len-1] == '\n' || stdoutbuf[len-1] == '\r'))
+      stdoutbuf[--len] = 0;
+   if (!WIFEXITED(st) || WEXITSTATUS(st) != 0) return NULL;
+   if (!len || !strcmp(stdoutbuf, "/") || !isdir(stdoutbuf)) return NULL;
+   return alloccopy(&globarena, stdoutbuf, len+1, 1);
 }
 
 typedef vec_of(const char *) CmdArgs;
 
 static void
 findlinkargs(CmdArgs *cmd) {
-   if (task.targ && iscrosscc()) {
+   if (task.targ && iscrosscc() && !task.musllibdir) {
       task.link_with_cc = 1;
-      /* try to find a cross compiling toolchain, e.g. aarch64-linux-gnu-gcc */
-      static const char *ccs[] = {"cc", "gcc", "clang"};
-      char cross[1024];
-      for (int i = 0; i < countof(ccs); ++i) {
-         WriteBuf wbuf = MEMBUF(cross, sizeof cross);
-         int n = bfmt(&wbuf, "%s-%s", task.targ, ccs[i]);
-         assert(n < sizeof cross-1);
-         cross[n] = 0;
-         if (hasprog(cross)) {
-            vpush(cmd, alloccopy(&globarena, cross, n+1, 1));
-            return;
-         }
+      const char *cc = findcrosscc();
+      if (cc) {
+         vpush(cmd, cc);
+         return;
       }
       /* zig cc fallback, which works great as cross compiler toolchain */
       if (hasprog("zig")) {
@@ -664,7 +737,8 @@ findlinkargs(CmdArgs *cmd) {
 
 const char *rtpack_getlibantrt1(void);
 
-enum crtmode { CRTxxx, CRTexe, CRTpie, CRTdll, CRTstatic, CRTstaticpie, NCRTMODE };
+enum crtmode { CRTxxx, CRTnopie, CRTpie, CRTdll, CRTstatic, CRTstaticpie, NCRTMODE };
+/* ugh */
 static const char *const crtbegin[NUM_MC_OS][NCRTMODE][3] = {
    {{"-l:crt1.o", "-l:crti.o"}},
    [OSlinux] = {
@@ -674,10 +748,10 @@ static const char *const crtbegin[NUM_MC_OS][NCRTMODE][3] = {
    },
    [OSopenbsd] = {
       {"-l:crt0.o", "-l:crtbegin.o"},
-      [CRTdll]       = {"-l:crtbeginS.o"},
+      [CRTdll]  = {"-l:crtbeginS.o"},
    },
    [OSandroid] = {
-      [CRTexe]       = {"-l:crtbegin_dynamic.o"},
+      [CRTnopie]     = {"-l:crtbegin_dynamic.o"},
       [CRTpie]       = {"-l:crtbegin_dynamic.o"},
       [CRTdll]       = {"-l:crtbegin_so.o"},
       [CRTstatic]    = {"-l:crtbegin_static.o"},
@@ -698,11 +772,9 @@ static const char *const crtend[NUM_MC_OS][NCRTMODE][4] = {
 
 static enum crtmode
 getcrtmode(void) {
-   if (task.outft == OFTdll)
-      return CRTdll;
-   if (task.outft == OFTstatic)
-      return ccopt.pie ? CRTstaticpie : CRTstatic;
-   return ccopt.pie ? CRTpie : CRTexe;
+   if (task.outft == OFTdll) return CRTdll;
+   if (task.outft == OFTstatic) return ccopt.pie || ccopt.pic ? CRTstaticpie : CRTstatic;
+   return ccopt.pie || ccopt.pic ? CRTpie : CRTnopie;
 }
 
 static int
@@ -724,6 +796,13 @@ dolink(void) {
       vpush(&cmd, ccopt.pie ? "-pie" : "-no-pie");
    }
    enum crtmode mode = getcrtmode();
+   if (task.sysroot)
+      vpush(&cmd, afmt(&globarena, "--sysroot=%s", task.sysroot));
+   if (task.bindir) {
+      vpush(&cmd, afmt(&globarena, "-L%s/lib", task.bindir));
+      vpush(&cmd, afmt(&globarena, "-L%s/lib64", task.bindir));
+      vpush(&cmd, afmt(&globarena, "-L%s/usr/lib", task.bindir));
+   }
    if (!task.link_with_cc) {
       if (task.outft == OFTstatic) {
          vpush(&cmd, "--no-dynamic-linker");
@@ -734,7 +813,10 @@ dolink(void) {
          vpush(&cmd, "-dynamic-linker");
          vpush(&cmd, HOST_DYNAMIC_LINKER);
       }
-      ADDCMDARGS(host_linkargs);
+      if (task.musllibdir)
+         vpush(&cmd, afmt(&globarena, "-L%s", task.musllibdir));
+      else
+         ADDCMDARGS(host_linkargs);
 
       const char *const *begin = crtbegin[target.os][mode];
       if (!*begin) begin = *crtbegin[target.os];
@@ -933,6 +1015,8 @@ prihelp(void) {
         " -c     \tEmit object file but do not link\n"
         " -run   \tRun compiled sources\n"
         " -Idir  \tAdd include path\n"
+        " --sysroot=dir \tSet target system root for headers/libs\n"
+        " -Bdir  \tAdd dir as a compiler/libc prefix (headers and libs)\n"
         " -Dsym[=val] \tDefine macro\n"
         " -Usym  \tUndefine macro\n"
         " -E     \tPreprocess only\n"
@@ -956,6 +1040,75 @@ prihelp(void) {
         " -dloop \t loop opt debug info\n"
         " -dfilter=foo,... \t only print IR for given functions\n"
    );
+}
+
+/* With --sysroot or -B options, try to use these paths to find include dirs, lib dirs..
+ * When crosscompiling without explicit --sysroot, look for a toolchain to get the sysroot from
+ * i wonder if this is too much magic... */
+static void
+setuptarget(int nincl0) {
+   if (!task.sysroot && iscrosscc()) {
+      const char *cc = findcrosscc();
+      if (cc) {
+         if ((task.sysroot = findsysroot(cc)))
+            note(NULL, "using cross compiler toolchain at %'s for linking and headers", task.sysroot);
+      }
+   }
+   int gotinc = 0;
+#define incf(...) addinclpath(CINCL_isystem, afmt(&globarena, __VA_ARGS__))
+   if (task.bindir) {
+      if (task.targ) incf("%s/usr/include/%s", task.bindir, task.targ);
+      incf("%s/usr/include", task.bindir);
+      incf("%s/include", task.bindir);
+      gotinc = 1;
+   }
+   if (task.sysroot) {
+      if (task.targ)
+         incf("%s/usr/include/%s", task.sysroot, task.targ);
+      incf("%s/usr/include", task.sysroot);
+      incf("%s/include", task.sysroot);
+      vrbfmt("sysroot: %s\n", task.sysroot);
+      gotinc = 1;
+   }
+   if (target.abi == ABImusl && target.arch == HOST_ARCH && !task.sysroot && isdir("/usr/lib/musl/include")) {
+      /* might be compiling for musl in a glibc system... */
+      incf("/usr/lib/musl/include");
+      gotinc = 1;
+   }
+   if (!gotinc && iscrosscc() && nsysinclpaths == nincl0) {
+      /* try '/usr/<target>/include'. in practice the above findsysroot+findcrosscc logic
+       * probably makes this logic redundant */
+      char path[4096];
+      uint n = snfmt(path, sizeof path, "/usr/%s/include", task.targ);
+      if (n < sizeof path && isdir(path)) {
+         addinclpath(CINCL_isystem, alloccopy(&globarena, path, n, 1));
+      } else {
+         warn(NULL, "defaulting to host include paths while cross compiling for %s might not work",
+               task.targ);
+      }
+   }
+   /* with -static on a glibc system, use musl if present, because static glibc is fake */
+   if (task.outft == OFTstatic && target.os == OSlinux && target.abi == ABIgnu
+    && !iscrosscc() && !task.bindir && !task.sysroot) {
+      /* look for libc.a */
+      static const char *const mdirs[] = {"/usr/lib/musl/lib", "/usr/local/musl/lib"};
+      for (int i = 0; i < countof(mdirs); ++i) {
+         if (!isfile(afmt(&globarena, "%s/libc.a", mdirs[i])))
+            continue;
+         task.musllibdir = mdirs[i];
+         target.abi = ABImusl;
+         incf("%s/../include", mdirs[i]);
+         note(NULL, "static linking using musl at %s", mdirs[i]);
+         break;
+      }
+      if (!task.musllibdir) goto UseGCC;
+   }
+   if (task.outft == OFTstatic && target.os == OSlinux && target.abi == ABIgnu
+    && !iscrosscc() && !task.musllibdir && !task.link_with_cc) UseGCC: {
+      /* "static" glibc needs libgcc */
+      note(NULL, "requested -static on glibc, linking with %s", HOST_CC);
+      task.link_with_cc = 1;
+   }
 }
 
 static const TargTriple host_targ = { HOST_ARCH, HOST_OS, HOST_ABI };
@@ -994,22 +1147,7 @@ main(int argc, char **argv) {
    if (!targ_init(task.targ, &host_targ) || !target.arch) {
       fatal(NULL, "unsupported target: %s", task.targ ? task.targ : HOST_TRIPLE);
    }
-   if (iscrosscc() && nsysinclpaths == nincl0) {
-      /* try '/usr/<target>/include' */
-      struct stat st;
-      char path[4096];
-      int n = bfmt(&(WriteBuf)MEMBUF(path,sizeof path), "/usr/%s/include/%c", task.targ, 0);
-      if (n < sizeof path
-       && stat(path, &st) == 0) {
-         path[n-2] = '\0';
-         addinclpath(CINCL_isystem, alloccopy(&globarena, path, n, 1));
-         note(NULL, "found cross compiler include path %'s", path);
-      } else {
-         warn(NULL,
-               "defaulting to host include paths while cross compiling for %s might not work",
-               task.targ);
-      }
-   }
+   setuptarget(nincl0);
 
    for (const char *const *p = host_predefs; *p; ++p)
       predef(0, *p);

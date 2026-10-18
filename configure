@@ -261,13 +261,13 @@ echo "/** GENERATED WITH $0 $* **/
 #define HOST_OS     OS$host_os
 #define HOST_ABI    ABI$host_abi
 static const char *const host_incldirs[] ={$host_include_dirs 0};
+static const char *const host_predefs[] = {$host_predefs 0};
 #define HOST_LD \"$linker\"
 #define HOST_CC \"$CC\"
-static const char *const host_predefs[] = {$host_predefs 0};
 #define HOST_LINK_WITH_CC $link_with_cc
 #define HOST_DYNAMIC_LINKER ${DYNAMIC_LINKER:=NULL}
-static const char *const host_linkargs[] = {${linkargs:=0}};
-"  | tee src/hostconfig.h | tail -n 9 | sed -E 's/#define|static const char .const/ +/'
+static const char *const host_linkargs[] = {${linkargs:=0}};" \
+  | tee src/hostconfig.h | tail -n 6 | sed -E 's/#define|static const char .const/ +/'
 
 echo "# GENERATED WITH $0 $*
 PREFIX = $prefix

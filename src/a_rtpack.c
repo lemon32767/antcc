@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -29,12 +28,12 @@ mkdir_p(const char *p) {
    for (; *p; ++p, ++n) {
       if (n >= sizeof buf - 3) return 0;
       buf[n] = *p;
-      if (*p != '/') continue;
+      if (*p != '/' || n == 0) continue;
       buf[n+1] = 0;
-      if (mkdir(buf, 0700) != 0 && errno != EEXIST) return 0;
+      if (mkdir(buf, 0700) != 0 && errno != EEXIST && errno != EISDIR) return 0;
    }
    buf[n] = 0;
-   if (mkdir(buf, 0700) != 0 && errno != EEXIST) return 0;
+   if (mkdir(buf, 0700) != 0 && errno != EEXIST && errno != EISDIR) return 0;
    struct stat st;
    if (stat(buf, &st) != 0 || !S_ISDIR(st.st_mode)) return 0;
    return 1;
@@ -131,14 +130,14 @@ compileaziplib(const char *path, mz_zip_archive *zip, const char **meta) {
    if ((metafd = open(metapath, O_CREAT|O_RDWR, 0600)) < 0)
       return 0;
    fcntl(metafd, F_SETFD, FD_CLOEXEC);
-   if (flock(metafd, LOCK_EX) != 0)
+   if (fcntl(metafd, F_SETLKW, &(struct flock){.l_type = F_WRLCK, .l_whence = SEEK_SET}) != 0)
       goto End;
    if (exists(path)) { /* another process may have built it while we waited for the lock */
-      vrbfmt("  > found @ %s\n", path);
+      vrbfmt(" # found @ %s\n", path);
       ok = 1;
       goto End;
    }
-   vrbfmt("  > begin lock %s\n", metapath);
+   vrbfmt(" # begin lock %s\n", metapath);
    ftruncate(metafd, 0);
 
    /* write metadata */
@@ -220,7 +219,7 @@ End:
       unlink(objs.p[i]);
    vfree(&objs);
    if (metafd >= 0) {
-      flock(metafd, LOCK_UN);
+      fcntl(metafd, F_SETLKW, &(struct flock){.l_type = F_UNLCK, .l_whence = SEEK_SET});
       close(metafd);
    }
    return ok;
@@ -246,7 +245,7 @@ rtpack_getlibantrt1(void) {
    vrbfmt("rt cache dir: %s\n", dir);
    path = afmt(&globarena, "%s/libantrt1.a", dir);
    if (exists(path)) {
-      vrbfmt("  > found @ %s\n", path);
+      vrbfmt(" # found @ %s\n", path);
       goto End;
    }
 
