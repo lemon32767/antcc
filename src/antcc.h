@@ -90,11 +90,12 @@ enum cstd {
 };
 typedef struct CCOption {
    enum cstd cstd;
+   bool verbose;
    bool pedant;
-   bool pie, pic;
    bool werror;
    bool wnone;
    bool ircheck;
+   bool pie, pic;
    enum optz {
       OPT0 = -1,
       OPT1 = 1,
@@ -156,6 +157,7 @@ extern TargTriple target;
 enum objkind { OBJELF };
 extern const struct MCTarg *mctarg;
 bool targ_init(const char *, const TargTriple *dfault);
+const char *targ_canon_triple(void);
 
 /** shared by IR and OBJ */
 enum symflags {
@@ -320,8 +322,11 @@ void ioputc(WriteBuf *, uchar);
 void ioflush(WriteBuf *);
 int vbfmt(WriteBuf *, const char *, va_list ap);
 int bfmt(WriteBuf *, const char *, ...);
+int snfmt(char [], uint, const char *, ...);
+char *afmt(Arena **, const char *, ...);
 #define pfmt(...) bfmt(&bstdout, __VA_ARGS__)
 #define efmt(...) bfmt(&bstderr, __VA_ARGS__)
+#define vrbfmt(...) if (ccopt.verbose) efmt(__VA_ARGS__)
 MemFile mapopen(const char **err, const char *path);
 void mapclose(MemFile *);
 void *mapzeros(uint);

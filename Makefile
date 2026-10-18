@@ -1,15 +1,16 @@
 OUT?=antcc
 BUILDDIR?=build
-srcs=a_main.c           a_targ.c          a_embedfilesdir.c                            \
-     c_builtin.c        c.c               c_eval.c           c_lex.c      c_type.c     \
-     ir_abi0.c          ir_builder.c      ir.c               ir_cfg.c     ir_cse.c     \
-     ir_dump.c          ir_fold.c         ir_inliner.c       ir_intrin.c  ir_mem2reg.c \
-     ir_regalloc.c      ir_simpl.c        ir_ssa.c           ir_stack.c   ir_check.c   \
-     ir_loop.c          ir_motion.c                                                    \
-     obj.c              o_elf.c                                                        \
-     t_aarch64_aapcs.c  t_aarch64_emit.c  t_aarch64_isel.c                             \
-     t_x86-64_emit.c    t_x86-64_isel.c   t_x86-64_sysv.c                              \
-     u_io.c             u_mem.c
+srcs=a_main.c           a_targ.c          a_embedfilesdir.c  a_rtpack.c   gen_libantrt1.c \
+     c_builtin.c        c.c               c_eval.c           c_lex.c      c_type.c        \
+     ir_abi0.c          ir_builder.c      ir.c               ir_cfg.c     ir_cse.c        \
+     ir_dump.c          ir_fold.c         ir_inliner.c       ir_intrin.c  ir_mem2reg.c    \
+     ir_regalloc.c      ir_simpl.c        ir_ssa.c           ir_stack.c   ir_check.c      \
+     ir_loop.c          ir_motion.c                                                       \
+     obj.c              o_elf.c                                                           \
+     t_aarch64_aapcs.c  t_aarch64_emit.c  t_aarch64_isel.c                                \
+     t_x86-64_emit.c    t_x86-64_isel.c   t_x86-64_sysv.c                                 \
+     u_io.c             u_mem.c                                                           \
+	 z_miniz.c
 src=$(addprefix src/, $(srcs))
 obj=$(patsubst src/%.c,$(BUILDDIR)/%.o,$(src))
 dep=$(obj:.o=.d)
@@ -50,6 +51,12 @@ src/a_embedfilesdir.c: src/a_embedfilesdir.sh
 	$(TOOLCC) -DEMBEDFILESDIR_CHECKSIZES $@ -o $(BUILDDIR)/a_embedfilesdir_checksizes
 	$(BUILDDIR)/a_embedfilesdir_checksizes
 
+tool/mkpack: tool/mkpack.c src/z_miniz.c src/z_miniz.h
+	$(TOOLCC) -Wall -g -o $@ $<
+
+src/gen_libantrt1.c: tool/mkpack $(wildcard src/libantrt1/*.c)
+	tool/mkpack src/libantrt1 src/gen_libantrt1.c
+
 $(BUILDDIR)/%.o: src/%.c
 	$Vmkdir -p `dirname $@`
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -59,7 +66,7 @@ clean:
 	$(RM) -r -- $(BUILDDIR)/ test/build/ $(OUT) *.o a.out
 
 clean-tool:
-	$(RM) tool/depgen
+	$(RM) tool/depgen tool/mkpack
 
 clean-config: clean
 	$(RM) config.mk src/hostconfig.h
@@ -74,3 +81,5 @@ uninstall:
 .PHONY: clean clean-config install uninstall
 
 -include $(dep)
+
+.DELETE_ON_ERROR:

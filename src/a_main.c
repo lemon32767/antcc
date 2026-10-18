@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 200809L /* fexecve, strsignal */
+#define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE /* WCOREDUMP on glibc */
 #include "antcc.h"
 #include "version.h"
@@ -120,7 +120,7 @@ static struct Task {
    char **runargs;
    vec_of(const char *) linkargs;
    bool link_with_cc;
-   bool verbose, run, syntaxonly;
+   bool run, syntaxonly;
 } task = { .inf = VINIT(infilebuf, countof(infilebuf)) };
 
 static void prihelp(void);
@@ -369,7 +369,7 @@ optparse(char **args) {
          vpush(&task.linkargs, arg-1);
          vpush(&task.linkargs, so);
       } else if (!strcmp(arg, "v") || !strcmp(arg, "-verbose")) {
-         task.verbose = 1;
+         ccopt.verbose = 1;
       } else if (!strcmp(arg, "c")) {
          task.outft = OFTobj;
       } else if (!strcmp(arg, "E")) {
@@ -447,7 +447,7 @@ optparse(char **args) {
 breakbreak:
 
    if (task.inf.n == 0) {
-      if (task.verbose) {
+      if (ccopt.verbose) {
          priinfo(2);
          exit(0);
       }
@@ -477,10 +477,9 @@ breakbreak:
       fatal(NULL, "too many input files");
 }
 
-#define vrbfmt(...) if (task.verbose) efmt(__VA_ARGS__)
 static void
 vrbpriargs(const char **a, size_t n) {
-   if (task.verbose) {
+   if (ccopt.verbose) {
       prilist(&bstderr, "%s", " ", a, n);
       efmt("\n");
    }
@@ -575,7 +574,7 @@ compileobjs(void) {
             error(NULL, "fork(): %s", strerror(errno));
             exit(1);
          } else if (p == 0) {
-            exit(cc1(task.inf.p[i].temp, task.inf.p[i].path));
+            _exit(cc1(task.inf.p[i].temp, task.inf.p[i].path));
          }
          waitpid(p, &wstat, 0);
          int rc;
@@ -614,7 +613,7 @@ hasprog(const char *prog) {
       if (execvp(*cmd, (char **)cmd)) {
          close(nulfd);
          error(NULL, "execvp: %s", strerror(errno));
-         exit(125);
+         _exit(125);
       }
    }
    int wstat;
@@ -683,6 +682,8 @@ checkldfiles(const char **ldargs, int n) {
    return 1;
 }
 
+const char *rtpack_getlibantrt1(void);
+
 static int
 dolink(void) {
    const char *cmdbuf[100];
@@ -745,6 +746,11 @@ dolink(void) {
       vpush(&cmd, a);
    }
    if (!task.link_with_cc) {
+      const char *rt = rtpack_getlibantrt1();
+      if (rt)
+         vpush(&cmd, rt);
+      else
+         warn(NULL, "libantrt1 unavailable");
       if (task.outft == OFTdll) {
          ADDCMDARGS(host_ldendfiles_shared);
       } else if (ccopt.pie) {
@@ -759,10 +765,9 @@ dolink(void) {
       error(NULL, "fork: %s", strerror(errno));
       exit(1);
    } else if (p == 0) {
-      if (execvp(cmd.p[0], (char **)cmd.p)) {
-         error(NULL, "execvp: %s", strerror(errno));
-         exit(1);
-      }
+      execvp(cmd.p[0], (char **)cmd.p);
+      error(NULL, "execvp: %s", strerror(errno));
+      _exit(1);
    }
    const char *ldname = cmd.p[0];
    vfree(&cmd);
@@ -806,7 +811,7 @@ dorun(void) {
    } else if (p == 0) {
       if (!execv(task.out, task.runargs - 1)) {
          error(NULL, "execv(): %s", strerror(errno));
-         exit(1);
+         _exit(1);
       }
    }
    int wstat;
@@ -844,7 +849,7 @@ driver(void) {
          pid_t p;
          if ((p = fork()) == 0) {
             cpp(buf, task.inf.p[i].path);
-            exit(0);
+            _exit(0);
          } else if (p < 0) {
             error(NULL, "fork(): %s", strerror(errno));
             ok = 0;
@@ -953,7 +958,7 @@ main(int argc, char **argv) {
 
    const char *s;
    if ((s = getenv("ANTCC_VERBOSE")) && *s && strchr("1yYtT", *s)) {
-      task.verbose = 1;
+      ccopt.verbose = 1;
    }
    task.link_with_cc = HOST_LINK_WITH_CC;
 
@@ -965,7 +970,7 @@ main(int argc, char **argv) {
    int nincl0 = nsysinclpaths;
    optparse(argv);
 
-   if (task.verbose) {
+   if (ccopt.verbose) {
       priinfo(1);
    }
 

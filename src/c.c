@@ -5969,34 +5969,42 @@ docomp(CComp *cm) {
 }
 
 static void
-initcm(CComp *cm, const char *file) {
+initcm(CComp *cm, const char *file, const char *data, uint size) {
+   const char *err;
    enum { N = 1<<12 };
    static union { char m[sizeof(Arena) + N]; Arena *_align; } amem[2];
-   const char *err;
-   switch (initlexer(cm->lx, &err, file)) {
+   cm->fnarena = (void *)amem[0].m;
+   cm->fnarena->cap = N;
+   cm->exarena = (void *)amem[1].m;
+   cm->exarena->cap = N;
+   switch (data ? initlexer_buf(cm->lx, &err, file, data, size) : initlexer(cm->lx, &err, file)) {
    default: assert(0);
    case LXERR:
       fatal(NULL, "Cannot open %'s: %s", file, err);
    case LXOK:
       cm->lx->pragma = cm->pragma;
-      cm->fnarena = (void *)amem[0].m;
-      cm->fnarena->cap = N;
-      cm->exarena = (void *)amem[1].m;
-      cm->exarena->cap = N;
+      break;
    }
 }
 
 void
 ccomp(const char *file) {
    CComp cm = {&(Lexer){0}, &(PragmaState){0}};
-   initcm(&cm, file);
+   initcm(&cm, file, NULL, 0);
+   docomp(&cm);
+}
+
+void
+ccompbuf(const char *name, const char *data, uint size) {
+   CComp cm = {&(Lexer){0}, &(PragmaState){0}};
+   initcm(&cm, name, data, size);
    docomp(&cm);
 }
 
 void
 cpp(WriteBuf *out, const char *file) {
    CComp cm = {&(Lexer){0}, &(PragmaState){0}};
-   initcm(&cm, file);
+   initcm(&cm, file, NULL, 0);
    lexerdump(cm.lx, out);
 }
 

@@ -29,6 +29,7 @@ tool/*
 src/version.h
 src/hostconfig.h
 src/a_embedfilesdir.c
+src/gen_libantrt1.c
 
 !/test/
 test/csmith

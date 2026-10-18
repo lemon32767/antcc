@@ -680,6 +680,39 @@ bfmt(WriteBuf *buf, const char *fmt, ...) {
    return ret;
 }
 
+int
+snfmt(char *buf, uint n, const char *fmt, ...) {
+   va_list ap;
+   int ret;
+   WriteBuf wbuf = {.buf = buf, .cap = n};
+
+   va_start(ap, fmt);
+   ret = vbfmt(&wbuf, fmt, ap);
+   ioputc(&wbuf, 0), ++ret;
+   va_end(ap);
+   return ret;
+}
+
+char *
+afmt(Arena **ar, const char *fmt, ...) {
+   va_list ap;
+   int sz;
+   char buf0[200];
+   WriteBuf wbuf = {.buf = buf0, .cap = sizeof buf0};
+
+   va_start(ap, fmt), sz = vbfmt(&wbuf, fmt, ap), va_end(ap);
+   ioputc(&wbuf, 0), ++sz;
+   if (sz <= sizeof buf0) {
+      assert(!wbuf.err);
+      return alloccopy(ar, buf0, wbuf.len, 1);
+   }
+   wbuf.buf = alloc(ar, wbuf.cap = sz, 1);
+   va_start(ap, fmt), sz = vbfmt(&wbuf, fmt, ap), va_end(ap);
+   ioputc(&wbuf, 0), ++sz;
+   assert(sz == wbuf.cap && !wbuf.err);
+   return wbuf.buf;
+}
+
 void
 gpritype(Type ty) {
    efmt("%ty\n", ty);
