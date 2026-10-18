@@ -57,6 +57,8 @@ tool/mkpack: tool/mkpack.c src/z_miniz.c src/z_miniz.h
 src/gen_libantrt1.c: tool/mkpack $(wildcard src/libantrt1/*.c)
 	tool/mkpack src/libantrt1 src/gen_libantrt1.c
 
+$(BUILDDIR)/z_miniz.o: CFLAGS += -Wno-unused-function
+
 $(BUILDDIR)/%.o: src/%.c
 	$Vmkdir -p `dirname $@`
 	$(CC) $(CFLAGS) -c -o $@ $<

@@ -190,12 +190,6 @@ priinfo(int extra) {
    if (extra < 2) return;
    LISTITEM(predefs,"\n\t");
    LISTITEM(linkargs,);
-   LISTITEM(ldstartfiles,);
-   LISTITEM(ldendfiles,);
-   LISTITEM(ldstartfiles_pie,);
-   LISTITEM(ldendfiles_pie,);
-   LISTITEM(ldstartfiles_shared,);
-   LISTITEM(ldendfiles_shared,);
 }
 
 static void
@@ -668,21 +662,48 @@ findlinkargs(CmdArgs *cmd) {
 
 #define ADDCMDARGS(args) if (*args) vpushn(&cmd, args, countof(args))
 
-static bool
-checkldfiles(const char **ldargs, int n) {
-   for (int i = 0; i < n; ++i) {
-      const char *a = ldargs[i];
-      if (*a != '/') continue;
-      struct stat st;
-      if (stat(a, &st) != 0) {
-         warn(NULL, "missing ld file %'s", a);
-         return 0;
-      }
-   }
-   return 1;
-}
-
 const char *rtpack_getlibantrt1(void);
+
+enum crtmode { CRTxxx, CRTexe, CRTpie, CRTdll, CRTstatic, CRTstaticpie, NCRTMODE };
+static const char *const crtbegin[NUM_MC_OS][NCRTMODE][3] = {
+   {{"-l:crt1.o", "-l:crti.o"}},
+   [OSlinux] = {
+      [CRTpie] = {"-l:Scrt1.o", "-l:crti.o"},
+      [CRTdll] = {"-l:crti.o"},
+      [CRTstaticpie] = {"-l:rcrt1.o", "-l:crti.o"},
+   },
+   [OSopenbsd] = {
+      {"-l:crt0.o", "-l:crtbegin.o"},
+      [CRTdll]       = {"-l:crtbeginS.o"},
+   },
+   [OSandroid] = {
+      [CRTexe]       = {"-l:crtbegin_dynamic.o"},
+      [CRTpie]       = {"-l:crtbegin_dynamic.o"},
+      [CRTdll]       = {"-l:crtbegin_so.o"},
+      [CRTstatic]    = {"-l:crtbegin_static.o"},
+      [CRTstaticpie] = {"-l:crtbegin_static.o"},
+   },
+};
+static const char *const crtend[NUM_MC_OS][NCRTMODE][4] = {
+   {{"-lc", "@rt", "-l:crtn.o"}},
+   [OSopenbsd] = {
+      {"-lc", "@rt", "-l:crtend.o"},
+      [CRTdll] = {"-lc", "@rt", "-l:crtendS.o"},
+   },
+   [OSandroid] = {
+      {"-lc", "@rt", "-l:crtend_android.o"},
+      [CRTdll] = {"-lc", "@rt", "-l:crtend_so.o"},
+   },
+};
+
+static enum crtmode
+getcrtmode(void) {
+   if (task.outft == OFTdll)
+      return CRTdll;
+   if (task.outft == OFTstatic)
+      return ccopt.pie ? CRTstaticpie : CRTstatic;
+   return ccopt.pie ? CRTpie : CRTexe;
+}
 
 static int
 dolink(void) {
@@ -702,6 +723,7 @@ dolink(void) {
          vpush(&cmd,  "-static");
       vpush(&cmd, ccopt.pie ? "-pie" : "-no-pie");
    }
+   enum crtmode mode = getcrtmode();
    if (!task.link_with_cc) {
       if (task.outft == OFTstatic) {
          vpush(&cmd, "--no-dynamic-linker");
@@ -714,19 +736,11 @@ dolink(void) {
       }
       ADDCMDARGS(host_linkargs);
 
-      if (task.outft == OFTdll) {
-         ADDCMDARGS(host_ldstartfiles_shared);
-      } else if (ccopt.pie) {
-         ADDCMDARGS(host_ldstartfiles_pie);
-      } else {
-         ADDCMDARGS(host_ldstartfiles);
-      }
-      if (!checkldfiles(cmd.p, cmd.n)) {
-         note(NULL, "falling back to linking with '%s'", HOST_CC);
-         task.link_with_cc = 1;
-         vfree(&cmd);
-         return dolink();
-      }
+      const char *const *begin = crtbegin[target.os][mode];
+      if (!*begin) begin = *crtbegin[target.os];
+      if (!*begin) begin = **crtbegin;
+      for (; *begin; ++begin)
+         vpush(&cmd, *begin);
    }
    vpush(&cmd, "-o");
    vpush(&cmd, task.out);
@@ -746,17 +760,19 @@ dolink(void) {
       vpush(&cmd, a);
    }
    if (!task.link_with_cc) {
-      const char *rt = rtpack_getlibantrt1();
-      if (rt)
-         vpush(&cmd, rt);
-      else
-         warn(NULL, "libantrt1 unavailable");
-      if (task.outft == OFTdll) {
-         ADDCMDARGS(host_ldendfiles_shared);
-      } else if (ccopt.pie) {
-         ADDCMDARGS(host_ldendfiles_pie);
-      } else {
-         ADDCMDARGS(host_ldendfiles);
+      const char *const *end = crtend[target.os][mode];
+      if (!*end) end = *crtend[target.os];
+      if (!*end) end = **crtend;
+      for(; *end; ++end) {
+         if (!strcmp(*end, "@rt")) {
+            const char *rt = rtpack_getlibantrt1();
+            if (rt)
+               vpush(&cmd, rt);
+            else
+               warn(NULL, "libantrt1 unavailable");
+         } else {
+            vpush(&cmd, *end);
+         }
       }
    }
    vrbpriargs(cmd.p, cmd.n);
