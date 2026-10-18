@@ -382,10 +382,10 @@ elffini(WriteBuf *out) {
    uint elfalign = minalign(0);
 
    /* build .shstrtab and such */
-   char shstrbuf[(NSECTION*2+3)*20];
+   char shstrbuf[(NSECTION*2+4)*20];
    WriteBuf shstr = MEMBUF(shstrbuf, sizeof shstrbuf);
    ioputc(&shstr, 0);
-   uint shnam[NSECTION], shnam_rel[NSECTION], shnam_shstr, shnam_strtab, shnam_sym;
+   uint shnam[NSECTION], shnam_rel[NSECTION], shnam_shstr, shnam_strtab, shnam_sym, shnam_note;
    for (enum section s = Stext; s < NSECTION; ++s) {
       if (!objout.sec[s].n && !secused[s]) continue;
       internstr name = objout.sec[s].name;
@@ -398,6 +398,7 @@ elffini(WriteBuf *out) {
    (shnam_shstr = shstr.len), iowrite(&shstr, ".shstrtab", 10);
    (shnam_strtab = shstr.len), iowrite(&shstr, ".strtab", 8);
    (shnam_sym = shstr.len), iowrite(&shstr, ".symtab", 8);
+   (shnam_note = shstr.len), iowrite(&shstr, ".note.GNU-stack", sizeof ".note.GNU-stack");
    assert(!shstr.err);
 
    symtab.p[1].name = str2idx(objout.infile);
@@ -443,13 +444,13 @@ elffini(WriteBuf *out) {
    for (int i = 0; i < symtab.n; ++i)
       if (symtab.p[i < ndefsym ? sortedsyms[i] : i].bind == STB_LOCAL) ++nlocalsym;
 
-   enum elfsection { ESECTION, ESHSTR, ESTRTAB, ESYMTAB, ERELOC };
+   enum elfsection { ESECTION, ESHSTR, ESTRTAB, ESYMTAB, ENOTE, ERELOC };
    struct ElfSection {
       enum elfsection kind;
       enum section sec;
       uint name, type, flags, link, info, entsize, align;
       size_t off, size;
-   } secs[2*NSECTION + 4];
+   } secs[2*NSECTION + 5];
    int nsec = 0;
 
    /* (null section) */
@@ -498,6 +499,9 @@ elffini(WriteBuf *out) {
          .size = nreloc[s] * relxsiz,
       };
    }
+   secs[nsec++] = (struct ElfSection) {
+      .kind = ENOTE, .name = shnam_note, .type = SHT_PROGBITS, .align = 1
+   };
    assert(nsec <= countof(secs));
 
    /* compute section offsets */
@@ -542,6 +546,7 @@ elffini(WriteBuf *out) {
             if (relocs.p[j].section == s->sec)
                putreloc(out, &relocs.p[j], userela);
          break;
+      case ENOTE: break;
       }
    }
    if (sortedsyms != ssbuf) free(sortedsyms);
