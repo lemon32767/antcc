@@ -42,8 +42,14 @@ tool/depgen: tool/depgen.c
 $(OUT): tool/depgen src/version.h $(obj)
 	$(CC) $(CFLAGS) -o $@ $(obj)
 
-src/version.h: VERSION .git/HEAD .git/refs
-	tool/gen-version.sh > src/version.h
+# hack to make sure version.h is kept up to date: always gen version, but to a temp file
+# that is moved to the real version.h only if it differs, to avoid rebuilds every `make`
+# hmm, I don't love this..
+src/version.h: VERSION FORCE
+	@tool/gen-version.sh > $@.tmp
+	@if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv -f $@.tmp $@; fi
+
+FORCE:
 
 src/a_embedfilesdir.c: src/a_embedfilesdir.sh
 	src/a_embedfilesdir.sh > $@
@@ -59,7 +65,7 @@ src/gen_libantrt1.c: tool/mkpack $(wildcard src/libantrt1/*.c)
 
 $(BUILDDIR)/z_miniz.o: CFLAGS += -Wno-unused-function
 
-$(BUILDDIR)/%.o: src/%.c
+$(BUILDDIR)/%.o: src/%.c | src/version.h
 	$Vmkdir -p `dirname $@`
 	$(CC) $(CFLAGS) -c -o $@ $<
 	$Vtool/depgen -MP -MF $(BUILDDIR)/$*.d -MT $@ $<
@@ -80,7 +86,7 @@ install: all
 uninstall:
 	$(RM) "$(DESTDIR)$(BINDIR)/antcc"
 
-.PHONY: clean clean-config install uninstall
+.PHONY: clean clean-config install uninstall FORCE
 
 -include $(dep)
 

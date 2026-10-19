@@ -7,10 +7,10 @@ major=$(echo "$version" | cut -d. -f1)
 minor=$(echo "$version" | cut -d. -f2)
 patch=$(echo "$version" | cut -d. -f3)
 
-if test -d .git; then
-    rev=$(git describe --tags --dirty --match v"$version" 2>/dev/null)
-    if [ $? = 0 ]; then
-        rev=$(echo "$rev" | sed 's/^v[0-9.]*//')
+rev=
+if git rev-parse --git-dir >/dev/null 2>&1; then
+    if described=$(git describe --tags --dirty --match v"$version" 2>/dev/null); then
+        rev=$(echo "$described" | sed 's/^v[0-9.]*//')
     else
         rev="-dirty"
     fi
