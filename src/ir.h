@@ -132,8 +132,8 @@ typedef struct Instr {
          f; /* enum insflags */
    uchar reg; /* 0 -> no reg; else reg + 1 */
    union { /* operands */
-      struct { Ref l, r; };
       Ref oper[3];
+      struct { Ref l, r; };
    };
 } Instr;
 static_assert(sizeof(Instr) == 4*4);
