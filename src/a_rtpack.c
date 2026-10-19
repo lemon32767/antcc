@@ -69,8 +69,10 @@ ar(const char *out, char **objs, int nobj) {
 static bool
 compileaziplib(const char *path, mz_zip_archive *zip, const char **meta) {
    int metafd = -1;
-   DEF_SVEC(char *, 256, objs);
    char *tmp = NULL, *databuf = NULL;
+   struct hdrbuf { char *p; size_t n; };
+   DEF_SVEC(EmbedFile, 32, headers);
+   DEF_SVEC(char *, 32, objs);
    bool ok = 0;
 
    /* dir = dirname(path) */
@@ -111,28 +113,43 @@ compileaziplib(const char *path, mz_zip_archive *zip, const char **meta) {
    tmp = afmt(&arena, "%s/.libantrt1.a.tmp", dir);
    unlink(tmp);
 
-   /* compile each obj in zip */
+   mz_zip_archive_file_stat st;
    uint nfiles = mz_zip_reader_get_num_files(zip);
+
+   const uint pad = 8;
+
+   /* extract headers */
    for (uint i = 0; i < nfiles; ++i) {
-      mz_zip_archive_file_stat st;
-      if (!mz_zip_reader_file_stat(zip, i, &st)) {
-         warn(NULL, "unzip: %s", mz_zip_get_error_string(mz_zip_get_last_error(zip)));
-         goto End;
-      }
-      if (mz_zip_reader_is_file_a_directory(zip, i))
+      if (!mz_zip_reader_file_stat(zip, i, &st) || mz_zip_reader_is_file_a_directory(zip, i))
+         continue;
+      const char *ext = fileext(st.m_filename);
+      if (strcmp(ext, "h") != 0 && strcmp(ext, "inc") != 0) continue;
+      EmbedFile file = {
+         alloccopy(&arena, st.m_filename, strlen(st.m_filename)+1, 0),
+         alloc(&arena, st.m_uncomp_size + pad, 0),
+         st.m_uncomp_size
+      };
+      memset((char *)file.s + st.m_uncomp_size, 0, pad);
+      if (!mz_zip_reader_extract_to_mem(zip, i, (char *)file.s, st.m_uncomp_size, 0)) goto UnzipErr;
+      vpush(&headers, file);
+   }
+   vpush(&headers, (EmbedFile){0});
+   /* compile each obj in zip */
+   for (uint i = 0; i < nfiles; ++i) {
+      if (!mz_zip_reader_file_stat(zip, i, &st) || mz_zip_reader_is_file_a_directory(zip, i))
          continue;
 
       const char *name = strrchr(st.m_filename, '/');
+      if (strcmp(fileext(st.m_filename), "c") != 0) continue;
       name = name ? name + 1 : st.m_filename;
       const char *dot = strrchr(name, '.');
       int namelen = dot ? dot - name : strlen(name);
-      char *out = afmt(&arena, "%s/%S.o", dir, name, namelen);
+      char *obj = afmt(&arena, "%s/%S.o", dir, name, namelen);
 
       assert(st.m_uncomp_size < 1<<20 && "?");
       uint size = st.m_uncomp_size;
-      const uint pad = 8;
       databuf = databuf ? xrealloc(databuf, size + pad) : xmalloc(size + pad);
-      if (!mz_zip_reader_extract_to_mem(zip, i, databuf, size, 0)) {
+      if (!mz_zip_reader_extract_to_mem(zip, i, databuf, size, 0)) UnzipErr: {
          warn(NULL, "unzip: %s", mz_zip_get_error_string(mz_zip_get_last_error(zip)));
          goto End;
       }
@@ -144,7 +161,12 @@ compileaziplib(const char *path, mz_zip_archive *zip, const char **meta) {
          warn(NULL, "fork: %s", strerror(errno));
          goto End;
       } else if (p == 0) {
-         _exit(rtcc1(st.m_filename, out, databuf, size));
+         /* remove all include dirs except the embedded headers + these runtime headers */
+         memset(cinclpaths, 0, sizeof cinclpaths);
+         extern EmbedFile *dynamic_cincludes;
+         dynamic_cincludes = headers.p;
+
+         _exit(rtcc1(st.m_filename, obj, databuf, size));
       }
       int wst;
       if (waitpid(p, &wst, 0) < 0 || !WIFEXITED(wst) || WEXITSTATUS(wst) != 0) {
@@ -152,7 +174,7 @@ compileaziplib(const char *path, mz_zip_archive *zip, const char **meta) {
          goto End;
       }
 
-      vpush(&objs, out);
+      vpush(&objs, obj);
    }
    assert(objs.n > 0);
 
@@ -176,6 +198,7 @@ End:
    for (int i = 0; i < objs.n; ++i)
       unlink(objs.p[i]);
    vfree(&objs);
+   vfree(&headers);
    if (metafd >= 0) {
       fcntl(metafd, F_SETLKW, &(struct flock){.l_type = F_UNLCK, .l_whence = SEEK_SET});
       close(metafd);

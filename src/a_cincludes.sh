@@ -104,10 +104,20 @@ H float.h << @@@@@@
 H complex.h << @@@@@@
 #pragma once
 
-#define _Complex_I 1.0iF
 #include_next <complex.h>
 #undef _Complex_I
 #define _Complex_I 1.0iF
+#undef CMPLXF
+#undef CMPLX
+#undef CMPLXL
+/* TODO implement actual __builtin_complex */
+#define __complex_silly(t,x,y) ((union{t s[2]; complex t z;}){x,y}).z
+#define CMPLXF(x,y) __complex_silly(float,x,y)
+#define CMPLX(x,y) __complex_silly(double,x,y)
+#define CMPLXL(x,y) __complex_silly(long double,x,y)
+#define __builtin_complex(x,y) \
+   _Generic(__typeof((x)+(y)), float: CMPLXF(x,y), \
+               double: CMPLX(x,y), long double: CMPLXL(x,y))
 @@@@@@
 
 H iso646.h << @@@@@@

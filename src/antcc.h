@@ -313,6 +313,12 @@ typedef struct MemFile {
    bool statik;
 } MemFile;
 
+typedef struct EmbedFile {
+   const char *name;
+   const char *s;
+   size_t len;
+} EmbedFile;
+
 #define MEMBUF(buf_, cap_) { .buf = (buf_), .cap = (cap_), .fd = -1 }
 #define FDBUF(buf_, cap_, fd_)  { .buf = (buf_), .cap = (cap_), .fd = (fd_) }
 extern WriteBuf bstdout, bstderr;

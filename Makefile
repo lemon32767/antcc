@@ -60,7 +60,7 @@ src/a_cincludes.c: src/a_cincludes.sh
 tool/mkpack: tool/mkpack.c src/z_miniz.c src/z_miniz.h
 	$(TOOLCC) -Wall -g -o $@ $<
 
-src/gen_libantrt1.c: tool/mkpack $(wildcard src/libantrt1/*.c)
+src/gen_libantrt1.c: tool/mkpack $(wildcard src/libantrt1/*)
 	tool/mkpack src/libantrt1 src/gen_libantrt1.c
 
 $(BUILDDIR)/z_miniz.o: CFLAGS += -Wno-unused-function

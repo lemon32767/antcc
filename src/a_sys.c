@@ -21,8 +21,8 @@ fileext(const char *path) {
 }
 
 /* withext("x/y.c", "o") -> "y.o"; withext("f9", "s") -> "f9.s" */
-const char *
-withext(const char *path, const char *ext) {
+char *
+withext(Arena **arena, const char *path, const char *ext) {
    char *res;
    size_t len;
    const char *oext, *file = path;
@@ -36,11 +36,11 @@ withext(const char *path, const char *ext) {
       len = strlen(file);
    else
       len = oext - file - 1;
-   res = alloc(&globarena, len + 1 + (ext ? strlen(ext) + 1 : 0), 1);
+   res = alloc(arena, len + 1 + (ext ? strlen(ext) + 1 : 0), 1);
    memcpy(res, file, len);
    if (ext) {
       res[len] = '.';
-      memcpy(res + len + 1, ext, strlen(ext));
+      memcpy(res + len + 1, ext, strlen(ext)+1);
    } else {
       res[len] = 0;
    }

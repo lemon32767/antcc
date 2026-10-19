@@ -721,12 +721,8 @@ gpritype(Type ty) {
 
 static uint pagesiz;
 
-typedef struct EmbedFile {
-   const char *name;
-   const char *s;
-   size_t len;
-} EmbedFile;
 extern EmbedFile embed_cincludes[];
+EmbedFile *dynamic_cincludes;
 
 MemFile
 mapopen(const char **err, const char *path) {
@@ -743,9 +739,12 @@ mapopen(const char **err, const char *path) {
 
    if (*path == '@' && path[1] == ':') {
       for (EmbedFile *e = embed_cincludes; e->name; ++e) {
-         if (!strcmp(e->name, path+2)) {
+         if (!strcmp(e->name, path+2))
             return (MemFile) { (const uchar *)e->s, e->len, .statik = 1 };
-         }
+      }
+      for (EmbedFile *e = dynamic_cincludes; e && e->name; ++e) {
+         if (!strcmp(e->name, path+2))
+            return (MemFile) { (const uchar *)e->s, e->len, .statik = 1 };
       }
    }
 

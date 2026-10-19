@@ -438,10 +438,10 @@ breakbreak:
             task.out = "a.out";
          break;
       case OFTasm:
-         task.out = withext(task.inf.p[0].path, "s");
+         task.out = withext(&globarena, task.inf.p[0].path, "s");
          break;
       case OFTobj:
-         task.out = withext(task.inf.p[0].path, "o");
+         task.out = withext(&globarena, task.inf.p[0].path, "o");
          break;
       case OFTc: break;
       }
@@ -497,8 +497,10 @@ mktemps(void) {
       if (task.inf.p[i].ft == IFTc)
          task.inf.p[i].temp = tempfile(task.inf.p[i].path, "o");
    }
-   if (!task.out)
-      task.out = tempout = tempfile(task.inf.n > 1 ? "run" : withext(task.inf.p[0].path, NULL), NULL);
+   if (!task.out) {
+      const char *s = task.inf.n > 1 ? "run" : withext(&globarena, task.inf.p[0].path, NULL);
+      task.out = tempout = tempfile(s, NULL);
+   }
 }
 
 static void
@@ -768,7 +770,7 @@ dorun(void) {
    }
 
    vrbfmt("exec %s ", task.out);
-   epricmd((const char **)task.runargs);
+   if (ccopt.verbose) epricmd((const char **)task.runargs);
 #if (defined __linux__ && !defined __ANDROID__) || defined __FreeBSD__ // fexecve availability
    int fd = open(task.out, O_RDONLY);
    if (fd < 0) {

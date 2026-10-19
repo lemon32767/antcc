@@ -1812,7 +1812,7 @@ doinclude(Lexer *lx, const Span *span, const char *str, size_t slen, enum incopt
    for (int i = quote ? CINCL_iquote : CINCL_I; i < countof(cinclpaths); ++i) {
       incdiridx = 2 + 1000*i;
       bool triedembed = 0;
-      for (CInclPath *p = cinclpaths[i]; p; p = p->next) {
+      for (CInclPath *p = cinclpaths[i];; p = p->next) {
          if (i == CINCLsys && !triedembed) {
             /* try embedded files pseudo-path */
             triedembed = 1;
@@ -1825,6 +1825,7 @@ doinclude(Lexer *lx, const Span *span, const char *str, size_t slen, enum incopt
             }
             ++incdiridx;
          }
+         if (!p) break;
          if (incdiridx >= req_incdiridx) {
             int ndir = strlen(p->path);
             xbgrow(&path, ndir + slen + 2);

@@ -3,7 +3,7 @@
 #include "antcc.h"
 
 const char *fileext(const char *);
-const char *withext(const char *path, const char *ext);
+char *withext(Arena **, const char *path, const char *ext);
 
 bool isfile(const char *);
 bool isdir(const char *);
