@@ -1,9 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
-#define _DEFAULT_SOURCE /* WCOREDUMP on glibc */
 #include "antcc.h"
 #include "version.h"
 #include "hostconfig.h" /* run ./configure */
 #include "obj.h"
+#include "a_sys.h"
 #include <string.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -45,13 +45,6 @@ optval(const char *arg, const char *opt) {
    return arg + n2 + 1;
 }
 
-/* "foo.bar" -> "bar"; ".dotfile" -> "" */
-static const char *
-fileext(const char *path) {
-   const char *dot = strrchr(path, '.');
-   return dot ? dot+1 : "";
-}
-
 enum inft { IFTauto, IFTc, IFTasm, IFTobj, IFTar, IFTdll };
 
 static bool
@@ -79,33 +72,6 @@ static union {
    char mem[sizeof(Arena) + (1<<10)];
 } _arenamem;
 Arena *globarena = &_arenamem.a;
-
-/* withext("x/y.c", "o") -> "y.o"; withext("f9", "s") -> "f9.s" */
-static const char *
-withext(const char *path, const char *ext) {
-   char *res;
-   size_t len;
-   const char *oext, *file = path;
-
-   while (*path)
-      if (*path++ == '/')
-         file = path;
-   assert(*file && "no filename");
-   oext = fileext(file);
-   if (!*oext)
-      len = strlen(file);
-   else
-      len = oext - file - 1;
-   res = alloc(&globarena, len + 1 + (ext ? strlen(ext) + 1 : 0), 1);
-   memcpy(res, file, len);
-   if (ext) {
-      res[len] = '.';
-      memcpy(res + len + 1, ext, strlen(ext));
-   } else {
-      res[len] = 0;
-   }
-   return res;
-}
 
 typedef struct {
    enum inft ft;
@@ -483,14 +449,6 @@ breakbreak:
       fatal(NULL, "too many input files");
 }
 
-static void
-vrbpriargs(const char **a, size_t n) {
-   if (ccopt.verbose) {
-      prilist(&bstderr, "%s", " ", a, n);
-      efmt("\n");
-   }
-}
-
 static const char *
 tempfile(const char *path, const char *ext) {
    int id;
@@ -557,16 +515,6 @@ sigcleantemps(int _) {
    cleantemps();
 }
 
-static int
-checkwstat(int wstat, const char *thing) {
-   if (WIFSIGNALED(wstat)) {
-      error(NULL, "%s: %s%s", thing, strsignal(WTERMSIG(wstat)),
-                              WCOREDUMP(wstat) ? " (core dumped)" : "");
-      return 127;
-   }
-   return WEXITSTATUS(wstat);
-}
-
 static void
 compileobjs(void) {
    int wstat;
@@ -601,7 +549,6 @@ compileobjs(void) {
 }
 
 #include <fcntl.h>
-#include <sys/stat.h>
 
 static bool
 iscrosscc(void) {
@@ -609,40 +556,11 @@ iscrosscc(void) {
 }
 
 static bool
-isfile(const char *p) {
-   struct stat st;
-   return stat(p, &st) == 0 && S_ISREG(st.st_mode);
-}
-
-static bool
-isdir(const char *p) {
-   struct stat st;
-   return stat(p, &st) == 0 && S_ISDIR(st.st_mode);
-}
-
-static bool
 hasprog(const char *prog) {
-   pid_t p;
-   if ((p = fork()) < 0) {
-      return 0;
-   } else if (p == 0) {
-      int nulfd = open("/dev/null", O_WRONLY);
-      if (nulfd >= 0) {
-         for (int fd = 0; fd <= 2; ++fd)
-            dup2(nulfd, fd);
-         if (nulfd > 2)
-            close(nulfd);
-      }
-      const char *cmd[] = {prog, NULL};
-      if (execvp(*cmd, (char **)cmd)) {
-         close(nulfd);
-         error(NULL, "execvp: %s", strerror(errno));
-         _exit(125);
-      }
-   }
-   int wstat;
-   waitpid(p, &wstat, 0);
-   return WIFEXITED(wstat) && WEXITSTATUS(wstat) < 125;
+   /* rc=$(command -v "$prog" >/dev/null 2>/dev/null </dev/null; echo $?) */
+   int rc = runproc((const char *[]){"sh", "-c", "command -v \"$1\"", "sh", prog, NULL},
+                    &(ProcSpawn){.stdin = PSIONUL, .stdout = PSIONUL, .stderr = PSIONUL});
+   return rc == 0;
 }
 
 /* e.g. aarch64-linux-gnu-gcc, or <prefix>/bin/<target>-gcc with -B */
@@ -666,39 +584,17 @@ findcrosscc(void) {
 
 static const char *
 findsysroot(const char *cc) {
-   size_t len = 0;
-   int fds[2], st, wst;
-   if (pipe(fds) != 0) return NULL;
-   pid_t p = fork();
-   if (p < 0) return close(fds[0]), close(fds[1]), NULL;
-   else if (p == 0) {
-      /* cc -print-sysroot 2>/dev/null 2>&1 */
-      int nulfd;
-      close(fds[0]), dup2(fds[1], STDOUT_FILENO), close(fds[1]);
-      if ((nulfd = open("/dev/null", O_WRONLY)) >= 0) {
-         dup2(nulfd, STDERR_FILENO), close(nulfd);
-      }
-      execvp(cc, (char *[3]){(char *)cc, "-print-sysroot"});
-      _exit(127);
-   }
-   close(fds[1]);
-   char stdoutbuf[4096];
-   do {
-      ssize_t n = read(fds[0], stdoutbuf + len, sizeof stdoutbuf - 1 - len);
-      if (n > 0) len += n;
-      else if (n < 0 && errno == EINTR) continue;
-      else break;
-   } while (len < sizeof stdoutbuf-1);
-   stdoutbuf[len] = 0;
+   ProcIO p = procspawn((const char *[]){cc, "-print-sysroot", NULL},
+                        &(ProcSpawn){.stdout = PSIOCAPTURE, .stderr = PSIONUL, .quiet = 1});
+   if (p.pid < 0) return NULL;
 
-   close(fds[0]);
-   while ((wst = waitpid(p, &st, 0)) < 0 && errno == EINTR) {}
-   if (wst < 0) return NULL;
-   while (len && (stdoutbuf[len-1] == '\n' || stdoutbuf[len-1] == '\r'))
-      stdoutbuf[--len] = 0;
-   if (!WIFEXITED(st) || WEXITSTATUS(st) != 0) return NULL;
-   if (!len || !strcmp(stdoutbuf, "/") || !isdir(stdoutbuf)) return NULL;
-   return alloccopy(&globarena, stdoutbuf, len+1, 1);
+   char out[4096];
+   int len = procread(&p, out, sizeof out, STDOUT_FILENO);
+   if (procwait(&p) != 0) return NULL;
+   while (len && (out[len-1] == '\n' || out[len-1] == '\r'))
+      out[--len] = 0;
+   if (len == 0 || !strcmp(out, "/") || !isdir(out)) return NULL;
+   return alloccopy(&globarena, out, len+1, 1);
 }
 
 typedef vec_of(const char *) CmdArgs;
@@ -714,9 +610,7 @@ findlinkargs(CmdArgs *cmd) {
       }
       /* zig cc fallback, which works great as cross compiler toolchain */
       if (hasprog("zig")) {
-         vpush(cmd, "zig");
-         vpush(cmd, "cc");
-         vpush(cmd, "-target");
+         vpush(cmd, "zig"), vpush(cmd, "cc"), vpush(cmd, "-target"),
          vpush(cmd, task.targ);
       } else {
          fatal(NULL, "cannot link to cross-compilation target: no appropiate toolchain installed");
@@ -780,8 +674,6 @@ getcrtmode(void) {
 static int
 dolink(void) {
    const char *cmdbuf[100];
-   pid_t p;
-   int wstat;
    CmdArgs cmd = VINIT(cmdbuf, countof(cmdbuf));
 
    findlinkargs(&cmd);
@@ -857,25 +749,12 @@ dolink(void) {
          }
       }
    }
-   vrbpriargs(cmd.p, cmd.n);
    vpush(&cmd, NULL);
-   if ((p = fork()) < 0) {
-      error(NULL, "fork: %s", strerror(errno));
-      exit(1);
-   } else if (p == 0) {
-      execvp(cmd.p[0], (char **)cmd.p);
-      error(NULL, "execvp: %s", strerror(errno));
-      _exit(1);
-   }
-   const char *ldname = cmd.p[0];
+   int rc = runproc(cmd.p, &(ProcSpawn){.log = ccopt.verbose});
    vfree(&cmd);
-   waitpid(p, &wstat, 0);
-   int rc = checkwstat(wstat, ldname);
-   if (rc != 0) {
+   if (rc != 0)
       error(NULL, "link command failed");
-      return rc;
-   }
-   return 0;
+   return rc;
 }
 
 static int
@@ -885,7 +764,7 @@ dorun(void) {
    }
 
    vrbfmt("exec %s ", task.out);
-   vrbpriargs((const char **)task.runargs, -1u);
+   epricmd((const char **)task.runargs);
 #if (defined __linux__ && !defined __ANDROID__) || defined __FreeBSD__ // fexecve availability
    int fd = open(task.out, O_RDONLY);
    if (fd < 0) {
@@ -902,19 +781,7 @@ dorun(void) {
    error(NULL, "fexecv: %s", strerror(errno));
    return 1;
 #else // !FEXECVE
-   pid_t p;
-   if ((p = fork()) < 0) {
-      error(NULL, "fork(): %s", strerror(errno));
-      exit(1);
-   } else if (p == 0) {
-      if (!execv(task.out, task.runargs - 1)) {
-         error(NULL, "execv(): %s", strerror(errno));
-         _exit(1);
-      }
-   }
-   int wstat;
-   waitpid(p, &wstat, 0);
-   return checkwstat(wstat, task.out);
+   return runproc((const char **)(task.runargs - 1), &(ProcSpawn){.name = task.out, .nopath = 1});
 #endif
 }
 

@@ -1,6 +1,6 @@
 OUT?=antcc
 BUILDDIR?=build
-srcs=a_main.c           a_targ.c          a_embedfilesdir.c  a_rtpack.c   gen_libantrt1.c \
+srcs=a_main.c           a_targ.c          a_embedfilesdir.c  a_rtpack.c   a_sys.c       gen_libantrt1.c \
      c_builtin.c        c.c               c_eval.c           c_lex.c      c_type.c        \
      ir_abi0.c          ir_builder.c      ir.c               ir_cfg.c     ir_cse.c        \
      ir_dump.c          ir_fold.c         ir_inliner.c       ir_intrin.c  ir_mem2reg.c    \
@@ -10,7 +10,7 @@ srcs=a_main.c           a_targ.c          a_embedfilesdir.c  a_rtpack.c   gen_li
      t_aarch64_aapcs.c  t_aarch64_emit.c  t_aarch64_isel.c                                \
      t_x86-64_emit.c    t_x86-64_isel.c   t_x86-64_sysv.c                                 \
      u_io.c             u_mem.c                                                           \
-	 z_miniz.c
+     z_miniz.c
 src=$(addprefix src/, $(srcs))
 obj=$(patsubst src/%.c,$(BUILDDIR)/%.o,$(src))
 dep=$(obj:.o=.d)

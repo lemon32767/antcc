@@ -14,32 +14,11 @@
 #include "antcc.h"
 #include "version.h"
 #include "obj.h"
-
-#ifndef PATH_MAX
-#define PATH_MAX 4096
-#endif
+#include "a_sys.h"
 
 void ccompbuf(const char *name, const char *data, uint size);
 
 static Arena *arena;
-
-static bool
-mkdir_p(const char *p) {
-   char buf[PATH_MAX];
-   size_t n = 0;
-   for (; *p; ++p, ++n) {
-      if (n >= sizeof buf - 3) return 0;
-      buf[n] = *p;
-      if (*p != '/' || n == 0) continue;
-      buf[n+1] = 0;
-      if (mkdir(buf, 0700) != 0 && errno != EEXIST && errno != EISDIR) return 0;
-   }
-   buf[n] = 0;
-   if (mkdir(buf, 0700) != 0 && errno != EEXIST && errno != EISDIR) return 0;
-   struct stat st;
-   if (stat(buf, &st) != 0 || !S_ISDIR(st.st_mode)) return 0;
-   return 1;
-}
 
 static const char *
 cacheroot(void) {
@@ -48,12 +27,6 @@ cacheroot(void) {
    const char *home = getenv("HOME");
    if (!home || !*home) return NULL;
    return afmt(&arena, "%s/.cache/antcc", home);
-}
-
-static bool
-exists(const char *path) {
-   struct stat st;
-   return stat(path, &st) == 0 && S_ISREG(st.st_mode);
 }
 
 static const char *
@@ -81,19 +54,6 @@ rtcc1(const char *name, const char *out, const char *data, uint size) {
    return 0;
 }
 
-static int
-run(char *const argv[]) {
-   pid_t p = fork();
-   if (p < 0) return -1;
-   if (p == 0) {
-      execvp(argv[0], argv);
-      _exit(127);
-   }
-   int st;
-   if (waitpid(p, &st, 0) < 0) return -1;
-   return WIFEXITED(st) ? WEXITSTATUS(st) : 128 + WTERMSIG(st);
-}
-
 static bool
 ar(const char *out, char **objs, int nobj) {
    int ncmd = 3 + nobj + 1;
@@ -103,11 +63,7 @@ ar(const char *out, char **objs, int nobj) {
    for (int i = 0; i < nobj; ++i)
       cmd[3 + i] = objs[i];
    cmd[ncmd-1] = NULL;
-   if (ccopt.verbose) for (int i = 0; i < ncmd-1; ++i) {
-      efmt("%s%s", i?" ":"", cmd[i]);
-   }
-   vrbfmt("\n");
-   return run((char **)cmd) == 0;
+   return runproc(cmd, &(ProcSpawn){.log = ccopt.verbose}) == 0;
 }
 
 static bool
@@ -134,7 +90,7 @@ compileaziplib(const char *path, mz_zip_archive *zip, const char **meta) {
    fcntl(metafd, F_SETFD, FD_CLOEXEC);
    if (fcntl(metafd, F_SETLKW, &(struct flock){.l_type = F_WRLCK, .l_whence = SEEK_SET}) != 0)
       goto End;
-   if (exists(path)) { /* another process may have built it while we waited for the lock */
+   if (isfile(path)) { /* another process may have built it while we waited for the lock */
       vrbfmt(" # found @ %s\n", path);
       ok = 1;
       goto End;
@@ -246,7 +202,7 @@ rtpack_getlibantrt1(void) {
    dir = packdirpath(root, shortver, targ, pack_libantrt1_hash);
    vrbfmt("rt cache dir: %s\n", dir);
    path = afmt(&globarena, "%s/libantrt1.a", dir);
-   if (exists(path)) {
+   if (isfile(path)) {
       vrbfmt(" # found @ %s\n", path);
       goto End;
    }
