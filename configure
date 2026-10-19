@@ -255,7 +255,11 @@ echo using abi: "$host_abi"
 echo host include paths: {"$host_include_dirs"}
 echo preprocessor predefs: {"$host_predefs"}
 
+# bump whenever ./configure is updated in an incompatible way so compilation can check it
+configure_ver=261019
+
 echo "/** GENERATED WITH $0 $* **/
+#define CONFIGURE_VER $configure_ver
 #define HOST_TRIPLE \"$host\"
 #define HOST_ARCH   IS$host_arch
 #define HOST_OS     OS$host_os

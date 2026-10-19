@@ -42,7 +42,7 @@ tool/depgen: tool/depgen.c
 $(OUT): tool/depgen src/version.h $(obj)
 	$(CC) $(CFLAGS) -o $@ $(obj)
 
-src/version.h: VERSION
+src/version.h: VERSION .git/HEAD .git/refs
 	tool/gen-version.sh > src/version.h
 
 src/a_embedfilesdir.c: src/a_embedfilesdir.sh
