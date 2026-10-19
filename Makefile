@@ -1,6 +1,6 @@
 OUT?=antcc
 BUILDDIR?=build
-srcs=a_main.c           a_targ.c          a_embedfilesdir.c  a_rtpack.c   a_sys.c       gen_libantrt1.c \
+srcs=a_main.c           a_targ.c          a_cincludes.c      a_rtpack.c   a_sys.c       gen_libantrt1.c \
      c_builtin.c        c.c               c_eval.c           c_lex.c      c_type.c        \
      ir_abi0.c          ir_builder.c      ir.c               ir_cfg.c     ir_cse.c        \
      ir_dump.c          ir_fold.c         ir_inliner.c       ir_intrin.c  ir_mem2reg.c    \
@@ -51,11 +51,11 @@ src/version.h: VERSION FORCE
 
 FORCE:
 
-src/a_embedfilesdir.c: src/a_embedfilesdir.sh
-	src/a_embedfilesdir.sh > $@
+src/a_cincludes.c: src/a_cincludes.sh
+	src/a_cincludes.sh > $@
 	@mkdir -p $(BUILDDIR)
-	$(TOOLCC) -DEMBEDFILESDIR_CHECKSIZES $@ -o $(BUILDDIR)/a_embedfilesdir_checksizes
-	$(BUILDDIR)/a_embedfilesdir_checksizes
+	$(TOOLCC) -DCINCLUDES_CHECKSIZES $@ -o $(BUILDDIR)/a_cincludes_checksizes
+	$(BUILDDIR)/a_cincludes_checksizes
 
 tool/mkpack: tool/mkpack.c src/z_miniz.c src/z_miniz.h
 	$(TOOLCC) -Wall -g -o $@ $<

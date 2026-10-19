@@ -726,7 +726,7 @@ typedef struct EmbedFile {
    const char *s;
    size_t len;
 } EmbedFile;
-extern EmbedFile embedfilesdir[];
+extern EmbedFile embed_cincludes[];
 
 MemFile
 mapopen(const char **err, const char *path) {
@@ -742,7 +742,7 @@ mapopen(const char **err, const char *path) {
    *err = NULL;
 
    if (*path == '@' && path[1] == ':') {
-      for (EmbedFile *e = embedfilesdir; e->name; ++e) {
+      for (EmbedFile *e = embed_cincludes; e->name; ++e) {
          if (!strcmp(e->name, path+2)) {
             return (MemFile) { (const uchar *)e->s, e->len, .statik = 1 };
          }

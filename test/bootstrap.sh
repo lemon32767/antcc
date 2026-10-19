@@ -25,7 +25,7 @@ elif which md5 > /dev/null 2>&1; then
 fi
 
 for make in make gmake; do
-    if $make src/a_embedfilesdir.c 2>/dev/null; then
+    if $make src/a_cincludes.c 2>/dev/null; then
         break;
     fi
 done
