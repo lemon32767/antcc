@@ -12,7 +12,7 @@ bool mkdir_p(const char *);
 enum procstdmode { PSIONUL = -10, PSIOCAPTURE };
 typedef struct {
    union {
-      struct {int stdin, stdout, stderr;};
+      struct {int in, out, err;};
       int _io[3];
    };
    const char *name;

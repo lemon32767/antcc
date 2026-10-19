@@ -565,7 +565,7 @@ static bool
 hasprog(const char *prog) {
    /* rc=$(command -v "$prog" >/dev/null 2>/dev/null </dev/null; echo $?) */
    int rc = runproc((const char *[]){"sh", "-c", "command -v \"$1\"", "sh", prog, NULL},
-                    &(ProcSpawn){.stdin = PSIONUL, .stdout = PSIONUL, .stderr = PSIONUL});
+                    &(ProcSpawn){.in = PSIONUL, .out = PSIONUL, .err = PSIONUL});
    return rc == 0;
 }
 
@@ -591,7 +591,7 @@ findcrosscc(void) {
 static const char *
 findsysroot(const char *cc) {
    ProcIO p = procspawn((const char *[]){cc, "-print-sysroot", NULL},
-                        &(ProcSpawn){.stdout = PSIOCAPTURE, .stderr = PSIONUL, .quiet = 1});
+                        &(ProcSpawn){.out = PSIOCAPTURE, .err = PSIONUL, .quiet = 1});
    if (p.pid < 0) return NULL;
 
    char out[4096];
