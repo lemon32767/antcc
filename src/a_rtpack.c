@@ -30,10 +30,66 @@ cacheroot(void) {
 }
 
 static const char *
-packdirpath(const char *root, const char *ver, const char *targ, const char *hash) {
+packdirpath(const char *root, const char *targ) {
    if (!root) return NULL;
-   int nhash = (nhash = strlen(hash)) > 20 ? 20 : nhash;
-   return afmt(&arena, "%s/%s/%s/%S", root, ver, targ, hash, nhash);
+   return afmt(&arena, "%s/%s", root, targ);
+}
+
+static const char RTPACK_META_MARKER[] = ">>>ANTCC-META>>>";
+
+/* binary-safe strstr: archives contain NULs */
+static const char *
+memfind(const char *p, size_t n, const char *needle) {
+   size_t m = strlen(needle);
+   if (m > n) return NULL;
+   for (size_t i = 0; i + m <= n; ++i)
+      if (p[i] == needle[0] && !memcmp(p + i, needle, m))
+         return p + i;
+   return NULL;
+}
+
+static bool
+metamatch(const char *path, const char *ver, const char *hash, bool log) {
+   int fd = open(path, O_RDONLY);
+   if (fd < 0) return 0;
+   char buf[16<<10];
+   size_t n = 0;
+   while (n < sizeof buf) {
+      ssize_t r = read(fd, buf + n, sizeof buf - n);
+      if (r < 0 && errno == EINTR) continue;
+      if (r <= 0) break;
+      n += r;
+   }
+   close(fd);
+   bool ok = 0;
+   const char *p = memfind(buf, n, RTPACK_META_MARKER);
+   char v[256], h[256];
+   if (!p) goto End;
+   p += sizeof RTPACK_META_MARKER - 1;
+   const char *sep = memchr(p, ':', n - (p - buf));
+   if (!sep || sep-p >= sizeof v) goto End;
+   memcpy(v, p, sep-p), v[sep-p] = 0;
+   p = sep+1;
+   sep = memchr(p, '\n', n - (p - buf));
+   if (!sep || sep-p >= sizeof h) goto End;
+   memcpy(h, p, sep-p), h[sep-p] = 0;
+   if (!strcmp(ver, v) && !strcmp(hash, h)) ok = 1;
+End:
+   if (log && !ok) vrbfmt(" # existing library at %'s is stale, rebuilding\n", path);
+   return ok;
+}
+
+static bool
+mkmetaobj(const char *meta, const char *objpath) {
+   char objbuf[16<<10];
+   WriteBuf wbuf = MEMBUF(objbuf, sizeof objbuf);
+   objmkmeta(&wbuf, meta, strlen(meta)+1);
+   assert(!wbuf.err);
+   FILE *f = fopen(objpath, "wb");
+   if (!f) return warn(NULL, "fopen(%s): %s", objpath, strerror(errno)), 0;
+   bool ok = fwrite(objbuf, 1, wbuf.len, f) == wbuf.len;
+   fclose(f);
+   return ok;
 }
 
 static int
@@ -67,49 +123,31 @@ ar(const char *out, char **objs, int nobj) {
 }
 
 static bool
-compileaziplib(const char *path, mz_zip_archive *zip, const char **meta) {
-   int metafd = -1;
+compileaziplib(const char *dir, const char *ver, const char *hash,
+               const char *path, const char *meta, mz_zip_archive *zip) {
+   int lockfd = -1;
    char *tmp = NULL, *databuf = NULL;
    struct hdrbuf { char *p; size_t n; };
    DEF_SVEC(EmbedFile, 32, headers);
    DEF_SVEC(char *, 32, objs);
    bool ok = 0;
 
-   /* dir = dirname(path) */
-   const char *slash = strrchr(path, '/');
-   char *dir;
-   if (!slash) dir = ".";
-   else {
-      size_t ndir = slash - path;
-      dir = alloccopy(&arena, path, ndir+1, 1);
-      dir[ndir] = 0;
-   }
-
    /* acquire lock */
-   char *metapath = afmt(&arena, "%s/meta", dir);
-   if ((metafd = open(metapath, O_CREAT|O_RDWR, 0600)) < 0)
+   char *lockpath = afmt(&arena, "%s/.lock", dir);
+   if ((lockfd = open(lockpath, O_CREAT|O_RDWR, 0600)) < 0)
       return 0;
-   fcntl(metafd, F_SETFD, FD_CLOEXEC);
-   if (fcntl(metafd, F_SETLKW, &(struct flock){.l_type = F_WRLCK, .l_whence = SEEK_SET}) != 0)
+   fcntl(lockfd, F_SETFD, FD_CLOEXEC);
+   if (fcntl(lockfd, F_SETLKW, &(struct flock){.l_type = F_WRLCK, .l_whence = SEEK_SET}) != 0)
       goto End;
-   if (isfile(path)) { /* another process may have built it while we waited for the lock */
+   if (isfile(path) && metamatch(path, ver, hash, 0)) {
+      /* another process may have built it while we waited */
       vrbfmt(" # found @ %s\n", path);
       ok = 1;
       goto End;
    }
-   vrbfmt(" # begin lock %s\n", metapath);
-   ftruncate(metafd, 0);
+   vrbfmt(" # begin lock %s\n", lockpath);
 
-   /* write metadata */
-   char metabuf[200];
-   WriteBuf metawbuf = FDBUF(metabuf, sizeof metabuf, metafd);
-   for (int i = 0; meta[i]; ++i) {
-      if (i) ioputc(&metawbuf, '\n');
-      bfmt(&metawbuf, "%s", meta[i]);
-   }
-   ioflush(&metawbuf);
-
-   /* use a temp so other processes don't take the .a mid write? */
+   /* use a temp so other processes don't take the .a mid write */
    tmp = afmt(&arena, "%s/.libantrt1.a.tmp", dir);
    unlink(tmp);
 
@@ -134,6 +172,10 @@ compileaziplib(const char *path, mz_zip_archive *zip, const char **meta) {
       vpush(&headers, file);
    }
    vpush(&headers, (EmbedFile){0});
+
+   /* the metadata entry has to be first for metamatch() to find it (quickly) */
+   char *metaobj = afmt(&arena, "%s/__.ANTCCMETA", dir);
+   vpush(&objs, metaobj);
    /* compile each obj in zip */
    for (uint i = 0; i < nfiles; ++i) {
       if (!mz_zip_reader_file_stat(zip, i, &st) || mz_zip_reader_is_file_a_directory(zip, i))
@@ -176,6 +218,12 @@ compileaziplib(const char *path, mz_zip_archive *zip, const char **meta) {
 
       vpush(&objs, obj);
    }
+
+   char *metameta = afmt(&arena, "%s%s:%s\n%s", RTPACK_META_MARKER, ver, hash, meta);
+   if (!mkmetaobj(metameta, metaobj)) {
+      unlink(metaobj);
+      goto End;
+   }
    assert(objs.n > 0);
 
    /* make static lib */
@@ -187,10 +235,10 @@ compileaziplib(const char *path, mz_zip_archive *zip, const char **meta) {
    /* atomic move tmp .a to dest path */
    if (rename(tmp, path) != 0) {
       warn(NULL, "rtpack: rename: %s", strerror(errno));
-   } else {
-      vrbfmt(" # %s OK\n", path);
-      ok = 1;
+      goto End;
    }
+   vrbfmt(" # %s OK\n", path);
+   ok = 1;
 End:
    free(databuf);
    if (!ok && tmp)
@@ -199,9 +247,9 @@ End:
       unlink(objs.p[i]);
    vfree(&objs);
    vfree(&headers);
-   if (metafd >= 0) {
-      fcntl(metafd, F_SETLKW, &(struct flock){.l_type = F_UNLCK, .l_whence = SEEK_SET});
-      close(metafd);
+   if (lockfd >= 0) {
+      fcntl(lockfd, F_SETLKW, &(struct flock){.l_type = F_UNLCK, .l_whence = SEEK_SET});
+      close(lockfd);
    }
    return ok;
 }
@@ -213,7 +261,7 @@ rtpack_getlibantrt1(void) {
                      pack_libantrt1_meta[],
                      pack_libantrt1_hash[];
 
-   enum { N = 8<<10 };
+   enum { N = 64<<10 };
    union {Arena a; char mem[sizeof(Arena)+N];} amem;
    *(arena = &amem.a) = (Arena){.cap = N};
 
@@ -221,11 +269,10 @@ rtpack_getlibantrt1(void) {
    if (!root)
       goto End;
    targ = targ_canon_triple();
-   const char *shortver = afmt(&arena, "%d.%d.x", ANTCC_VERSION_MAJOR,ANTCC_VERSION_MINOR);
-   dir = packdirpath(root, shortver, targ, pack_libantrt1_hash);
-   vrbfmt("rt cache dir: %s\n", dir);
+   dir = packdirpath(root, targ);
    path = afmt(&globarena, "%s/libantrt1.a", dir);
-   if (isfile(path)) {
+   vrbfmt("rt cache dir: %s\n", dir);
+   if (isfile(path) && metamatch(path, ANTCC_VERSION_STR, pack_libantrt1_hash, 1)) {
       vrbfmt(" # found @ %s\n", path);
       goto End;
    }
@@ -242,8 +289,7 @@ rtpack_getlibantrt1(void) {
       path = NULL;
       goto End;
    }
-   const char *meta[] = {ANTCC_VERSION_STR, targ, pack_libantrt1_meta, NULL};
-   if (!compileaziplib(path, &zip, meta))
+   if (!compileaziplib(dir, ANTCC_VERSION_STR, pack_libantrt1_hash, path, pack_libantrt1_meta, &zip))
       path = NULL;
    mz_zip_reader_end(&zip);
 End:

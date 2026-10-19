@@ -5,11 +5,11 @@
 #include <unistd.h>
 #include <stdlib.h> /* qsort */
 
-static union {
-   ELF_HDRIDENT;
-   Elf32Hdr h32;
+union ElfHdr {
    Elf64Hdr h64;
-} hdr;
+   Elf32Hdr h32;
+   ELF_HDRIDENT;
+};
 static vec_of(uchar) strs;
 typedef struct {
    uint   name;
@@ -42,29 +42,9 @@ extern ObjFile objout;
 
 void
 elfinit(void) {
-   memcpy(hdr.i_mag, ELFMAG, 4);
-   hdr.i_class = ELFCLASS32 + targ_64bit;
-   hdr.i_data = ELFDATA2LSB + targ_bigendian;
-   hdr.i_version = ELFVERSION;
-   hdr.i_osabi = ELFOSABI_SYSV;
-   hdr.i_abiversion = 0;
-   hdr.h32.type = ET_REL;
-   switch (target.arch) {
-   default: assert(!"arch?");
-   case ISx86_64: hdr.h32.machine = EM_X86_64; break;
-   case ISaarch64: hdr.h32.machine = EM_ARM64; break;
-   }
-   hdr.h32.version = ELFVERSION;
-   if (targ_64bit) {
-      hdr.h64.ehsize = sizeof(Elf64Hdr);
-      hdr.h64.shentsize = sizeof(Elf64Shdr);
-   } else {
-      hdr.h32.ehsize = sizeof(Elf32Hdr);
-      hdr.h32.shentsize = sizeof(Elf32Shdr);
-   }
    vinit(&strs, NULL, 4<<10);
    vpush(&symtab, ((Sym){0}));
-   vpush(&symtab, ((Sym){ .type = STT_FILE, .sec = SHN_ABS}));
+   vpush(&symtab, ((Sym){.type = STT_FILE, .sec = SHN_ABS}));
 }
 
 uint
@@ -372,6 +352,32 @@ aligns(enum section s, uint a) {
    return a < min ? min : a;
 }
 
+static union ElfHdr
+mkhdr(void) {
+   union ElfHdr hdr = {0};
+   memcpy(hdr.i_mag, ELFMAG, 4);
+   hdr.i_class = ELFCLASS32 + targ_64bit;
+   hdr.i_data = ELFDATA2LSB + targ_bigendian;
+   hdr.i_version = ELFVERSION;
+   hdr.i_osabi = ELFOSABI_SYSV;
+   hdr.i_abiversion = 0;
+   hdr.h32.type = ET_REL;
+   switch (target.arch) {
+   default: assert(!"arch?");
+   case ISx86_64: hdr.h32.machine = EM_X86_64; break;
+   case ISaarch64: hdr.h32.machine = EM_ARM64; break;
+   }
+   hdr.h32.version = ELFVERSION;
+   if (targ_64bit) {
+      hdr.h64.ehsize = sizeof(Elf64Hdr);
+      hdr.h64.shentsize = sizeof(Elf64Shdr);
+   } else {
+      hdr.h32.ehsize = sizeof(Elf32Hdr);
+      hdr.h32.shentsize = sizeof(Elf32Shdr);
+   }
+   return hdr;
+}
+
 void
 elffini(WriteBuf *out) {
    bool userela = userelatab[target.arch];
@@ -504,6 +510,7 @@ elffini(WriteBuf *out) {
    };
    assert(nsec <= countof(secs));
 
+   union ElfHdr hdr = mkhdr();
    /* compute section offsets */
    uint off = targ_64bit ? sizeof hdr.h64 : sizeof hdr.h32;
    for (struct ElfSection *s = secs, *end = s + nsec; s != end; ++s) {
@@ -562,6 +569,29 @@ elffini(WriteBuf *out) {
               .link = s->link, .info = s->info,
               .addralign = s->align, .entsize = s->entsize);
    }
+}
+
+void
+elfmkmetaobj(WriteBuf *out, const char *data, uint siz) {
+   union ElfHdr hdr = mkhdr();
+   const int doff = targ_64bit ? sizeof hdr.h64 : sizeof hdr.h32;
+   static const char strtab[] = "\0.data\0.shstrtab";
+   const int shoff = alignup(doff + siz + sizeof strtab, 8);
+
+   assert(out->len == 0);
+   if (targ_64bit) hdr.h64.shoff = shoff, hdr.h64.shnum = 3, hdr.h64.shstrndx = 2;
+   else            hdr.h32.shoff = shoff, hdr.h32.shnum = 3, hdr.h32.shstrndx = 2;
+   if (targ_64bit) elf64puthdr(out, &hdr.h64);
+   else            elf32puthdr(out, &hdr.h32);
+   iowrite(out, data, siz);
+   iowrite(out, strtab, sizeof strtab);
+   for (int n = shoff - out->len; n > 0; --n) ioputc(out, 0);
+   for (int n = targ_64bit ? sizeof(Elf64Shdr) : sizeof(Elf32Shdr); n > 0; --n)
+      ioputc(out, 0);
+   putshdr(.name = 1, .type = SHT_PROGBITS, .flags = SHF_ALLOC|SHF_WRITE, .offset = doff,
+           .size = siz, .addralign = 1);
+   putshdr(.name = 7, .type = SHT_STRTAB, .offset = doff + siz,
+           .size = sizeof strtab, .addralign = 1);
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

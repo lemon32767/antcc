@@ -13,8 +13,7 @@ __rt_fabsd(double x) {
 
 static inline int
 __rt_isnand(double x) {
-   union { double f; u64int u; } v = {x};
-   return ((v.u >> 52) & 0x7ff) == 0x7ff && (v.u & ((1ull<<52) - 1)) != 0;
+   return x != x;
 }
 
 static inline int
@@ -82,8 +81,7 @@ __rt_fabsf(float x) {
 
 static inline int
 __rt_isnanf(float x) {
-   union { float f; u32int u; } v = {x};
-   return ((v.u >> 23) & 0xff) == 0xff && (v.u & ((1U << 23) - 1)) != 0;
+   return x != x;
 }
 
 static inline int

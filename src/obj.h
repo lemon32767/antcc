@@ -58,5 +58,6 @@ void objfini(bool emit);
 void markfnneeded(internstr);
 bool fnisneeded(internstr);
 #define objrelocxcon(xc, ...) objreloc(xcon2sym(xc), contab.p[xc].flag, __VA_ARGS__)
+void objmkmeta(WriteBuf *, const char *data, uint siz);
 
 /* vim:set ts=3 sw=3 expandtab: */

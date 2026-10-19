@@ -10,6 +10,7 @@ enum section elfhassym(internstr , uint *value);
 void elfaddsym(internstr, enum symflags, enum section, u64int value, u64int size);
 void elfreloc(internstr sym, enum symflags, enum relockind, enum section, uint off, s64int addend);
 void elffini(WriteBuf *);
+void elfmkmetaobj(WriteBuf *, const char *data, uint siz);
 
 ObjFile objout = {
    .sec = {
@@ -143,6 +144,13 @@ objfini(bool emit) {
 
    ioflush(&out);
    close(out.fd);
+}
+
+void
+objmkmeta(WriteBuf *out, const char *data, uint siz) {
+   switch (mctarg->objkind) {
+   case OBJELF: elfmkmetaobj(out, data, siz);
+   }
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

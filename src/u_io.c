@@ -698,7 +698,7 @@ afmt(Arena **ar, const char *fmt, ...) {
    va_list ap;
    int sz;
    char buf0[200];
-   WriteBuf wbuf = {.buf = buf0, .cap = sizeof buf0};
+   WriteBuf wbuf = MEMBUF(buf0, sizeof buf0);
 
    va_start(ap, fmt), sz = vbfmt(&wbuf, fmt, ap), va_end(ap);
    ioputc(&wbuf, 0), ++sz;
@@ -706,6 +706,7 @@ afmt(Arena **ar, const char *fmt, ...) {
       assert(!wbuf.err);
       return alloccopy(ar, buf0, wbuf.len, 1);
    }
+   ioflush(&wbuf);
    wbuf.buf = alloc(ar, wbuf.cap = sz, 1);
    va_start(ap, fmt), sz = vbfmt(&wbuf, fmt, ap), va_end(ap);
    ioputc(&wbuf, 0), ++sz;
