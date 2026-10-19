@@ -8,10 +8,12 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "z_miniz.h"
+#undef assert // miniz includes <assert.h>
+#undef static_assert
 #include "antcc.h"
 #include "version.h"
 #include "obj.h"
-#include "z_miniz.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
