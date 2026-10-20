@@ -12,6 +12,7 @@ steps:
 
   - name: test-bootstrap
     image: debian
+    depends_on: [build]
     commands:
       - apt-get update && apt-get install -y make gcc
       - ./configure

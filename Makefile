@@ -46,8 +46,10 @@ $(OUT): tool/depgen src/version.h $(obj)
 # that is moved to the real version.h only if it differs, to avoid rebuilds every `make`
 # hmm, I don't love this..
 src/version.h: VERSION FORCE
-	@tool/gen-version.sh > $@.tmp
-	@if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv -f $@.tmp $@; fi
+	@t=$@.tmp.$$$$; \
+	trap 'rm -f "$$t"' EXIT; \
+	tool/gen-version.sh > "$$t" && \
+	{ cmp -s "$$t" $@ || mv -f "$$t" $@; }
 
 FORCE:
 
