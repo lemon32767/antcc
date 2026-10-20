@@ -15,6 +15,7 @@ Options:
   --host=target-triple      $host
   --cc=cc                   C compiler [cc]
   --ld=ld                   Linker [ld]
+  --ar=ar                   archiver [ar]
   --prefix=PREFIX           Installation path [/usr/local]
   --sysroot=/path           System root
   --includedir="/a/b",...   System include dirs
@@ -25,6 +26,7 @@ sysroot=
 prefix=/usr/local
 host=
 linker=
+ar=
 
 for arg ; do
 	case "$arg" in
@@ -34,6 +36,7 @@ for arg ; do
 	CC=*) CC=${arg#*=} ;;
 	--cc=*) CC=${arg#*=} ;;
 	--ld=*) linker=${arg#*=} ;;
+	--ar=*) ar=${arg#*=} ;;
 	CFLAGS=*) CFLAGS=${arg#*=} ;;
 	--cflags=*) CFLAGS=${arg#*=} ;;
     --prefix=*) prefix=$(sh -c "echo ${arg#*=}") ;;
@@ -42,16 +45,31 @@ for arg ; do
 	esac
 done
 
-: ${CC:=cc}
 if ! test -n "$host"; then
+    : ${CC:=cc}
     host=$($CC -dumpmachine)
 else
-    # try target-triple-ld (cross compiling)
+    # try target-triple-cc (cross compiling)
+    if ! test -n "$CC"; then
+        for sfx in cc gcc; do
+            if command -v "$host"-$sfx >/dev/null; then
+                CC="$host"-$sfx
+                break
+            fi
+        done
+    fi
+    : ${CC:=cc}
     if ! test -n "$linker" && command -v "$host"-ld >/dev/null; then
         linker="$host"-ld
-        sysroot=$( ("$host"-cc -print-sysroot || "$host"-gcc -print-sysroot) 2>/dev/null)
+    fi
+    if ! test -n "$ar" && command -v "$host"-ar >/dev/null; then
+        ar="$host"-ar
+    fi
+    if ! test -n "$sysroot"; then
+        sysroot=$($CC -print-sysroot 2>/dev/null)
     fi
 fi
+
 test -n "$host" || die "cannot determine host"
 
 host_arch=
@@ -205,6 +223,9 @@ if test -n "$DYNAMIC_LINKER"; then
 fi
 echo dynamic linker: $DYNAMIC_LINKER
 
+: ${ar:=ar}
+echo using ar: "$ar"
+
 # realpath(1) is apparently not portable
 realpath() {
     (cd -P "$1" 2>/dev/null && pwd -P)
@@ -218,17 +239,11 @@ tryincldir() {
 
 if ! test -n "$host_include_dirs"; then
     # try to query host toolchain first
-    for sfx in cc gcc; do
-        if command -v "$host"-$sfx > /dev/null; then
-            cc="$host"-$sfx
-        fi
-    done
-    : ${cc:=$CC}
-    if hostccdirs=$($cc -E -v -xc /dev/null 2>&1 | sed -n '/#include <...> search starts here:/,/End of search list./{
+    if hostccdirs=$($CC -E -v -xc /dev/null 2>&1 | sed -n '/#include <...> search starts here:/,/End of search list./{
     s/^[[:space:]]*//
     /^\/.*/p
 }') && test -n "$hostccdirs"; then
-        echo "using $cc's system include paths:"
+        echo "using $CC's system include paths:"
         for d in $hostccdirs; do
             dir=$(realpath "$d")
             case "$dir" in
@@ -267,6 +282,7 @@ echo "/** GENERATED WITH $0 $* **/
 static const char *const host_incldirs[] ={$host_include_dirs 0};
 static const char *const host_predefs[] = {$host_predefs 0};
 #define HOST_LD \"$linker\"
+#define HOST_AR \"$ar\"
 #define HOST_CC \"$CC\"
 #define HOST_LINK_WITH_CC $link_with_cc
 #define HOST_DYNAMIC_LINKER ${DYNAMIC_LINKER:=NULL}
