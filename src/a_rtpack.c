@@ -1,3 +1,14 @@
+/* This file handles lazy compiler runtime library compilation.
+ * At build time, libantrt1/ sources get zipped and embedded in the binary.
+ * rtpack_getlibantrt1 compiles and archives or reuses the cached static library,
+ * and returns its path for the driver to use for linker.
+ * The cache is in '<cache root>/<target name>/rt/libantrt1.a', for example
+ * '~/.cache/antcc/x86_64-linux-gnu/rt/libantrt1.a'
+ * The archive stores a metadata object that contains a string with the compiler version
+ * and runtime library hash as computed in tool/mkpack.c; this is the cache key. If
+ * the file doesn't exist/cache key mismatch/can't find the cache key => compile.
+ */
+
 #define _POSIX_C_SOURCE 200112L
 #include <errno.h>
 #include <fcntl.h>
@@ -16,8 +27,6 @@
 #include "obj.h"
 #include "a_sys.h"
 
-void ccompbuf(const char *name, const char *data, uint size);
-
 static Arena *arena;
 
 static const char *
@@ -30,71 +39,77 @@ cacheroot(void) {
 }
 
 static const char *
-packdirpath(const char *root, const char *targ) {
-   if (!root) return NULL;
-   return afmt(&arena, "%s/%s", root, targ);
+rtpackdirpath(const char *root, const char *targ) {
+   return root ? afmt(&arena, "%s/%s/rt", root, targ) : NULL;
 }
 
-static const char RTPACK_META_MARKER[] = ">>>ANTCC-META>>>";
+/* used to find the metadata in the archive; it is immediately followed
+ * by the actual metadata: "version:hash\n..." */
+static const char ALIB_META_MARKER[] = "\xf0\x0f<ANTCCMETAv1>:";
+/* the metadata should be in the beginning of the file */
+enum { ALIB_META_MAX_OFFSET = 8<<10 };
 
-/* binary-safe strstr: archives contain NULs */
-static const char *
-memfind(const char *p, size_t n, const char *needle) {
-   size_t m = strlen(needle);
-   if (m > n) return NULL;
-   for (size_t i = 0; i + m <= n; ++i)
-      if (p[i] == needle[0] && !memcmp(p + i, needle, m))
-         return p + i;
+static char *
+findmeta(char *p, size_t n) {
+   char c0 = *ALIB_META_MARKER;
+   const size_t m = sizeof ALIB_META_MARKER - 1;
+   for (char *q; (q = memchr(p, c0, n)); p = q + 1, --n) {
+      n -= q - p;
+      if (m > n) return NULL;
+      if (!memcmp(q+1, ALIB_META_MARKER+1, m-1)) return q + m;
+   }
    return NULL;
 }
 
+/* look for the marker to find the metadata and check if ver:hash match */
 static bool
 metamatch(const char *path, const char *ver, const char *hash, bool log) {
-   int fd = open(path, O_RDONLY);
-   if (fd < 0) return 0;
-   char buf[16<<10];
-   size_t n = 0;
-   while (n < sizeof buf) {
-      ssize_t r = read(fd, buf + n, sizeof buf - n);
-      if (r < 0 && errno == EINTR) continue;
-      if (r <= 0) break;
-      n += r;
-   }
-   close(fd);
-   bool ok = 0;
-   const char *p = memfind(buf, n, RTPACK_META_MARKER);
-   char v[256], h[256];
-   if (!p) goto End;
-   p += sizeof RTPACK_META_MARKER - 1;
-   const char *sep = memchr(p, ':', n - (p - buf));
-   if (!sep || sep-p >= sizeof v) goto End;
-   memcpy(v, p, sep-p), v[sep-p] = 0;
-   p = sep+1;
-   sep = memchr(p, '\n', n - (p - buf));
-   if (!sep || sep-p >= sizeof h) goto End;
-   memcpy(h, p, sep-p), h[sep-p] = 0;
-   if (!strcmp(ver, v) && !strcmp(hash, h)) ok = 1;
-End:
-   if (log && !ok) vrbfmt(" # existing library at %'s is stale, rebuilding\n", path);
-   return ok;
+   FILE *fp = fopen(path, "rb");
+   if (!fp) return 0;
+
+   char buf[ALIB_META_MAX_OFFSET + 100];
+   size_t n = fread(buf, 1, sizeof buf, fp);
+   fclose(fp);
+
+   char *meta = findmeta(buf, n);
+   if (!meta) goto No;
+
+   /* parse "{v}:{h}\n" */
+   char *v = meta, *sep, *h;
+   if (!(sep = memchr(meta, ':', n - (meta - buf)))) goto No;
+   *sep = 0;
+   h = sep + 1;
+   if (!(sep = memchr(h, '\n', n - (h - buf)))) goto No;
+   *sep = 0;
+   if (!strcmp(ver, v) && !strcmp(hash, h))
+      return 1;
+No:
+   if (log) vrbfmt(" # existing library at %'s is stale, rebuilding\n", path);
+   return 0;
 }
 
+/* the actual meta file in the archive has to be a valid object (ELF) file, or else
+ * ld.lld complains, annoyingly. create an object with the minimal amount
+ * of stuff for it to be valid (basically headers, .shstrtab and .data sections) */
 static bool
 mkmetaobj(const char *meta, const char *objpath) {
    char objbuf[16<<10];
    WriteBuf wbuf = MEMBUF(objbuf, sizeof objbuf);
    objmkmeta(&wbuf, meta, strlen(meta)+1);
    assert(!wbuf.err);
-   FILE *f = fopen(objpath, "wb");
-   if (!f) return warn(NULL, "fopen(%s): %s", objpath, strerror(errno)), 0;
-   bool ok = fwrite(objbuf, 1, wbuf.len, f) == wbuf.len;
-   fclose(f);
+   FILE *fp = fopen(objpath, "wb");
+   if (!fp) return warn(NULL, "fopen(%s): %s", objpath, strerror(errno)), 0;
+   bool ok = fwrite(objbuf, 1, wbuf.len, fp) == wbuf.len;
+   if (ferror(fp)) warn(NULL, "fwrite(%s): %s", objpath, strerror(errno));
+   fclose(fp);
    return ok;
 }
 
+/* this is invoked in a child process */
 static int
 rtcc1(const char *name, const char *out, const char *data, uint size) {
    extern int nerror;
+   void ccompbuf(const char *name, const char *data, uint size);
 
    vrbfmt("rt cc1(in: %'s, out: %'s)\n", name, out);
    /* compilation must be deterministic here and not depend on invoked compiler flags */
@@ -110,14 +125,15 @@ rtcc1(const char *name, const char *out, const char *data, uint size) {
    return 0;
 }
 
+static const char *arbin;
+
 static bool
 ar(const char *out, char **objs, int nobj) {
    int ncmd = 3 + nobj + 1;
    const char **cmd = alloc(&arena, ncmd * sizeof *cmd, 0);
 
-   cmd[0] = "ar", cmd[1] = "-rcs", cmd[2] = out;
-   for (int i = 0; i < nobj; ++i)
-      cmd[3 + i] = objs[i];
+   cmd[0] = arbin, cmd[1] = "-rcs", cmd[2] = out;
+   memcpy(cmd+3, objs, nobj * sizeof *cmd);
    cmd[ncmd-1] = NULL;
    return runproc(cmd, &(ProcSpawn){.log = ccopt.verbose}) == 0;
 }
@@ -127,7 +143,6 @@ compileaziplib(const char *dir, const char *ver, const char *hash,
                const char *path, const char *meta, mz_zip_archive *zip) {
    int lockfd = -1;
    char *tmp = NULL, *databuf = NULL;
-   struct hdrbuf { char *p; size_t n; };
    DEF_SVEC(EmbedFile, 32, headers);
    DEF_SVEC(char *, 32, objs);
    bool ok = 0;
@@ -148,7 +163,7 @@ compileaziplib(const char *dir, const char *ver, const char *hash,
    vrbfmt(" # begin lock %s\n", lockpath);
 
    /* use a temp so other processes don't take the .a mid write */
-   tmp = afmt(&arena, "%s/.libantrt1.a.tmp", dir);
+   tmp = afmt(&arena, "%s.tmp", path);
    unlink(tmp);
 
    mz_zip_archive_file_stat st;
@@ -168,7 +183,8 @@ compileaziplib(const char *dir, const char *ver, const char *hash,
          st.m_uncomp_size
       };
       memset((char *)file.s + st.m_uncomp_size, 0, pad);
-      if (!mz_zip_reader_extract_to_mem(zip, i, (char *)file.s, st.m_uncomp_size, 0)) goto UnzipErr;
+      if (!mz_zip_reader_extract_to_mem(zip, i, (char *)file.s, st.m_uncomp_size, 0))
+         goto UnzipErr;
       vpush(&headers, file);
    }
    vpush(&headers, (EmbedFile){0});
@@ -203,7 +219,7 @@ compileaziplib(const char *dir, const char *ver, const char *hash,
          warn(NULL, "fork: %s", strerror(errno));
          goto End;
       } else if (p == 0) {
-         /* remove all include dirs except the embedded headers + these runtime headers */
+         /* no include dirs except the embedded headers + these runtime headers */
          memset(cinclpaths, 0, sizeof cinclpaths);
          extern EmbedFile *dynamic_cincludes;
          dynamic_cincludes = headers.p;
@@ -219,7 +235,7 @@ compileaziplib(const char *dir, const char *ver, const char *hash,
       vpush(&objs, obj);
    }
 
-   char *metameta = afmt(&arena, "%s%s:%s\n%s", RTPACK_META_MARKER, ver, hash, meta);
+   char *metameta = afmt(&arena, "%s%s:%s\n%s", ALIB_META_MARKER, ver, hash, meta);
    if (!mkmetaobj(metameta, metaobj)) {
       unlink(metaobj);
       goto End;
@@ -237,6 +253,7 @@ compileaziplib(const char *dir, const char *ver, const char *hash,
       warn(NULL, "rtpack: rename: %s", strerror(errno));
       goto End;
    }
+   assert(metamatch(path, ver, hash, 0) && "fresh .a can't match meta?");
    vrbfmt(" # %s OK\n", path);
    ok = 1;
 End:
@@ -255,21 +272,19 @@ End:
 }
 
 const char *
-rtpack_getlibantrt1(void) {
+rtpack_getlibantrt1(const char *ar) {
    extern unsigned pack_libantrt1_size;
    extern const char pack_libantrt1_data[],
                      pack_libantrt1_meta[],
                      pack_libantrt1_hash[];
-
    enum { N = 64<<10 };
    union {Arena a; char mem[sizeof(Arena)+N];} amem;
    *(arena = &amem.a) = (Arena){.cap = N};
 
    const char *root = cacheroot(), *dir = NULL, *path = NULL, *targ;
-   if (!root)
-      goto End;
+   if (!root) goto End;
    targ = targ_canon_triple();
-   dir = packdirpath(root, targ);
+   dir = rtpackdirpath(root, targ);
    path = afmt(&globarena, "%s/libantrt1.a", dir);
    vrbfmt("rt cache dir: %s\n", dir);
    if (isfile(path) && metamatch(path, ANTCC_VERSION_STR, pack_libantrt1_hash, 1)) {
@@ -289,6 +304,7 @@ rtpack_getlibantrt1(void) {
       path = NULL;
       goto End;
    }
+   arbin = ar;
    if (!compileaziplib(dir, ANTCC_VERSION_STR, pack_libantrt1_hash, path, pack_libantrt1_meta, &zip))
       path = NULL;
    mz_zip_reader_end(&zip);

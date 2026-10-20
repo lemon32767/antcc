@@ -218,6 +218,9 @@ elf32putshdr(WriteBuf *out, Elf32Shdr *shdr) {
    iowrite(out, shdr, sizeof *shdr);
 }
 
+#define putshdr(...) if (targ_64bit) elf64putshdr(out, &(Elf64Shdr) { __VA_ARGS__ }); \
+                     else            elf32putshdr(out, &(Elf32Shdr) { __VA_ARGS__ });
+
 static void
 elf64putsym(WriteBuf *out, Elf64Sym *sym) {
    if (!hostntarg_sameendian()) {
@@ -560,8 +563,6 @@ elffini(WriteBuf *out) {
 
    /** section headers **/
    wordalign(out, elfalign);
-#define putshdr(...) if (targ_64bit) elf64putshdr(out, &(Elf64Shdr) { __VA_ARGS__ }); \
-                     else            elf32putshdr(out, &(Elf32Shdr) { __VA_ARGS__ });
    for (struct ElfSection *s = secs, *end = secs + nsec; s != end; ++s) {
       putshdr(.name = s->name, .type = s->type,
               .flags = s->flags,

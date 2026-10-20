@@ -635,7 +635,7 @@ findlinkargs(CmdArgs *cmd) {
 
 #define ADDCMDARGS(args) if (*args) vpushn(&cmd, args, countof(args))
 
-const char *rtpack_getlibantrt1(void);
+const char *rtpack_getlibantrt1(const char *ar);
 
 enum crtmode { CRTxxx, CRTnopie, CRTpie, CRTdll, CRTstatic, CRTstaticpie, NCRTMODE };
 /* ugh */
@@ -745,7 +745,7 @@ dolink(void) {
       if (!*end) end = **crtend;
       for(; *end; ++end) {
          if (!strcmp(*end, "@rt")) {
-            const char *rt = rtpack_getlibantrt1();
+            const char *rt = rtpack_getlibantrt1(HOST_AR);
             if (rt)
                vpush(&cmd, rt);
             else
