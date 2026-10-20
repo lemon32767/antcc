@@ -18,6 +18,14 @@ e^(i*0.5) = 0.877583+0.479426i
 cos(0.5)+i*sin(0.5) = 0.877583+0.479426i
 ? 2.0+0.0i 3.5+0.0i 1.5+2.5i
 ?: 3.0+4.0i 7.0+0.0i 3.0+4.0i 2.0+0.0i
+CMPLX nan = 1 1.0
+CMPLX inf = 1.0 1
+mul inf = 1 1
+div zero = 1 1
+mul iinf = 1 1
+div inf = 1 1
+mulf inf = 1 1
+divf zero = 1 1
 */
 
 #include <complex.h>
@@ -91,6 +99,25 @@ int main() {
    printf("? %.1f%+.1fi %.1f%+.1fi %.1f%+.1fi\n", creal(c1), cimag(c1), creal(c2), cimag(c2), creal(c3), cimag(c3));
    complex double e1 = z0 ?: a, e2 = z1 ?: a, e3 = a ?: 2.0, e4 = (a - a) ?: 2.0;
    printf("?: %.1f%+.1fi %.1f%+.1fi %.1f%+.1fi %.1f%+.1fi\n", creal(e1), cimag(e1), creal(e2), cimag(e2), creal(e3), cimag(e3), creal(e4), cimag(e4));
+
+   volatile double inf = INFINITY, one = 1.0, zero = 0.0, nan = NAN;
+   complex double cnan = CMPLX(nan, one);
+   printf("CMPLX nan = %d %.1f\n", !!isnan(creal(cnan)), cimag(cnan));
+   complex double cinf = CMPLX(one, inf);
+   printf("CMPLX inf = %.1f %d\n", creal(cinf), !!isinf(cimag(cinf)));
+   complex double mul_inf = CMPLX(inf, zero) * CMPLX(one, zero);
+   printf("mul inf = %d %d\n", !!isinf(creal(mul_inf)), !!isnan(cimag(mul_inf)));
+   complex double div_zero = CMPLX(one, zero) / CMPLX(zero, zero);
+   printf("div zero = %d %d\n", !!isinf(creal(div_zero)), !!isnan(cimag(div_zero)));
+   complex double mul_iinf = CMPLX(zero, inf) * CMPLX(zero, one);
+   printf("mul iinf = %d %d\n", !!isinf(creal(mul_iinf)), !!isnan(cimag(mul_iinf)));
+   complex double div_inf = CMPLX(inf, zero) / CMPLX(one, zero);
+   printf("div inf = %d %d\n", !!isinf(creal(div_inf)), !!isnan(cimag(div_inf)));
+   volatile float finf = INFINITY, fone = 1.0f, fzero = 0.0f;
+   complex float mulf_inf = CMPLXF(finf, fzero) * CMPLXF(fone, fzero);
+   printf("mulf inf = %d %d\n", !!isinf(crealf(mulf_inf)), !!isnan(cimagf(mulf_inf)));
+   complex float divf_zero = CMPLXF(fone, fzero) / CMPLXF(fzero, fzero);
+   printf("divf zero = %d %d\n", !!isinf(crealf(divf_zero)), !!isnan(cimagf(divf_zero)));
 
    return a;
 }

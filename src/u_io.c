@@ -680,6 +680,40 @@ bfmt(WriteBuf *buf, const char *fmt, ...) {
    return ret;
 }
 
+int
+snfmt(char *buf, uint n, const char *fmt, ...) {
+   va_list ap;
+   int ret;
+   WriteBuf wbuf = {.buf = buf, .cap = n};
+
+   va_start(ap, fmt);
+   ret = vbfmt(&wbuf, fmt, ap);
+   ioputc(&wbuf, 0), ++ret;
+   va_end(ap);
+   return ret;
+}
+
+char *
+afmt(Arena **ar, const char *fmt, ...) {
+   va_list ap;
+   int sz;
+   char buf0[200];
+   WriteBuf wbuf = MEMBUF(buf0, sizeof buf0);
+
+   va_start(ap, fmt), sz = vbfmt(&wbuf, fmt, ap), va_end(ap);
+   ioputc(&wbuf, 0), ++sz;
+   if (sz <= sizeof buf0) {
+      assert(!wbuf.err);
+      return alloccopy(ar, buf0, wbuf.len, 1);
+   }
+   ioflush(&wbuf);
+   wbuf.buf = alloc(ar, wbuf.cap = sz, 1);
+   va_start(ap, fmt), sz = vbfmt(&wbuf, fmt, ap), va_end(ap);
+   ioputc(&wbuf, 0), ++sz;
+   assert(sz == wbuf.cap && !wbuf.err);
+   return wbuf.buf;
+}
+
 void
 gpritype(Type ty) {
    efmt("%ty\n", ty);
@@ -688,12 +722,8 @@ gpritype(Type ty) {
 
 static uint pagesiz;
 
-typedef struct EmbedFile {
-   const char *name;
-   const char *s;
-   size_t len;
-} EmbedFile;
-extern EmbedFile embedfilesdir[];
+extern EmbedFile embed_cincludes[];
+EmbedFile *dynamic_cincludes;
 
 MemFile
 mapopen(const char **err, const char *path) {
@@ -709,10 +739,13 @@ mapopen(const char **err, const char *path) {
    *err = NULL;
 
    if (*path == '@' && path[1] == ':') {
-      for (EmbedFile *e = embedfilesdir; e->name; ++e) {
-         if (!strcmp(e->name, path+2)) {
+      for (EmbedFile *e = embed_cincludes; e->name; ++e) {
+         if (!strcmp(e->name, path+2))
             return (MemFile) { (const uchar *)e->s, e->len, .statik = 1 };
-         }
+      }
+      for (EmbedFile *e = dynamic_cincludes; e && e->name; ++e) {
+         if (!strcmp(e->name, path+2))
+            return (MemFile) { (const uchar *)e->s, e->len, .statik = 1 };
       }
    }
 

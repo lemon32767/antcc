@@ -210,3 +210,21 @@ targ_init(const char *starg, const TargTriple *dfault) {
 
    return 1;
 }
+
+const char *
+targ_canon_triple(void) {
+   static char buf[100];
+   if (*buf) return buf;
+   const char *arch = target.arch == ISx86_64 ? "x86_64"
+                    : target.arch == ISaarch64 ? "aarch64" : "unknown";
+   const char *os = target.os == OSlinux ? "linux"
+                  : target.os == OSopenbsd ? "openbsd"
+                  : target.os == OSandroid ? "android" : "unknown";
+   const char *abi = target.abi == ABIgnu ? "gnu"
+                   : target.abi == ABImusl ? "musl" : NULL;
+   if (abi)
+      snfmt(buf, sizeof buf, "%s-%s-%s", arch, os, abi);
+   else
+      snfmt(buf, sizeof buf, "%s-%s", arch, os);
+   return buf;
+}

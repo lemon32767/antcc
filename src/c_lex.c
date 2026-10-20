@@ -1812,7 +1812,7 @@ doinclude(Lexer *lx, const Span *span, const char *str, size_t slen, enum incopt
    for (int i = quote ? CINCL_iquote : CINCL_I; i < countof(cinclpaths); ++i) {
       incdiridx = 2 + 1000*i;
       bool triedembed = 0;
-      for (CInclPath *p = cinclpaths[i]; p; p = p->next) {
+      for (CInclPath *p = cinclpaths[i];; p = p->next) {
          if (i == CINCLsys && !triedembed) {
             /* try embedded files pseudo-path */
             triedembed = 1;
@@ -1825,6 +1825,7 @@ doinclude(Lexer *lx, const Span *span, const char *str, size_t slen, enum incopt
             }
             ++incdiridx;
          }
+         if (!p) break;
          if (incdiridx >= req_incdiridx) {
             int ndir = strlen(p->path);
             xbgrow(&path, ndir + slen + 2);
@@ -2698,15 +2699,17 @@ putdefs1(const char *s) {
    if (s) for (; *s; s += strlen(s) + 1) putdef1(s);
 }
 
+#define XSTR(s) #s
+#define STR(s) XSTR(s)
 static void
 addpredefmacros(Arena **tmparena) {
    static Token tok_stdc = {TKNUMLIT},
-                       tok_major = {TKNUMLIT, .s = ANTCC_VERSION_MAJOR,
-                                              .len = sizeof ANTCC_VERSION_MAJOR - 1},
-                       tok_minor = {TKNUMLIT, .s = ANTCC_VERSION_MINOR,
-                                              .len = sizeof ANTCC_VERSION_MINOR - 1},
-                       tok_patch = {TKNUMLIT, .s = ANTCC_VERSION_PATCH,
-                                              .len = sizeof ANTCC_VERSION_PATCH - 1};
+                       tok_major = {TKNUMLIT, .s = STR(ANTCC_VERSION_MAJOR),
+                                              .len = sizeof STR(ANTCC_VERSION_MAJOR) - 1},
+                       tok_minor = {TKNUMLIT, .s = STR(ANTCC_VERSION_MINOR),
+                                              .len = sizeof STR(ANTCC_VERSION_MINOR) - 1},
+                       tok_patch = {TKNUMLIT, .s = STR(ANTCC_VERSION_PATCH),
+                                              .len = sizeof STR(ANTCC_VERSION_PATCH) - 1};
    static struct { const char *name; Macro m; } macs[] = {
       { "__FILE__", { .predef = 1, .special = 1, .handler = mac__file__ }},
       { "__LINE__", { .predef = 1, .special = 1, .handler = mac__line__ }},
@@ -2761,8 +2764,8 @@ addpredefmacros(Arena **tmparena) {
    }
 }
 
-enum initlexer
-initlexer(Lexer *lx, const char **err, const char *file) {
+static enum initlexer
+initlexer1(Lexer *lx, const char **err, const char *file, int fileid, MemFile *f) {
    enum { NARENA = 1<<12 };
    static union { char m[sizeof(Arena) + NARENA]; Arena *_align; } amem;
    static Arena *tmparena = (void *)amem.m;
@@ -2776,13 +2779,11 @@ initlexer(Lexer *lx, const char **err, const char *file) {
       predefs = 1;
    }
 
-   MemFile *f;
-   int fileid = openfile(err, &f, file);
-   if (fileid < 0)
+   if (!f && (fileid = openfile(err, &f, file)) < 0)
       return LXERR;
+
    internstr guard;
    if (isfileseen(fileid) && isoncefile(fileid, &guard) && (!guard || findmac(guard))) {
-      //efmt("skipping %s .. guard %s\n", file, guard ? guard : "<none>");
       return LXFILESKIP;
    }
    memset(lx, 0, sizeof *lx);
@@ -2797,6 +2798,19 @@ initlexer(Lexer *lx, const char **err, const char *file) {
    lx->nppcnd0 = nppcnd;
    lx->curline = 1;
    return getfilename(fileid, 0) != file ? LXFILESEEN : LXOK;
+}
+
+enum initlexer
+initlexer(Lexer *lx, const char **err, const char *file) {
+   return initlexer1(lx, err, file, -1, NULL);
+}
+
+enum initlexer
+initlexer_buf(Lexer *lx, const char **err, const char *name, const void *data, uint size) {
+   MemFile *f;
+   int fileid = getpredeffile(&f, name);
+   f->p = data, f->n = size;
+   return initlexer1(lx, err, name, fileid, f);
 }
 
 /* callback to let lexer release temp memory for arena allocated token data */

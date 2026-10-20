@@ -15,6 +15,7 @@ Options:
   --host=target-triple      $host
   --cc=cc                   C compiler [cc]
   --ld=ld                   Linker [ld]
+  --ar=ar                   archiver [ar]
   --prefix=PREFIX           Installation path [/usr/local]
   --sysroot=/path           System root
   --includedir="/a/b",...   System include dirs
@@ -25,6 +26,7 @@ sysroot=
 prefix=/usr/local
 host=
 linker=
+ar=
 
 for arg ; do
 	case "$arg" in
@@ -34,6 +36,7 @@ for arg ; do
 	CC=*) CC=${arg#*=} ;;
 	--cc=*) CC=${arg#*=} ;;
 	--ld=*) linker=${arg#*=} ;;
+	--ar=*) ar=${arg#*=} ;;
 	CFLAGS=*) CFLAGS=${arg#*=} ;;
 	--cflags=*) CFLAGS=${arg#*=} ;;
     --prefix=*) prefix=$(sh -c "echo ${arg#*=}") ;;
@@ -42,16 +45,31 @@ for arg ; do
 	esac
 done
 
-: ${CC:=cc}
 if ! test -n "$host"; then
+    : ${CC:=cc}
     host=$($CC -dumpmachine)
 else
-    # try target-triple-ld (cross compiling)
+    # try target-triple-cc (cross compiling)
+    if ! test -n "$CC"; then
+        for sfx in cc gcc; do
+            if command -v "$host"-$sfx >/dev/null; then
+                CC="$host"-$sfx
+                break
+            fi
+        done
+    fi
+    : ${CC:=cc}
     if ! test -n "$linker" && command -v "$host"-ld >/dev/null; then
         linker="$host"-ld
-        sysroot=$( ("$host"-cc -print-sysroot || "$host"-gcc -print-sysroot) 2>/dev/null)
+    fi
+    if ! test -n "$ar" && command -v "$host"-ar >/dev/null; then
+        ar="$host"-ar
+    fi
+    if ! test -n "$sysroot"; then
+        sysroot=$($CC -print-sysroot 2>/dev/null)
     fi
 fi
+
 test -n "$host" || die "cannot determine host"
 
 host_arch=
@@ -79,12 +97,6 @@ link_with_cc=0
 parselink() {
     cmd="$1"
     p_dynamic_linker=
-    p_linkargs=
-    p_startfiles=
-    p_endfiles=
-    tmpdir="${TMPDIR:-/tmp}"
-    tmpdir="${tmpdir%/}"
-    mode=start
     eval "set -- $cmd"
     case "$1" in
         *ld*) : ${linker:="$1"} ;;
@@ -95,117 +107,52 @@ parselink() {
         -dynamic-linker) shift; p_dynamic_linker="$1" ;;
         -dynamic-linker=*) p_dynamic_linker="${arg#*=}" ;;
         --dynamic-linker=*) p_dynamic_linker="${arg#*=}" ;;
-        -L) shift; p_linkargs="$p_linkargs \"-L\", \"$1\"," ;;
-        -L*|--sysroot=*) p_linkargs="$p_linkargs \"$arg\"," ;;
-        -l*) if [ $mode = start ]; then
-                p_startfiles="$p_startfiles \"$arg\","
-             else
-                p_endfiles="$p_endfiles \"$arg\","
-             fi ;;
-        -*) ;;#ignore other options
-        "$tmpdir"/*.o) #hacky - relying on the gcc/clang driver to put a temp file in TMPDIR
-            mode=end ;;
-        *.o|*.a)
-            case "$arg" in
-            *crt*.o|*.a)
-                if [ $mode = start ]; then
-                   p_startfiles="$p_startfiles \"$arg\","
-                else
-                   p_endfiles="$p_endfiles \"$arg\","
-                fi ;;
-            esac ;;
         esac
         shift
     done
 }
 
-findgcclibdir () {
-    : ${GCCLIBDIR:=$(dirname $( ("$host"-gcc -print-file-name=crtbegin.o || $CC -print-file-name=crtbegin.o) 2>/dev/null) )}
-    if ! test -n $GCCLIBDIR; then
-        die "cannot determine gcclibdir. you must configure manually"
-    fi
-}
-
-echo "trying to probe $CC for linker files and args..."
+echo "trying to probe $CC for the dynamic linker..."
 probe_nopie=$(probelink -no-pie)
 probe_pie=$(probelink -pie)
-if test -n "$probe_nopie" && test -n "$probe_pie"; then
-    echo "extracting linker args from {$probe_pie}"...
-    parselink "$probe_nopie"
+probe=${probe_pie:-$probe_nopie}
+if test -n "$probe"; then
+    echo "extracting linker args from {$probe}"...
+    parselink "$probe"
     : ${DYNAMIC_LINKER:=$p_dynamic_linker}
-    linkargs=$p_linkargs
-    ldstartfiles=$p_startfiles
-    ldendfiles=$p_endfiles
-    parselink "$probe_pie"
-    ldstartfiles_pie=$p_startfiles
-    ldendfiles_pie=$p_endfiles
 else
     echo "...did not work, will try a fallback"
-fi
-probe_shared=$(probelink -shared)
-if test -n "$probe_shared"; then
-    parselink "$probe_shared"
-    ldstartfiles_shared=$p_startfiles
-    ldendfiles_shared=$p_endfiles
 fi
 
 case "$host" in
 *-linux-*gnu*)
     host_os=linux
     host_abi=gnu
-    if [ x"$ldstartfiles" = x ]; then
+    if [ -z "$DYNAMIC_LINKER" ]; then
         case $host_arch in
         x86_64) DYNAMIC_LINKER=$sysroot/lib64/ld-linux-x86-64.so.2 ;;
         aarch64) DYNAMIC_LINKER=$sysroot/lib/ld-linux-aarch64.so.1
         esac
-        ldstartfiles='"-l:crt1.o", "-l:crti.o", "-l:crtbegin.o"'
-        ldendfiles='"-lc", "-lgcc", "-l:crtend.o", "-l:crtn.o"'
-        ldstartfiles_pie='"-l:Scrt1.o", "-l:crti.o", "-l:crtbeginS.o"'
-        ldendfiles_pie='"-lc", "-lgcc", "-l:crtendS.o", "-l:crtn.o"'
-        ldstartfiles_shared='"-l:crti.o", "-l:crtbeginS.o"'
-        ldendfiles_shared="$ldendfiles_pie"
-        findgcclibdir
-        linkargs='"-L", "'$GCCLIBDIR'",'
-        host_predefs=''
     fi
     ;;
 *-linux-*musl*)
     host_os=linux
     host_abi=musl
-    if [ x"$ldstartfiles" = x ]; then
+    # musl cross compiler in glibc system (probably)
+    if test -d "$sysroot/usr/lib/musl/lib"; then
+        musl_libdir=$sysroot/usr/lib/musl/lib
+    fi
+    if [ -z "$DYNAMIC_LINKER" ]; then
         case $host_arch in
         x86_64) DYNAMIC_LINKER=$sysroot/lib/ld-musl-x86_64.so.1 ;;
-        aarch64) DYNAMIC_LINKER=$sysroot/lib/ld-linux-aarch64.so.1 ;;
+        aarch64) DYNAMIC_LINKER=$sysroot/lib/ld-musl-aarch64.so.1 ;;
         esac
-        if test -d $sysroot/usr/lib/musl/lib; then
-            # musl cross compiler in glibc system (probably)
-            findgcclibdir
-            linkargs='"-nostdlib", "-L", "'$sysroot'/usr/lib/musl/lib", "-L", "'$GCCLIBDIR'",'
-            ldstartfiles='"'$sysroot'/usr/lib/musl/lib/crt1.o","'$sysroot'/usr/lib/musl/lib/crti.o", "-l:crtbeginS.o"'
-            ldendfiles='"-lc", "-lgcc", "-l:crtendS.o", "'$sysroot'/usr/lib/musl/lib/crtn.o"'
-            ldstartfiles_pie='"'$sysroot'/usr/lib/musl/lib/Scrt1.o", "'$sysroot'/usr/lib/musl/lib/crti.o", "-l:crtbeginS.o"'
-            ldstartfiles_shared='"-l:crti.o", "-l:crtbeginS.o"'
-        else
-            ldstartfiles='"-l:crt1.o", "-l:crti.o"'
-            ldendfiles='"-lc", "-lgcc", "-l:crtendS.o", "-l:crtn.o"'
-            ldstartfiles_pie='"-l:Scrt1.o", "-l:crti.o"'
-            ldstartfiles_shared='"-l:crti.o", "-l:crtbeginS.o"'
-        fi
-        ldendfiles_pie="$ldendfiles"
-        ldendfiles_shared="$ldendfiles_pie"
     fi
     ;;
 *-openbsd*)
     host_os=openbsd
-    if [ x"$ldstartfiles" = x ]; then
+    if [ -z "$DYNAMIC_LINKER" ]; then
         DYNAMIC_LINKER=$sysroot/usr/libexec/ld.so
-        ldstartfiles='"-l:crt0.o", "-l:crtbegin.o"'
-        ldendfiles='"-lc", "-lcompiler_rt", "-l:crtend.o"'
-        ldstartfiles_pie="$ldstartfiles"
-        ldendfiles_pie="$ldendfiles"
-        ldstartfiles_shared='"-l:crtbeginS.o"'
-        ldstartfiles_shared='"-l:crtendS.o"'
-        linkargs='"-L'$sysroot'/usr/lib"'
     fi
     host_predefs='
     "_ANSI_LIBRARY", /* works around __only_inline functions in libc headers */
@@ -223,21 +170,50 @@ case "$host" in
     "__ANDROID_API__=__ANDROID_MIN_SDK_VERSION__",
     "BIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD",
     "__availability__(...)=",
-    "__uint128_t=struct{long a,b;}", /* temp hack */
     '
-    if [ x"$ldstartfiles" = x ]; then
+    # termux silly
+    if test -n "$PREFIX" && test -d "$PREFIX/lib"; then
+        android_libdir=$PREFIX/lib
+    fi
+    if [ -z "$DYNAMIC_LINKER" ]; then
         link_with_cc=1
     fi
     ;;
 *)
     echo "warning: unknown/unsupported target '$host'" >&2
-    if [ x"$ldstartfiles" = x ]; then
+    if [ -z "$DYNAMIC_LINKER" ]; then
         link_with_cc=1
     fi
 esac
 
-if [ x"$ldendfiles_shared" = x ]; then
-    ldendfiles_shared="$ldendfiles_pie"
+# -L dirs for -lc and -l:crt*.o
+findlibdir() {
+    p=$($CC -print-file-name="$1" 2>/dev/null)
+    case "$p" in
+    /*) d=$(dirname "$p") && realpath "$d" ;;
+    esac
+}
+linkargs=
+seen='|'
+addlibdir() {
+    test -n "$1" || return
+    case "$seen" in *"|$1|"*) return ;; esac
+    seen="$seen$1|"
+    linkargs="$linkargs \"-L\", \"$1\","
+}
+if [ -n "$musl_libdir" ]; then
+    addlibdir "$musl_libdir"
+else
+    crtdir=
+    for f in crt1.o crtbegin_dynamic.o crtbegin_so.o crt0.o; do
+        crtdir=$(findlibdir "$f")
+        test -n "$crtdir" && break
+    done
+    addlibdir "$android_libdir"
+    addlibdir "$crtdir"
+    addlibdir "$(findlibdir libc.so)"
+    addlibdir "$sysroot/usr/lib"
+    addlibdir "$sysroot/lib"
 fi
 
 : ${linker:=ld}
@@ -247,6 +223,14 @@ if test -n "$DYNAMIC_LINKER"; then
 fi
 echo dynamic linker: $DYNAMIC_LINKER
 
+: ${ar:=ar}
+echo using ar: "$ar"
+
+# realpath(1) is apparently not portable
+realpath() {
+    (cd -P "$1" 2>/dev/null && pwd -P)
+}
+
 tryincldir() {
     if stat "$1"/ >/dev/null 2>/dev/null; then
         host_include_dirs="$host_include_dirs\"$1\","
@@ -255,17 +239,11 @@ tryincldir() {
 
 if ! test -n "$host_include_dirs"; then
     # try to query host toolchain first
-    for sfx in cc gcc; do
-        if command -v "$host"-$sfx > /dev/null; then
-            cc="$host"-$sfx
-        fi
-    done
-    : ${cc:=$CC}
-    if hostccdirs=$($cc -E -v -xc /dev/null 2>&1 | sed -n '/#include <...> search starts here:/,/End of search list./{
+    if hostccdirs=$($CC -E -v -xc /dev/null 2>&1 | sed -n '/#include <...> search starts here:/,/End of search list./{
     s/^[[:space:]]*//
     /^\/.*/p
 }') && test -n "$hostccdirs"; then
-        echo "using $cc's system include paths:"
+        echo "using $CC's system include paths:"
         for d in $hostccdirs; do
             dir=$(realpath "$d")
             case "$dir" in
@@ -292,25 +270,24 @@ echo using abi: "$host_abi"
 echo host include paths: {"$host_include_dirs"}
 echo preprocessor predefs: {"$host_predefs"}
 
+# bump whenever ./configure is updated in an incompatible way so compilation can check it
+configure_ver=261019
+
 echo "/** GENERATED WITH $0 $* **/
+#define CONFIGURE_VER $configure_ver
 #define HOST_TRIPLE \"$host\"
 #define HOST_ARCH   IS$host_arch
 #define HOST_OS     OS$host_os
 #define HOST_ABI    ABI$host_abi
 static const char *const host_incldirs[] ={$host_include_dirs 0};
-#define HOST_LD \"$linker\"
-#define HOST_CC \"$CC\"
 static const char *const host_predefs[] = {$host_predefs 0};
+#define HOST_LD \"$linker\"
+#define HOST_AR \"$ar\"
+#define HOST_CC \"$CC\"
 #define HOST_LINK_WITH_CC $link_with_cc
 #define HOST_DYNAMIC_LINKER ${DYNAMIC_LINKER:=NULL}
-static const char *const host_linkargs[] = {${linkargs:=0}};
-static const char *const host_ldstartfiles[] = {${ldstartfiles:=0}};
-static const char *const host_ldendfiles[] = {${ldendfiles:=0}};
-static const char *const host_ldstartfiles_pie[] = {${ldstartfiles_pie:=0}};
-static const char *const host_ldendfiles_pie[] = {${ldendfiles_pie:=0}};
-static const char *const host_ldstartfiles_shared[] = {${ldstartfiles_shared:=0}};
-static const char *const host_ldendfiles_shared[] = {${ldendfiles_shared:=0}};
-"  | tee src/hostconfig.h | tail -n 9 | sed -E 's/#define|static const char .const/ +/'
+static const char *const host_linkargs[] = {${linkargs:=0}};" \
+  | tee src/hostconfig.h | tail -n 6 | sed -E 's/#define|static const char .const/ +/'
 
 echo "# GENERATED WITH $0 $*
 PREFIX = $prefix
