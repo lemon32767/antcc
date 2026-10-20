@@ -13,7 +13,7 @@ get() {
               ;;
     *.tar.xz) dir=${file%.tar.xz}
               ext=tar.xz
-              cmd="tar xzf"
+              cmd="tar xJf"
               ;;
     *.zip) dir=${file%.zip}
            ext=zip

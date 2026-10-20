@@ -25,12 +25,12 @@ elif which md5 > /dev/null 2>&1; then
 fi
 
 for make in make gmake; do
-    if $make src/a_cincludes.c 2>/dev/null; then
+    if $make src/a_cincludes.c src/gen_libantrt1.c src/version.h 2>/dev/null; then
         break;
     fi
 done
 
-src=$(find src/ -name '*.c')
+src=$(find src/ -name '*.c' -not -path '*/libantrt1/*')
 
 mkdir -p build/
 if [ "$1" = "--skip0" ]; then
