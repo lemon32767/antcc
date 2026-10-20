@@ -11,14 +11,12 @@ gnu attr
     constructor, destructor
     transparent union
     weakref
-    x aligned (nulladic, check can only increase, permit >255)
     cleanup
     no/common
     section
 gnu pragma
     push/pop macro
     weak
-    clang/GCC diagnostic ....
     visibility
 gnu bitf layout -> ms_struct/gcc_struct -> [no]-ms-bitfields, #pragma ms_struct
 gnu builtins
@@ -68,7 +66,6 @@ i686
                                                  Ocvtu64f stubs are currently in ir_builder);
     no i386 unless long double -> x87 codegen impl -> can extend it and use for all float
 riscv, mips
-own runtime lib, remove libgcc/libcompiler_rt dep
 debuginfo:
     backend keep a DbgInfo{fileid, lineno, var?} per ins
         keep mapping of temps to c vars (value address)
