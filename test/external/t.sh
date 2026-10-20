@@ -9,11 +9,11 @@ get() {
     case "$file" in
     *.tar.gz) dir=${file%.tar.gz}
               ext=tar.gz
-              cmd="tar xf"
+              cmd="tar xzf"
               ;;
     *.tar.xz) dir=${file%.tar.xz}
               ext=tar.xz
-              cmd="tar xf"
+              cmd="tar xzf"
               ;;
     *.zip) dir=${file%.zip}
            ext=zip
