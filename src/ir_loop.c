@@ -364,11 +364,13 @@ enum ivkind { IVBASIC, IVDERIVOFFSET, IVDERIVSCALED, IVDERIVWIDEN };
 typedef struct IndVar {
    struct IndVar *next;
    Ref value, _init;
-   int stride;
    struct IndVar *base;
+   int stride;
    uchar kind;
-   uchar cls;
-   schar mark;
+   uchar cls : 4;
+   uchar mark : 1;
+   uchar mat : 1;
+   short nmat;
    union {
       Ref phinext;
       Ref off;
@@ -400,6 +402,23 @@ dfmtiv(WriteBuf *b, void *p) {
    }
    n += bfmt(b, "]");
    return n;
+}
+
+static bool wideniv_isaffine(Loop *l, IndVar *w);
+
+static Ref
+ivapplyop(Function *fn, Loop *l, IndVar *iv, Ref x) {
+   if (iv->kind == IVBASIC) return x;
+   if (fn) fn->curblk = l->prehead;
+   x = ivapplyop(fn, l, iv->base, x);
+   switch (iv->kind) { default: assert(0);
+   case IVDERIVOFFSET:
+      return irbinop(fn, Oadd, iv->cls, x, iv->off);
+   case IVDERIVSCALED:
+      return irbinop(fn, Omul, iv->cls, x, mkintcon(iv->cls, iv->scale));
+   case IVDERIVWIDEN:
+      return irunop(fn, iv->op, iv->cls, x);
+   }
 }
 
 static Ref
@@ -447,6 +466,7 @@ matchbasiciv(Loop *l, IndVar *iv, int phi) {
       return 0;
    }
    iv->kind = IVBASIC;
+   iv->base = NULL;
    iv->cls = ins->cls;
    iv->_init = init;
    iv->value = mkref(RTMP, phi);
@@ -478,6 +498,8 @@ putiv(Function *fn, Loop *l, IndVar *iv) {
    for (h = iv->value.i; l->ivht[h &= m]; ++h) { }
    iv = l->ivht[h] = alloccopy(fn->passarena, iv, sizeof *iv, 0);
    iv->mark = 0;
+   iv->mat = 0;
+   iv->nmat = 0;
    iv->next = NULL;
    if (!l->ivtail) l->ivtail = &l->iv0;
    *l->ivtail = iv, l->ivtail = &iv->next;
@@ -534,6 +556,7 @@ matchderivediv(Loop *l, IndVar *iv, int t) {
 static void
 findindvars(Function *fn, Loop *l) {
    extern int ninstrtab;
+   if (!(fn->prop&FNBLKID)) fillblkids(fn);
    l->ivht = allocz(fn->passarena, (l->ivN = 32) * sizeof *l->ivht, 0);
    l->iv0 = NULL;
    l->ivtail = NULL;
@@ -547,19 +570,23 @@ findindvars(Function *fn, Loop *l) {
    }
    for (Block *b = l->head; b != l->end->lnext; b = b->lnext) {
       if (!inloop(l, b)) continue;
+      if (!dominates(b, l->latch)) /* don't record IVs that are only used in inner branches */
+         continue;
       for (int i = 0; i < b->ins.n; ++i) {
          int t = b->ins.p[i];
          IndVar iv;
-         if (matchderivediv(l, &iv, t))
+         if (matchderivediv(l, &iv, t)) {
             putiv(fn, l, &iv);
+         }
       }
    }
 }
 
 /* counted loop info. a counted loop has an exit condition like (iv < limit) */
 typedef struct Counted {
-   Ref limitcheck;
    IndVar *counter;
+   Block *limitcheckblk;
+   Ref limitcheck;
    Ref limit;
    Ref trips;
    bool inverted; /* true if limitcheck is in latch */
@@ -571,36 +598,78 @@ ivdir(IndVar *iv) {
    return iv->stride < 0 ? IVDOWN : 1;
 }
 
-static bool wideniv_isaffine(Loop *l, IndVar *w);
+static int
+ivopflags(const IndVar *iv) {
+   Instr *ins = &instrtab[iv->value.i];
+   if (ins->op == Ophi) {
+      assert(iv->kind == IVBASIC);
+      return instrtab[iv->phinext.i].f;
+   }
+   assert(iv->kind != IVBASIC);
+   int fbase = ivopflags(iv->base);
+   if (iv->kind == IVDERIVWIDEN) return fbase;
+   /* int iv -> AND nisw, keep npaw; ptr iv -> AND npaw, keep nisw */
+   return fbase & (ins->f | (ins->cls == KPTR ? INSNISW : INSNPAW));
+}
 
+/* check no overflow possible, conservative, works for either IV direction */
 static Ref
 safemaxtrips(Function *fn, Loop *l, IndVar *iv, Ref limit, bool inverted) {
-   /* check no overflow possible, conservative, works for either IV direction */
-   Ref initv = ivinitv(fn, l, iv);
-   if (!kisint(iv->cls) || !isintcon(initv) || !isintcon(limit))
-      return NOREF;
-
    /* check any widened IVs possibly nested in the counter */
    for (IndVar *w = iv; w->kind != IVBASIC; w = w->base)
       if (w->kind == IVDERIVWIDEN && !wideniv_isaffine(l, w))
          return NOREF;
 
-   s64int init = intconval(initv), lim = intconval(limit), s = iv->stride, lower, upper;
-   int dir;
-   if (s > 0) lower = init, upper = lim, dir = 1;
-   else lower = lim, upper = init, s = -s, dir = -1;
+   if (inverted) {
+      /* for inverted loops the logic below only works for when iv is the
+       * original 1-offset counter created by loopinv */
+      if (iv->kind != IVDERIVOFFSET || iv->base->kind != IVBASIC || iv->off.bits != mkref(RICON, iv->stride).bits)
+         return NOREF;
+   }
+   if (isconstinit(iv) && isintcon(limit)) {
+      /* constant bounds case, max trips is a constant */
+      Ref startv = ivinitv(fn, l, inverted ? iv->base : iv);
+      s64int start = intconval(startv), lim = intconval(limit), s = iv->stride, lower, upper;
+      int dir;
+      if (s > 0) lower = start, upper = lim, dir = 1;
+      else lower = lim, upper = start, s = -s, dir = -1;
 
-   enum { MAXBOUND = 1 << 20 };
-   if (lower >= upper || lower <= -MAXBOUND || upper >= MAXBOUND)
-      return NOREF;
-   s64int tmax = (~0ull >> (64 - 8*cls2siz[iv->cls])) >> 1, tmin = -tmax - 1;
-   s64int d = upper - lower;
-   s64int trips = d / s + (d % s != 0);
-   s64int last = init + (dir > 0 ? 1 : -1) * (trips - 1) * s;
-   if (dir > 0 ? (last >= 0 && s > tmax - last)
-               : (last <  0 && s > last - tmin))
-      return NOREF;
-   return mkintcon(KI32, trips + inverted);
+      enum { MAXBOUND = 1 << 20 };
+      if (lower >= upper || lower <= -MAXBOUND || upper >= MAXBOUND)
+         return NOREF;
+      s64int tmax = (~0ull >> (64 - 8*cls2siz[iv->cls])) >> 1, tmin = -tmax - 1;
+      s64int range = upper - lower;
+      s64int trips = range / s + (range % s != 0);
+      s64int last = start + (dir > 0 ? 1 : -1) * (trips - 1) * s;
+      if (dir > 0 ? (last >= 0 && s > tmax - last)
+                  : (last <  0 && s > last - tmin))
+         return NOREF;
+      return mkintcon(KI32, trips);
+   } else if (ivopflags(iv)&INSNISW) { /* only sound for non-overflowing counter */
+      if (!inverted) /* XXX non inverted loops need an extra runtime guard to ensure lower < upper */
+         return NOREF;
+      fn->curblk = l->prehead;
+      int dir = ivdir(iv);
+      s64int absstride = dir < 0 ? -(s64int)iv->stride : iv->stride;
+      assert(absstride != 0) ;
+      Ref startv = ivinitv(fn, l, inverted ? iv->base : iv);
+      Ref range = dir > 0 ? irbinop(fn, Osub, iv->cls, limit, startv)
+                          : irbinop(fn, Osub, iv->cls, startv, limit);
+      Ref trips;
+      if (absstride == 1) {
+         trips = range;
+      } else {
+         /* trips = (range / absstride) + (range % absstride != 0) */
+         Ref q = irbinop(fn, Oudiv, iv->cls, range, mkintcon(iv->cls, absstride));
+         Ref r = irbinop(fn, Ourem, iv->cls, range, mkintcon(iv->cls, absstride));
+         Ref adj = irbinop(fn, Oneq, iv->cls, r, ZEROREF);
+         if (iv->cls != KI32) adj = irunop(fn, Oextu32, iv->cls, adj);
+         trips = irbinop(fn, Oadd, iv->cls, q, adj);
+      }
+      return trips;
+   } /* todo: an unsigned incrementing counter starting at zero is non overflowing, or
+         decremnting down to zero */
+   return NOREF;
 }
 
 static bool
@@ -611,9 +680,11 @@ detectcounted(Function *fn, Loop *l) {
    if (l->head != l->latch && l->head->s2 && !inloop(l, l->head->s2)) {
       ct->inverted = 0;
       ct->limitcheck = l->head->jmp.arg[0];
+      ct->limitcheckblk = l->head;
    } else if (l->latch->s2 && !inloop(l, l->latch->s2)) {
       ct->inverted = 1;
       ct->limitcheck = l->latch->jmp.arg[0];
+      ct->limitcheckblk = l->latch;
    } else {
       return 0;
    }
@@ -642,9 +713,13 @@ detectcounted(Function *fn, Loop *l) {
 }
 
 static inline bool
-isinvertedcounter(IndVar *c) {
+isorigcounter(Counted *ct, IndVar *iv) {
+   IndVar *c = ct->counter;
+   if (c == iv) return 1;
    /* loopinv creates a new counter offset from the original base IV by one iteration */
-   return c->kind == IVDERIVOFFSET && c->off.t == RICON && c->off.i == c->stride;
+   if (ct->inverted && c->kind == IVDERIVOFFSET && c->off.t == RICON && c->off.i == c->stride)
+      return c->base == iv;
+   return 0;
 }
 
 /* check widened IV: if the base IV can wrap, that makes the widened IV not
@@ -654,12 +729,13 @@ isinvertedcounter(IndVar *c) {
 static bool
 wideniv_isaffine(Loop *l, IndVar *w) {
    assert(w->kind == IVDERIVWIDEN && (w->op == Oexts32 || w->op == Oextu32));
-   /* TODO with nsw flag check base IV value has nsw -> return OK */
+   IndVar *base = w->base;
+   if (w->op == Oexts32 && base->cls == KI32 && (ivopflags(base)&INSNISW)) /* underlying iv is NSIW */
+      return 1;
    Counted *ct = l->counted;
    if (!ct) return 0;
-   IndVar *base = w->base, *c = ct->counter;
    /* direct counter check */
-   if (base == c || (isinvertedcounter(c) && base == c->base)) {
+   if (isorigcounter(ct, base)) {
       if (w->op == Oextu32 /* zero extension additionally needs the base IV to be non-negative */
        && !(isintcon(base->_init) && intconval(base->_init) >= 0 && base->stride > 0))
          return 0;
@@ -671,18 +747,30 @@ wideniv_isaffine(Loop *l, IndVar *w) {
    s64int n = intconval(ct->trips), binit = intconval(ivinitv(NULL, l, base)),
           s = base->stride;
    if (n <= 0) return 0;
-   s64int blast = binit + (n - 1) * s;
+   s64int blast = binit + n * s;
    s64int lo = binit, hi = blast;
    if (s < 0) lo = blast, hi = binit;
    return w->op == Oexts32 ? (lo >= -(1LL<<31) && hi < (1LL<<31))
                            : (lo >= 0 && hi < (1LL<<32));
 }
 
+/* iv or any of its base ivs never overflows, the whole chain is injective */
+static bool
+ivrecnowrap(Loop *l, IndVar *iv) {
+   Instr *ins = &instrtab[iv->value.i];
+   int needf = iv->cls == KPTR ? INSNPAW : INSNISW;
+
+   if (iv->kind == IVBASIC) return instrtab[iv->phinext.i].f&needf;
+   if (iv->kind == IVDERIVWIDEN)
+      return ivrecnowrap(l, iv->base) && wideniv_isaffine(l, iv);
+   return (ins->f&needf) && ivrecnowrap(l, iv->base);
+}
+
 /* iv is a candidate for strength reduction when there are non trivial (offset)
  * operations in the iv chain
  * must also check widened IV for soundness */
 static bool
-shouldreduce(Loop *l, IndVar *iv) {
+canreduce(Loop *l, IndVar *iv) {
    bool should = 0;
    for (; iv->kind != IVBASIC; iv = iv->base) {
       if (iv->kind != IVDERIVOFFSET)
@@ -719,6 +807,94 @@ killdead(int t) {
    return 1;
 }
 
+static void
+markivs(Function *fn, Loop *l) {
+   /* mark ivs used by at least one non-iv node */
+   for (IndVar *iv = l->iv0; iv; iv = iv->next) {
+      for (IRUse *use = instruse[iv->value.i]; use; use = use->next) {
+         if (use->u == USERJUMP || !getiv(l, mkref(RTMP, use->u))) {
+            iv->mark = 1;
+            break;
+         }
+      }
+   }
+
+   /* classify derived ivs that are marked but have no marked ancestors
+    * as candidates for phi materialization */
+   for (IndVar *iv = l->iv0, *base; iv; iv = iv->next) {
+      if (iv->kind == IVBASIC || !iv->mark || !canreduce(l, iv)) continue;
+      for (base = iv->base; base->kind != IVBASIC; base = base->base) {
+         if (base->mark) goto NoMat;
+      }
+      iv->mat = 1;
+      ++base->nmat;
+   NoMat:;
+   }
+}
+
+static IndVar *
+ivroot(IndVar *iv) {
+   while (iv->kind != IVBASIC) iv = iv->base;
+   return iv;
+}
+
+static IndVar *
+firstmat(Loop *l, IndVar *d) {
+   if (d->mat) return d;
+   for (IRUse *u = instruse[d->value.i]; u; u = u->next) {
+      if (u->u == USERJUMP) continue;
+      IndVar *g = getiv(l, mkref(RTMP, u->u));
+      if (g && (g = firstmat(l, g))) return g;
+   }
+   return NULL;
+}
+
+static bool
+phinextdies(Loop *l, IndVar *b) {
+   Counted *ct = l->counted;
+   bool canrewrite = ct && ct->counter != b && isorigcounter(ct, b);
+   for (IRUse *u = instruse[b->phinext.i]; u; u = u->next) {
+      if (u->u == b->value.i) continue; /* phi backedge */
+      if (canrewrite && u->u == ct->limitcheck.i) continue;
+      return 0;
+   }
+   return 1;
+}
+
+static IndVar *
+bestmat4basic(Loop *l, IndVar *b) {
+   if (b->nmat != 1) return NULL;
+   IndVar *m = NULL;
+   for (IRUse *u = instruse[b->value.i]; u; u = u->next) {
+      if (u->u == b->phinext.i) continue;
+      if (l->counted && l->counted->counter == b && u->u == l->counted->limitcheck.i)
+         continue;
+      if (u->u == USERJUMP) return NULL;
+      IndVar *d = getiv(l, mkref(RTMP, u->u));
+      if (!d || ivroot(d) != b) return NULL;
+      IndVar *m0 = firstmat(l, d);
+      if (!m0) return NULL;
+      assert(!m || m == m0 || !"nmat=1 but >1 mat users");
+      m = m0;
+   }
+   if (!phinextdies(l, b)) return NULL;
+   return m;
+}
+
+static Ref
+ivexitvalue(Function *fn, Loop *l, IndVar *iv) {
+   assert(l->counted);
+   if (!ivrecnowrap(l, iv)) return NOREF;
+   fn->curblk = l->prehead;
+   Ref n = l->counted->trips;
+   IndVar *ctr = l->counted->counter;
+   assert(ctr->stride != 0) ;
+   Ref cinit = ivinitv(fn, l, l->counted->inverted ? ctr->base : ctr);
+   Ref cexit = irbinop(fn, Oadd, ctr->cls, cinit,
+         irbinop(fn, Omul, ctr->cls, n, mkintcon(ctr->cls, ctr->stride)));
+   return ivapplyop(fn, l, iv, cexit);
+}
+
 enum { MAXNEWPHI = 6 };
 
 /* basic IV strength reduction: materialize derived ivs into one phi + one add
@@ -727,36 +903,64 @@ static int
 ivsimpl(Function *fn, Loop *l) {
    if (l->niv == 0) return 0;
    if (!(fn->prop & FNUSE)) filluses(fn);
-   /* mark ivs used by a non-iv node */
-   for (IndVar *iv = l->iv0; iv; iv = iv->next) {
-      if (l->counted && iv == l->counted->counter) iv->mark = 1;
-      else for (IRUse *use = instruse[iv->value.i]; use; use = use->next) {
-         if (use->u == USERJUMP || !getiv(l, mkref(RTMP, use->u))) {
-            iv->mark = 1;
-            break;
-         }
-      }
-   }
+
+   markivs(fn, l);
 
    int change = 0;
    int budget = MAXNEWPHI;
-   for (IndVar *iv = l->iv0; iv && budget > 0; iv = iv->next) {
-      if (!iv->mark || iv->kind == IVBASIC || !shouldreduce(l, iv))
+   for (IndVar *b = l->iv0, *m; b && budget > 0; b = b->next) {
+      if (b->kind != IVBASIC || !(m = bestmat4basic(l, b)) || !canreduce(l, m))
          continue;
-      --budget;
-      dbgp(fn, "needed iv: %r\n", iv->value);
-      Ref newphi = insertphi(l->head, iv->cls);
-      Ref init = phiargs(newphi.i)[0] = ivinitv(fn, l, iv);
+      --budget, ++change;
+      /* materialize derived iv m */
+      dbgp(fn, "materialize iv: %r\n", m->value);
+      Ref newphi = insertphi(l->head, m->cls);
+      Ref init = phiargs(newphi.i)[0] = ivinitv(fn, l, m);
       fn->curblk = l->latch;
-      dbgp(fn, " --> {%r,+,%d}=%r\n", init, iv->stride, newphi);
-      Ref update = phiargs(newphi.i)[1] = irbinop(fn, Oadd, iv->cls, newphi, mkintcon(iv->cls, iv->stride));
+      dbgp(fn, " --> {%r,+,%d}=%r\n", init, m->stride, newphi);
+      int newflags = (m->cls == KPTR ? INSNPAW : INSNISW) & ivopflags(m);
+      Ref update = insertinstr(l->latch, 0,
+         mkinstr2(Oadd, m->cls, newphi, mkintcon(m->cls, m->stride), .f = newflags));
+      phiargs(newphi.i)[1] = update;
       adduse(l->head, newphi.i, init);
       adduse(l->head, newphi.i, update);
-      replcuses(iv->value, newphi, NULL, REPLC_ALL);
-      iv->kind = IVBASIC;
-      iv->phinext = update;
-      iv->value = newphi;
-      ++change;
+      replcuses(m->value, newphi, NULL, REPLC_ALL);
+      bool killbasic = 1;
+
+      /* if b is the counter, replace with m and derived limit */
+      if (l->counted && isorigcounter(l->counted, b)) {
+         IndVar *ctr = l->counted->counter;
+         Instr *cmp = &instrtab[l->counted->limitcheck.i];
+         Ref limitcheckvar;
+         if (ctr == b) {
+            limitcheckvar = newphi;
+         } else {
+            /* inverted loop: the limit check must use the 'next iteration' value of
+             * the materialized IV */
+            assert(l->counted->inverted);
+            limitcheckvar = update;
+         }
+         Ref limit = ivexitvalue(fn, l, m);
+         if (!limit.bits) {
+            /* bail */
+            b->mark = 1;
+            killbasic = 0;
+         } else {
+            Block *lblk = l->counted->limitcheckblk;
+            cmp->op = Oneq;
+            cmp->cls = m->cls;
+            inschoper(lblk, cmp, 0, limitcheckvar);
+            inschoper(lblk, cmp, 1, limit);
+         }
+      }
+      /* update iv, is basic now */
+      m->kind = IVBASIC;
+      m->base = NULL;
+      m->phinext = update;
+      m->value = newphi;
+
+      if (killbasic)
+         instrtab[b->value.i].op = Onop;
    }
 
    /* any marked derived iv (not reduced) keeps the original instr, so its base

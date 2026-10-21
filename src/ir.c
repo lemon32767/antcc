@@ -353,6 +353,7 @@ insertblk(Function *fn, Block *pred, Block *subst) {
          blkpred(subst, i) = new;
          ++fn->nblk;
          new->id = -fn->nblk;
+         fn->prop &=~ FNBLKID;
          return new;
       }
    }
