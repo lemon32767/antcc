@@ -77,9 +77,9 @@ bestblk(Block *early, Block *late) {
    assert(dominates(early, late));
    Block *best = late;
    while (late != early) {
+      late = late->idom;
       if (late->loopdepth < best->loopdepth)
          best = late;
-      late = late->idom;
    }
    return best;
 }
