@@ -131,17 +131,20 @@ emitmove(Function *fn, enum irclass k, Alloc dst, Alloc src, Block *blk, int cur
 }
 
 static int
-pmrec(PMState *pms, int i, Block *blk, int curi, enum irclass *k) {
+pmrec(PMState *pms, int i, Block *blk, int curi, enum irclass *kwide) {
    struct PMove *pm = &pms->pmove[i];
    if (pm->dst.bits == pm->src.bits) {
       pm->stat = PMDONE;
       return -1;
    }
 
-   /* widen when necessary */
-   assert(kisint(pm->k) == kisint(*k));
-   if (cls2siz[pm->k] > cls2siz[*k])
-      *k = pm->k;
+   assert(kisint(pm->k) == kisint(*kwide));
+   /* keep track of the widest class in this cycle, needed for reg-reg swaps that
+    * have to preserve the full register */
+   if (cls2siz[pm->k] > cls2siz[*kwide])
+      *kwide = pm->k;
+
+   enum irclass k = pm->k;
 
    int j, c;
    for (j = 0; j < pms->npmove; ++j) {
@@ -155,27 +158,30 @@ pmrec(PMState *pms, int i, Block *blk, int curi, enum irclass *k) {
       c = j;
    Swap:
       if (pm->src.t == AREG && pm->dst.t == AREG) {
+         /* cycle could involve mixed width i32/i64 values, even if this specific
+          * move is i32 must swap the whole 64-bit reg to avoid clobbering */
+         k = *kwide;
          insertinstr(blk, curi,
-               (Instr){Oswap, *k, .f=INSKEEP,
+               (Instr){Oswap, k, .f=INSKEEP,
                         .l = mkref(RREG, pm->dst.a), .r = mkref(RREG, pm->src.a)});
-      } else if (pm->src.t != pm->dst.t) {
+      } else if (pm->src.t != pm->dst.t) { /* stack/reg */
          Alloc reg, stk, regtmp;
          if (pm->src.t == AREG)
             reg = pm->src, stk = pm->dst;
          else
             stk = pm->src, reg = pm->dst;
          assert(reg.t == AREG && stk.t == ASTACK);
-         regtmp = areg(kisint(*k) ? mctarg->gprscratch : mctarg->fprscratch);
-         emitmove(pms->fn, *k, regtmp, stk, blk, curi++);
+         regtmp = areg(kisint(k) ? mctarg->gprscratch : mctarg->fprscratch);
+         emitmove(pms->fn, k, regtmp, stk, blk, curi++);
          insertinstr(blk, curi++,
-               (Instr){Oswap, *k, .f=INSKEEP,
+               (Instr){Oswap, k, .f=INSKEEP,
                         .l = mkref(RREG, reg.a), .r = mkref(RREG, regtmp.a)});
-         emitmove(pms->fn, *k, stk, regtmp, blk, curi++);
-      } else {
+         emitmove(pms->fn, k, stk, regtmp, blk, curi++);
+      } else { /* stack-stack.. */
          /* FIXME using scratch gpr and fpr for this is hackish */
          assert(pm->src.t == ASTACK && pm->dst.t == ASTACK);
          int r1 = mctarg->gprscratch, r2 = mctarg->fprscratch;
-         enum irclass k1 = siz2intcls[cls2siz[*k]], k2 = KF32 + (cls2siz[*k] == 8);
+         enum irclass k1 = siz2intcls[cls2siz[k]], k2 = KF32 + (cls2siz[k] == 8);
          emitmove(pms->fn, k1, areg(r1), pm->src, blk, curi++);
          emitmove(pms->fn, k2, areg(r2), pm->dst, blk, curi++);
          emitmove(pms->fn, k1, pm->dst, areg(r1), blk, curi++);
@@ -184,7 +190,7 @@ pmrec(PMState *pms, int i, Block *blk, int curi, enum irclass *k) {
       break;
    case PMTOMOVE:
       pm->stat = PMMOVING;
-      c = pmrec(pms, j, blk, curi, k);
+      c = pmrec(pms, j, blk, curi, kwide);
       if (c == i) {
          c = -1;
          break;
@@ -195,7 +201,7 @@ pmrec(PMState *pms, int i, Block *blk, int curi, enum irclass *k) {
    case PMDONE:
    Done:
       c = -1;
-      emitmove(pms->fn, *k, pm->dst, pm->src, blk, curi);
+      emitmove(pms->fn, k, pm->dst, pm->src, blk, curi);
       break;
    }
 
