@@ -111,6 +111,7 @@ extern const uchar _load2ext[];
 #define load2ext(o) (_load2ext[(o) - Oloads8])
 extern const char *opnames[];
 extern const uchar opnoper[];
+extern const bool opcommut[];
 
 enum intrin {
    INxxx,

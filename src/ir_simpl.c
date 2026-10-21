@@ -112,6 +112,7 @@ doins(Instr *ins, Block *blk, int *curi) {
          return 1;
       }
    }
+   if (opcommut[ins->op] && isnumcon(ins->l)) rswap(ins->l, ins->r);
    enum irclass k = ins->cls;
    switch (ins->op) {
    case Ocopy:

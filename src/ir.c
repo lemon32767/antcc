@@ -47,6 +47,10 @@ const uchar opnoper[] = {
 #undef _
 };
 
+const bool opcommut[NOPER] = {
+   [Oadd]=1, [Omul]=1, [Oand]=1, [Oxor]=1, [Oior]=1, [Oequ]=1, [Oneq]=1,
+};
+
 Instr instrtab[MAXINSTR];
 IRUse *instruse[MAXINSTR];
 int ninstrtab, nfreeinstr;

@@ -10,6 +10,8 @@ irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r) {
    if (foldbinop(&c, op, k, l, r))
       return c;
 
+   if (opcommut[op] && isnumcon(l)) rswap(l, r);
+
    switch (op) {
    case Oadd:
       if (l.bits == ZEROREF.bits) return r; /* 0 + x ==> x */
