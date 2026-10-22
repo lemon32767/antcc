@@ -231,6 +231,9 @@ dumpinstr(WriteBuf *buf, const Instr *ins) {
    if (oisalloca(ins->op) && ins->l.t == RICON) {
       bfmt(buf, " \t"HCOM"; %d bytes"H, ins->l.i << (ins->op - Oalloca1));
    }
+   if (ins->f&INSNISW) bfmt(buf, HKWD" !nisw"H);
+   if (ins->f&INSNPAW) bfmt(buf, HKWD" !npaw"H);
+   if (ins->f&INSEXACT) bfmt(buf, HKWD" !exact"H);
    if (ins->f&INSKEEP) bfmt(buf, HKWD"%s"H, oisloadstore(ins->op) ? " !volatile" : " !keep");
    if (ins->f&INS2ADDR) bfmt(buf, HKWD" !inplace"H);
 }

@@ -266,13 +266,15 @@ optparse(char **args) {
             setpie = 1;
          } else if (stroneof(flag, "pic\0PIC\0")) {
             ccopt.pic = set;
+         } else if (!strcmp(flag, "wrapv")) {
+            ccopt.wrapv = set;
          } else {
             /* codegen flags unsupported */
             static const char badcgflags[] = "lto\0lto=full\0lto=thin\0";
 
             /* flags 'supported' by default, no need to warn as unrecognized */
             static const char okcgflags[] =
-               "wrapv\0no-strict-aliasing\0no-jump-tables\0no-builtin\0signed-bitfields\0"
+               "no-strict-aliasing\0no-jump-tables\0no-builtin\0signed-bitfields\0"
                "no-common\0input-charset=UTF-8\0";
 
             if (stroneof(arg+1, badcgflags)) /* error here helps AC configure scripts */

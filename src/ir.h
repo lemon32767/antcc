@@ -121,6 +121,9 @@ enum intrin {
 };
 
 enum insflags {
+   INSNISW  = 1<<0, /* no integer signed overflow (UB semantics) */
+   INSNPAW  = 1<<2, /* no pointer arithmetic wraparound */
+   INSEXACT = 1<<3, /* exact division */
    INSSKIP  = 1<<4, /* ignore during codegen: forms part of one machine instruction */
    INSKEEP  = 1<<5, /* for codegen, keep instr even if result seems unused */
    INS2ADDR = 1<<6, /* set by isel for instructions which modify its first arg in place */
@@ -134,7 +137,9 @@ typedef struct Instr {
    uchar reg; /* 0 -> no reg; else reg + 1 */
    union { /* operands */
       Ref oper[3];
-      struct { Ref l, r; };
+      struct { Ref l, r;
+               Ref _o3; /* need for zero init */
+      };
    };
 } Instr;
 static_assert(sizeof(Instr) == 4*4);
@@ -345,6 +350,8 @@ bool blkreachable(Function *fn, Block *blk);
 /** ir_builder.c **/
 Ref irbinop(Function *, enum op, enum irclass, Ref lhs, Ref rhs);
 Ref irunop(Function *, enum op, enum irclass, Ref);
+Ref irbinopf(Function *, enum op, enum irclass, Ref, Ref, enum insflags);
+Ref irunopf(Function *, enum op, enum irclass, Ref, enum insflags);
 Ref addinstr(Function *, Instr);
 Ref foldaddinstr(Function *, Instr);
 Ref addphi(Function *, enum irclass, Ref []);

@@ -2,7 +2,7 @@
 
 /* binary arithmetic builder with peephole optimizations */
 Ref
-irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r) {
+irbinopf(Function *fn, enum op op, enum irclass k, Ref l, Ref r, enum insflags fl) {
    static const Ref ONE = {.t=RICON, .i=1};
    s64int iv;
    Ref c;
@@ -119,7 +119,12 @@ irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r) {
    default:
       assert(!"binop?");
    }
-   return fn ? addinstr(fn, mkinstr2(op, k, l, r)) : NOREF;
+   return fn ? addinstr(fn, mkinstr2(op, k, l, r, .f = fl)) : NOREF;
+}
+
+Ref
+irbinop(Function *fn, enum op op, enum irclass k, Ref l, Ref r) {
+   return irbinopf(fn, op, k, l, r, 0);
 }
 
 /* implements f32/f64 -> u64 conversion */
@@ -173,7 +178,7 @@ cvtu64f(Function *fn, enum irclass to, Ref x) {
 }
 
 Ref
-irunop(Function *fn, enum op op, enum irclass k, Ref a) {
+irunopf(Function *fn, enum op op, enum irclass k, Ref a, enum insflags fl) {
    Ref c;
    Instr *ins = NULL;
    if (foldunop(&c, op, k, a))
@@ -213,7 +218,12 @@ irunop(Function *fn, enum op op, enum irclass k, Ref a) {
       break;
    default: assert(!"unop?");
    }
-   return fn ? addinstr(fn, mkinstr1(op, k, a)) : NOREF;
+   return fn ? addinstr(fn, mkinstr1(op, k, a, .f = fl)) : NOREF;
+}
+
+Ref
+irunop(Function *fn, enum op op, enum irclass k, Ref a) {
+   return irunopf(fn, op, k, a, 0);
 }
 
 int allocinstr(void);

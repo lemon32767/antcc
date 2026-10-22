@@ -89,6 +89,7 @@ enum cstd {
    STDC23,
 };
 typedef struct CCOption {
+   /* TODO: separate into diagnostics, frontend, backend, codegen, etc options */
    enum cstd cstd;
    bool verbose;
    bool pedant;
@@ -96,6 +97,7 @@ typedef struct CCOption {
    bool wnone;
    bool ircheck;
    bool pie, pic;
+   bool wrapv;
    enum optz {
       OPT0 = -1,
       OPT1 = 1,

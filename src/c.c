@@ -3302,6 +3302,8 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
    }
 }
 
+static Ref arithbinop(Function *, enum op, enum typetag, Ref, Ref);
+
 /* list of VLA types whose size computation is deferred until the function body is
  * created, like in a VLA parameter:
  *    int foo(int n, int a[n]) { ... }
@@ -3360,7 +3362,7 @@ declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0, uint align) {
                /* VLA */
                if (cm->fn) {
                   Ref n = scalarcvt(cm->fn, mktype(targ_sizetype), ex->ty, compileexpr(cm->fn, ex, 0));
-                  Ref siz = irbinop(cm->fn, Omul, type2cls[targ_sizetype], typesizeref(decl.ty), n);
+                  Ref siz = arithbinop(cm->fn, Omul, targ_sizetype, typesizeref(decl.ty), n);
                   decl.ty = mkvlarrtype(decl.ty, decl.qual, siz.bits);
                } else {
                   decl.ty = mkvlarrtype(decl.ty, decl.qual, UNDREF.bits);
@@ -3651,6 +3653,22 @@ mkhiddensym(const char *fnname, const char *name, int id) {
 static void geninit(Function *fn, Type t, Ref dst, const Expr *src, bool volatyl);
 static Ref condexprvalue(Function *fn, const Expr *ex, bool discard);
 
+static Ref
+genptroff(Function *fn, enum op op, Ref eltsiz, Ref ptr, Type idxt, Ref idx) {
+   enum irclass cls = type2cls[targ_sizetype];
+   idx = scalarcvt(fn, mktype(targ_sizetype), idxt, idx);
+   /* nisw: in c pointer arithmetic, the index is a signed offset and its scaling must
+    * not overflow (else it would be out of bounds anyway) */
+   Ref off = irbinopf(fn, Omul, cls, idx, eltsiz, INSNISW);
+   assert(in_range(op, Oadd, Osub));
+   return irbinopf(fn, op, KPTR, ptr, off, INSNPAW);
+}
+
+static Ref
+genptroffk(Function *fn, Ref ptr, s64int off) {
+   return irbinopf(fn, Oadd, KPTR, ptr, mkintcon(type2cls[targ_sizetype], off), INSNPAW);
+}
+
 Ref
 expraddr(Function *fn, const Expr *ex) {
    Decl *decl;
@@ -3674,9 +3692,9 @@ expraddr(Function *fn, const Expr *ex) {
       }
       break;
    case ESSYMREF:
-      return irbinop(fn, Oadd, KPTR,
+      return genptroffk(fn,
                mksymref(ex->ssym.sym, (SFUNC & -ex->ssym.func) | (SLOCAL & -ex->ssym.local)),
-               mkintcon(KPTR, ex->ssym.off));
+               ex->ssym.off);
    case ESTRLIT:
       /* XXX endian for wide strs */
       return mkdatref(NULL, ex->ty, typesize(ex->ty), typealign(ex->ty), ex->s.p, ex->s.n * typesize(typechild(ex->ty)), /*deref*/0, fn != NULL);
@@ -3685,7 +3703,7 @@ expraddr(Function *fn, const Expr *ex) {
    case EGETF:
       r = expraddr(fn, ex->sub);
       assert(ex->fld.bitsiz == 0);
-      return irbinop(fn, Oadd, KPTR, r, mkintcon(KI32, ex->fld.off));
+      return genptroffk(fn, r, ex->fld.off);
    case ESET:
       assert(isagg(ex->ty));
       r = expraddr(fn, &ex->sub[1]);
@@ -3804,7 +3822,7 @@ geninit(Function *fn, Type t, Ref dst, const Expr *src, bool volatyl) {
          if (bscount(azero, countof(azero)) < 32) {
             /* write individual zeros at non initialized gaps */
             for (uint i = 0; bsiter(&i, azero, countof(azero)) && i < siz; i += align) {
-               adr = irbinop(fn, Oadd, KPTR, dst, mkref(RICON, i));
+               adr = genptroffk(fn, dst, i);
                addinstr(fn, mkinstr2(Ostorei8 + ilog2(align), 0, adr, ZEROREF));
             }
          } else {
@@ -3824,7 +3842,7 @@ geninit(Function *fn, Type t, Ref dst, const Expr *src, bool volatyl) {
       for (InitElem *val = ini->vals; val; val = val->next) {
          uint off = val->off;
          Expr *ex = &val->ex;
-         adr = irbinop(fn, Oadd, KPTR, dst, mkref(RICON, off));
+         adr = genptroffk(fn, dst, off);
          if (ex->t == EINIT || ex->t == ESTRLIT) {
             geninit(fn, ex->ty, adr, ex, volatyl);
          } else if (isagg(ex->ty)) {
@@ -3850,7 +3868,7 @@ geninit(Function *fn, Type t, Ref dst, const Expr *src, bool volatyl) {
             genstore(fn, ctyp, adr, mkref(RICON, src->s.w16[i]), volatyl);
          else
             genstore(fn, ctyp, adr, mkintcon(KI32, src->s.w32[i]), volatyl);
-         adr = irbinop(fn, Oadd, KPTR, dst, mkref(RICON, (i+1)*csiz));
+         adr = genptroffk(fn, dst, (i+1)*csiz);
       }
       genstore(fn, ctyp, adr, ZEROREF, volatyl); /* null term */
    } else assert(0);
@@ -3962,25 +3980,14 @@ narrow(Function *fn, enum irclass to, Type t, Ref ref, const ExprGetFld *fld) {
 }
 
 Ref
-genptroff(Function *fn, enum op op, Ref eltsiz, Ref ptr, Type idxt, Ref idx) {
-   enum irclass cls = type2cls[targ_sizetype];
-   idx = scalarcvt(fn, mktype(targ_sizetype), idxt, idx);
-   Ref off = irbinop(fn, Omul, cls, idx, eltsiz);
-   assert(in_range(op, Oadd, Osub));
-   return irbinop(fn, op, KPTR, ptr, off);
-}
-
-Ref
 genptrdiff(Function *fn, Ref siz, Ref a, Ref b) {
    enum irclass cls = type2cls[targ_ptrdifftype];
    a = irbinop(fn, Osub, cls, a, b);
    if (siz.t == RICON && siz.i == 1) return a;
    else if (siz.t == RICON && ispo2(siz.i)) {
-      /* NB backend can't optimize this yet because it doesn't know div must be exact,
-       * need ins flag for that */
-      return irbinop(fn, Osar, cls, a, mkintcon(cls, ilog2(siz.i)));
+      return irbinopf(fn, Osar, cls, a, mkintcon(cls, ilog2(siz.i)), INSEXACT);
    } else {
-      return irbinop(fn, Odiv, cls, a, siz);
+      return irbinopf(fn, Odiv, cls, a, siz, INSEXACT);
    }
 }
 
@@ -4182,7 +4189,7 @@ genbitfload(Function *fn, Ref *tmpval, const Type ty, Ref *addr,
    u64int mask;
 
    assert(k);
-   *addr = irbinop(fn, Oadd, KPTR, *addr, mkintcon(KI32, off));
+   *addr = genptroffk(fn, *addr, off);
    tmp = genload(fn, ty, *addr, volatyl);
    if (tmpval) *tmpval = tmp;
    if (!fld->sext) {
@@ -4212,7 +4219,7 @@ genbitfstore(Function *fn, const Type ty, Ref addr,
 
    assert(k);
    if (!tmp.bits) {
-      addr = irbinop(fn, Oadd, KPTR, addr, mkintcon(KPTR, off));
+      addr = genptroffk(fn, addr, off);
       tmp = genload(fn, ty, addr, volatyl);
    }
    mask = (bitsiz == 64 ? -1ull : (1ull << bitsiz) - 1) << bitoff;
@@ -4232,6 +4239,19 @@ genbitfstore(Function *fn, const Type ty, Ref addr,
    if (bitsiz < bittypesize)
       val = irbinop(fn, Oior, k, tmp, val);
    genstore(fn, ty, addr, val, volatyl);
+}
+
+static Ref
+arithbinop(Function *fn, enum op op, enum typetag tt, Ref l, Ref r) {
+   enum insflags fl = 0;
+   if (!ccopt.wrapv && isintt(tt)) {
+      if (tt < TYINT) tt = intpromote(tt);
+      if (issignedt(tt) && (in_range(op, Oadd, Ourem) || op == Oshl))
+         fl = INSNISW;
+   } else if (tt == TYPTR && in_range(op, Oadd, Osub)) {
+      fl = INSNPAW;
+   }
+   return irbinopf(fn, op, type2cls[tt], l, r, fl);
 }
 
 static bool
@@ -4272,7 +4292,8 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
    Ref l, r, q, adr;
    enum op op;
    int swp;
-   enum irclass cls = type2cls[scalartypet(ex->ty)];
+   enum typetag sctt = scalartypet(ex->ty);
+   enum irclass cls = type2cls[sctt];
    Expr *sub = ex->sub;
    ExprGetFld *exfld;
 
@@ -4389,7 +4410,8 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
          /* ptr +/- num */
          return genptroff(fn, op, typesizeref(typechild(sub[0].ty)), l, sub[1].ty, r);
       }
-      return irbinop(fn, op, cls, l, r);
+      assert(ex->ty.t == sctt);
+      return arithbinop(fn, op, sctt, l, r);
    case EPOSTINC:
    case EPOSTDEC:
       op = ex->t == EPOSTINC ? Oadd : Osub;
@@ -4401,12 +4423,12 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
          Ref tmp;
          adr = expraddr(fn, &sub->sub[0]);
          l = genbitfload(fn, &tmp, sub->ty, &adr, &sub->fld, sub->qual & QVOLATILE);
-         q = irbinop(fn, op, cls, l, r);
+         q = arithbinop(fn, op, sctt, l, r);
          genbitfstore(fn, sub->ty, adr, &sub->fld, tmp, q, sub->qual & QVOLATILE);
       } else {
          adr = expraddr(fn, sub);
          l = genload(fn, sub->ty, adr, sub->qual & QVOLATILE);
-         q = irbinop(fn, op, cls, l, r);
+         q = arithbinop(fn, op, sctt, l, r);
          genstore(fn, sub->ty, adr, q, sub->qual & QVOLATILE);
       }
       return discard ? NOREF : l;
@@ -4422,13 +4444,13 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
          exfld = &sub->fld;
          adr = expraddr(fn, &sub[0].sub[0]);
          l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
-         q = irbinop(fn, op, cls, l, r);
+         q = arithbinop(fn, op, sctt, l, r);
          genbitfstore(fn, sub[0].ty, adr, &sub[0].fld, tmp, q, sub[0].qual & QVOLATILE);
       } else {
          exfld = NULL;
          adr = expraddr(fn, sub);
          l = genload(fn, sub->ty, adr, sub->qual & QVOLATILE);
-         q = irbinop(fn, op, cls, l, r);
+         q = arithbinop(fn, op, sctt, l, r);
          genstore(fn, sub->ty, adr, q, sub[0].qual & QVOLATILE);
       }
       if (discard) return NOREF;
@@ -4532,7 +4554,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
          l = genbitfload(fn, &tmp, sub[0].ty, &adr, &sub[0].fld, sub[0].qual & QVOLATILE);
          l = scalarcvt(fn, ty, sub[0].ty, l);
          r = scalarcvt(fn, ty, sub[1].ty, r);
-         q = irbinop(fn, op, type2cls[ty.t], l, r);
+         q = arithbinop(fn, op, ty.t, l, r);
          q = scalarcvt(fn, sub[0].ty, ty, q);
          genbitfstore(fn, sub[0].ty, adr, &sub[0].fld, tmp, q, sub[0].qual & QVOLATILE);
       } else {
@@ -4542,7 +4564,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
          if ((op != Oadd && op != Osub) || cls != KPTR) {
             l = scalarcvt(fn, ty, sub[0].ty, l);
             r = scalarcvt(fn, ty, sub[1].ty, r);
-            q = irbinop(fn, op, type2cls[ty.t], l, r);
+            q = arithbinop(fn, op, ty.t, l, r);
             q = scalarcvt(fn, ex->ty, ty, q);
          } else {
             q = genptroff(fn, op, typesizeref(typechild(ex->ty)), l, sub[1].ty, r);
@@ -4656,7 +4678,7 @@ complexload(Function *fn, Type base, Ref adr, bool volatyl) {
    assert(isscalar(base) && isflt(base));
    return (Ref2){
       genload(fn, base, adr, volatyl),
-      genload(fn, base, irbinop(fn, Oadd, KPTR, adr, mkref(RICON, targ_primsizes[base.t])), volatyl)
+      genload(fn, base, genptroffk(fn, adr, targ_primsizes[base.t]), volatyl)
    };
 }
 
@@ -4664,7 +4686,7 @@ static void
 complexstore(Function *fn, Type base, Ref adr, Ref2 c, bool volatyl) {
    assert(isscalar(base) && isflt(base));
    genstore(fn, base, adr, c.a, volatyl);
-   genstore(fn, base, irbinop(fn, Oadd, KPTR, adr, mkref(RICON, targ_primsizes[base.t])), c.b, volatyl);
+   genstore(fn, base, genptroffk(fn, adr, targ_primsizes[base.t]), c.b, volatyl);
 }
 
 static Ref
@@ -5775,7 +5797,7 @@ functionbody(CComp *cm, Function *fn) {
          assert(l->ty.t == TYARRAY && isvla(l->ty));
          lazyvlaexprfixup(cm->env->decl - 1/*account for fndecl*/, l->len, &pure);
          Ref n = scalarcvt(fn, mktype(targ_sizetype), l->len->ty, compileexpr(cm->fn, l->len, 0));
-         Ref siz = irbinop(fn, Omul, type2cls[targ_sizetype], typesizeref(typechild(l->ty)), n);
+         Ref siz = arithbinop(fn, Omul, targ_sizetype, typesizeref(typechild(l->ty)), n);
          typedata[l->ty.dat].vlasizeref = siz.bits;
       }
    }
