@@ -1,5 +1,13 @@
 source [file dirname $argv0]/common.tcl
 
+proc findtripcount {out} {
+   set trips {}
+   foreach {m x} [regexp -all -inline {trips=([^[:space:]]+)} $out] {
+      lappend trips $x
+   }
+   return $trips
+}
+
 set prog { typedef unsigned long long u64int; typedef long long s64int;
    volatile int sink;
 #define SINK sink,sink,sink,sink,sink,sink,sink
@@ -50,22 +58,22 @@ set prog { typedef unsigned long long u64int; typedef long long s64int;
 
 set out [c+out {-O1 -dloop -dfilter=oadd} $prog]
 asserteq "offset init" [regexp -all {phi @[0-9]+ 5,} $out] 1
-asserteq "offset trips" [regexp -all {trips=10\M} $out] 1
+asserteq "offset trips" [findtripcount $out] 10
 set out [c+out {-O1 -dloop -dfilter=shl3} $prog]
 asserteq "shl stride" [regexp -all {= add %[0-9]+, 8\M} $out] 1
-asserteq "shl trips" [regexp -all {trips=10\M} $out] 1
+asserteq "shl trips" [findtripcount $out] 10
 set out [c+out {-O1 -dloop -dfilter=muloff} $prog]
 asserteq "mul+offset init" [regexp -all {phi @[0-9]+ 1,} $out] 1
 asserteq "mul+offset stride" [regexp -all {= add %[0-9]+, 3\M} $out] 1
-asserteq "mul+offset trips" [regexp -all {trips=10\M} $out] 1
+asserteq "mul+offset trips" [findtripcount $out] 10
 set out [c+out {-O1 -dloop -dfilter=mulneg} $prog]
 asserteq "negative scale stride" [regexp -all {= add %[0-9]+, -3\M} $out] 1
-asserteq "negative scale trips" [regexp -all {trips=10\M} $out] 1
+asserteq "negative scale trips" [findtripcount $out] 10
 set out [c+out {-O1 -dloop -dfilter=down2} $prog]
 asserteq "descending stride 2" [regexp -all {= add %[0-9]+, -2\M} $out] 1
-asserteq "descending stride 2 trips" [regexp -all {trips=10\M} $out] 1
+asserteq "descending stride 2 trips" [findtripcount $out] 10
 set out [c+out {-O1 -dloop -dfilter=noinvert} $prog]
-asserteq "noinvert 10 trips" [regexp -all {trips=10\M} $out] 1
+asserteq "noinvert 10 trips" [findtripcount $out] 10
 asserteq "noinvert limit check became neq" [regexp -all {= neq\M} $out] 1
 
 # loop iv correctness, overflow, widen soundness
@@ -143,22 +151,22 @@ set out [c+out {-O1 -dafter=loopopt -dfilter=wrap} $prog]
 asserteq "wrapping widen kept" [regexp -all {\mextu32\M} $out] 1
 set out [c+out {-O1 -dloop -dfilter=uw} $prog]
 asserteq "unsigned constant widen reduced" [regexp -all {= extu32\M} $out] 0
-asserteq "unsigned constant trips" [regexp -all {trips=10\M} $out] 1
+asserteq "unsigned constant trips" [findtripcount $out] 10
 set out [c+out {-O1 -dloop -dfilter=uwrap} $prog]
 asserteq "extu32 crossing zero kept" [regexp -all {= extu32\M} $out] 1
-asserteq "crossing zero trips" [regexp -all {trips=10\M} $out] 1
+asserteq "crossing zero trips" [findtripcount $out] 10
 
 set out [c+out {-O1 -dloop -dfilter=wred} $prog]
 asserteq "ascending widen reduced" [regexp -all {= exts32\M} $out] 0
-asserteq "ascending trips" [regexp -all {trips=10\M} $out] 1
+asserteq "ascending trips" [findtripcount $out] 10
 set out [c+out {-O1 -dloop -dfilter=wreddown} $prog]
 asserteq "descending widen reduced" [regexp -all {= exts32\M} $out] 0
-asserteq "descending trips" [regexp -all {trips=10\M} $out] 1
+asserteq "descending trips" [findtripcount $out] 10
 
 set out [c+out {-O1 -dloop -dfilter=wscale} $prog]
 asserteq "scaled init" [regexp -all {phi @[0-9]+ 6,} $out] 1
 asserteq "scaled stride" [regexp -all {= add %[0-9]+, 6\M} $out] 1
-asserteq "scaled trips" [regexp -all {trips=4\M} $out] 1
+asserteq "scaled trips" [findtripcount $out] 4
 
 set out [c+out {-O1 -dafter=loopopt -dfilter=biginit} $prog]
 asserteq "bound guard keeps widen" [regexp -all {\mexts32\M} $out] 1
@@ -239,10 +247,10 @@ set out [c+out {-O1 -dloop -dfilter=downstep} $prog]
 asserteq "is counted loop" [regexp -all {got counted loop} $out] 1
 asserteq "limit check became neq ptr" [regexp -all {= neq ptr\M} $out] 1
 set out [c+out {-O1 -dloop -dfilter=ovs} $prog]
-asserteq "constant trips with overshot counter" [regexp -all {trips=2\M} $out] 1
+asserteq "constant trips with overshot counter" [findtripcount $out] 2
 asserteq "limit check bedcame neq ptr" [regexp -all {= neq ptr\M} $out] 1
 set out [c+out {-O1 -dloop -dfilter=scaledcond} $prog]
-asserteq "scaled counter iv not counted" [regexp -all {trips=} $out] 0
+asserteq "scaled counter iv not counted" [findtripcount $out] {}
 asserteq "no ivs materialized" [regexp -all {materialize iv:} $out] 0
 set out [c+out {-O1 -dloop -dfilter=ushift} $prog]
 asserteq "wrapping unsigned shift no limit check rewrite" [regexp -all {replaced original limit check} $out] 0
@@ -254,5 +262,32 @@ asserteq "runtime unsigned pointer neq" [regexp -all {= neq ptr\M} $out] 1
 set out [c+out {-O1 -dloop -dfilter=uwrunni} $prog]
 asserteq "non-inverted runtime unsigned counted" [regexp -all {got counted loop} $out] 1
 asserteq "non-inverted runtime unsigned pointer neq" [regexp -all {= neq ptr\M} $out] 1
+
+# non-counted loops with induction variables
+set prog { struct node { struct node *next; int value; };
+
+   void ncsum(struct node *list, int *p) {
+      int n = 0;
+      for (; list; list = list->next)
+         p[n++] = list->value;
+   }
+
+   int ncsumret(struct node *list, int *p) {
+      int n = 0;
+      for (; list; list = list->next)
+         p[n++] = list->value;
+      return n;
+   }
+}
+set out [c+out {-O1 -dloop -dfilter=ncsum} $prog]
+asserteq "loop not counted" [regexp -all {got counted loop} $out] 0
+asserteq "pointer iv update" [regexp -all {= add %[0-9]+, 4\M} $out] 1
+asserteq "index extend gone" [regexp -all {= exts32\M} $out] 0
+asserteq "index shift gone" [regexp -all {= shl\M} $out] 0
+set out [c+out {-O1 -dloop -dfilter=ncsumret} $prog]
+asserteq "loop not counted" [regexp -all {got counted loop} $out] 0
+asserteq "not materialized" [regexp -all {materialize iv:} $out] 0
+asserteq "widen kept" [regexp -all {= exts32\M} $out] 1
+asserteq "shift kept" [regexp -all {= shl\M} $out] 1
 
 # vim:set ts=3 sw=3 expandtab:
