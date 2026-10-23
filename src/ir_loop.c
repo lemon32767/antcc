@@ -360,22 +360,29 @@ licm(Function *fn, Loop *l) {
    return chg;
 }
 
-enum ivkind { IVBASIC, IVDERIVOFFSET, IVDERIVSCALED, IVDERIVWIDEN };
+/* Induction variables */
+enum ivkind {
+   IVBASIC, /* loop-live like %x = phi(%init, %x + stride) */
+   IVDERIVOFFSET, /* iv + loop invariant offset */
+   IVDERIVSCALED, /* iv * scale */
+   IVDERIVWIDEN /* exts32/extu32 iv */
+};
 typedef struct IndVar {
    struct IndVar *next;
-   Ref value, _init;
-   struct IndVar *base;
+   Ref value,
+       _init;
+   struct IndVar *base; /* for deriveds */
    int stride;
-   uchar kind;
+   uchar kind; /* enum ivkind */
    uchar cls : 4;
    uchar mark : 1;
-   uchar mat : 1;
+   uchar mat : 1; /* to simplify/materialize a derived iv */
    short nmat;
    union {
-      Ref phinext;
-      Ref off;
-      int scale;
-      enum op op;
+      Ref phinext; /* IVBASIC, the next-iteration input to the phi */
+      Ref off;    /* IVDERIVOFFSET */
+      int scale;  /* IVDERIVSCALED */
+      enum op op; /* IVDERIVWIDEN */
    };
 } IndVar;
 
@@ -404,7 +411,7 @@ dfmtiv(WriteBuf *b, void *p) {
    return n;
 }
 
-static bool wideniv_isaffine(Loop *l, IndVar *w);
+static bool wideniv_isaffine(Loop *, IndVar *);
 
 static Ref
 ivapplyop(Function *fn, Loop *l, IndVar *iv, Ref x) {
@@ -590,6 +597,7 @@ typedef struct Counted {
    Ref limit;
    Ref trips;
    bool inverted; /* true if limitcheck is in latch */
+   bool signedcheck;
 } Counted;
 
 static enum { IVDOWN = -1, IVUP = 1 }
@@ -612,9 +620,17 @@ ivopflags(const IndVar *iv) {
    return fbase & (ins->f | (ins->cls == KPTR ? INSNISW : INSNPAW));
 }
 
+static s64int
+constbound(bool sgn, enum irclass k, Ref r) {
+   s64int s = intconval(r);
+   if (cls2siz[k] < 8 && !sgn) /* u32 zero extend */
+      return (uint)s;
+   return s;
+}
+
 /* check no overflow possible, conservative, works for either IV direction */
 static Ref
-safemaxtrips(Function *fn, Loop *l, IndVar *iv, Ref limit, bool inverted) {
+safemaxtrips(Function *fn, Loop *l, IndVar *iv, enum op op, Ref limit, bool inverted) {
    /* check any widened IVs possibly nested in the counter */
    for (IndVar *w = iv; w->kind != IVBASIC; w = w->base)
       if (w->kind == IVDERIVWIDEN && !wideniv_isaffine(l, w))
@@ -626,28 +642,44 @@ safemaxtrips(Function *fn, Loop *l, IndVar *iv, Ref limit, bool inverted) {
       if (iv->kind != IVDERIVOFFSET || iv->base->kind != IVBASIC || iv->off.bits != mkref(RICON, iv->stride).bits)
          return NOREF;
    }
+   bool sgn = op == Olth || op == Ogth;
    if (isconstinit(iv) && isintcon(limit)) {
       /* constant bounds case, max trips is a constant */
       Ref startv = ivinitv(fn, l, inverted ? iv->base : iv);
-      s64int start = intconval(startv), lim = intconval(limit), s = iv->stride, lower, upper;
+      s64int start = constbound(sgn, iv->cls, startv),
+             lim = constbound(sgn, iv->cls, limit),
+             s = iv->stride, lower, upper;
       int dir;
       if (s > 0) lower = start, upper = lim, dir = 1;
       else lower = lim, upper = start, s = -s, dir = -1;
 
       enum { MAXBOUND = 1 << 20 };
-      if (lower >= upper || lower <= -MAXBOUND || upper >= MAXBOUND)
-         return NOREF;
-      s64int tmax = (~0ull >> (64 - 8*cls2siz[iv->cls])) >> 1, tmin = -tmax - 1;
+      if (sgn) {
+         if (lower >= upper || lower <= -MAXBOUND || upper >= MAXBOUND)
+            return NOREF;
+      } else {
+         if ((u64int)lower >= (u64int)upper || (u64int)upper >= MAXBOUND)
+            return NOREF;
+      }
+      s64int tmax = (~0ull >> (64 - 8*cls2siz[iv->cls])) >> 1, /* conservative for unsigned */
+             tmin = sgn ? -tmax - 1 : 0;
       s64int range = upper - lower;
       s64int trips = range / s + (range % s != 0);
       s64int last = start + (dir > 0 ? 1 : -1) * (trips - 1) * s;
       if (dir > 0 ? (last >= 0 && s > tmax - last)
                   : (last <  0 && s > last - tmin))
          return NOREF;
-      return mkintcon(KI32, trips);
-   } else if (ivopflags(iv)&INSNISW) { /* only sound for non-overflowing counter */
-      if (!inverted) /* XXX non inverted loops need an extra runtime guard to ensure lower < upper */
+      if (dir < 0 && !sgn && last < s) {
+         /* for decrementing unsigned counter: last < |stride| => last iter underflows */
          return NOREF;
+      }
+      return mkintcon(KI32, trips);
+   } else if (sgn && ivopflags(iv)&INSNISW) { /* only sound for non-overflowing counter */
+      if (!inverted) {
+         /* XXX non inverted loops need an extra runtime guard to ensure
+          * lower < upper (loop is entered) */
+         return NOREF;
+      }
       fn->curblk = l->prehead;
       int dir = ivdir(iv);
       s64int absstride = dir < 0 ? -(s64int)iv->stride : iv->stride;
@@ -667,8 +699,16 @@ safemaxtrips(Function *fn, Loop *l, IndVar *iv, Ref limit, bool inverted) {
          trips = irbinop(fn, Oadd, iv->cls, q, adj);
       }
       return trips;
-   } /* todo: an unsigned incrementing counter starting at zero is non overflowing, or
-         decremnting down to zero */
+   } else if (op == Oulth && isconstinit(iv) && iv->stride == 1) {
+      /* starting at zero, 'for (uint i = 0; i < N; ++i)', cannot overflow */
+      IndVar *b = iv;
+      if (inverted)
+         b = (iv->kind == IVDERIVOFFSET && iv->off.bits == mkref(RICON, 1).bits) ? iv->base : NULL;
+      if (b && b->kind == IVBASIC && b->_init.bits == ZEROREF.bits) {
+         assert(b->stride == 1);
+         return limit;
+      }
+   }
    return NOREF;
 }
 
@@ -692,23 +732,29 @@ detectcounted(Function *fn, Loop *l) {
    Instr *cmp = &instrtab[ct->limitcheck.i];
 
    IndVar *iv;
-   if (cmp->op == Olth && (iv = getiv(l, cmp->l)) && invariant(l, cmp->r) && ivdir(iv) == IVUP) {
+   enum op o = cmp->op;
+   if ((o == Olth || o == Oulth) && (iv = getiv(l, cmp->l)) && invariant(l, cmp->r) && ivdir(iv) == IVUP) {
       /* i < limit; i += K */
       ct->limit = cmp->r;
-      ct->trips = safemaxtrips(fn, l, iv, ct->limit, ct->inverted);
-   } else if (cmp->op == Ogth && (iv = getiv(l, cmp->l)) && invariant(l, cmp->r) && ivdir(iv) == IVDOWN) {
+      ct->trips = safemaxtrips(fn, l, iv, o, ct->limit, ct->inverted);
+      ct->signedcheck = o == Olth;
+   } else if ((o == Ogth || o == Ougth) && (iv = getiv(l, cmp->l)) && invariant(l, cmp->r) && ivdir(iv) == IVDOWN) {
       /* i > limit; i -= K */
       ct->limit = cmp->r;
-      ct->trips = safemaxtrips(fn, l, iv, ct->limit, ct->inverted);
+      ct->trips = safemaxtrips(fn, l, iv, o, ct->limit, ct->inverted);
+      ct->signedcheck = o == Ogth;
    } else {
       return 0;
    }
-   if (!ct->trips.bits)
+   if (!ct->trips.bits) {
+      dbgp(fn, "looks like counted loop @%d-@%d, but cannot prove no-wrap counter\n", l->head->id, l->end->id);
       return 0;
+   }
    Ref initv = ivinitv(fn, l, iv);
    dbgp(fn, "limitcheck iv=%r, init=%r, limit=%r\n", iv->value, initv, ct->limit);
    ct->counter = iv;
    l->counted = alloccopy(fn->passarena, ct, sizeof ct, 0);
+   dbgp(fn, "got counted loop @%d-@%d; with trips=%r\n", l->head->id, l->end->id, l->counted->trips);
    return 1;
 }
 
@@ -730,12 +776,13 @@ static bool
 wideniv_isaffine(Loop *l, IndVar *w) {
    assert(w->kind == IVDERIVWIDEN && (w->op == Oexts32 || w->op == Oextu32));
    IndVar *base = w->base;
-   if (w->op == Oexts32 && base->cls == KI32 && (ivopflags(base)&INSNISW)) /* underlying iv is NSIW */
+   if (base->cls != KI32) return 0;
+   if (w->op == Oexts32 && (ivopflags(base)&INSNISW)) /* underlying iv is NSIW */
       return 1;
    Counted *ct = l->counted;
    if (!ct) return 0;
    /* direct counter check */
-   if (isorigcounter(ct, base)) {
+   if (isorigcounter(ct, base) && ct->signedcheck) {
       if (w->op == Oextu32 /* zero extension additionally needs the base IV to be non-negative */
        && !(isintcon(base->_init) && intconval(base->_init) >= 0 && base->stride > 0))
          return 0;
@@ -744,10 +791,12 @@ wideniv_isaffine(Loop *l, IndVar *w) {
    /* calculate bounds for a constant trip count and check */
    if (!isintcon(ct->trips)) return 0;
    if (!isconstinit(base) || !base->stride) return 0;
-   s64int n = intconval(ct->trips), binit = intconval(ivinitv(NULL, l, base)),
+   s64int n = intconval(ct->trips),
+          binit = constbound(w->op == Oexts32, base->cls, ivinitv(NULL, l, base)),
           s = base->stride;
    if (n <= 0) return 0;
    s64int blast = binit + n * s;
+   if (w->op == Oextu32 && (binit < 0 || blast < 0)) return 0;
    s64int lo = binit, hi = blast;
    if (s < 0) lo = blast, hi = binit;
    return w->op == Oexts32 ? (lo >= -(1LL<<31) && hi < (1LL<<31))
@@ -760,6 +809,8 @@ ivrecnowrap(Loop *l, IndVar *iv) {
    Instr *ins = &instrtab[iv->value.i];
    int needf = iv->cls == KPTR ? INSNPAW : INSNISW;
 
+   if (l->counted && isorigcounter(l->counted, iv)) /* detectcounted() proves no overflow */
+      return 1;
    if (iv->kind == IVBASIC) return instrtab[iv->phinext.i].f&needf;
    if (iv->kind == IVDERIVWIDEN)
       return ivrecnowrap(l, iv->base) && wideniv_isaffine(l, iv);
@@ -943,9 +994,11 @@ ivsimpl(Function *fn, Loop *l) {
          Ref limit = ivexitvalue(fn, l, m);
          if (!limit.bits) {
             /* bail */
+            dbgp(fn, "cannot safely rewrite limit check with %?\n", dfmtiv, m);
             b->mark = 1;
             killbasic = 0;
          } else {
+            dbgp(fn, "replaced original limit check with %r != %r\n", limitcheckvar, limit);
             Block *lblk = l->counted->limitcheckblk;
             cmp->op = Oneq;
             cmp->cls = m->cls;
@@ -959,8 +1012,10 @@ ivsimpl(Function *fn, Loop *l) {
       m->phinext = update;
       m->value = newphi;
 
-      if (killbasic)
+      if (killbasic) {
+         dbgp(fn, "killing dead basic IV %r\n", b->value);
          instrtab[b->value.i].op = Onop;
+      }
    }
 
    /* any marked derived iv (not reduced) keeps the original instr, so its base
@@ -1019,9 +1074,7 @@ loopopt(Function *fn) {
       changed += loopinv(fn, l);
       changed += licm(fn, l);
       findindvars(fn, l);
-      if (detectcounted(fn, l)) {
-         dbgp(fn, "counted loop with trips=%r; @%d-@%d\n", l->counted->trips, l->head->id, l->end->id);
-      }
+      detectcounted(fn, l);
       changed += ivsimpl(fn, l);
       if ((dbgp)(fn)) {
          dbgp(fn, "<< After opt loop @%d-@%d >>\n", l->head->id, l->end->id);
