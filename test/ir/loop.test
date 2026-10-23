@@ -1,6 +1,10 @@
 source [file dirname $argv0]/common.tcl
 
 set prog { typedef unsigned long long u64int; typedef long long s64int;
+   volatile int sink;
+#define SINK sink,sink,sink,sink,sink,sink,sink
+#define NOINVERT (SINK,SINK)
+
    s64int oadd(void) {
       s64int s = 0;
       for (int i = 0; i < 10; ++i)
@@ -35,6 +39,13 @@ set prog { typedef unsigned long long u64int; typedef long long s64int;
          s += i;
       return s;
    }
+
+   s64int noinvert(int n) {
+      s64int s = 0;
+      for (int i = 0; NOINVERT, i < 10; ++i)
+         s += i + n;
+      return s;
+   }
 }
 
 set out [c+out {-O1 -dloop -dfilter=oadd} $prog]
@@ -53,6 +64,9 @@ asserteq "negative scale trips" [regexp -all {trips=10\M} $out] 1
 set out [c+out {-O1 -dloop -dfilter=down2} $prog]
 asserteq "descending stride 2" [regexp -all {= add %[0-9]+, -2\M} $out] 1
 asserteq "descending stride 2 trips" [regexp -all {trips=10\M} $out] 1
+set out [c+out {-O1 -dloop -dfilter=noinvert} $prog]
+asserteq "noinvert 10 trips" [regexp -all {trips=10\M} $out] 1
+asserteq "noinvert limit check became neq" [regexp -all {= neq\M} $out] 1
 
 # loop iv correctness, overflow, widen soundness
 set prog { typedef unsigned long long u64int; typedef long long s64int;
@@ -127,8 +141,9 @@ set prog { typedef unsigned long long u64int; typedef long long s64int;
 }
 set out [c+out {-O1 -dafter=loopopt -dfilter=wrap} $prog]
 asserteq "wrapping widen kept" [regexp -all {\mextu32\M} $out] 1
-set out [c+out {-O1 -dafter=loopopt -dfilter=uw} $prog]
-asserteq "unsigned widen kept" [regexp -all {\mextu32\M} $out] 1
+set out [c+out {-O1 -dloop -dfilter=uw} $prog]
+asserteq "unsigned constant widen reduced" [regexp -all {= extu32\M} $out] 0
+asserteq "unsigned constant trips" [regexp -all {trips=10\M} $out] 1
 set out [c+out {-O1 -dloop -dfilter=uwrap} $prog]
 asserteq "extu32 crossing zero kept" [regexp -all {= extu32\M} $out] 1
 asserteq "crossing zero trips" [regexp -all {trips=10\M} $out] 1
@@ -156,7 +171,10 @@ asserteq "pointer increments by elemsize" [regexp -all {ptr %[0-9]+ = add %[0-9]
 asserteq "limit check became neq ptr" [regexp -all {= neq ptr\M} $out] 1
 
 # runtime trip counts, stepped counters, overshoot, and wrap/no-transform cases
-set prog { typedef long long s64int;
+set prog { typedef unsigned long long u64int; typedef long long s64int;
+   volatile int sink;
+#define SINK sink,sink,sink,sink,sink,sink,sink
+#define NOINVERT (SINK,SINK)
 
    s64int step3(s64int n, int *p) {
       s64int s = 0;
@@ -192,12 +210,33 @@ set prog { typedef long long s64int;
          s += i << 20;
       return s;
    }
+
+   u64int uwrun(unsigned n) {
+      u64int s = 0;
+      for (unsigned i = 0; i < n; ++i)
+         s += (u64int)i;
+      return s;
+   }
+
+   u64int uwrunp(unsigned long n, int *p) {
+      u64int s = 0;
+      for (unsigned long i = 0; i < n; ++i)
+         s += p[i];
+      return s;
+   }
+
+   u64int uwrunni(unsigned long n, int *p) {
+      u64int s = 0;
+      for (unsigned long i = 0; NOINVERT, i < n; ++i)
+         s += p[i];
+      return s;
+   }
 }
 set out [c+out {-O1 -dloop -dfilter=step3} $prog]
-asserteq "is counted loop" [regexp -all {counted loop with trips} $out] 1
+asserteq "is counted loop" [regexp -all {got counted loop} $out] 1
 asserteq "limit check became neq ptr" [regexp -all {= neq ptr\M} $out] 1
 set out [c+out {-O1 -dloop -dfilter=downstep} $prog]
-asserteq "is counted loop" [regexp -all {counted loop with trips} $out] 1
+asserteq "is counted loop" [regexp -all {got counted loop} $out] 1
 asserteq "limit check became neq ptr" [regexp -all {= neq ptr\M} $out] 1
 set out [c+out {-O1 -dloop -dfilter=ovs} $prog]
 asserteq "constant trips with overshot counter" [regexp -all {trips=2\M} $out] 1
@@ -206,6 +245,14 @@ set out [c+out {-O1 -dloop -dfilter=scaledcond} $prog]
 asserteq "scaled counter iv not counted" [regexp -all {trips=} $out] 0
 asserteq "no ivs materialized" [regexp -all {materialize iv:} $out] 0
 set out [c+out {-O1 -dloop -dfilter=ushift} $prog]
-asserteq "wrapping unsigned shift not counted" [regexp -all {trips=} $out] 0
+asserteq "wrapping unsigned shift no limit check rewrite" [regexp -all {replaced original limit check} $out] 0
+set out [c+out {-O1 -dloop -dfilter=uwrun} $prog]
+asserteq "runtime unsigned counted" [regexp -all {got counted loop} $out] 1
+set out [c+out {-O1 -dloop -dfilter=uwrunp} $prog]
+asserteq "runtime unsigned pointer counted" [regexp -all {got counted loop} $out] 1
+asserteq "runtime unsigned pointer neq" [regexp -all {= neq ptr\M} $out] 1
+set out [c+out {-O1 -dloop -dfilter=uwrunni} $prog]
+asserteq "non-inverted runtime unsigned counted" [regexp -all {got counted loop} $out] 1
+asserteq "non-inverted runtime unsigned pointer neq" [regexp -all {= neq ptr\M} $out] 1
 
 # vim:set ts=3 sw=3 expandtab:
