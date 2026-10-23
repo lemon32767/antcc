@@ -250,9 +250,10 @@ static const struct {
 };
 
 void
-putbuiltins(Env *env) {
+putbuiltins(Env *env, const Span *span) {
    for (int i = 0; i < countof(tab); ++i) {
       envadddecl(env, &(Decl) {
+         .span = *span,
          .name = intern(tab[i].name),
          .isbuiltin = 1,
          .builtin = &tab[i].b,

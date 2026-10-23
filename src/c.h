@@ -195,7 +195,7 @@ struct Builtin {
 };
 
 /** builtin.c **/
-void putbuiltins(Env *);
+void putbuiltins(Env *, const Span *);
 union Ref builtin_va_arg_comp(struct Function *, const Expr *, bool discard);
 
 enum evalmode {

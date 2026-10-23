@@ -5976,7 +5976,7 @@ docomp(CComp *cm) {
    }
    peek(cm, tk);
    envadddecl(cm->env, &(Decl) { cvalistty, SCTYPEDEF, .span = tk->span, .name = intern("__builtin_va_list") });
-   putbuiltins(cm->env);
+   putbuiltins(cm->env, &tk->span);
 
    while (peek(cm, tk) != TKEOF) {
       if (tk->t == ';') {

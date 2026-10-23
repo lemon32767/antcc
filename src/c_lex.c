@@ -2357,6 +2357,8 @@ static int
 lex_nopragma(Lexer *lx, Token *tk) {
    int t;
 
+
+   bool inclerror = 0; /* set when #include header file not found: process other directives then abort */
 Begin:
    //assert(tk && tk != &lx->peektok);
    if (lx->peektok.t) {
@@ -2372,8 +2374,7 @@ Begin:
       return tk->t;
    }
    bool linebegin = 1,
-        skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0,
-        inclerror = 0; /* set when #include header file not found: process other directives then abort */
+        skip = nppcnd ? ppcndstk[nppcnd-1].cnd != PPCNDTRUE : 0;
    enum directive lastcmd = 0;
    for (;;) {
       while ((t = lex0(lx, tk, 0)) == '\n') linebegin = 1;
@@ -2397,7 +2398,7 @@ Begin:
          linebegin = 0;
          if (skip && t != TKEOF)
             continue;
-         if (tryexpand(lx, tk) == EXPSTACK)
+         if (!inclerror && tryexpand(lx, tk) == EXPSTACK)
             goto Begin;
          if (t == TKEOF && nppcnd && ppcndstk[nppcnd-1].filedepth == includedepth) {
             Span span = { ppcndstk[nppcnd-1].ifspan };
