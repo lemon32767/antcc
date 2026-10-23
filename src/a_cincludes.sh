@@ -40,7 +40,7 @@ typedef __builtin_va_list va_list;
 #define __GNUC_VA_LIST
 typedef __builtin_va_list __gnuc_va_list;
 #endif
-#define va_start(ap,n)  __builtin_va_start(ap)
+#define va_start(ap...) __builtin_va_start(ap)
 #define va_arg(ap,type) __builtin_va_arg(ap,type)
 #define va_copy(d,s)    __builtin_va_copy(d,s)
 #define va_end(ap)      __builtin_va_end(ap)

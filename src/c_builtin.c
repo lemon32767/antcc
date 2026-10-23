@@ -37,14 +37,18 @@ callcheck(const Span *span, int nparam, const Type *param, int narg, Expr *args)
 static bool
 va_start_sema(CComp *cm, Expr *ex) {
    ex->ty = mktype(TYVOID);
-   return callcheck(&ex->span, 1, &cvalistty, ex->narg, ex->sub+1);
+   int narg = ex->narg;
+   if (narg == 2) narg = 1; /* ignore arg #2 */
+   return callcheck(&ex->span, 1, &cvalistty, narg, ex->sub+1);
 }
 static Ref
 va_start_comp(Function *fn, Expr *ex, bool discard) {
-   assert(ex->t == ECALL && ex->narg == 1);
+   assert(ex->t == ECALL && ex->narg <= 2);
    assert(typedecay(ex->sub[1].ty).bits == typedecay(cvalistty).bits);
    if (!typedata[fn->fnty.dat].variadic)
       error(&ex->span, "va_start used in non-variadic function");
+   if (ex->narg == 1) /* compile but discard arg #2 */
+      compileexpr(fn, &ex->sub[2], discard);
    addinstr(fn, mkinstr1(Ovastart, 0, compileexpr(fn, &ex->sub[1], 0)));
    return NOREF;
 }
