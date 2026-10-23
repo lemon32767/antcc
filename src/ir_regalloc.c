@@ -477,16 +477,17 @@ defreg(RegAlloc *ra, int reg, int pos) {
    for (FixInterval *prev = NULL, *fxit = ra->fixed; fxit; prev = fxit, fxit = fxit->next) {
       if (fxit->rs == BIT(reg)) {
          if (fxit->range.from <= pos) {
+            FixInterval **at;
             fxit->range.from = pos;
-            FixInterval **at = &ra->fixed;
-            if ((*at)->range.from > pos) {
-               /* keep sorted */
-               //DBG("moved %s\n", mctarg->rnames[reg]);
-               if (prev) prev->next = fxit->next;
-               while ((*at)->range.from < pos) at = &(*at)->next;
-               fxit->next = *at;
-               *at = fxit;
-            }
+            /* keep sorted */
+            //DBG("moved %s\n", mctarg->rnames[reg]);
+            if (prev) prev->next = fxit->next;
+            else ra->fixed = fxit->next;
+            at = &ra->fixed;
+            while (*at && (*at)->range.from <= pos)
+               at = &(*at)->next;
+            fxit->next = *at;
+            *at = fxit;
             //DBG(">>>def REG %s range %d-%d\n", mctarg->rnames[reg], fxit->range.from, fxit->range.to);
             return 1;
          }
@@ -499,10 +500,13 @@ defreg(RegAlloc *ra, int reg, int pos) {
 static void
 clobregs(RegAlloc *ra, regset rs, int pos) {
    FixInterval *fxit = alloc(ra->arena, sizeof *fxit, 0);
-   fxit->next = ra->fixed;
+   FixInterval **at = &ra->fixed;
    fxit->range = (Range){pos, pos};
    fxit->rs = rs;
-   ra->fixed = fxit;
+   while (*at && (*at)->range.from <= pos)
+      at = &(*at)->next;
+   fxit->next = *at;
+   *at = fxit;
 }
 
 /* lifetime interval construction */
