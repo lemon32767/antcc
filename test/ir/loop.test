@@ -151,9 +151,61 @@ asserteq "bound guard keeps widen" [regexp -all {\mexts32\M} $out] 1
 set out [c+out {-O1 -dafter=loopopt -dfilter=wcnt} $prog]
 asserteq "widen counter kept" [regexp -all {= exts32\M} $out] 1
 
-# need add !nsw for this
-#set out [c+out {-O1 -dafter=loopopt -dfilter=parr} $prog]
-#asserteq "pointer index freed of mul" [regexp -all {=\smul\s|\sshl\s} $out] 0
-#asserteq "pointer increments by elemsize" [regexp -all {ptr %[0-9]+ = add %[0-9]+, 4} $out] 1
+set out [c+out {-O1 -dafter=loopopt -dfilter=parr} $prog]
+asserteq "pointer increments by elemsize" [regexp -all {ptr %[0-9]+ = add %[0-9]+, 4} $out] 1
+asserteq "limit check became neq ptr" [regexp -all {= neq ptr\M} $out] 1
+
+# runtime trip counts, stepped counters, overshoot, and wrap/no-transform cases
+set prog { typedef long long s64int;
+
+   s64int step3(s64int n, int *p) {
+      s64int s = 0;
+      for (s64int i = 0; i < n; i += 3)
+         s += p[i];
+      return s;
+   }
+
+   s64int downstep(s64int n, int *p) {
+      s64int s = 0;
+      for (s64int i = n; i > 0; i -= 3)
+         s += p[i-1];
+      return s;
+   }
+
+   s64int ovs(int *p) {
+      s64int s = 0;
+      for (s64int i = 0; i < 5; i += 3)
+         s += p[i];
+      return s;
+   }
+
+   s64int scaledcond(void) {
+      s64int s = 0;
+      for (s64int i = 0; 4*i < 9; ++i)
+         s += i;
+      return s;
+   }
+
+   s64int ushift(void) {
+      unsigned s = 0;
+      for (unsigned i = 0; i < 5000; ++i)
+         s += i << 20;
+      return s;
+   }
+}
+set out [c+out {-O1 -dloop -dfilter=step3} $prog]
+asserteq "is counted loop" [regexp -all {counted loop with trips} $out] 1
+asserteq "limit check became neq ptr" [regexp -all {= neq ptr\M} $out] 1
+set out [c+out {-O1 -dloop -dfilter=downstep} $prog]
+asserteq "is counted loop" [regexp -all {counted loop with trips} $out] 1
+asserteq "limit check became neq ptr" [regexp -all {= neq ptr\M} $out] 1
+set out [c+out {-O1 -dloop -dfilter=ovs} $prog]
+asserteq "constant trips with overshot counter" [regexp -all {trips=2\M} $out] 1
+asserteq "limit check bedcame neq ptr" [regexp -all {= neq ptr\M} $out] 1
+set out [c+out {-O1 -dloop -dfilter=scaledcond} $prog]
+asserteq "scaled counter iv not counted" [regexp -all {trips=} $out] 0
+asserteq "no ivs materialized" [regexp -all {materialize iv:} $out] 0
+set out [c+out {-O1 -dloop -dfilter=ushift} $prog]
+asserteq "wrapping unsigned shift not counted" [regexp -all {trips=} $out] 0
 
 # vim:set ts=3 sw=3 expandtab:
