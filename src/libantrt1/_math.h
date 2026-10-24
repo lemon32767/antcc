@@ -2,6 +2,8 @@ typedef unsigned long long u64int;
 typedef unsigned u32int;
 #define complex _Complex
 #define INFINITY __builtin_inff()
+#define isnan(x) __builtin_isnan(x)
+#define isinf(x) __builtin_isinf(x)
 
 /** double **/
 static inline double
@@ -9,17 +11,6 @@ __rt_fabsd(double x) {
    union { double f; u64int u; } v = {x};
    v.u &= ~(1ull<<63);
    return v.f;
-}
-
-static inline int
-__rt_isnand(double x) {
-   return x != x;
-}
-
-static inline int
-__rt_isinfd(double x) {
-   union { double f; u64int u; } v = {x};
-   return ((v.u >> 52) & 0x7ff) == 0x7ff && (v.u & ((1ull<<52) - 1)) == 0;
 }
 
 static inline int
@@ -37,8 +28,8 @@ __rt_copysignd(double x, double y) {
 
 static inline double
 __rt_fmaxd(double x, double y) {
-   if (__rt_isnand(x)) return y;
-   if (__rt_isnand(y)) return x;
+   if (isnan(x)) return y;
+   if (isnan(y)) return x;
    if (x == 0.0 && y == 0.0) return 0.0;
    return x > y ? x : y;
 }
@@ -80,17 +71,6 @@ __rt_fabsf(float x) {
 }
 
 static inline int
-__rt_isnanf(float x) {
-   return x != x;
-}
-
-static inline int
-__rt_isinff(float x) {
-   union { float f; u32int u; } v = {x};
-   return ((v.u >> 23) & 0xff) == 0xff && (v.u & ((1U << 23) - 1)) == 0;
-}
-
-static inline int
 __rt_isfinitef(float x) {
    union { float f; u32int u; } v = {x};
    return ((v.u >> 23) & 0xff) != 0xff;
@@ -105,8 +85,8 @@ __rt_copysignf(float x, float y) {
 
 static inline float
 __rt_fmaxf(float x, float y) {
-   if (__rt_isnanf(x)) return y;
-   if (__rt_isnanf(y)) return x;
+   if (isnan(x)) return y;
+   if (isnan(y)) return x;
    if (x == 0.0f && y == 0.0f) return 0.0f;
    return x > y ? x : y;
 }
@@ -141,8 +121,6 @@ __rt_cimagf(float complex z) {
 
 /** generic **/
 #define fabs(x) _Generic(x, double: __rt_fabsd, float: __rt_fabsf)(x)
-#define isnan(x) _Generic(x, double: __rt_isnand, float: __rt_isnanf)(x)
-#define isinf(x) _Generic(x, double: __rt_isinfd, float: __rt_isinff)(x)
 #define isfinite(x) _Generic(x, double: __rt_isfinited, float: __rt_isfinitef)(x)
 #define copysign(x,y) _Generic(x, double: __rt_copysignd, float: __rt_copysignf)(x,y)
 #define fmax(x,y) _Generic(x, double: __rt_fmaxd, float: __rt_fmaxf)(x,y)

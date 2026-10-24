@@ -202,6 +202,28 @@ DEF_MATH_CONST(infl, TYDOUBLE,,d,bits2d(0x7ff0000000000000ll), NULL)
 DEF_MATH_CONST(nanl, TYDOUBLE,ccharptrt,d,bits2d(0x7ff8000000000000), NULL)
 DEF_MATH_CONST(nansl, TYDOUBLE,ccharptrt,d,bits2d(0x7ff0000000000001), NULL)
 
+DEF_FNLIKE_SEMA(isnan, mktype(TYINT), mktype(TYDOUBLE))
+static Ref
+isnan_comp(Function *fn, Expr *ex, bool discard) {
+   Ref x = compileexpr(fn, &ex->sub[1], discard);
+   if (discard) return NOREF;
+   if (!isflt(ex->sub[1].ty)) return ZEROREF;
+   return irbinop(fn, Oneq, type2cls[ex->sub[1].ty.t], x, x);
+}
+DEF_FNLIKE_SEMA(isinf, mktype(TYINT), mktype(TYDOUBLE))
+static Ref
+isinf_comp(Function *fn, Expr *ex, bool discard) {
+   Ref x = compileexpr(fn, &ex->sub[1], discard);
+   if (discard) return NOREF;
+   if (!isflt(ex->sub[1].ty)) return ZEROREF;
+   enum irclass fty = type2cls[ex->sub[1].ty.t],
+               intty = fty == KF32 ? KI32 : KI64;
+   u64int mask = fty == KF32 ? 0xFF000000 : 0xFFE0ull<<48;
+   x = irunop(fn, Ocopy, intty, x);
+   Ref t1 = irbinop(fn, Oshl, intty, x, mkref(RICON, 1));
+   return irbinop(fn, Oequ, intty, t1, mkintcon(intty, mask));
+}
+
 #define DEF_BITOPt(cname, tt, x, ...)                              \
    DEF_FNLIKE_SEMA(cname, mktype(TYINT), mktype(tt))               \
    static Ref cname##_comp(Function *fn, Expr *ex, bool discard) { \

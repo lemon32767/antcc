@@ -20,6 +20,7 @@ Other attributes for correctness hints/diagnostics are recognized (`format`,
   - `__builtin_expect`
   - `__builtin_alloca`
   - `__builtin_huge_val*/inf*/nan*/nans*`
+  - `__builtin_isinf`, `__builtin_isnan`
   - `__builtin_ffs*/clz*/ctz*/clrsb*/popcount*/parity*`
 
 Other GNU C language extensions
