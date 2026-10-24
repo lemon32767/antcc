@@ -21,7 +21,6 @@
 CCOption ccopt;
 CInclPath *cinclpaths[5];
 static CInclPath **cinclpath_tails[5];
-static int nsysinclpaths;
 
 static void
 addinclpath(int ord, const char *path) {
@@ -35,8 +34,6 @@ addinclpath(int ord, const char *path) {
       cinclpaths[ord] = p;
    }
    cinclpath_tails[ord] = &p->next;
-   if (*path == '/')
-      ++nsysinclpaths;
 }
 
 /* parse an argument of the form 'opt=abcd'
@@ -93,6 +90,7 @@ static struct Task {
    vec_of(InFile) inf;
    char **runargs;
    vec_of(const char *) linkargs;
+   bool nostdinc;
    bool link_with_cc;
    bool run, syntaxonly;
 } task = { .inf = VINIT(infilebuf, countof(infilebuf)) };
@@ -400,7 +398,7 @@ optparse(char **args) {
          incpath = arg[9] ? arg+9 : *++args;
          goto CIncl;
       } else if (!strcmp(arg, "nostdinc") || !strcmp(arg, "-no-standard-includes")) {
-         cinclpaths[CINCLsys] = NULL;
+         task.nostdinc = 1;
       } else if (*arg == 'M') {
          ++arg;
       Deps:
@@ -870,12 +868,6 @@ detectcolor(int fd) {
 }
 
 static void
-sysinclpaths(void) {
-   for (int i = 0; i < countof(host_incldirs) && host_incldirs[i]; ++i)
-      addinclpath(CINCLsys, host_incldirs[i]);
-}
-
-static void
 prihelp(void) {
    pfmt("antcc version "ANTCC_VERSION_STR"\n"
         "Usage: antcc [options] infile(s)...\n"
@@ -921,45 +913,45 @@ prihelp(void) {
  * When crosscompiling without explicit --sysroot, look for a toolchain to get the sysroot from
  * i wonder if this is too much magic... */
 static void
-setuptarget(int nincl0) {
+setuptarget(void) {
+   bool use_hostincl = !task.nostdinc;
    if (!task.sysroot && iscrosscc()) {
       const char *cc = findcrosscc();
-      if (cc) {
-         if ((task.sysroot = findsysroot(cc)))
-            note(NULL, "using cross compiler toolchain at %'s for linking and headers", task.sysroot);
+      if (cc && (task.sysroot = findsysroot(cc))) {
+         note(NULL, "using cross compiler toolchain at %'s for linking and headers", task.sysroot);
       }
    }
-   int gotinc = 0;
-#define incf(...) addinclpath(CINCL_isystem, afmt(&globarena, __VA_ARGS__))
-   if (task.bindir) {
-      if (task.targ) incf("%s/usr/include/%s", task.bindir, task.targ);
-      incf("%s/usr/include", task.bindir);
-      incf("%s/include", task.bindir);
-      gotinc = 1;
-   }
-   if (task.sysroot) {
-      if (task.targ)
-         incf("%s/usr/include/%s", task.sysroot, task.targ);
-      incf("%s/usr/include", task.sysroot);
-      incf("%s/include", task.sysroot);
-      vrbfmt("sysroot: %s\n", task.sysroot);
-      gotinc = 1;
-   }
-   if (target.abi == ABImusl && target.arch == HOST_ARCH && !task.sysroot && isdir("/usr/lib/musl/include")) {
-      /* might be compiling for musl in a glibc system... */
-      incf("/usr/lib/musl/include");
-      gotinc = 1;
-   }
-   if (!gotinc && iscrosscc() && nsysinclpaths == nincl0) {
-      /* try '/usr/<target>/include'. in practice the above findsysroot+findcrosscc logic
-       * probably makes this logic redundant */
-      char path[4096];
-      uint n = snfmt(path, sizeof path, "/usr/%s/include", task.targ);
-      if (n < sizeof path && isdir(path)) {
-         addinclpath(CINCL_isystem, alloccopy(&globarena, path, n, 1));
-      } else {
-         warn(NULL, "defaulting to host include paths while cross compiling for %s might not work",
-               task.targ);
+#define incf(...) addinclpath(CINCLsys, afmt(&globarena, __VA_ARGS__))
+   if (!task.nostdinc) {
+      if (task.bindir) {
+         if (task.targ) incf("%s/usr/include/%s", task.bindir, task.targ);
+         incf("%s/usr/include", task.bindir);
+         incf("%s/include", task.bindir);
+      }
+      if (task.sysroot) {
+         if (task.targ)
+            incf("%s/usr/include/%s", task.sysroot, task.targ);
+         incf("%s/usr/include", task.sysroot);
+         incf("%s/include", task.sysroot);
+         vrbfmt("sysroot: %s\n", task.sysroot);
+         use_hostincl = 0;
+      }
+      if (target.abi == ABImusl && target.arch == HOST_ARCH && !task.sysroot && isdir("/usr/lib/musl/include")) {
+         /* might be compiling for musl in a glibc system... */
+         incf("/usr/lib/musl/include");
+      }
+      if (iscrosscc() && !cinclpaths[CINCLsys]) {
+         /* try '/usr/<target>/include'. in practice the above findsysroot+findcrosscc logic
+          * probably makes this logic redundant */
+         char path[4096];
+         uint n = snfmt(path, sizeof path, "/usr/%s/include", task.targ);
+         if (n < sizeof path && isdir(path)) {
+            addinclpath(CINCLsys, alloccopy(&globarena, path, n, 1));
+            use_hostincl = 0;
+         } else {
+            warn(NULL, "defaulting to host include paths while cross compiling for %s might not work",
+                  task.targ);
+         }
       }
    }
    /* with -static on a glibc system, use musl if present, because static glibc is fake */
@@ -972,7 +964,7 @@ setuptarget(int nincl0) {
             continue;
          task.musllibdir = mdirs[i];
          target.abi = ABImusl;
-         incf("%s/../include", mdirs[i]);
+         if (!task.nostdinc) incf("%s/../include", mdirs[i]);
          note(NULL, "static linking using musl at %s", mdirs[i]);
          break;
       }
@@ -984,6 +976,11 @@ setuptarget(int nincl0) {
       note(NULL, "requested -static on glibc, linking with %s", HOST_CC);
       task.link_with_cc = 1;
    }
+   if (use_hostincl) {
+      for (int i = 0; i < countof(host_incldirs) && host_incldirs[i]; ++i)
+         addinclpath(CINCLsys, host_incldirs[i]);
+   }
+   assert(!task.nostdinc || !cinclpaths[CINCLsys]);
 }
 
 static const TargTriple host_targ = { HOST_ARCH, HOST_OS, HOST_ABI };
@@ -996,7 +993,6 @@ main(int argc, char **argv) {
    /* setup defaults */
    bstdout.color = detectcolor(STDOUT_FILENO);
    bstderr.color = detectcolor(STDERR_FILENO);
-   sysinclpaths();
    ccopt.cstd = STDC11;
    ccopt.dbg.out = &bstdout;
 
@@ -1011,7 +1007,6 @@ main(int argc, char **argv) {
       prihelp();
       return 1;
    }
-   int nincl0 = nsysinclpaths;
    optparse(argv);
 
    if (ccopt.verbose) {
@@ -1022,7 +1017,7 @@ main(int argc, char **argv) {
    if (!targ_init(task.targ, &host_targ) || !target.arch) {
       fatal(NULL, "unsupported target: %s", task.targ ? task.targ : HOST_TRIPLE);
    }
-   setuptarget(nincl0);
+   setuptarget();
 
    for (const char *const *p = host_predefs; *p; ++p)
       predef(0, *p);
