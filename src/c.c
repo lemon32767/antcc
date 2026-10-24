@@ -1250,7 +1250,8 @@ Unary:
          if (cm->env->up && tk.name->c == '_'
           && (!strcmp(&tk.name->c, "__FUNCTION__") || !strcmp(&tk.name->c, "__PRETTY_FUNCTION__"))) {
             /* hack: treat these identifiers as __func__ synonym to support the GNU extension */
-            warn(&tk.span, "%'tk is a GNU extension", &tk);
+            if (ccopt.pedant)
+               warn(&tk.span, "%'tk is a GNU extension", &tk);
             decl = finddecl(cm, istr__func__);
             assert(decl && decl->scls == SCSTATIC);
             goto Sym;
