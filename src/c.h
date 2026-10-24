@@ -125,6 +125,8 @@ enum storageclass {
    _(alias,              1, 0, 0)   \
    _(warn_unused_result, 1, 0, 0)   \
  /*_(gnu_inline,         1, 0, 0)*/ \
+   _(sentinel,           1, 0, 0)   \
+   _(nomerge,            1, 0, 0)   \
    _(externally_visible, 1, 1, 0)   \
    _(weak,               1, 1, 0)   \
    _(weakref,            1, 1, 0)   \
