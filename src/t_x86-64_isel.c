@@ -104,7 +104,7 @@ Begin:
                wr64le(data, con->i);
                ctype = mktype(con->cls == KF64 ? TYDOUBLE : TYVLONG);
             } else {
-               union { float f; int i; } pun = { con->f };
+               union { float f; int i; } pun = { con->fs };
                wr32le(data, pun.i);
                ctype = mktype(TYFLOAT);
             }
@@ -641,7 +641,7 @@ sel(Function *fn, Instr *ins, Block *blk, int *curi) {
             s64int pun = intconval(ins->r);
             ins->r = mkintcon(KI64, pun);
          } else {
-            union { float f; int i; } pun = { fltconval(ins->r) };
+            union { float f; int i; } pun = { contab.p[ins->r.i].fs };
             ins->r = mkintcon(KI32, pun.i);
          }
          ins->op = op = Ostorei32 + (op - Ostoref32);

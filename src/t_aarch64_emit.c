@@ -127,7 +127,7 @@ ref2oper(Ref r) {
       if (kisint(contab.p[r.i].cls))
          return mkoper(OIMM, .imm = contab.p[r.i].i);
       else if (kisflt(contab.p[r.i].cls)) {
-         assert(contab.p[r.i].f == 0.0);
+         assert(fltconval_np(r) == 0);
          return mkoper(OIMM, .imm = 0);
       } else if (!contab.p[r.i].cls) {
    case RSTACK: case RADDR:
@@ -248,7 +248,6 @@ extern ObjFile objout;
 #define W32(w) (wr32targ(*pcode, (w)), *pcode += 4)
 
 static uchar *fnstart;
-static internstr curfnsym;
 
 /* Given an instruction description table, find the first entry that matches
  * the operands and encode it. */
@@ -1204,7 +1203,6 @@ emitbin(Function *fn, uchar **pcode) {
 
    while ((*pcode - objtextbase()) % 4) ++*pcode;
    fnstart = *pcode;
-   curfnsym = fn->name;
 
    /** prologue **/
 

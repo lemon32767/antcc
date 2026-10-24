@@ -1233,8 +1233,9 @@ Unary:
    case TKNUMLIT:
    case TKCHRLIT:
       ex = mkexpr(ENUMLIT, tk.span, mktype(0), );
-      if (!(ty.t = parsenumlit(&ex.u, &ex.f, &tk, 0)))
+      if (!(ty.t = parsenumlit(&ex.u, &ex.fd, &tk, 0)))
          error(&tk.span, "bad %s literal %'tk", tk.t == TKNUMLIT ? "number" : "character", &tk);
+      if (ty.t == TYFLOAT || ty.t == TYCOMPLEXF) ex.fs = ex.fd;
       ex.ty.t = ty.t ? ty.t : TYINT;
       break;
    case TKWtrue: case TKWfalse:
@@ -1660,8 +1661,8 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
          default: assert(0);
          case 1: *p = e->u; break;
          case 2: wr16targ(p, e->u); break;
-         case 4: isint(ty) ? wr32targ(p, e->u) : wrf32targ(p, e->f); break;
-         case 8: isint(ty) ? wr64targ(p, e->u) : wrf64targ(p, e->f); break;
+         case 4: isint(ty) ? wr32targ(p, e->u) : wrf32targ(p, e->fs); break;
+         case 8: isint(ty) ? wr64targ(p, e->u) : wrf64targ(p, e->fd); break;
          } else {
             u64int mask = (bitsiz == 64 ? -1ull : (1ull << bitsiz) - 1) << bitoff;
             if (bitoff + bitsiz > siz*8) siz <<= 1; /* straddles an allocation boundary */
@@ -2142,7 +2143,7 @@ dumpexpr(const Expr *ex, bool prity) {
    int nsub = 0;
    switch (ex->t) {
    case ENUMLIT:  if (!isflt(ex->ty)) efmt(isunsigned(ex->ty) ? "%lu" : "%ld", ex->u);
-                  else efmt("%f", ex->f);
+                  else efmt("%f", ex->ty.t == TYFLOAT ? ex->fs : ex->fd);
                   break;
    case ESTRLIT:  efmt("%'S", ex->s.p, ex->s.n); break; /* XXX widestr */
    case ESYM:     efmt("%y", declsbuf.p[ex->decl].name); break;
@@ -3924,10 +3925,11 @@ scalarcvt(Function *fn, Type to, Type from, Ref ref) {
    if (kisflt(kto) || kisflt(kfrom)) {
       if (ref.t == RICON) {
          assert(kisflt(kto) && kisint(kfrom));
-         return mkfltcon(kto, kto == KF32 ? (float)ref.i : (double)ref.i);
+         return kto == KF32 ? mkfltscon(ref.i) : mkfltdcon(ref.i);
       }
       if (kisflt(kto) && kfrom == KI32) op = issigned(from) ? Ocvts32f : Ocvtu32f;
-      else if (to.t == TYBOOL && kisflt(kfrom)) return irbinop(fn, Oneq, kfrom, ref, mkfltcon(kfrom, 0.0));
+      else if (to.t == TYBOOL && kisflt(kfrom))
+         return irbinop(fn, Oneq, kfrom, ref, mkfltcon_np(kfrom, 0.0));
       else if (kisflt(kto) && kfrom == KI64) op = issigned(from) ? Ocvts64f : Ocvtu64f;
       else if (kto == KF64 && kfrom == KF32) op = Ocvtf32f64;
       else if (kto == KF32 && kfrom == KF64) op = Ocvtf64f32;
@@ -4262,7 +4264,8 @@ knowntruthy(bool *t, Expr *ex) {
    switch (ex->t) {
    default: assert(0 && "!scalar?");
    case ENUMLIT:
-      *t = isflt(ex->ty) ? ex->f != 0.0 : ex->u != 0;
+      *t = isflt(ex->ty) ? (ex->ty.t == TYFLOAT ? ex->fs : ex->fd) != 0.0
+                         : ex->u != 0;
       break;
    case ESTRLIT: case ESSYMREF:
       /* string literals & symbol addresses are always truthy */
@@ -4302,7 +4305,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
    case ENUMLIT:
       if (discard) return NOREF;
       if (isflt(ex->ty))
-         return mkfltcon(cls, ex->f);
+         return cls == KF32 ? mkfltscon(ex->fs) : mkfltdcon(ex->fd);
       return mkintcon(cls, ex->i);
    case ESYM:
       if (discard && !(ex->qual & QVOLATILE)) return NOREF;
@@ -4419,7 +4422,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
       if (ex->ty.t == TYPTR)
          r = typesizeref(typechild(ex->ty));
       else
-         r = isflt(ex->ty) ? mkfltcon(type2cls[ex->ty.t], 1.0) : mkref(RICON, 1);
+         r = isflt(ex->ty) ? mkfltcon_np(type2cls[ex->ty.t], 1.0) : mkref(RICON, 1);
       if (sub->t == EGETF && sub->fld.bitsiz) {
          Ref tmp;
          adr = expraddr(fn, &sub->sub[0]);
@@ -4439,7 +4442,7 @@ compileexpr(Function *fn, const Expr *ex, bool discard) {
       if (ex->ty.t == TYPTR)
          r = typesizeref(typechild(ex->ty));
       else
-         r = isflt(ex->ty) ? mkfltcon(type2cls[ex->ty.t], 1.0) : mkref(RICON, 1);
+         r = isflt(ex->ty) ? mkfltcon_np(type2cls[ex->ty.t], 1.0) : mkref(RICON, 1);
       if (sub[0].t == EGETF && sub->fld.bitsiz) {
          Ref tmp;
          exfld = &sub->fld;
@@ -4671,7 +4674,7 @@ cvt2complex(Function *fn, Type base, const Expr *ex) {
       }
       return c;
    }
-   return (Ref2){scalarcvt(fn, base, ex->ty, exprvalue(fn, ex)), mkfltcon(type2cls[base.t], 0)};
+   return (Ref2){scalarcvt(fn, base, ex->ty, exprvalue(fn, ex)), mkfltcon_np(type2cls[base.t], 0)};
 }
 
 static Ref2
@@ -4718,7 +4721,8 @@ compcomplexex(Function *fn, const Expr *ex, bool discard) {
    switch (ex->t) {
    case ENUMLIT: /* imaginary literal e.g. 1.0iF */
       if (discard) return NIL;
-      return (Ref2){mkfltcon(cls, 0.0), mkfltcon(cls, ex->f)};
+      return (Ref2){mkfltcon_np(cls, 0.0),
+                    sty.t == TYFLOAT ? mkfltscon(ex->fs) : mkfltdcon(ex->fd)};
    case ESYM:
       if (discard && !(ex->qual & QVOLATILE)) return NIL;
       adr = expraddr(fn, ex);
@@ -4837,7 +4841,7 @@ compcomplexex(Function *fn, const Expr *ex, bool discard) {
       assert(ex->ty.bits == sub->ty.bits);
       adr = expraddr(fn, sub);
       q = complexload(fn, sty, adr, sub->qual & QVOLATILE);
-      w.a = irbinop(fn, ex->t < EPREDEC ? Oadd : Osub, cls, q.a, mkfltcon(cls, 1.0));
+      w.a = irbinop(fn, ex->t < EPREDEC ? Oadd : Osub, cls, q.a, mkfltcon_np(cls, 1.0));
       w.b = q.b;
       complexstore(fn, sty, adr, w, sub->qual & QVOLATILE);
       return (ex->t == EPREINC || ex->t == EPREDEC) ? w : q;
@@ -4919,7 +4923,7 @@ compcomplexex(Function *fn, const Expr *ex, bool discard) {
             Ref lv = exprvalue(fn, &sub[0]);
             cnd = lv;
             lhs.a = scalarcvt(fn, sty, sub[0].ty, lv);
-            lhs.b = mkfltcon(cls, 0.0);
+            lhs.b = mkfltcon_np(cls, 0.0);
          }
          putcondbranch(fn, cnd, end = newblk(fn), fl = newblk(fn));
          useblk(fn, fl);

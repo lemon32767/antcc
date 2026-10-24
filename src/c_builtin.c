@@ -7,7 +7,9 @@ static bool
 callcheck(const Span *span, int nparam, const Type *param, int narg, Expr *args) {
    bool ok = 1;
    for (int i = 0, n = narg < nparam ? narg : nparam; i < n; ++i) {
-      if (param[i].bits != ANYTYPE.bits && !assigncheck(typedecay(param[i]), &args[i])) {
+      if (param[i].bits != ANYTYPE.bits
+       && (!assigncheck(typedecay(param[i]), &args[i]) || (iscomplex(args[i].ty) && !iscomplex(param[i]))))
+      {
          ok = 0;
          error(&args[i].span, "arg #%d of type '%ty' is incompatible with '%ty'",
                i, args[i].ty, param[i]);
@@ -166,14 +168,14 @@ libcfallback(CComp *cm, Expr *ex, const char *name, Type ret, const Type *par, i
    Type fnty = mkfntype(ret, npar, par, 0, 0);
    ex->sub[0] = mkexpr(ESYM, ex->span, fnty, .decl = putexterndecl(cm, &ex->span, intern(name), fnty));
 }
-#define DEF_MATH_CONST(name, type,a, val, hasfallback)                            \
+#define DEF_MATH_CONST(name, type,a,F, val, hasfallback)                          \
    static bool                                                                    \
    name##_sema(CComp *cm, Expr *ex) {                                             \
       Type par[] = { {{0}}, a };                                                  \
       bool ok = callcheck(&ex->span, countof(par)-1, par+1, ex->narg, ex->sub+1); \
       ex->ty = mktype(type);                                                      \
       if (!(hasfallback) || eval(&ex->sub[1], EVFOLD))                            \
-         *ex = mkexpr(ENUMLIT, ex->span, ex->ty, .f = (val));                     \
+         *ex = mkexpr(ENUMLIT, ex->span, ex->ty, .f##F = (val));                  \
       else                                                                        \
          libcfallback(cm, ex, #name, ex->ty, &ccharptrt, 1);                      \
       return ok;                                                                  \
@@ -181,25 +183,24 @@ libcfallback(CComp *cm, Expr *ex, const char *name, Type ret, const Type *par, i
    static Ref                                                                     \
    name##_comp(Function *fn, Expr *ex, bool discard) {                            \
       if (discard) return NOREF;                                                  \
-      return mkfltcon(type2cls[type], (val));                                     \
+      return mkflt##F##con((val));                                                \
    }
 #define bits2d(b) ((union{u64int i; double f;}){(b)}).f
 #define bits2f(b) ((union{uint   i; float  f;}){(b)}).f
 static const Type ccharptrt = {.t=TYPTR, .flag=TFCHLDPRIM|QCONST, .child=TYCHAR};
-DEF_MATH_CONST(huge_val,  TYDOUBLE,, bits2d(0x7ff0000000000000ll), NULL)
-DEF_MATH_CONST(huge_valf, TYFLOAT,,  bits2f(0x7f800000), NULL)
-DEF_MATH_CONST(inf,  TYDOUBLE,, bits2d(0x7ff0000000000000ll), NULL)
-DEF_MATH_CONST(inff, TYFLOAT,,  bits2f(0x7f800000), NULL)
-DEF_MATH_CONST(nan,  TYDOUBLE,ccharptrt, bits2d(0x7ff8000000000000), 1)
-DEF_MATH_CONST(nanf, TYFLOAT,ccharptrt,  bits2f(0x7fc00000), 1)
-DEF_MATH_CONST(nans, TYDOUBLE,ccharptrt, bits2d(0x7ff0000000000001), NULL)
-/* XXX Expr numlit&IRCon store floats as doubles, losing signaling bit... */
-DEF_MATH_CONST(nansf, TYFLOAT,ccharptrt, bits2d(0x7ff0000000000001), NULL)
+DEF_MATH_CONST(huge_val,  TYDOUBLE,,d,bits2d(0x7ff0000000000000ll), NULL)
+DEF_MATH_CONST(huge_valf, TYFLOAT,,s,bits2f(0x7f800000), NULL)
+DEF_MATH_CONST(inf,  TYDOUBLE,,d,bits2d(0x7ff0000000000000ll), NULL)
+DEF_MATH_CONST(inff, TYFLOAT,,s,bits2f(0x7f800000), NULL)
+DEF_MATH_CONST(nan,  TYDOUBLE,ccharptrt,d,bits2d(0x7ff8000000000000), 1)
+DEF_MATH_CONST(nanf, TYFLOAT,ccharptrt,s,bits2f(0x7fc00000), 1)
+DEF_MATH_CONST(nans, TYDOUBLE,ccharptrt,d,bits2d(0x7ff0000000000001), NULL)
+DEF_MATH_CONST(nansf, TYFLOAT,ccharptrt,s,bits2f(0x7f800001), NULL)
 /* long double stubs to double */
-DEF_MATH_CONST(huge_vall, TYDOUBLE,, bits2d(0x7ff0000000000000ll), NULL)
-DEF_MATH_CONST(infl, TYDOUBLE,, bits2d(0x7ff0000000000000ll), NULL)
-DEF_MATH_CONST(nanl, TYDOUBLE,ccharptrt, bits2d(0x7ff8000000000000), NULL)
-DEF_MATH_CONST(nansl, TYDOUBLE,ccharptrt, bits2d(0x7ff0000000000001), NULL)
+DEF_MATH_CONST(huge_vall, TYDOUBLE,,d,bits2d(0x7ff0000000000000ll), NULL)
+DEF_MATH_CONST(infl, TYDOUBLE,,d,bits2d(0x7ff0000000000000ll), NULL)
+DEF_MATH_CONST(nanl, TYDOUBLE,ccharptrt,d,bits2d(0x7ff8000000000000), NULL)
+DEF_MATH_CONST(nansl, TYDOUBLE,ccharptrt,d,bits2d(0x7ff0000000000001), NULL)
 
 #define DEF_BITOPt(cname, tt, x, ...)                              \
    DEF_FNLIKE_SEMA(cname, mktype(TYINT), mktype(tt))               \
@@ -240,6 +241,7 @@ DEF_BITOP(parity, x,
    _(huge_val) _(huge_valf) _(huge_vall) \
    _(inf) _(inff) _(infl) \
    _(nan) _(nanf) _(nanl) _(nans) _(nansf) _(nansl) \
+   _(isnan) _(isinf) \
    _(ctz) _(ctzl) _(ctzll) _(clz) _(clzl) _(clzll) \
    _(popcount) _(popcountl) _(popcountll) _(clrsb) _(clrsbl) _(clrsbll) \
    _(ffs) _(ffsl) _(ffsll) _(parity) _(parityl) _(parityll)

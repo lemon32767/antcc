@@ -131,10 +131,10 @@ fixarg(Ref *r, Instr *ins, Block *blk, int *curi) {
          } pun;
          s64int i;
          if (k == KF32) {
-            pun.f32 = contab.p[r->i].f;
+            pun.f32 = contab.p[r->i].fs;
             i = pun.i32;
          } else {
-            pun.f64 = contab.p[r->i].f;
+            pun.f64 = contab.p[r->i].fd;
             i = pun.i64;
          }
          Ref gpr = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, ki, mkintcon(ki, i)));
@@ -557,7 +557,7 @@ seljmp(Function *fn, Block *blk) {
          instrtab[c.i].f |= INSKEEP;
       } else {
          enum irclass k = insrescls(instrtab[c.i]);
-         blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr2(Oneq, k, c, kisint(k) ? ZEROREF : mkfltcon(k, 0)));
+         blk->jmp.arg[0] = insertinstr(blk, blk->ins.n, mkinstr2(Oneq, k, c, kisint(k) ? ZEROREF : mkfltcon_np(k, 0)));
          Instr *ins = &instrtab[blk->jmp.arg[0].i];
          ins->f |= INSKEEP;
       }

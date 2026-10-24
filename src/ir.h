@@ -30,7 +30,8 @@ typedef struct IRCon {
       internstr sym;
       int dat;
       s64int i;
-      double f;
+      float fs;
+      double fd;
    };
 } IRCon;
 
@@ -297,7 +298,10 @@ void irfini_end(Function *);
 IRType mkirtype(Type);
 Ref newxcon(const IRCon *);
 Ref mkintcon(enum irclass, s64int);
-Ref mkfltcon(enum irclass, double);
+Ref mkfltscon(float);
+Ref mkfltdcon(double);
+Ref mkfltcon_np(enum irclass, double); /* nopreserve bits */
+double fltconval_np(Ref);
 #define iscon(r) in_range((r).t, RICON, RXCON)
 #define concls(r) ((r).t == RICON ? KI32 : contab.p[(r).i].cls)
 #define isintcon(r) (iscon(r) && kisint(concls(r)))
@@ -305,7 +309,6 @@ Ref mkfltcon(enum irclass, double);
 #define isnumcon(r) ((r).t == RICON || ((r).t == RXCON && contab.p[(r).i].cls))
 #define isaddrcon(r,derefok) ((r).t == RXCON && !contab.p[(r).i].cls && (derefok || !contab.p[(r).i].deref))
 #define intconval(r) ((r).t == RICON ? (r).i : contab.p[(r).i].i)
-#define fltconval(r) ((r).t == RICON ? (r).i : contab.p[(r).i].f)
 #define phiargs(t) phitab.p[(instrtab[t].l.i)]
 Ref mksymref(internstr, enum symflags);
 Ref mkdatref(internstr sym, Type ctype, uint siz, uint align,

@@ -40,7 +40,7 @@ struct Expr {
             bool sext;
          } fld; /* EGETF */
       };
-      u64int u; s64int i; double f; /* ENUMLIT */
+      u64int u; s64int i; float fs; double fd; /* ENUMLIT */
       struct {
          union {
             uchar *p;

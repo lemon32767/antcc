@@ -35,33 +35,32 @@ numcast(Type ty, Expr *dst, const Expr *src) {
 
    assert(src->t == ENUMLIT);
 #define TT(d,s) (td == d && ts == s)
-#define TF(d) (td == d && isfltt(ts))
    if (!ts || !td) return 0;
-   else if (TT(TYFLOAT, TYFLOAT)) dst->f = (float) src->f;
-   else if (TT(TYFLOAT, TYDOUBLE)) dst->f = (float) src->f;
-   else if (TT(TYDOUBLE, TYFLOAT)) dst->f = src->f;
-   else if (TT(TYDOUBLE, TYDOUBLE)) dst->f = src->f;
-   else if (TT(TYFLOAT, TYUVLONG)) dst->f = (float) src->u;
-   else if (TT(TYDOUBLE, TYUVLONG)) dst->f = (double) src->u;
-   else if (td == TYFLOAT) dst->f = (float) src->i;
-   else if (td == TYDOUBLE) dst->f = (double) src->i;
-   else if (TF(TYUVLONG)) dst->u = src->f;
-   else if (TF(TYBOOL)) dst->i = (bool) src->f;
-   else if (isfltt(ts)) { isrc = src->f; goto Narrow; }
+   else if (TT(TYFLOAT, TYFLOAT)) dst->fs = src->fs;
+   else if (TT(TYFLOAT, TYDOUBLE)) dst->fs = src->fd;
+   else if (TT(TYDOUBLE, TYFLOAT)) dst->fd = src->fs;
+   else if (TT(TYDOUBLE, TYDOUBLE)) dst->fd = src->fd;
+   else if (TT(TYFLOAT, TYUVLONG)) dst->fs = src->u;
+   else if (TT(TYDOUBLE, TYUVLONG)) dst->fd = src->u;
+   else if (td == TYFLOAT) dst->fs = src->i;
+   else if (td == TYDOUBLE) dst->fd = src->i;
+   else if (TT(TYUVLONG, TYFLOAT)) dst->u = src->fs;
+   else if (TT(TYUVLONG, TYDOUBLE)) dst->u = src->fd;
+   else if (TT(TYBOOL, TYFLOAT)) dst->i = (bool) src->fs;
+   else if (TT(TYBOOL, TYDOUBLE)) dst->i = (bool) src->fd;
+   else if (ts == TYFLOAT) { isrc = src->fs; goto Narrow; }
+   else if (ts == TYDOUBLE) { isrc = src->fd; goto Narrow; }
    else {
       isrc = src->i;
    Narrow:
       switch (td) {
       case TYINT128: case TYUINT128: /* NYI */ return 0;
-      case TYFLOAT: dst->f = (float) src->f; break;
-      case TYDOUBLE: dst->f = src->f; break;
       default:
          assert(isintt(td) && "bad cast?");
          dst->i = intcast(td, isrc);
       }
    }
 #undef TT
-#undef TF
 
    dst->t = ENUMLIT;
    dst->ty = ty;
@@ -117,7 +116,8 @@ truthy(const Expr *ex) {
    switch (ex->t) {
    default: assert(0 && "!scalar?");
    case ENUMLIT:
-      return isflt(ex->ty) ? ex->f != 0.0 : ex->u != 0;
+      return isflt(ex->ty) ? (ex->ty.t == TYFLOAT ? ex->fs : ex->fd) != 0.0
+                           : ex->u != 0;
    case ESTRLIT: case ESSYMREF:
       return 1;
    }
@@ -219,7 +219,8 @@ unop(Expr *ex, enum evalmode mode) {
    case ENEG:
       if (sub->t != ENUMLIT) return 0;
       if (isint(sub->ty)) sub->u = -sub->u;
-      else assert(isflt(sub->ty)), sub->f = -sub->f;
+      else if (sub->ty.t == TYFLOAT) sub->fs = -sub->fs;
+      else assert(isflt(sub->ty)), sub->fd = -sub->fd;
       break;
    case ECOMPL:
       if (sub->t != ENUMLIT) return 0;
@@ -264,8 +265,9 @@ binop(Expr *ex, enum evalmode mode) {
       return 0;
    }
 
-   enum { U = 0,     S = 1<<8 ,       F = 1<<9 };
-   int op = issigned(opty)<<8 | isflt(opty)<<9 | ex->t;
+   enum { U = 0, S = 1<<8, FS = 1<<9, FD = 1<<10 };
+   int op = issigned(opty)<<8 | (opty.t == TYFLOAT)<<9
+          | (in_range(opty.t, TYDOUBLE, TYLDOUBLE))<<10 | ex->t;
    bool c;
    if (ex->t != ELOGAND && ex->t != ELOGIOR) {
       if (!numcast(opty, a, a)) return 0;
@@ -274,7 +276,8 @@ binop(Expr *ex, enum evalmode mode) {
    switch (op) {
    case EADD|U:
    case EADD|S: a->u += opty.t == TYPTR ? b->u * typesize(typechild(opty)) : b->u; break;
-   case EADD|F: a->f += b->f; break;
+   case EADD|FS: a->fs += b->fs; break;
+   case EADD|FD: a->fd += b->fd; break;
 
    case ESUB|U:
    case ESUB|S: if (opty.t == TYPTR) {
@@ -283,11 +286,13 @@ binop(Expr *ex, enum evalmode mode) {
                    a->u = (a->u - b->u) / typesize(typechild(ex->ty));
                 } else a->u -= b->u;
                 break;
-   case ESUB|F: a->f -= b->f; break;
+   case ESUB|FS: a->fs -= b->fs; break;
+   case ESUB|FD: a->fd -= b->fd; break;
 
    case EMUL|U:
    case EMUL|S: a->u *= b->u; break;
-   case EMUL|F: a->f *= b->f; break;
+   case EMUL|FS: a->fs *= b->fs; break;
+   case EMUL|FD: a->fd *= b->fd; break;
 
    case EDIV|U: if (!b->u) return 0;
                 a->u /= b->u;
@@ -296,7 +301,8 @@ binop(Expr *ex, enum evalmode mode) {
                 if (a->i == LLONG_MIN && b->i == -1) break;
                 a->i /= b->i;
                 break;
-   case EDIV|F: a->f /= b->f; break;
+   case EDIV|FS: a->fs /= b->fs; break;
+   case EDIV|FD: a->fd /= b->fd; break;
 
    case EREM|U: if (!b->u) return 0;
                 a->u %= b->u;
@@ -329,46 +335,54 @@ binop(Expr *ex, enum evalmode mode) {
 
    case EEQU|U:
    case EEQU|S: a->u = a->u == b->u; break;
-   case EEQU|F: a->u = a->f == b->f; break;
+   case EEQU|FS: a->u = a->fs == b->fs; break;
+   case EEQU|FD: a->u = a->fd == b->fd; break;
 
    case ENEQ|U:
    case ENEQ|S: a->u = a->u != b->u; break;
-   case ENEQ|F: a->u = a->f != b->f; break;
+   case ENEQ|FS: a->u = a->fs != b->fs; break;
+   case ENEQ|FD: a->u = a->fd != b->fd; break;
 
    case ELTH|U: a->u = a->u < b->u; break;
    case ELTH|S: a->u = a->i < b->i; break;
-   case ELTH|F: a->u = a->f < b->f; break;
+   case ELTH|FS: a->u = a->fs < b->fs; break;
+   case ELTH|FD: a->u = a->fd < b->fd; break;
 
    case EGTH|U: a->u = a->u > b->u; break;
    case EGTH|S: a->u = a->i > b->i; break;
-   case EGTH|F: a->u = a->f > b->f; break;
+   case EGTH|FS: a->u = a->fs > b->fs; break;
+   case EGTH|FD: a->u = a->fd > b->fd; break;
 
    case ELTE|U: a->u = a->u <= b->u; break;
    case ELTE|S: a->u = a->i <= b->i; break;
-   case ELTE|F: a->u = a->f <= b->f; break;
+   case ELTE|FS: a->u = a->fs <= b->fs; break;
+   case ELTE|FD: a->u = a->fd <= b->fd; break;
 
    case EGTE|U: a->u = a->u >= b->u; break;
    case EGTE|S: a->u = a->i >= b->i; break;
-   case EGTE|F: a->u = a->f >= b->f; break;
+   case EGTE|FS: a->u = a->fs >= b->fs; break;
+   case EGTE|FD: a->u = a->fd >= b->fd; break;
 
    case ELOGAND|U:
    case ELOGAND|S:
-   case ELOGAND|F:
-      c = (op & F) ? a->f : a->u;
+   case ELOGAND|FS:
+   case ELOGAND|FD:
+      c = truthy(a);
       if (c) {
-         if (!eval(b, mode) || !numcast(opty, b, b)) return 0;
-         c = (op & F) ? b->f : b->u;
+         if (!eval(b, mode)) return 0;
+         c = truthy(b);
       }
       a->u = c;
       break;
 
    case ELOGIOR|U:
    case ELOGIOR|S:
-   case ELOGIOR|F:
-      c = op & F ? a->f : a->u;
+   case ELOGIOR|FS:
+   case ELOGIOR|FD:
+      c = truthy(a);
       if (!c) {
-         if (!eval(b, mode) || !numcast(opty, b, b)) return 0;
-         c = (op & F) ? b->f : b->u;
+         if (!eval(b, mode)) return 0;
+         c = truthy(b);
       }
       a->u = c;
       break;
@@ -405,8 +419,8 @@ tryreadconst(Expr *ex) {
    case   4: ex->u = rd32targ(dat); break;
    case S|8:
    case   8: ex->u = rd64targ(dat); break;
-   case F|4: ex->f = rdf32targ(dat); break;
-   case F|8: ex->f = rdf64targ(dat); break;
+   case F|4: ex->fs = rdf32targ(dat); break;
+   case F|8: ex->fd = rdf64targ(dat); break;
    default: assert(!"nyi");
    }
    return 1;

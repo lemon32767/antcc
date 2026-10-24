@@ -169,9 +169,27 @@ mkintcon(enum irclass k, s64int i) {
 }
 
 Ref
-mkfltcon(enum irclass k, double f) {
-   IRCon con = { .cls = k, .f = k == KF32 ? (float) f : f };
-   return newxcon(&con);
+mkfltscon(float f) {
+   return newxcon(&(IRCon){.cls = KF32, .fs = f});
+}
+
+Ref
+mkfltdcon(double f) {
+   return newxcon(&(IRCon){.cls = KF64, .fd = f});
+}
+
+Ref
+mkfltcon_np(enum irclass k, double f) {
+   assert(kisflt(k));
+   return k == KF32 ? mkfltscon(f) : mkfltdcon(f);
+}
+
+double
+fltconval_np(Ref r) {
+   if (r.t == RICON) return r.i;
+   assert(r.t == RXCON && contab.p[r.i].cls);
+   IRCon *con = &contab.p[r.i];
+   return con->cls == KF32 ? con->fs : con->fd;
 }
 
 Ref

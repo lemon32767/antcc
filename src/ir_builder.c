@@ -133,7 +133,7 @@ cvtfu64(Function *fn, enum irclass from, Ref x) {
    Block *t, *f, *merge;
    Ref tmp, phiarg[2];
    /* if (x < 2p63) cvtfXs(x) else (cvtfXs(x - 2p63) | (1<<63)) */
-   Ref max = mkfltcon(from, 0x1.0p63);
+   Ref max = mkfltcon_np(from, 0x1.0p63);
    enum op cvt = from == KF32 ? Ocvtf32s : Ocvtf64s;
    putcondbranch(fn, irbinop(fn, Olth, from, x, max), t = newblk(fn), f = newblk(fn));
 
@@ -305,7 +305,7 @@ putcondbranch(Function *fn, Ref arg, Block *t, Block *f) {
    if (iscon(arg)) {
       bool truthy;
       if (isintcon(arg)) truthy = intconval(arg) != 0;
-      else if (isfltcon(arg)) truthy = fltconval(arg) != 0.0;
+      else if (isfltcon(arg)) truthy = fltconval_np(arg) != 0.0;
       else if (isaddrcon(arg,0)) truthy = 1; /* XXX ok to assume symbols have non null addresses? */
       else goto Cond;
       putbranch(fn, truthy ? t : f);

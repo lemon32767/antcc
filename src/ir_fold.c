@@ -15,19 +15,21 @@ foldint(enum op op, enum irclass k, Ref lr, Ref rr) {
    } l = {.s = intconval(lr)}, r = {.s = intconval(rr)};
    bool w = cls2siz[k] == 8;
    if (in_range(op, Odiv, Ourem)) assert(r.u != 0);
+   typedef float fs;
+   typedef double fd;
    switch (op) {
    case Ocopy: x = l.s; break;
    case Oneg:  x = -l.s; break;
    case Onot:  x = ~l.s; break;
 #define CVTF2I(TF, TI) do { \
-   TF f = fltconval(lr);    \
+   TF f = contab.p[lr.i].TF; \
    if (f != f) x = 0;       \
    else x = (TI)f;          \
 } while (0)
-   case Ocvtf32s: if (w) CVTF2I(float,  s64int); else CVTF2I(float,  int);  break;
-   case Ocvtf32u: if (w) CVTF2I(float,  u64int); else CVTF2I(float,  uint); break;
-   case Ocvtf64s: if (w) CVTF2I(double, s64int); else CVTF2I(double, int);  break;
-   case Ocvtf64u: if (w) CVTF2I(double, u64int); else CVTF2I(double, uint); break;
+   case Ocvtf32s: if (w) CVTF2I(fs, s64int); else CVTF2I(fs, int);  break;
+   case Ocvtf32u: if (w) CVTF2I(fs, u64int); else CVTF2I(fs, uint); break;
+   case Ocvtf64s: if (w) CVTF2I(fd, s64int); else CVTF2I(fd, int);  break;
+   case Ocvtf64u: if (w) CVTF2I(fd, u64int); else CVTF2I(fd, uint); break;
 #undef CVTF2I
    case Oexts8:  x = (schar)l.s; break;
    case Oextu8:  x = (uchar)l.s; break;
@@ -78,7 +80,7 @@ foldint(enum op op, enum irclass k, Ref lr, Ref rr) {
 static Ref
 foldflt(enum op op, enum irclass k, Ref lr, Ref rr) {
    int xi;
-   double x, l = fltconval(lr), r = fltconval(rr);
+   double x, l = fltconval_np(lr), r = fltconval_np(rr);
    bool w = k == KF64;
    switch (op) {
    case Ocopy: x = l; break;
@@ -102,7 +104,7 @@ foldflt(enum op op, enum irclass k, Ref lr, Ref rr) {
    default: assert(0);
    }
    if (!w) x = (float)x;
-   return mkfltcon(k, x);
+   return mkfltcon_np(k, x);
 }
 
 bool

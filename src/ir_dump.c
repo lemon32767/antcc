@@ -145,8 +145,8 @@ dumpref(WriteBuf *buf, enum op o, Ref ref) {
       case KI32: n += bfmt(buf, HCON"%d"H, (int)con->i); break;
       case KI64: n += bfmt(buf, HCON"%ld"H, con->i); break;
       case KPTR: n += bfmt(buf, HCON"%'lx"H, con->i); break;
-      case KF32: n += bfmt(buf, HCON"%fs"H, con->f); break;
-      case KF64: n += bfmt(buf, HCON"%fd"H, con->f); break;
+      case KF32: n += bfmt(buf, HCON"%fs"H, con->fs); break;
+      case KF64: n += bfmt(buf, HCON"%fd"H, con->fd); break;
       default: assert(0);
       }
       if (con->deref) n += bfmt(buf, "]");
