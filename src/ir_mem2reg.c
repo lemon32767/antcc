@@ -171,6 +171,88 @@ tryseal(SSABuilder *sb, Block *blk) {
    trysealrec(sb, blk);
 }
 
+/*
+ * delredundantphis:
+ * This approach to remove redundant phi cycles is based on cranelift's remove_constant_phi
+ * pass: <https://github.com/bytecodealliance/wasmtime/blob/v50.0.0/cranelift/codegen/src/remove_constant_phis.rs>
+ * This uses an iterative forward dataflow analysis. Algorithm:
+ *
+ *   1. Create a lattice of abstract values where all phis start as 'Bottom' (NOREF) and other
+ *      values map to themselves. A phi with one distinct non-cyclic input maps to 'value',
+ *      and those with more than one distinct input, map to 'Many' (AMANY).
+ *
+ *   2. foreach block in RPO: foreach phi: join the phi's abstract value with its inputs', such that
+ *       : Bottom & x = x
+ *       : x & Bottom = x
+ *       : value1 & value2 = Many  where value1 != value2
+ *       : value  & value  = value
+ *       : Many   & _      = Many = _ & Many
+ *
+ *   3. Repeat #2 until a fixpoint
+ *
+ *   4. Delete redundant phis ('Bottom' and single value) and replace their uses
+ *
+ * I believe it is equivalent in producing a minimal SSA form to the SCC algorithm described in
+ * the Braun 2013 paper.
+ */
+
+static const Ref AMANY = {.bits = -999};
+static Ref
+getabstract(Ref *abstracts, Ref r) {
+   if (r.t != RTMP) return r;
+   assert(instrtab[r.i].op != Onop);
+   if (instrtab[r.i].op != Ophi) return r;
+   return abstracts[r.i];
+}
+static Ref
+joinabstract(Ref a, Ref b) {
+   if (!a.bits) return b;
+   if (!b.bits) return a;
+   if (a.bits == AMANY.bits || b.bits == AMANY.bits) return AMANY;
+   if (a.bits == b.bits) return a;
+   return AMANY;
+}
+
+static void
+delredundantphis(SSABuilder *sb, Function *fn) {
+   extern int ninstrtab;
+   Ref *abstracts = allocz(sb->arena, ninstrtab * sizeof *abstracts, 0);
+   int candidate = 0;
+   for (bool chg = 1; chg;) {
+      chg = 0;
+      for (Block *b = fn->entry->lnext; b != fn->entry; b = b->lnext) {
+         if (!b->phi.n) continue;
+         for (int i = 0; i < b->phi.n; ++i) {
+            int p = b->phi.p[i];
+            if (instrtab[p].op == Onop) continue;
+            Ref abstract = abstracts[p];
+            for (int j = 0; j < b->npred; ++j) {
+               Ref arg = phiargs(p)[j];
+               abstract = joinabstract(abstract, getabstract(abstracts, arg));
+            }
+            if (abstract.bits != abstracts[p].bits) {
+               abstracts[p] = abstract;
+               chg = 1;
+               candidate |= abstract.bits != AMANY.bits;
+            }
+         }
+      }
+      if (!candidate) return;
+   }
+
+   for (Block *b = fn->entry->lnext; b != fn->entry; b = b->lnext) {
+      if (!b->phi.n) continue;
+      for (int i = 0; i < b->phi.n; ++i) {
+         int p = b->phi.p[i];
+         if (instrtab[p].op == Onop) continue;
+         Ref abstract = abstracts[p];
+         if (abstract.bits == AMANY.bits) continue;
+         replcuses(mkref(RTMP, p), abstract.bits ? abstract : UNDREF, NULL, REPLC_ALL);
+         instrtab[p].op = Onop;
+      }
+   }
+}
+
 void
 mem2reg(Function *fn) {
    SSABuilder sb = { fn->passarena, .nblk = fn->nblk };
@@ -239,7 +321,7 @@ mem2reg(Function *fn) {
             } else {
                if (var != DEAD)
                   writevar(&sb, var, blk, ins->r);
-               deluse(blk, blk->ins.p[i], ins->r);
+               deluse(blk, t, ins->r);
                *ins = mkinstr0(Onop,0);
             }
          } else if (var == DEAD) {
@@ -247,7 +329,7 @@ mem2reg(Function *fn) {
          } else { /* load */
             enum irclass k = ins->cls;
             Ref val = readvar(&sb, var, blk);
-            adduse(blk, blk->ins.p[i], val);
+            adduse(blk, t, val);
             enum op ext = loadstoresz(ins->op) < 4 ? load2ext(ins->op) : Ocopy;
             if (ext != Ocopy && isnumcon(val)) {
                /* fold constant expression */
@@ -263,6 +345,9 @@ mem2reg(Function *fn) {
       tryseal(&sb, blk);
       ++sb.lastvisit;
    } while ((blk = blk->lnext) != fn->entry);
+
+   /* remove redundant phis created by dataflow cycles */
+   delredundantphis(&sb, fn);
 
    /* remove phis marked for deletion */
    do {

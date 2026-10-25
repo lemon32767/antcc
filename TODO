@@ -32,7 +32,6 @@ BACKEND
 stack lifetimes, alloca reuse
 tail calls and TCO
 need assembler for gnu asm
-mem2reg remove redundant phis SCC algo
 mem2reg structs
 text assembly output? for debug&nice
 opt loop counted unroll, remove empty
