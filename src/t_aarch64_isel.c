@@ -263,6 +263,7 @@ ascale(IRAddr *addr, Ref a, Ref b, uint siz/*1,2,4,8*/) {
 
 static bool
 aadd(IRAddr *addr, Block *blk, int *curi, Ref r, uint siz/*1,2,4,8*/) {
+   IRAddr save = *addr;
    if (r.t == RSTACK) {
       if (addr->base.bits) goto Ref;
       addr->base = r;
@@ -299,6 +300,7 @@ aadd(IRAddr *addr, Block *blk, int *curi, Ref r, uint siz/*1,2,4,8*/) {
        * safely hoisted into an address value, unless they have global lifetime */
       if (!rstest(mctarg->rglob, r.i)) return 0;
    Ref:
+      *addr = save;
       if (r.t == RSTACK && (addr->base.bits || addr->index.bits)) {
          r = insertinstr(blk, (*curi)++, mkinstr1(Ocopy, KPTR, r));
       }
