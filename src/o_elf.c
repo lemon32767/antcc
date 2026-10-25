@@ -121,6 +121,7 @@ static const ushort relktab[][NRELOCKIND] = {
       [REL_ABS32S]  = 258, /* R_AARCH64_ABS32S */
       [REL_PCREL32] = 261, /* R_AARCH64_PREL2 */
       [REL_PLT32]   = 314, /* R_AARCH64_PLT32 */
+      [REL_JUMP26]  = 282, /* R_AARCH64_JUMP26 */
       [REL_CALL26]  = 283, /* R_AARCH64_CALL26 */
       [REL_LD_PREL_LO19] = 273,    /* R_AARCH64_LD_PREL_LO19 */
       [REL_ADR_PREL_LO21] = 274, /* R_AARCH64_ADR_PREL_LO21 */

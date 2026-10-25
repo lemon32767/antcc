@@ -558,6 +558,16 @@ Xcall(uchar **pcode, Oper dst) {
       W32(0xD63F0000 | dst.reg<<5); /* BLR Xn */
    }
 }
+static void
+Xjmp(uchar **pcode, Oper dst) {
+   if (in_range(dst.t, OSYM, OSYMGOT)) {
+      objrelocxcon(dst.con, REL_JUMP26, Stext, *pcode - objtextbase(), 0);
+      W32(0x14000000); /* B <rel26> */
+   } else {
+      assert(opermatch(PGPRZ, KPTR, dst));
+      W32(0xD61F0000 | dst.reg<<5); /* BR Xn */
+   }
+}
 DEFINSTR2(Xfmov,
    {4|8, {PFPR, PFPR},  0x1E204000, EN_FP2R},
    {4,   {PFPR, PGPRZ}, 0x1E270000, EN_FP1GPR1},
@@ -1268,6 +1278,9 @@ emitbin(Function *fn, uchar **pcode) {
          W32(0xD65F03C0); /* RET */
       } else if (blk->jmp.t == Jtrap) {
          W32(0xD4200020); /* BRK #0x1 */
+      } else if (blk->jmp.t == Jtailcall) {
+         epilogue(pcode, fn, &frame);
+         Xjmp(pcode, ref2oper(blk->jmp.arg[0]));
       } else emitbranch(pcode, blk);
    } while ((blk = blk->lnext) != fn->entry);
    objdeffunc(fn->name, fn->symflags, fnstart - objtextbase(), *pcode - fnstart);

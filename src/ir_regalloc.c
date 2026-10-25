@@ -1084,12 +1084,21 @@ canusememoper(Instr *ins, Ref *r) {
    return 0;
 }
 
+static bool
+cantco(Function *fn, Block *blk, Instr *ins) {
+   IRCall *call = &calltab.p[ins->r.i];
+   /* the caller fn no stack usage requirement is due to local stack frame (allocas) that
+    * can be used by the callee.. basically need escape analysis for that */
+   return fn->stksiz == 0 && call->argstksiz == 0;
+}
+
 /* replace temps with physical regs, add loads & stores for spilled temps */
 static bool
 devirt(RegAlloc *ra, Block *blk) {
    bool allnops = 1;
    Function *fn = ra->fn;
    Alloc spillsave[4] = {0};
+   Instr *lastins = NULL;
 
    for (int curi = 0; curi < blk->ins.n; ++curi) {
       int temp = blk->ins.p[curi];
@@ -1240,6 +1249,7 @@ devirt(RegAlloc *ra, Block *blk) {
          /* r1 = copy r2  /  r1=r2 */
          goto Nop;
       } else if (ins->op != Onop) {
+         lastins = ins;
          allnops = 0;
       }
       if ((ins->f&INS2ADDR) && ins->l.t == RREG && ins->reg && ins->reg-1 != ins->l.i) {
@@ -1254,8 +1264,26 @@ devirt(RegAlloc *ra, Block *blk) {
          ins->reg = kisint(ins->cls) ? mctarg->gprscratch+1 : mctarg->fprscratch+1;
       }
    }
-
    if (allnops) vfree(&blk->ins);
+   else if (lastins && lastins->op == Ocall && blk->jmp.t == Jret) {
+      /* tail call optimization can be done whenever there are no instructions
+       * between the call and the ret (tail position). this implies the return
+       * types are compatible on a low-level, as otherwise at least moves would
+       * exist. */
+      if (cantco(fn, blk, lastins)) {
+         blk->jmp.t = Jtailcall;
+         Ref *callee = &blk->jmp.arg[0];
+         *callee = lastins->l;
+         if (callee->t == RREG && rstest(mctarg->rcallee, callee->i)) {
+            Ref scratch = mkref(RREG, mctarg->gprscratch);
+            lastins->op = Omove, lastins->cls = KPTR,
+            lastins->l = scratch, lastins->r = *callee;
+            *callee = scratch;
+         } else {
+            lastins->op = Onop;
+         }
+      }
+   }
    return allnops;
 }
 

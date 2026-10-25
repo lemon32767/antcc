@@ -821,6 +821,11 @@ DEFINSTR1(Xcall,
    {-1, PGPR, 0, O("\xFF"), EN_R, .ext=2, .norexw=1}, /* CALL r64 */
    {-1, PMEM, 0, O("\xFF"), EN_M, .ext=2, .norexw=1}, /* CALL m64 */
 )
+DEFINSTR1(Xjmp,
+   {-1, PSYM, 0, O("\xE9"), EN_R32, .norexw=1}, /* JMP rel32 */
+   {-1, PGPR, 0, O("\xFF"), EN_R, .ext=4, .norexw=1}, /* JMP r64 */
+   {-1, PMEM, 0, O("\xFF"), EN_M, .ext=4, .norexw=1}, /* JMP m64 */
+)
 DEFINSTR2(Xcmp,
    {4|8, PGPR, PGPR, O("\x3B"), EN_RR},           /* CMP r32/64, r32/64 */
    {4|8, PGPR, PI8,  O("\x83"), EN_RI8, .ext=7},  /* CMP r32/64, imm8 */
@@ -1461,6 +1466,16 @@ calleerestore(uchar **pcode, Function *fn) {
             Xpop(pcode, r);
 }
 
+static void
+epilogue(Function *fn, int npush, uchar **pcode) {
+   /* epilogue */
+   if (fn->stksiz > 0 && npush > 0 && frame.usebp)
+      Xadd(pcode, KPTR, mkoper(OREG, .reg = RSP), mkoper(OIMM, .imm = fn->stksiz));
+   if (npush > 0)
+      calleerestore(pcode, fn);
+   if (frame.usebp) B(0xC9); /* leave */
+}
+
 /* align code using NOPs */
 static void
 nops(uchar **pcode, int align) {
@@ -1577,15 +1592,13 @@ emitbin(Function *fn, uchar **pcode) {
       if (blk->jmp.t == Jret) {
          if (blk->lnext != fn->entry && blk->lnext->jmp.t == Jret && blk->lnext->ins.n == 0)
             continue; /* fallthru to next blk's RET */
-         /* epilogue */
-         if (fn->stksiz > 0 && npush > 0 && frame.usebp)
-            Xadd(pcode, KPTR, mkoper(OREG, .reg = RSP), mkoper(OIMM, .imm = fn->stksiz));
-         if (npush > 0)
-            calleerestore(pcode, fn);
-         if (frame.usebp) B(0xC9); /* leave */
+         epilogue(fn, npush, pcode);
          B(0xC3); /* ret */
       } else if (blk->jmp.t == Jtrap) {
          DS("\x0F\x0B"); /* UD2 */
+      } else if (blk->jmp.t == Jtailcall) {
+         epilogue(fn, npush, pcode);
+         Xjmp(pcode, KPTR, ref2oper(blk->jmp.arg[0]));
       } else emitbranch(pcode, blk);
    } while ((blk = blk->lnext) != fn->entry);
    objdeffunc(fn->name, fn->symflags, fnstart - objtextbase(), *pcode - fnstart);

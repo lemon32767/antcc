@@ -248,7 +248,7 @@ static bool prinums;
 
 void
 dumpblk(Function *fn, Block *blk) {
-   static const char *jnames[] = { 0, "b", "ret", "trap" };
+   static const char *jnames[] = { 0, "b", "ret", "trap", "tailcall" };
    int i;
    bfmt(out, "  "HBLK"@%d:"H, blk->id);
    if (blk->npred) {

@@ -145,7 +145,7 @@ typedef struct Instr {
 } Instr;
 static_assert(sizeof(Instr) == 4*4);
 
-enum jumpkind { JXXX, Jb, Jret, Jtrap, };
+enum jumpkind { JXXX, Jb, Jret, Jtrap, Jtailcall, };
 
 typedef struct Block Block;
 typedef struct Loop Loop;
