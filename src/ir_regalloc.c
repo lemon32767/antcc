@@ -38,6 +38,7 @@ struct Interval {
    Alloc alloc;
    schar rhint : 7; /* register hint */
    bool fpr : 1; /* needs float register? */
+   ushort _len;
    uint cost; /* spilling cost estimate */
 
    /* sorted ranges array */
@@ -963,6 +964,27 @@ allocstk(RegAlloc *ra, enum irclass k) {
    return astack(s);
 }
 
+/* sum of interval's ranges' lengths */
+static uint
+intervallen(Interval *it) {
+   if (it->_len) return it->_len;
+   uint len = 0;
+   for (int i = 0; i < it->nrange; ++i) {
+      Range r = itrange(it, i);
+      len += r.to - r.from;
+   }
+   return it->_len = len ? len : 1;
+}
+
+static bool
+spillcheaper(Interval *a, Interval *b) {
+   /* bias so long intervals aren't excessively penalized */
+   enum { SPILL_LENBIAS  =  256 };
+   u64int la = intervallen(a) + SPILL_LENBIAS, lb = intervallen(b) + SPILL_LENBIAS;
+   /* weigh the spill cost by liveness length: a.cost/a.len < b.cost/b.len */
+   return (u64int) a->cost * lb < (u64int) b->cost * la;
+}
+
 static Interval *
 spill(RegAlloc *ra, LinearScan *s, int *out_reg, regset fixexcl) {
    Interval *current = s->current;
@@ -972,7 +994,7 @@ spill(RegAlloc *ra, LinearScan *s, int *out_reg, regset fixexcl) {
    int curend = intervalend(current);
    for (lnk = s->active; (it = *lnk);) {
       int end = intervalend(it);
-      if (it->cost < tospill->cost && end > curend && !rstest(fixexcl, it->alloc.a)) {
+      if (spillcheaper(it, tospill) && end > curend && !rstest(fixexcl, it->alloc.a)) {
          ptospill = lnk;
          tospill = it;
          *out_reg = tospill->alloc.a;
