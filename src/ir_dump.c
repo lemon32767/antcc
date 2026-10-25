@@ -20,7 +20,7 @@ static bool
 prilitdat(const IRDat *dat, const char *prefix, bool hl) {
    uchar *p = objsecdata(dat->section, dat->off);
    assert(p);
-   int c = out->color;
+   int c = out->color, l = 1;
    out->color = hl;
    if (dat->ctype.t == TYARRAY && typechild(dat->ctype).t == TYCHAR && dat->siz-1 < 60 && p[dat->siz-1] == 0) {
       bfmt(out, prefix), bfmt(out, HCON"%'S"H, p, dat->siz-1);
@@ -30,9 +30,9 @@ prilitdat(const IRDat *dat, const char *prefix, bool hl) {
       bfmt(out, prefix), bfmt(out, HCON"%f"H, rdf64targ(p));
    } else if (dat->ctype.t == TYVLONG) {
       bfmt(out, prefix), bfmt(out, HCON"0x%lx"H, rd64targ(p));
-   } else return 0;
+   } else l = 0;
    out->color = c;
-   return 1;
+   return l;
 }
 
 static void
