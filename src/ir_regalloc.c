@@ -1397,7 +1397,7 @@ fini(RegAlloc *ra) {
          }
          for (int i = 0; i < blk->npred; ++i) {
             Block *p = blkpred(blk, i);
-            if (!p->s2 && !blk->s1) {
+            if (!p->s2 && !blk->s1 && (blk->jmp.t == Jret || blk->jmp.t == Jtrap)) {
                /* simplify:
                 *
                 * @p:
