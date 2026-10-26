@@ -19,8 +19,8 @@ and backends like [QBE](https://c9x.me/compile/) and [LLVM](https://llvm.org/).
 Requirements
 ------------
 
-`antcc` is written in standard C11 and can be built with any conforming
-compiler toolchain.  The `Makefile` requires GNU Make.
+`antcc` is written in C11 and can be built with any conforming compiler
+toolchain that supports `#pragma once`. The `Makefile` requires GNU Make.
 
 Building
 --------
@@ -62,14 +62,33 @@ Usage
 -----
 
 The driver is still incomplete but it mimics that of compilers like gcc, see `--help`.
-`antcc` compiles translation units to object files directly, but the driver
-will invoke an external command to link to an executable if `-c` isn't passed.
+`antcc` compiles translation units to object files directly, and the driver
+will invoke an external `ld` command to link to an executable if `-c` isn't passed.
 
-Cross-compilation is partially supported: cross-compiling object files works
+Cross-compilation is supported in a best-effort basis, cross-compiling object files works
 but an external cross-compiling toolchain for linking is required; the driver
-will try to find one (invoking e.g. `aarch64-linux-gnu-gcc`, or falling back
-to [`zig cc`](https://andrewkelley.me/post/zig-cc-powerful-drop-in-replacement-gcc-clang.html)),
-and appropiate include paths must be manually specified. You can specify the compiler target architecture with `-target <triple>`.
+will try to find one (invoking e.g. `aarch64-linux-gnu-gcc`, or falling back to
+[`zig cc`](https://andrewkelley.me/post/zig-cc-powerful-drop-in-replacement-gcc-clang.html)),
+and appropiate include paths may have to be manually provided. You can specify the
+compiler target architecture with `-target <triple>`.
+
+Contributing
+------------
+
+The easiest way to contribute is to try building C codebases with antcc and report any
+issues you encounter.
+
+Please report any miscompilations you find, these are high-priority bugs.
+Other bug reports are welcome, but check [doc/cstd.md](doc/cstd.md) and [TODO](TODO) first.
+
+You can report bugs on the Codeberg issue tracker or by email
+(<code><span>ls</span>of<span class='plzdontscrape'>@mail</span>box.org</code>).
+
+You may also contribute patches as PRs on Codeberg or by email, keeping in mind:
+
+  - You should match the style of existing code.
+  - Patches should be as small as possible.
+  - Large changes are unlikely to be accepted without prior discussion.
 
 Testing
 -------
@@ -92,20 +111,6 @@ There are tests in the `test` directory:
   - `test/external/qbe.sh`: compile QBE and run its testsuite
   - `test/external/metalang99.sh`: compile and run [metalang99](https://github.com/hirrolot/metalang99) tests (preprocessor stress testing)
 
-Contributing
-------------
-
-Please report any miscompilations you find, these are high-priority bugs.
-Other bug reports are welcome, but check [doc/cstd.md](doc/cstd.md) and [BUGS](BUGS) first.
-
-You can report bugs on the Codeberg issue tracker or by email
-(<code><span>ls</span>of<span class='plzdontscrape'>@mail</span>box.org</code>).
-
-You may also contribute patches as PRs on Codeberg or by email, keeping in mind:
-
-  - You should match the style of existing code.
-  - Patches should be as small as possible.
-  - Large changes are unlikely to be accepted without prior discussion.
 
 Internals & Design
 ------------------
