@@ -57,6 +57,7 @@ typedef struct IRCall {
    ABIArg *abiarg;
    ABIArg abiret[2];
    uchar r2off;
+   bool do_rvo;
 } IRCall;
 
 enum refkind {
@@ -393,7 +394,7 @@ Block *domlca(Block *, Block *);
 
 /** abi0.c **/
 void abi0(Function *);
-void abi0_call(Function *, Instr *, Block *blk, int *curi);
+void abi0_call(Function *, Instr *, Block *blk, int *curi, Ref retaddr);
 
 /** ir_loop.c **/
 void fillloop(Function *);

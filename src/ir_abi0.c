@@ -252,8 +252,7 @@ patcharg(Block *blk, int *icall, IRCall *call,
    }
 }
 void
-abi0_call(Function *fn, Instr *ins, Block *blk, int *curi) {
-   Ref retmem;
+abi0_call(Function *fn, Instr *ins, Block *blk, int *curi, Ref retaddr) {
    ABIArg abiargsbuf[32];
    ABIArgVec abiargs = VINIT(abiargsbuf, countof(abiargsbuf));
    bool sretarghidden = 0;
@@ -267,25 +266,25 @@ abi0_call(Function *fn, Instr *ins, Block *blk, int *curi) {
    if (call->ret.isagg) { /* adjust struct return */
       IRType retty = call->ret;
       TypeData *td = &typedata[retty.dat];
-      uint align = td->align, ralign;
-      Instr alloca;
-      int ialloca;
-      for (int i = 0; i < nret; ++i)
-         align = align < (ralign = cls2siz[call->abiret[i].ty.cls]) ? ralign : align;
-      alloca = mkalloca(td->siz, align);
-
       sretarghidden = ni == 0;
-      /* swap alloca and call temps so users of original call point to alloca */
-      retmem = insertinstr(blk, ialloca = (*curi)++ - call->narg, *ins);
-      *ins = alloca;
-      blk->ins.p[ialloca] = ins - instrtab;
-      blk->ins.p[*curi] = retmem.i;
-      ins = &instrtab[retmem.i];
-      retmem.i = blk->ins.p[ialloca];
 
+      if (!retaddr.bits) {
+         uint align = td->align, ralign;
+         for (int i = 0; i < nret; ++i)
+            align = align < (ralign = cls2siz[call->abiret[i].ty.cls]) ? ralign : align;
+         Instr alloca = mkalloca(td->siz, align);
+         int ialloca;
+         /* swap alloca and call temps so users of original call point to alloca */
+         retaddr = insertinstr(blk, ialloca = (*curi)++ - call->narg, *ins);
+         *ins = alloca;
+         blk->ins.p[ialloca] = ins - instrtab;
+         blk->ins.p[*curi] = retaddr.i;
+         ins = &instrtab[retaddr.i];
+         retaddr.i = blk->ins.p[ialloca];
+      }
       if (!nret) /* hidden pointer argument */
          insertinstr(blk, (*curi)++ - call->narg,
-                     mkinstr2(Oarg, 0, mktyperef((IRType){.cls=KPTR}), retmem));
+                     mkinstr2(Oarg, 0, mktyperef((IRType){.cls=KPTR}), retaddr));
    }
 
    /* adjust args */
@@ -327,9 +326,9 @@ abi0_call(Function *fn, Instr *ins, Block *blk, int *curi) {
          for (int i = 0; i < nret; ++i) {
             Instr store = { cls2store[call->abiret[i].ty.cls] };
             if (i == 0) {
-               store.l = retmem;
+               store.l = retaddr;
             } else {
-               Instr addr = mkinstr2(Oadd, KPTR, retmem, mkref(RICON, call->r2off));
+               Instr addr = mkinstr2(Oadd, KPTR, retaddr, mkref(RICON, call->r2off));
                store.l = insertinstr(blk, ++*curi, addr);
             }
             store.r = r[i];
@@ -392,13 +391,21 @@ abi0(Function *fn) {
    if (!fn->nabiret && isagg(retty)) {
       /* for structures returned by hidden pointer argument,
        * if all return instrs return local var X, make X point to the result location,
+       * if a return returns the struct result of a call directly, thread the result location
+       * to the callee too
        * (return value optimization (RVO)) */
       blk = fn->entry;
       do {
          Ref arg = blk->jmp.arg[0];
          if (blk->jmp.t != Jret) continue;
          if (!arg.bits) continue;
-         if (arg.t != RTMP || !oisalloca(instrtab[arg.i].op)) {
+         if (arg.t == RTMP && instrtab[arg.i].op == Ocall) {
+            IRCall *call = &calltab.p[instrtab[arg.i].r.i];
+            assert(call->ret.isagg && call->ret.dat == retty.dat);
+            assert(instruse[arg.i] && !instruse[arg.i]->next && instruse[arg.i]->u == USERJUMP);
+            call->do_rvo = 1;
+            continue;
+         } else if (arg.t != RTMP || !oisalloca(instrtab[arg.i].op)) {
             rvovar = -1;
             break;
          }
@@ -419,39 +426,53 @@ abi0(Function *fn) {
    int id = 1;
    do {
       /* adjust vaargs and calls */
-      for (int iinstr = 0; iinstr < blk->ins.n; ++iinstr) {
-         Instr *ins = &instrtab[blk->ins.p[iinstr]];
+      for (int iinstr = 0, t; iinstr < blk->ins.n; ++iinstr) {
+         Instr *ins = &instrtab[t = blk->ins.p[iinstr]];
          if (ins->op == Ovastart) mctarg->vastart(fn, blk, &iinstr);
          else if (ins->op == Ovaarg) mctarg->vaarg(fn, blk, &iinstr);
-         else if (ins->op == Ocall) abi0_call(fn, ins, blk, &iinstr);
+         else if (ins->op == Ocall) {
+            Ref retaddr = NOREF;
+            if (sret.bits && calltab.p[ins->r.i].do_rvo)
+               retaddr = sret;
+            abi0_call(fn, ins, blk, &iinstr, retaddr);
+         }
       }
 
       /* adjust returns */
       if (isagg(retty) && blk->jmp.t == Jret && blk->jmp.arg[0].bits) {
          assert(!blk->jmp.arg[1].bits);
+         Ref *retv = &blk->jmp.arg[0];
          if (fn->nabiret) { /* aggregate return in register(s) */
-            deluse(blk, USERJUMP, blk->jmp.arg[0]);
+            deluse(blk, USERJUMP, *retv);
             Ref r[2];
             int curi = blk->ins.n;
-            load2regs(r, mkirtype(retty), blk->jmp.arg[0], fn->nabiret, fn->abiret, r2off, blk, &curi);
+            load2regs(r, mkirtype(retty), *retv, fn->nabiret, fn->abiret, r2off, blk, &curi);
             for (int i = 0; i < fn->nabiret; ++i) {
-               blk->jmp.arg[i] = r[i];
+               retv[i] = r[i];
                adduse(blk, USERJUMP, r[i]);
             }
          } else {
             /* aggregate return (arg[0] is pointer to return value) */
-            if (rvovar == -1) {
+            if (retv->t == RTMP && instrtab[retv->i].op == Ocall) {
+               /* copy elision of call in tail position */
+               IRCall *call = &calltab.p[instrtab[retv->i].r.i];
+               assert(call->do_rvo);
+            } else if (rvovar == -1) {
                /* blit %sret, %arg */
                IRType typ = mkirtype(retty);
+               deluse(blk, USERJUMP, *retv);
                insertinstr(blk, blk->ins.n, mkarginstr(typ, sret));
-               insertinstr(blk, blk->ins.n, mkarginstr(typ, blk->jmp.arg[0]));
+               insertinstr(blk, blk->ins.n, mkarginstr(typ, *retv));
                insertinstr(blk, blk->ins.n, mkintrin(INstructcopy, 0, 2));
-            } else assert(blk->jmp.arg[0].bits == mkref(RTMP, rvovar).bits);
-            if (fn->abiret[0].ty.cls) {
-               blk->jmp.arg[0] = rvovar == -1 ? sret : mkref(RTMP, rvovar);
-               adduse(blk, USERJUMP, blk->jmp.arg[0]);
+               *retv = sret;
+               adduse(blk, USERJUMP, *retv);
+            } else {
+               assert(retv->bits == mkref(RTMP, rvovar).bits);
             }
-            else memset(blk->jmp.arg, 0, sizeof blk->jmp.arg);
+            if (!fn->abiret[0].ty.cls) {
+               deluse(blk, USERJUMP, *retv);
+               memset(blk->jmp.arg, 0, sizeof blk->jmp.arg);
+            }
          }
       }
       blk->id = id++;

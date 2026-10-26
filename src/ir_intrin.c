@@ -51,7 +51,7 @@ insrtcall1(Function *fn, Instr *ins, Block *b, int *i, enum irclass k, const cha
    ins->op = Ocall, ins->cls = k;
    inschoper(b, ins, 0, mksymref(intern(f), SFUNC));
    inschoper(b, ins, 1, mkcallarg(cls2type(k), 1, -1));
-   abi0_call(fn, ins, b, i);
+   abi0_call(fn, ins, b, i, NOREF);
 }
 
 static void
@@ -105,7 +105,7 @@ lowerintrin(Function *fn) {
                for (int j = args.n; j > 0; --j, --i)
                   delinstr(blk, arg0);
             else
-               abi0_call(fn, ins, blk, &i);
+               abi0_call(fn, ins, blk, &i, NOREF);
             svec_reset(args);
          } else if (mayneedlower[ins->op]) {
             arithlower(fn, ins, blk, &i);
