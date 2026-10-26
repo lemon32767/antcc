@@ -31,6 +31,9 @@ typedef __WCHAR_TYPE__ wchar_t;
 #if __STDC_VERSION__ >= 201112L
 typedef struct {long long __ll; long double __ld;} max_align_t;
 #endif
+#if __STDC_VERSION__ >= 202311L
+typedef typeof(nullptr) nullptr_t;
+#endif
 @@@@@@
 
 H stdarg.h << @@@@@@

@@ -131,11 +131,14 @@ parsenumlit(u64int *outi, double *outf, const Token *tk, bool ispp) {
       bool overflow = 0;
       for (; sx < tk->s + tk->len; ++sx) {
          u64int n0 = n;
+         c = *sx;
          if (base < 16) {
-            if (!in_range(c = *sx, '0', '0'+base-1)) break;
+            if (c == '\'') continue;
+            if (!in_range(c, '0', '0'+base-1)) break;
             n = n*base + c - '0';
          } else {
-            if (in_range(c = *sx, '0', '9')) n = n*base + c - '0';
+            if (c == '\'') continue;
+            if (in_range(c, '0', '9')) n = n*base + c - '0';
             else if (in_range(c|32, 'a', 'f')) n = n*base + 0xa + (c|32) - 'a';
             else break;
          }
@@ -349,6 +352,8 @@ isppnum(char prev, char c) {
      return 1;
    if (c == '+' || c == '-')
      return (prev|0x20) == 'e' || (prev|0x20) == 'p';
+   if (ccopt.cstd >= STDC23 && c == '\'')
+      return !aissep(prev);
    return 0;
 }
 

@@ -385,7 +385,7 @@ isdecltok(CComp *cm) {
          kw(int), kw(char), kw(_Bool), kw(bool), kw(__int128), kw(__uint128_t),
          kw(struct), kw(union), kw(enum),
          kw(__typeof__), kw(typeof), kw(typeof_unqual),
-         kw(__attribute__), kw(_Alignas)
+         kw(__attribute__), kw(_Alignas), kw(alignas)
 #undef kw
       };
       return ((uint)tk.t-TKWBEGIN_) < countof(kws) && kws[tk.t-TKWBEGIN_];
@@ -405,7 +405,7 @@ isexprtok(CComp *cm) {
          tk('+'), tk('-'), tk('*'), tk('&'), tk('~'), tk('!'), tk(TKINC), tk(TKDEC),
          tk(TKWsizeof), tk(TKW_Alignof), tk(TKWalignof), tk(TKWtrue), tk(TKWfalse),
          tk('('), tk(TKNUMLIT), tk(TKCHRLIT), tk(TKSTRLIT), tk(TKW_Generic),
-         tk(TKW__builtin_va_arg), tk(TKW__builtin_offsetof),
+         tk(TKW__builtin_va_arg), tk(TKW__builtin_offsetof), tk(TKWnullptr),
 #undef tk
       };
       return tk.t < countof(tks) && tks[tk.t];
@@ -1240,6 +1240,10 @@ Unary:
       break;
    case TKWtrue: case TKWfalse:
       ex = mkexpr(ENUMLIT, tk.span, mktype(TYBOOL), .u = tk.t == TKWtrue);
+      break;
+   case TKWnullptr:
+      /* XXX TYNULLPTR */
+      ex = mkexpr(ENUMLIT, tk.span, mkptrtype(mktype(TYVOID),0), .u = 0);
       break;
    case TKSTRLIT:
       ty = mktype(((const char []){TYCHAR, TYSHORT, TYINT})[tk.wide]);
@@ -2930,7 +2934,7 @@ declspec(DeclState *st, CComp *cm, Span *pspan) {
          break;
 
       /* alignment-specifier */
-      case TKW_Alignas:
+      case TKW_Alignas: case TKWalignas:
          lex(cm, &tk);
          aligns = alignasspec(cm);
          if (aligns && aligns > st->align) st->align = aligns;

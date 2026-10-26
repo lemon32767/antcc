@@ -18,10 +18,7 @@ Stack-allocated VLAs are a stub and actually compile to a fixed size array at th
 ## C23
   - Decimal floating-point types (`_Decimal32`, `_Decimal64`, and `_Decimal128`)
   - Bit-precise integers (`_BitInt`)
-  - `nullptr`, `nullptr_t`
-  - Binary integer constants
   - `char8_t`
-  - Digit separator '
   - Attributes (`[[...]]` syntax)
   - Labels followed by declarations and }
   - `auto` for type inference, `typeof_unqual`, `constexpr`
