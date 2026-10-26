@@ -20,7 +20,7 @@ Requirements
 ------------
 
 `antcc` is written in C11 and can be built with any conforming compiler
-toolchain that supports `#pragma once`. The `Makefile` requires GNU Make.
+toolchain that supports `#pragma once`.
 
 Building
 --------
