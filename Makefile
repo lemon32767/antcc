@@ -29,6 +29,8 @@ RM ?= rm -f
 V ?= @
 Q = $(V:1=)
 
+MAKEFLAGS += --no-print-directory
+
 all: gen-version
 	@$(MAKE) CC="$(CC)" CFLAGS="$(CFLAGS) -g -Og" V="$(V)" \
 	    OUT="$(OUT)" BUILDDIR="$(BUILDDIR)" $(OUT)
