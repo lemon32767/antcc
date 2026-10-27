@@ -1,8 +1,6 @@
 FRONTEND
 c atomics
 c va_arg 2reg structs
-c long double
-c eval bitf
 cpp fix strify for str/chr with escapes (current #"\x00" -> "\0" bc rebuilt from parsed lit)
 gnu cast to union
 gnu case range
@@ -39,6 +37,7 @@ opt regalloc tweak spill costs, better copy coalescing
 opt regalloc interval splitting
 opt gvn @ https://doi.org/10.1145/207110.207154
 TLS dynamic model(s) for -fpic
+x87/f128 long doubles
 
 COMPILE w/o patches
 tcl
