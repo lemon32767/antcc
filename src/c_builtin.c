@@ -50,8 +50,8 @@ va_start_comp(Function *fn, Expr *ex, bool discard) {
    if (!typedata[fn->fnty.dat].variadic)
       error(&ex->span, "va_start used in non-variadic function");
    if (ex->narg == 1) /* compile but discard arg #2 */
-      compileexpr(fn, &ex->sub[2], discard);
-   addinstr(fn, mkinstr1(Ovastart, 0, compileexpr(fn, &ex->sub[1], 0)));
+      expreffects(fn, &ex->sub[2]);
+   addinstr(fn, mkinstr1(Ovastart, 0, exprvalue(fn, &ex->sub[1])));
    return NOREF;
 }
 
@@ -74,7 +74,7 @@ va_copy_comp(Function *fn, Expr *ex, bool discard) {
    IRType typ = mkirtype(cvalistty.t == TYARRAY ? typechild(cvalistty) : cvalistty);
    for (int i = 1; i <= 2; ++i)
       assert(typedecay(ex->sub[i].ty).bits == typedecay(cvalistty).bits);
-   Ref dst = compileexpr(fn, &ex->sub[1], 0), src = compileexpr(fn, &ex->sub[2], 0);
+   Ref dst = exprvalue(fn, &ex->sub[1]), src = exprvalue(fn, &ex->sub[2]);
    addinstr(fn, mkarginstr(typ, dst));
    addinstr(fn, mkarginstr(typ, src));
    addinstr(fn, mkintrin(INstructcopy, 0, 2));
@@ -138,7 +138,7 @@ constant_p_comp(Function *fn, Expr *ex, bool discard) {
    Block *next = newblk(fn);
    putbranch(fn, next);
    useblk(fn, newblk(fn));
-   Ref r = compileexpr(fn, ex, 0);
+   Ref r = exprvalue(fn, ex);
    puttrap(fn);
    useblk(fn, next);
    return mkref(RICON, isnumcon(r));
@@ -294,7 +294,7 @@ Ref
 builtin_va_arg_comp(Function *fn, const Expr *ex, bool discard) {
    assert(ex->t == EVAARG && ex->ty.t);
    enum irclass k = (isagg(ex->ty) || iscomplex(ex->ty)) ? KPTR : type2cls[scalartypet(ex->ty)];
-   return addinstr(fn, mkinstr2(Ovaarg, k, compileexpr(fn, ex->sub, 0), mktyperef(mkirtype(ex->ty))));
+   return addinstr(fn, mkinstr2(Ovaarg, k, exprvalue(fn, ex->sub), mktyperef(mkirtype(ex->ty))));
 }
 
 bool
