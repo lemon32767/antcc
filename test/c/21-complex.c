@@ -26,6 +26,13 @@ mul iinf = 1 1
 div inf = 1 1
 mulf inf = 1 1
 divf zero = 1 1
+(static)x = 1.0+0.0i
+(static)add = 4.0+2.0i
+(static)sub = 2.0-2.0i
+(static)cadd = 4.0+2.0i
+(static)csub = -2.0+2.0i
+(static)neg = -1.0-2.0i
+(static)-0 = -2.0 1
 */
 
 #include <complex.h>
@@ -49,6 +56,14 @@ complex double polar_cd(double r, double theta) {
 struct s {
    complex float t;
 };
+
+static _Complex float x = 1.0;
+static _Complex double k_add = 3.0 + (1.0 + 2.0i);
+static _Complex double k_sub = 3.0 - (1.0 + 2.0i);
+static _Complex double k_cadd = (1.0 + 2.0i) + 3.0;
+static _Complex double k_csub = (1.0 + 2.0i) - 3.0;
+static _Complex float k_neg = -(1.0f + 2.0if);
+static _Complex double k_negzero = 1.0 - (3.0 + 0.0i);
 
 complex float foo(struct s s) {
    s.t += 77.0 - 99.0iF;
@@ -118,6 +133,13 @@ int main() {
    printf("mulf inf = %d %d\n", !!isinf(crealf(mulf_inf)), !!isnan(cimagf(mulf_inf)));
    complex float divf_zero = CMPLXF(fone, fzero) / CMPLXF(fzero, fzero);
    printf("divf zero = %d %d\n", !!isinf(crealf(divf_zero)), !!isnan(cimagf(divf_zero)));
+   printf("(static)x = %.1f%+.1fi\n", crealf(x), cimagf(x));
+   printf("(static)add = %.1f%+.1fi\n", creal(k_add), cimag(k_add));
+   printf("(static)sub = %.1f%+.1fi\n", creal(k_sub), cimag(k_sub));
+   printf("(static)cadd = %.1f%+.1fi\n", creal(k_cadd), cimag(k_cadd));
+   printf("(static)csub = %.1f%+.1fi\n", creal(k_csub), cimag(k_csub));
+   printf("(static)neg = %.1f%+.1fi\n", crealf(k_neg), cimagf(k_neg));
+   printf("(static)-0 = %.1f %d\n", creal(k_negzero), !!signbit(cimag(k_negzero)));
 
    return a;
 }

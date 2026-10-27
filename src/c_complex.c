@@ -79,6 +79,10 @@ compcomplexex(Function *fn, const Expr *ex, bool discard) {
       if (discard) return NIL;
       return (Ref2){mkfltcon_np(cls, 0.0),
                     sty.t == TYFLOAT ? mkfltscon(ex->fs) : mkfltdcon(ex->fd)};
+   case ECMPLXLIT:
+      if (discard) return NIL;
+      return (Ref2){sty.t == TYFLOAT ? mkfltscon(ex->cfs[0]) : mkfltdcon(ex->cfd[0]),
+                    sty.t == TYFLOAT ? mkfltscon(ex->cfs[1]) : mkfltdcon(ex->cfd[1])};
    case ESYM:
       if (discard && !(ex->qual & QVOLATILE)) return NIL;
       adr = expraddr(fn, ex);
@@ -123,17 +127,18 @@ compcomplexex(Function *fn, const Expr *ex, bool discard) {
       q = cvt2complex(fn, sty, &sub[0]);
       w = cvt2complex(fn, sty, &sub[1]);
       /* per ISO C, must avoid unnecessarily addition of constant 0.0, not a NO-OP in IEE754 */
-      if (iscomplex(sub[0].ty) && iscomplex(sub[1].ty)) { /* complex + complex */
-      CmplxCmplx:
+      if (iscomplex(sub[0].ty) && iscomplex(sub[1].ty)) { /* complex +/- complex */
          return (Ref2){
             irbinop(fn, op, cls, q.a, w.a),
             irbinop(fn, op, cls, q.b, w.b),
          };
-      } else if (iscomplex(sub[0].ty)) { /* complex + real */
+      } else if (iscomplex(sub[0].ty)) { /* complex +/- real */
          return (Ref2){ irbinop(fn, op, cls, q.a, w.a), q.b };
-      } else { /* real + complex */
-         if (op == Osub) goto CmplxCmplx;
-         return (Ref2){ irbinop(fn, op, cls, q.a, w.a), w.b };
+      } else { /* real +/- complex */
+         return (Ref2){
+            irbinop(fn, op, cls, q.a, w.a),
+            op == Oadd ? w.b : irunop(fn, Oneg, cls, w.b),
+         };
       }
    case EMUL:
       if (discard) {
@@ -302,5 +307,119 @@ compcomplexex(Function *fn, const Expr *ex, bool discard) {
       if (discard) return NIL;
       return complexload(fn, sty, (Ref){.bits = ex->irref.bits}, 0);
    default: assert(!"nyi cmplx expr");
+   }
+}
+
+/** compile time complex evaluation avoids using host's _Complex (not universally
+ *  supported by every compiler) */
+
+union Cmplx { float s[2]; double d[2]; };
+
+static bool
+cmplxpart(union Cmplx *z, Type base, const Expr *src, int im) {
+   assert(src->t == ENUMLIT);
+   Expr tmp;
+   if (!numcast(base, &tmp, src)) return 0;
+   if (base.t == TYFLOAT) z->s[im] = tmp.fs;
+   else z->d[im] = tmp.fd;
+   return 1;
+}
+
+static bool
+cmplxparts(union Cmplx *z, const Expr *ex, Type tobase) {
+   assert(iscomplex(ex->ty) && !iscomplex(tobase));
+   Type sty = typechild(ex->ty);
+   Expr re = mkexpr(ENUMLIT, ex->span, sty, .u = 0), im = re;
+   if (ex->t == ENUMLIT) {
+      if (sty.t == TYFLOAT) im.fs = ex->fs;
+      else im.fd = ex->fd;
+   } else if (ex->t == ECMPLXLIT) {
+      if (sty.t == TYFLOAT) re.fs = ex->cfs[0], im.fs = ex->cfs[1];
+      else re.fd = ex->cfd[0], im.fd = ex->cfd[1];
+   } else {
+      return 0;
+   }
+   return cmplxpart(z, tobase, &re, 0) && cmplxpart(z, tobase, &im, 1);
+}
+
+static bool
+cmplxoperand(union Cmplx *z, Expr *ex, Type base, enum evalmode mode) {
+   if (!eval(ex, mode)) return 0;
+   if (iscomplex(ex->ty)) return cmplxparts(z, ex, base);
+   assert(ex->t == ENUMLIT);
+   if (!cmplxpart(z, base, ex, 0)) return 0;
+   if (base.t == TYFLOAT) z->s[1] = 0.0f;
+   else z->d[1] = 0.0;
+   return 1;
+}
+
+static bool
+binop(union Cmplx *z, Expr *a, Expr *b, Type base, enum evalmode mode, enum exprkind op) {
+   union Cmplx az, bz;
+   bool ca = iscomplex(a->ty), cb = iscomplex(b->ty);
+   bool s = base.t == TYFLOAT;
+   if (op != EADD && op != ESUB) /* TODO multiplicative. could use libantrt1 routines */
+      return 0;
+   if (!cmplxoperand(&az, a, base, mode) || !cmplxoperand(&bz, b, base, mode))
+      return 0;
+   if (!ca && cb) { /* real +/- complex */
+      *z = bz;
+      if (s) {
+         z->s[0] = op == EADD ? az.s[0] + bz.s[0] : az.s[0] - bz.s[0];
+         z->s[1] = op == EADD ? bz.s[1] : -bz.s[1];
+      } else {
+         z->d[0] = op == EADD ? az.d[0] + bz.d[0] : az.d[0] - bz.d[0];
+         z->d[1] = op == EADD ? bz.d[1] : -bz.d[1];
+      }
+   } else if (ca && !cb) { /* complex +/- real */
+      *z = az;
+      if (s)
+         z->s[0] = op == EADD ? az.s[0] + bz.s[0] : az.s[0] - bz.s[0];
+      else
+         z->d[0] = op == EADD ? az.d[0] + bz.d[0] : az.d[0] - bz.d[0];
+   } else { /* complex +/- complex */
+      if (s) {
+         z->s[0] = op == EADD ? az.s[0] + bz.s[0] : az.s[0] - bz.s[0];
+         z->s[1] = op == EADD ? az.s[1] + bz.s[1] : az.s[1] - bz.s[1];
+      } else {
+         z->d[0] = op == EADD ? az.d[0] + bz.d[0] : az.d[0] - bz.d[0];
+         z->d[1] = op == EADD ? az.d[1] + bz.d[1] : az.d[1] - bz.d[1];
+      }
+   }
+   return 1;
+}
+
+static void
+mkcmplxexpr(Expr *ex, union Cmplx z) {
+   Type base = typechild(ex->ty), ty = ex->ty;
+   Span span = ex->span;
+   if (base.t == TYFLOAT)
+      *ex = mkexpr(ECMPLXLIT, span, ty, .cfs = {z.s[0], z.s[1]});
+   else
+      *ex = mkexpr(ECMPLXLIT, span, ty, .cfd = {z.d[0], z.d[1]});
+}
+
+bool
+complexeval(Expr *ex, enum evalmode mode) {
+   union Cmplx w;
+   Type base = typechild(ex->ty);
+   if (mode <= EVINTCONST) return 0;
+   switch (ex->t) {
+   case ENUMLIT: case ECMPLXLIT:
+      return 1;
+   case ECAST: /* real/complex -> complex, rounding to the target base */
+      if (!cmplxoperand(&w, ex->sub, base, mode)) return 0;
+      return mkcmplxexpr(ex, w), 1;
+   case ENEG:
+      if (!cmplxoperand(&w, ex->sub, base, mode)) return 0;
+      if (base.t == TYFLOAT)
+         w.s[0] = -w.s[0], w.s[1] = -w.s[1];
+      else
+         w.d[0] = -w.d[0], w.d[1] = -w.d[1];
+      return mkcmplxexpr(ex, w), 1;
+   default:
+      if (!isbinop(ex->t) || !binop(&w, &ex->sub[0], &ex->sub[1], base, mode, ex->t))
+         return 0;
+      return mkcmplxexpr(ex, w), 1;
    }
 }

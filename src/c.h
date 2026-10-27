@@ -4,7 +4,7 @@
 #include "c_type.h"
 
 enum exprkind {
-   EXXX, ENUMLIT, ESTRLIT, ESYM, ESSYMREF, EVAARG, EINIT, EGETF, ECALL, ECOND,
+   EXXX, ENUMLIT, ECMPLXLIT, ESTRLIT, ESYM, ESSYMREF, EVAARG, EINIT, EGETF, ECALL, ECOND,
    /* unary */
    EPLUS, ENEG, ECOMPL, ELOGNOT, EDEREF, EADDROF, ECAST,
    EPREINC, EPOSTINC, EPREDEC, EPOSTDEC,
@@ -41,6 +41,7 @@ struct Expr {
          } fld; /* EGETF */
       };
       u64int u; s64int i; float fs; double fd; /* ENUMLIT */
+      float cfs[2]; double cfd[2]; /* ECMPLXLIT */
       struct {
          union {
             uchar *p;
@@ -204,13 +205,6 @@ islvalue(const Expr *ex) {
 #define exprvalue(...)   compileexpr(__VA_ARGS__, /*discard*/ 0)
 #define expreffects(...) compileexpr(__VA_ARGS__, /*discard*/ 1)
 
-/** c_complex.c */
-union Ref complex2addr_cvt(struct Function *, Type, const Expr *);
-union Ref complex2scalar(struct Function *fn, Type to, const Expr *ex);
-struct Ref2 cvt2complex(struct Function *fn, Type base, const Expr *ex);
-struct Ref2 compcomplexex(struct Function *, const Expr *, bool discard);
-void complexstore(struct Function *fn, Type base, union Ref, struct Ref2, bool volatyl);
-
 struct Builtin {
    bool (*sema)(CComp *, Expr *);
    union Ref (*comp)(struct Function *, Expr *, bool discard);
@@ -231,5 +225,14 @@ enum evalmode {
 /** eval.c **/
 bool eval(Expr *, enum evalmode);
 s64int intcast(enum typetag, s64int);
+bool numcast(Type, Expr *dst, const Expr *);
+
+/** c_complex.c */
+union Ref complex2addr_cvt(struct Function *, Type, const Expr *);
+union Ref complex2scalar(struct Function *fn, Type to, const Expr *ex);
+struct Ref2 cvt2complex(struct Function *fn, Type base, const Expr *ex);
+struct Ref2 compcomplexex(struct Function *, const Expr *, bool discard);
+void complexstore(struct Function *, Type base, union Ref, struct Ref2, bool volatyl);
+bool complexeval(Expr *, enum evalmode);
 
 /* vim:set ts=3 sw=3 expandtab: */

@@ -1653,6 +1653,7 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
             tmp = mkexpr(ECAST, ex->span, ty, .sub = ex);
             e = &tmp;
             assert(eval(e, EVSTATICINI));
+            if (e->t == ECMPLXLIT) goto Cmplx;
             assert(e->t == ENUMLIT);
          }
          if (!bitsiz) switch (siz) {
@@ -1671,6 +1672,20 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
             case 4: wr32targ(p, (rd32targ(p) &~ mask) | (e->u << bitoff & mask)); break;
             case 8: wr64targ(p, (rd64targ(p) &~ mask) | (e->u << bitoff & mask)); break;
             }
+         }
+      } else if (ex->t == ECMPLXLIT) Cmplx: {
+         Expr *e = ex, tmp;
+         assert(iscomplex(ty));
+         if (ex->ty.bits != ty.bits && ty.t != TYPTR) {
+            tmp = mkexpr(ECAST, ex->span, ty, .sub = ex);
+            e = &tmp;
+            assert(eval(e, EVSTATICINI));
+            assert(e->t == ECMPLXLIT);
+         }
+         switch (siz) {
+         default: assert(0);
+         case 4*2: wrf32targ(p, e->cfs[0]), wrf32targ(p+siz/2, e->cfs[1]); break;
+         case 8*2: wrf64targ(p, e->cfd[0]), wrf64targ(p+siz/2, e->cfd[1]); break;
          }
       } else if (ty.t == TYARRAY && ex->t == ESTRLIT) {
          uint n = ex->s.n * typesize(typechild(ty));

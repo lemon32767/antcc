@@ -25,7 +25,7 @@ intcast(enum typetag to, s64int x) {
    return x;
 }
 
-static bool
+bool
 numcast(Type ty, Expr *dst, const Expr *src) {
    enum typetag td = forcenumtype(scalartypet(ty)),
                 ts = forcenumtype(scalartypet(src->ty));
@@ -428,7 +428,7 @@ tryreadconst(Expr *ex) {
 
 bool
 eval(Expr *ex, enum evalmode mode) {
-   if (iscomplex(ex->ty)) return 0;
+   if (iscomplex(ex->ty)) return complexeval(ex, mode);
    switch (ex->t) {
    case EGETF: goto Unop;
    case ESEQ:

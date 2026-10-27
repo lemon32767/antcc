@@ -2,7 +2,7 @@ FRONTEND
 c atomics
 c va_arg 2reg structs
 c long double
-c eval bitf, complex
+c eval bitf
 cpp fix strify for str/chr with escapes (current #"\x00" -> "\0" bc rebuilt from parsed lit)
 gnu cast to union
 gnu case range
