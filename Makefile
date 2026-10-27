@@ -1,15 +1,15 @@
 OUT ?= antcc
 BUILDDIR ?= build
 srcs=a_main.c           a_targ.c          a_cincludes.c      a_rtpack.c   a_sys.c       gen_libantrt1.c \
-     c_builtin.c        c.c               c_eval.c           c_lex.c      c_type.c        \
-     ir_abi0.c          ir_builder.c      ir.c               ir_cfg.c     ir_cse.c        \
-     ir_dump.c          ir_fold.c         ir_inliner.c       ir_intrin.c  ir_mem2reg.c    \
-     ir_regalloc.c      ir_simpl.c        ir_ssa.c           ir_stack.c   ir_check.c      \
-     ir_loop.c          ir_motion.c                                                       \
-     obj.c              o_elf.c                                                           \
-     t_aarch64_aapcs.c  t_aarch64_emit.c  t_aarch64_isel.c                                \
-     t_x86-64_emit.c    t_x86-64_isel.c   t_x86-64_sysv.c                                 \
-     u_io.c             u_mem.c                                                           \
+     c_builtin.c        c.c               c_eval.c           c_lex.c      c_type.c      c_complex.c     \
+     ir_abi0.c          ir_builder.c      ir.c               ir_cfg.c     ir_cse.c                      \
+     ir_dump.c          ir_fold.c         ir_inliner.c       ir_intrin.c  ir_mem2reg.c                  \
+     ir_regalloc.c      ir_simpl.c        ir_ssa.c           ir_stack.c   ir_check.c                    \
+     ir_loop.c          ir_motion.c                                                                     \
+     obj.c              o_elf.c                                                                         \
+     t_aarch64_aapcs.c  t_aarch64_emit.c  t_aarch64_isel.c                                              \
+     t_x86-64_emit.c    t_x86-64_isel.c   t_x86-64_sysv.c                                               \
+     u_io.c             u_mem.c                                                                         \
      z_miniz.c
 libantrt1_srcs=divc3.inc      divdc3.c        divsc3.c       dso_handle.c  \
                _int.h         _math.h         mulc3.inc      muldc3.c      \

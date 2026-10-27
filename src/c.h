@@ -188,8 +188,28 @@ bool assigncheck(Type t, const Expr *src);
 struct Function;
 union Ref expraddr(struct Function *, const Expr *);
 union Ref scalarcvt(struct Function *, Type to, Type from, union Ref);
+union Ref genptroffk(struct Function *, union Ref, s64int);
+union Ref genload(struct Function *, Type, union Ref ptr, bool volatyl);
+union Ref genstore(struct Function *fn, Type, union Ref ptr, union Ref val, bool volatyl);
+union Ref compilecall(struct Function *, const Expr *);
 union Ref compileexpr(struct Function *, const Expr *, bool discard);
+void condjump(struct Function *, const Expr *, struct Block *tr, struct Block *fl);
 void dumpexpr(const Expr *, bool printtypes);
+bool knowntruthy(bool *, Expr *);
+static inline bool
+islvalue(const Expr *ex) {
+   if (ex->t == EGETF) return islvalue(ex->sub);
+   return ex->t == ESYM || ex->t == EDEREF || ex->t == EINIT || ex->t == ESTRLIT;
+}
+#define exprvalue(...)   compileexpr(__VA_ARGS__, /*discard*/ 0)
+#define expreffects(...) compileexpr(__VA_ARGS__, /*discard*/ 1)
+
+/** c_complex.c */
+union Ref complex2addr_cvt(struct Function *, Type, const Expr *);
+union Ref complex2scalar(struct Function *fn, Type to, const Expr *ex);
+struct Ref2 cvt2complex(struct Function *fn, Type base, const Expr *ex);
+struct Ref2 compcomplexex(struct Function *, const Expr *, bool discard);
+void complexstore(struct Function *fn, Type base, union Ref, struct Ref2, bool volatyl);
 
 struct Builtin {
    bool (*sema)(CComp *, Expr *);
