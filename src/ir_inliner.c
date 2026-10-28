@@ -182,9 +182,9 @@ shouldinline(SavedFunc *sv, Block *blk, IRCall *call, int curi) {
 }
 
 static Ref
-mapref(short *instrmap, SavedFunc *sv, Ref r) {
+mapref(Ref *instrmap, SavedFunc *sv, Ref r) {
    assert(r.bits);
-   if (r.t == RTMP) return r.i = instrmap[r.i], r;
+   if (r.t == RTMP) return instrmap[r.i];
    if (r.t == RXCON) return newxcon(&sv->contab[r.i]);
    assert(r.t != RADDR);
    assert(r.t != RSTACK);
@@ -192,7 +192,7 @@ mapref(short *instrmap, SavedFunc *sv, Ref r) {
 }
 
 static Block *
-inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv) {
+inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv, bool threadretjmp) {
    int res = blk->ins.p[curi], res2;
    Instr *ins = &instrtab[res];
    IRCall *call = &calltab.p[ins->r.i];
@@ -228,7 +228,7 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv) {
       assert(instrtab[res2].op == Ocall2r);
    }
    Block *exit = blksplitafter(fn, blk, curi-1);
-   if (!ins->cls) {
+   if (!ins->cls || threadretjmp) {
       *ins = mkinstr0(Onop,0);
    } else {
       if (sv->nretpoints == 1) {
@@ -242,20 +242,16 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv) {
    }
 
    Block *bmap[MAXINLFNNBLK];
-   short *instrmap = alloc(fn->passarena, sv->ninstrtab * sizeof *instrmap, 0);
+   Ref *instrmap = allocz(fn->passarena, sv->ninstrtab * sizeof *instrmap, 0);
    for (Block *b = sv->entry; b; b = b->lnext) {
       bmap[b->id] = newblk(fn);
-   }
-   for (int i = 0; i < sv->ninstrtab; ++i) {
-      int allocinstr(void);
-      if (sv->instrtab[i].op)
-         instrmap[i] = allocinstr();
    }
 
    exit->npred = 0;
    exit->_pred0 = NULL;
    blk->s1 = bmap[0];
    int iret = 0;
+   /* first pass: copy phis, build instrs and CFG edges */
    for (Block *b = sv->entry, *prev = blk, *new; b; prev = new, b = b->lnext) {
       new = bmap[b->id];
       new->id = fn->nblk++;
@@ -270,54 +266,68 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv) {
             new->_pred[i] = bmap[b->_pred[i]->id];
       }
       new->npred = b->npred;
-      vresize(&new->phi, b->phi.n);
       for (int i = 0; i < b->phi.n; ++i) {
+         int allocinstr(void);
          int t = b->phi.p[i];
-         Ref *refs = NULL,
-             *src = sv->phitab[sv->instrtab[t].l.i];
-         xbgrow(&refs, b->npred);
-         for (int i = 0; i < b->npred; ++i)
-            refs[i] = mapref(instrmap, sv, src[i]);
-         vpush(&phitab, refs);
-         instrtab[instrmap[t]] = mkinstr1(Ophi, sv->instrtab[t].cls, {.i = phitab.n-1});
-         new->phi.p[i] = instrmap[t];
+         int p = allocinstr();
+         instrtab[p] = sv->instrtab[t];
+         vpush(&new->phi, p);
+         instrmap[t] = mkref(RTMP, p);
       }
-      vresize(&new->ins, b->ins.n);
       for (int i = 0; i < b->ins.n; ++i) {
          int t = b->ins.p[i];
-         Instr *ins = &instrtab[instrmap[t]];
-         *ins = sv->instrtab[t];
-         if (ins->op == Oparam) {
-            ins->op = Ocopy;
-            assert(ins->l.t == RICON && (uint) ins->l.i < call->narg);
-            ins->l = args[ins->l.i];
-         } else if (ins->op == Ocall || ins->op == Ointrin) {
-            ins->l = mapref(instrmap, sv, ins->l);
+         Instr ins = sv->instrtab[t];
+         Ref rnew = NOREF;
+         if (ins.op == Oparam) {
+            ins.op = Ocopy;
+            assert(ins.l.t == RICON && (uint) ins.l.i < call->narg);
+            ins.l = args[ins.l.i];
+         } else if (ins.op == Ocall || ins.op == Ointrin) {
+            ins.l = mapref(instrmap, sv, ins.l);
             for (Instr *ins2;
-                 ins->l.t == RTMP && (ins2 = &instrtab[ins->l.i])->op == Ocopy
-                  && (isaddrcon(ins2->l,0) || (ins2->l.t == RTMP && instrtab[ins->l.i].cls == KPTR));) {
+                 ins.l.t == RTMP && (ins2 = &instrtab[ins.l.i])->op == Ocopy
+                  && (isaddrcon(ins2->l,0) || (ins2->l.t == RTMP && instrtab[ins.l.i].cls == KPTR));) {
                /* for an indirect function call, eagerly copy-propagate the callee. this allows
                 * subsequent inlining of function pointers statically known after the inlining */
-               ins->l = ins2->l;
+               ins.l = ins2->l;
             }
-            vpush(&calltab, sv->calltab[ins->r.i]);
-            ins->r.i = calltab.n-1;
+            vpush(&calltab, sv->calltab[ins.r.i]);
+            ins.r.i = calltab.n-1;
          } else {
-            if (ins->l.t) ins->l = mapref(instrmap, sv, ins->l);
-            if (ins->r.t) ins->r = mapref(instrmap, sv, ins->r);
+            if (ins.l.t) ins.l = mapref(instrmap, sv, ins.l);
+            if (ins.r.t) ins.r = mapref(instrmap, sv, ins.r);
+            if (oisarith(ins.op)) {
+               if (opnoper[ins.op] == 1) rnew = irunop(NULL, ins.op, ins.cls, ins.l);
+               else if (opnoper[ins.op] == 2) rnew = irbinop(NULL, ins.op, ins.cls, ins.l, ins.r);
+           }
          }
-         new->ins.p[i] = instrmap[t];
+         instrmap[t] = rnew.bits ? rnew : insertinstr(new, new->ins.n, ins);
       }
       if (b->jmp.t == Jret) {
-         new->jmp.t = Jb;
-         new->s1 = exit;
-         retvals[iret++] = b->jmp.arg[0].bits ? mapref(instrmap, sv, b->jmp.arg[0]) : UNDREF;
-         addpred(exit, new);
+         Ref retval = b->jmp.arg[0].bits ? mapref(instrmap, sv, b->jmp.arg[0]) : UNDREF;
+         if (threadretjmp) {
+            new->jmp.t = exit->jmp.t;
+            new->jmp.arg[0] = retval;
+            if (exit->s1) {
+               new->s1 = exit->s1;
+               addpred(new->s1, new);
+               if (exit->s2) {
+                  new->s2 = exit->s2;
+                  addpred(new->s2, new);
+               }
+            }
+            adduse(new, USERJUMP, retval);
+         } else {
+            new->jmp.t = Jb;
+            new->s1 = exit;
+            retvals[iret++] = retval;
+            addpred(exit, new);
+         }
       } else {
          new->jmp.t = b->jmp.t;
          for (int i = 0; i < 2; ++i) {
             if (!b->jmp.arg[i].bits) break;
-            new->jmp.arg[i] = mapref(instrmap, sv, b->jmp.arg[i]);
+            adduse(new, USERJUMP, new->jmp.arg[i] = mapref(instrmap, sv, b->jmp.arg[i]));
          }
       }
       if (b->s1) {
@@ -325,18 +335,37 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv) {
          if (b->s2) new->s2 = bmap[b->s2->id];
       }
    }
+
+   /* second pass: fill in phis */
+   for (Block *b = bmap[0]; b != exit; b = b->lnext) {
+      for (int i = 0; i < b->phi.n; ++i) {
+         int t = b->phi.p[i];
+         Ref *refs = NULL, *src = sv->phitab[instrtab[t].l.i];
+         xbgrow(&refs, b->npred);
+         for (int i = 0; i < b->npred; ++i) {
+            refs[i] = mapref(instrmap, sv, src[i]);
+            adduse(b, t, refs[i]);
+         }
+         vpush(&phitab, refs);
+         instrtab[t].l.i = phitab.n - 1;
+      }
+   }
+
    exit->id = fn->nblk;
    fn->prop &= ~FNUSE;
-   if (ins->cls && sv->nretpoints > 0) {
+   if (!threadretjmp && ins->cls && sv->nretpoints > 0) {
       assert(sv->nretpoints == exit->npred);
       if (sv->nretpoints == 1) {
          /* fill copy */
          ins->l = retvals[0];
+         adduse(exit, res, ins->l);
       } else {
          /* fill phi */
          Ref *refs = NULL;
          xbgrow(&refs, sv->nretpoints);
          memcpy(refs, retvals, sizeof *refs * sv->nretpoints);
+         for (int i = 0; i < sv->nretpoints; ++i)
+            adduse(exit, res, refs[i]);
          vpush(&phitab, refs);
          ins->l = mkref(RXXX, phitab.n-1);
       }
@@ -346,9 +375,35 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv) {
    return exit;
 }
 
+/* look for
+ *   %t = call ...
+ *   b %t, @a, @b  |  ret %x
+ * then the rets in the inlined call can be made to point directly to @a,@b or to
+ * return from original caller, instead of putting the inner return value in a temp phi
+ */
+static bool
+canthreadreturn(Block *b, int callt) {
+   /* inlining pass makes uselists not fully updated but this single-use check is valid
+    * assuming initial FNUSE and recursive inlining adds uses for the inserted instrs. */
+   if (instruse[callt] && !instruse[callt]->next
+    && b->jmp.arg[0].bits == mkref(RTMP, callt).bits && !b->jmp.arg[1].bits) {
+      if (b->s1) {
+         /* phis require more complex surgery */
+         if (b->s1->phi.n) return 0;
+         if (b->s2 && b->s2->phi.n) return 0;
+      }
+      for (int t, i = b->ins.n - 1; i >= 0; --i) {
+         if (instrtab[t = b->ins.p[i]].op == Onop) continue;
+         return t == callt;
+      }
+   }
+   return 0;
+}
+
 enum { MAX_REC_INLINE = 16 };
 int
 doinline(Function *fn) {
+   FREQUIRE(FNUSE);
    if (calltab.n == 0 || !savedfns.list) return 0;
    Block *b = fn->entry;
    struct Stack { /* stack of callees being inline expanded */
@@ -383,7 +438,7 @@ doinline(Function *fn) {
             }
 
             ++any;
-            (--stk)->b = inlcall(fn, b, i, *pcallee);
+            (--stk)->b = inlcall(fn, b, i, *pcallee, canthreadreturn(b, b->ins.p[i]));
             stk->sv = sv;
             if (dbgp(fn)) {
                bfmt(ccopt.dbg.out, "<< After inlining '%s' (@%d-@%d) >>\n", fname, b->lnext->id, stk->b->id);
