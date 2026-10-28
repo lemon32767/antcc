@@ -242,8 +242,8 @@ addinstr(Function *fn, Instr ins) {
 Ref
 foldaddinstr(Function *fn, Instr ins) {
    if (oisarith(ins.op)) {
-      return ins.op < Oadd ? irunop(fn, ins.op, ins.cls, ins.l)
-                           : irbinop(fn, ins.op, ins.cls, ins.l, ins.r);
+      return ins.op < Oadd ? irunopf(fn, ins.op, ins.cls, ins.l, ins.f)
+                           : irbinopf(fn, ins.op, ins.cls, ins.l, ins.r, ins.f);
    }
    return addinstr(fn, ins);
 }
