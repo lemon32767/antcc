@@ -28,10 +28,10 @@ typedef struct IRCon {
    uchar flag; /* enum symflags */
    union {
       internstr sym;
-      int dat;
       s64int i;
-      float fs;
       double fd;
+      struct { int dat, _pad0; };
+      struct { float fs, _pad1; };
    };
 } IRCon;
 
