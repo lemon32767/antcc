@@ -79,7 +79,7 @@ Begin:
          *r = mkintcon(KI32, (int)con->i);
          goto Begin;
       }
-      if (in_range(op, Oadd, Osub) && con->i == 2147483648 && r == &ins->r) {
+      if (in_range(op, Oadd, Osub) && kisint(con->cls) && con->i == 2147483648 && r == &ins->r) {
          /* add X, INT32MAX+1 -> sub X, INT32MIN */
          ins->op = Oadd + (op == Oadd);
          *r = mkintcon(KI32, -2147483648);
