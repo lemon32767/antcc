@@ -1369,6 +1369,7 @@ spillopt(RegAlloc *ra, Block *blk, SpillCache *s) {
          }
       }
    }
+   if (blk->jmp.t == Jtailcall) allnops = 0;
 
    return allnops;
 }
