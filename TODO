@@ -28,7 +28,7 @@ gnu __asm__, constraints, reg vars
 
 BACKEND
 stack lifetimes, alloca reuse
-tail calls and TCO
+better TCO
 need assembler for gnu asm
 mem2reg structs
 text assembly output? for debug&nice
