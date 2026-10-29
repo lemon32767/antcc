@@ -21,17 +21,17 @@ AI Policy
 
 It appears every open source project these days is expected to have this section.
 
-In summary, low-effort "slop" is not welcome.
+Please don't send "vibecoded" patches: **don't submit code you don't
+understand, can't explain, or haven't tested.** Significant AI-authored changes
+will be rejected outright. *Minimal* LLM-assisted patches may be accepted but
+please disclose.
 
-  1. Documentation, bug reports, PR descriptions, comments etc; **must be written by a human.**
+Bug reports, PR descriptions, comments, documentation etc; **must be written by a human,
+no AI-generated text.** (machine translation for non-native English speakers is ok)
 
-  2. No vibecoded patches; **don't submit code you don't understand.** *Minimal*
-     LLM-assisted bug fixes may be accepted but please disclose. Large AI-generated
-     changes will be rejected outright.
+I don't mind if you use AI tools for your personal local workflow (debugging, asking
+questions about the code, self-reviews, etc).
 
-  3. You may use AI tools for your personal local workflow (debugging, asking questions
-     about the code, self-reviews, etc).
-
-In the spirit of transparency: the author has used LLM assistance since ~Summer
-2026 for debugging mainly, and to a smaller degree for sketching out tests and
-code ideas. Mostly deepseek-v4-flash and some other open-weight models.
+In the spirit of transparency: the author has used LLM assistance since
+~Summer 2026 for debugging mainly, and to a smaller degree for sketching out
+tests and code ideas.

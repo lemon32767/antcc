@@ -78,7 +78,7 @@ Contributing
 The easiest way to contribute is to try building C codebases with antcc and report any
 issues you encounter.
 
-For more information: [CONTRIBUTING.md](/CONTRIBUTING.md).
+For more information: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Testing
 -------
