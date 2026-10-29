@@ -1443,6 +1443,7 @@ fini(RegAlloc *ra) {
          vfree(&blk->ins);
       }
    } while ((blk = blk->lnext) != fn->entry);
+   fn->prop &=~ (FNDOM|FNLOOP);
 }
 
 static void checklive(RegAlloc *, Function *, bool prunephis);
