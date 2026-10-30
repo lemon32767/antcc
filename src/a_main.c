@@ -1014,9 +1014,6 @@ static const char h_options[] = {
   "-x<c|o> \tSpecify type of next input file (_c_: C source; _o_: object file)\n"
   "-v     \tVerbose output\n"
   "--version \tPrint version\n"
-  "#-dumpversion \tDump raw version string\n"
-  "#-dumpmachine \tDump host machine target triple\n"
-  "#-keep-temps \tDon't delete temporary files\n"
   "Preprocessor options:\n"
   "#-iquote <dir>\n"
   "#-isystem <dir>\n"
@@ -1062,6 +1059,13 @@ static const char h_options[] = {
   "-dregalloc\n"
   "-dloop \tprint pass-specific debug infos\n"
   "-dfilter=_f_,... \tonly print IR/debug info for given function(s)\n"
+  "Meta:\n"
+  "#--help\tPrint a help message to the standard output with a summary of options\n"
+  "#--man\tGenerate this man page. If *stdout* is an interactive terminal, use "
+          "*man*(1) to display it; otherwise, output the raw *roff*(7) document.\n"
+  "#-dumpversion \tDump raw version string\n"
+  "#-dumpmachine \tDump host machine target triple\n"
+  "#-keep-temps \tDon't delete temporary files\n"
 };
 
 /* ad-hoc markup -> plain text/roff */
@@ -1187,7 +1191,7 @@ priman(void) {
       return 0;
    }
    ProcIO p = procspawn((const char *[]){"man", "-l", "/dev/stdin", 0},
-                        &(ProcSpawn){.quiet = 1, .in = PSIOCAPTURE});
+                        &(ProcSpawn){.in = PSIOCAPTURE});
    if (p.pid < 0) goto Error;
    char b[1024];
    WriteBuf manbuf = procwritebuf(&p, b, sizeof b);
@@ -1197,8 +1201,8 @@ priman(void) {
    if (!p.ok) goto Error;
    return 0;
 Error:
-   pfmt("error: can't open 'man', raw roff contents:\n");
-   priman0(&bstdout);
+   error(NULL, "can't exec 'man' for interactive manpage display");
+   note(NULL, "to output raw roff, try `antcc --man > antcc.1'");
    return 1;
 }
 
