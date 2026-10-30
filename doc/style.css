@@ -1,0 +1,38 @@
+body {
+  margin: auto;
+  max-width: 820px;
+  line-height: 1.5;
+  font-family: Helvetica, sans-serif;
+  padding: 0 10px;
+  font-size: 17px;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+div.man {
+    font-family: monospace;
+    font-size: 14px;
+}
+
+table.head, table.foot { width: 100%; }
+td.head-rtitle, td.foot-os { text-align: right; }
+td.head-vol { text-align: center; }
+div.man span.tb {
+    margin-left: 110px;
+}
+.Nd, .Bf, .Op { display: inline; }
+.Pa, .Ad { font-style: italic; }
+h2.Ss {
+    font-size: 16px;
+    margin-left: 1em;
+}
+.Sh > .Pp,.Bl-tag {
+    margin-left: 2em;
+}
+.Ms { font-weight: bold; }
+.Bl-diag > dt { font-weight: bold; }
+code.Nm, .Fl, .Cm, .Ic, code.In, .Fd, .Fn, .Cd {
+    font-weight: bold;
+    font-family: inherit; 
+}
+

@@ -27,6 +27,7 @@ tool/*
 !/tool/*.c
 !/tool/*.h
 !/tool/*.sh
+!/tool/*.py
 src/version.h
 src/hostconfig.h
 src/a_cincludes.c
