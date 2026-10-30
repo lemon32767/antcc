@@ -1149,10 +1149,10 @@ static const char man1[] = {
    "Options are similar to GCC's. The antcc executable contains the driver, preprocessor, "
    "compiler and runtime library. Different options control what stage to stop at.\n\nFor example:\n\n"
 }, m_examples[] = {
-   "\"*antcc a.c b.c*\" \tCompile _a.c_ and _b.c_ and generate the executable _a.out_.\n\n"
-   "\"*antcc -c a.c*\" \tCompile _a.c_ and generate the object file _a.o_.\n\n"
-   "\"*antcc -E a.c*\" \tPreprocess _a.c_ and print output to *stdout*.\n\n"
-   "\"*antcc prog.c -o prog -run foo*\" \t\nCompile _prog.c_ to executable _prog_ and execute it with argument 'foo'\n\n"
+   ".TP\n\"*antcc a.c b.c*\"\nCompile _a.c_ and _b.c_ and generate the executable _a.out_.\n"
+   ".TP\n\"*antcc -c a.c*\"\nCompile _a.c_ and generate the object file _a.o_.\n"
+   ".TP\n\"*antcc -E a.c*\"\nPreprocess _a.c_ and print output to *stdout*.\n"
+   ".TP\n\"*antcc prog.c -o prog -run foo*\"\nCompile _prog.c_ to executable _prog_ and execute it with argument 'foo'\n"
 }, m_env[] = {
    "Environment variables that affect *antcc*.\nBoolean flags can be enabled by "
    "setting them to any of \"yes\",\"1\",\"true\",\"Y\",\"T\".\n\n"
