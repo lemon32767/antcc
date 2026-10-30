@@ -1,7 +1,7 @@
 antcc
 =====
 
-A small C compiler using its own independent backend.
+A small C compiler using its own independent backend. [Homepage and docs](https://386s.org/antcc/).
 
 Supports [most of C11 and some C23 features](doc/cstd.md), as well as [some common extensions](doc/cext.md).
 
