@@ -22,6 +22,7 @@ libantrt1_src=$(libantrt1_srcs:%=src/libantrt1/%)
 
 -include config.mk
 BINDIR=$(PREFIX)/bin
+MANDIR=$(PREFIX)/share/man
 
 TOOLCC ?= cc
 RM ?= rm -f
@@ -93,12 +94,15 @@ clean-tool:
 clean-config: clean
 	$(RM) config.mk src/hostconfig.h
 
-install: all
+install: $(OUT)
 	@mkdir -p "$(DESTDIR)$(BINDIR)"
 	install -m755 $(OUT) "$(DESTDIR)$(BINDIR)/antcc"
+	mkdir -p "$(DESTDIR)$(MANDIR)/man1"
+	"$(DESTDIR)$(BINDIR)/antcc" --man > "$(DESTDIR)$(MANDIR)/man1/antcc.1"
 
 uninstall:
 	$(RM) "$(DESTDIR)$(BINDIR)/antcc"
+	$(RM) "$(DESTDIR)$(MANDIR)/man1/antcc.1"
 
 .PHONY: all opt dbg gen-version clean clean-tool clean-config install uninstall
 
