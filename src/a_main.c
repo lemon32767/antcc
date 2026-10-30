@@ -96,6 +96,7 @@ static struct Task {
 } task = { .inf = VINIT(infilebuf, countof(infilebuf)) };
 
 static void prihelp(void);
+static int priman(void);
 
 void cpp0define(const char *name, const char *body);
 void cpp0undef(const char *name);
@@ -190,6 +191,8 @@ optparse(char **args) {
       if (stroneof(arg, "help\0h\0-help\0")) {
          prihelp();
          exit(0);
+      } else if (stroneof(arg, "-man\0")) {
+         exit(priman());
       } else if (!strcmp(arg, "dumpmachine")) {
          pfmt("%s\n", HOST_TRIPLE);
          exit(0);
@@ -867,48 +870,6 @@ detectcolor(int fd) {
    return 1;
 }
 
-static void
-prihelp(void) {
-   pfmt("antcc version "ANTCC_VERSION_STR"\n"
-        "Usage: antcc [options] infile(s)...\n"
-        "       antcc [options] -run infile [arguments...]\n"
-        "       antcc [options] infile(s)... -run [arguments...]\n"
-        "Options:\n"
-        " -help   \tPrint this help message\n"
-        " -std=<..> \tSet C standard (c89, c99, c11, c23)\n"
-        " -pedantic \tWarnings for strict standards compliance\n"
-        " -o <file> \tPlace the output into <file>\n"
-        " -v     \tVerbose output\n"
-        " -c     \tEmit object file but do not link\n"
-        " -run   \tRun compiled sources\n"
-        " -Idir  \tAdd include path\n"
-        " --sysroot=dir \tSet target system root for headers/libs\n"
-        " -Bdir  \tAdd dir as a compiler/libc prefix (headers and libs)\n"
-        " -Dsym[=val] \tDefine macro\n"
-        " -Usym  \tUndefine macro\n"
-        " -E     \tPreprocess only\n"
-        " -llib  \tLink with library\n"
-        " -fpie  \tEmit code for position independent executable\n"
-        " -fpic  \tEmit position independent code\n"
-        " -O<..> \tSet optimization level (0|g|1|2|s|z)  (default: -Og)\n"
-        " -x<c|o> \tSpecify type of next input file (C, object)\n"
-        " -W[...] \tTurn on warnings (stub)\n"
-        " -Werror \tTurn warnings into errors\n"
-        " -w     \tSuppress warnings\n"
-        " --version \tPrint version\n"
-        "Debug options:\n"
-        " -dparse \t print IR after parse\n"
-        " -dbefore=x,...\n"
-        " -dafter=x,... \t print IR before/after given passes\n"
-        "                  passes: abi,mem2reg,lowerintrin,copyopt,optimize,inline,"
-                            "loopopt,cselim,simpl,lowerstack,isel,regalloc\n"
-        " -dinliner \t inliner debug info\n"
-        " -dregalloc \t regalloc debug info\n"
-        " -dloop \t loop opt debug info\n"
-        " -dfilter=foo,... \t only print IR for given functions\n"
-   );
-}
-
 /* With --sysroot or -B options, try to use these paths to find include dirs, lib dirs..
  * When crosscompiling without explicit --sysroot, look for a toolchain to get the sysroot from
  * i wonder if this is too much magic... */
@@ -1002,7 +963,7 @@ main(int argc, char **argv) {
    }
    task.link_with_cc = HOST_LINK_WITH_CC;
 
-   /* parse cli ags */
+   /* parse cli args */
    if (argc == 1) {
       prihelp();
       return 1;
@@ -1035,6 +996,210 @@ main(int argc, char **argv) {
    }
 
    return driver();
+}
+
+/** help and manual **/
+
+static const char h_usage[] = {
+  "Usage: *antcc* [options] _infile(s)_...\n"
+  "       *     * [options] *-run* _infile_ [arguments...]\n"
+  "       *     * [options] _infile(s)_... *-run* [arguments...]\n"
+};
+
+static const char h_options[] = {
+  "-std=<..> \tSet C standard (c89, c99, c11, c23)\n"
+  "-o <file> \tWrite the output to <file>\n"
+  "-c     \tEmit object file but do not link\n"
+  "-run   \tRun compiled sources\n"
+  "-x<c|o> \tSpecify type of next input file (_c_: C source; _o_: object file)\n"
+  "-v     \tVerbose output\n"
+  "--version \tPrint version\n"
+  "#-dumpversion \tDump raw version string\n"
+  "#-dumpmachine \tDump host machine target triple\n"
+  "#-keep-temps \tDon't delete temporary files\n"
+  "Preprocessor options:\n"
+  "#-iquote <dir>\n"
+  "#-isystem <dir>\n"
+  "#-idirafter <dir>\n"
+  "-I <dir> \tAdd include path _dir_ with given priority (see _gcc_(1))\n"
+  "#-no-standard-includes\n"
+  "-nostdinc\tSkip standard system include paths\n"
+  "-D_sym_[=_val_] \tDefine macro\n"
+  "-U_sym_  \tUndefine macro\n"
+  "-E     \tPreprocess only\n"
+  "Compilation flags:\n"
+  "-O<..> \tSet optimization level (0|g|1|2|s|z)  (default: _-Og_)\n"
+  "-target _triple_\tCompile for a given target.\n"
+  "-f[no-]pie  \tWhether to emit code for position independent executable\n"
+  "-f[no-]pic  \tWhether to emit position independent code\n"
+  "-f[no-]wrapv \tWhether to treat signed integer overflow as well-defined wrapping\n"
+//"-march=_cpu_ \tGenerate code with _cpu_ features (stub)\n"
+//"-mtune=_cpu_ \tGenerate code optimized for _cpu_ (stub)\n"
+  "Linking options:\n"
+  "-l_lib_  \tLink with library\n"
+  "-L_dir_  \tAdd directory to linker's library search path\n"
+  "--sysroot=dir \tSet target system root for headers/libs\n"
+  "-B_dir_  \tSet compiler/libc directory path (headers and libs)\n"
+  "-Wl,_options_  \tPass comma-separated _options_ to the linker\n"
+  "-shared  \tGenerate a shared library\n"
+  "-static  \tGenerate a static executable\n"
+  "-static-pie  \tGenerate a static position independent executable\n"
+  "-pthread  \tLink with POSIX threads library\n"
+  "Diagnostics options:\n"
+  "-W[...] \tTurn on warnings (stub)\n"
+  "-Werror \tTurn warnings into errors\n"
+  "-pedantic \tWarnings for strict standards compliance\n"
+  "-w     \tSuppress warnings\n"
+  "-fsyntax-only \tOnly preprocess and semantically analyze, don't compile\n"
+  "Debug options:\n"
+  "-dparse \tprint IR after parse\n"
+  "-dbefore=_x_,... \t \n"
+  "-dafter=_x_,... \tprint IR before/after given passes\n"
+  "                 Passes: abi,mem2reg,lowerintrin,copyopt,optimize,inline,\n"
+  "                 * *       loopopt,cselim,simpl,gcm,sinkcond,lowerstack,isel,regalloc,\n"
+  "-dp=_x_,... \tequivalent to \"*-dbefore=*_x_*,... -dafter=*_x_*,...*\"\n"
+  "-dinliner\n"
+  "-dregalloc\n"
+  "-dloop \tprint pass-specific debug infos\n"
+  "-dfilter=_f_,... \tonly print IR/debug info for given function(s)\n"
+};
+
+/* ad-hoc markup -> plain text/roff */
+static void
+helpfmt(WriteBuf *buf, const char *s, int man) {
+   static const char ftyp[] = "*_\0BI";
+   int fstk = 0, ident = 0, nl = 1, list = 0, lastempty = 0;
+   for (char c; (c = *s++); nl = c == '\n') {
+      const char *f;
+      if ((f = strchr(ftyp, c))) {
+         if (*s == c) ioputc(buf, *s++);
+         else if (man) {
+            bfmt(buf, "\\f%c", fstk ? 'P' : f[3]);
+            fstk = !fstk;
+         }
+      } else if (nl && c == '#') {
+         if (!man) while (*s++ != '\n') ;
+         c = '\n';
+         continue;
+      } else if (man == 1 && c == '<') {
+         bfmt(buf, "\\fI");
+      } else if (man == 1 && c == '>') {
+         bfmt(buf, "\\fR");
+      } else if (man && c == '\t' && *s == '\n') {
+         bfmt(buf, "\n.RS\n");
+         ++s;
+         if (*s == ' ') ++s;
+         ++ident;
+      } else if (man && c == '\n' && list && *s == ' ') {
+         while (s[1] == ' ') ++s;
+         bfmt(buf, "\n.br\n\t");
+         continue;
+      } else if (ident && c == '\n') {
+         bfmt(buf, "\n.RE\n.PP\n");
+         ident = 0;
+      } else {
+         if (nl && (c == '-' || c == '$')) { /* options */
+            list = 1;
+            if (!man) bfmt(buf, " ");
+            else if (man != 2) {
+               char wrd[100], *w = wrd, *w2;
+               do *w++ = c; while ((c = *s++) != '\t' && c != '\n');
+               while (w > wrd && w[-1] == ' ') --w;
+               *w = 0;
+               w2 = strchr(wrd, ' ');
+               if (w2) *w2 = 0, ++w2;
+               bfmt(buf, ".T%c\n\\fB", lastempty ? 'Q' : 'P');
+               helpfmt(buf, wrd, 2);
+               if (w2) bfmt(buf, " "), helpfmt(buf, w2, 1);
+               bfmt(buf, "\\fR");
+               lastempty = c == '\n';
+               if (c != '\n') while (*s == ' ' || *s == '\t') ++s;
+               if (c == '\n' || *s != '\n') ioputc(buf, '\n');
+               continue;
+            }
+         } else if (man && nl && list) {
+            if (aisalpha(c)) {
+               bfmt(buf, ".SS ");
+            }
+         }
+         if (man && c == '-') bfmt(buf, "\\-");
+         else ioputc(buf, c);
+      }
+   }
+}
+static void
+prihelp(void) {
+   pfmt("antcc version "ANTCC_VERSION_STR"\n");
+   helpfmt(&bstdout, h_usage, 0);
+   pfmt("Options:\n");
+   helpfmt(&bstdout, h_options, 0);
+   pfmt("For more information, consult the manual (%g1.antcc --man%g.)\n");
+}
+
+static const char man1[] = {
+   ".TH ANTCC 1 2026 "ANTCC_VERSION_STR"\n"
+   ".SH NAME\n"
+   "antcc \\- a little C compiler\n"
+   ".SH SYNOPSIS\n"
+}, m_desc[] = {
+   "*antcc* is a C compiler supporting ISO C11. It also supports some C23 features and GNU C extensions.\n\n"
+   "Options are similar to GCC's. The antcc executable contains the driver, preprocessor, "
+   "compiler and runtime library. Different options control what stage to stop at.\n\nFor example:\n\n"
+}, m_examples[] = {
+   "\"*antcc a.c b.c*\" \tCompile _a.c_ and _b.c_ and generate the executable _a.out_.\n\n"
+   "\"*antcc -c a.c*\" \tCompile _a.c_ and generate the object file _a.o_.\n\n"
+   "\"*antcc -E a.c*\" \tPreprocess _a.c_ and print output *stdout*.\n\n"
+   "\"*antcc prog.c -o prog -run foo*\" \t\nCompile _prog.c_ to executable _prog_ and execute it with argument 'foo'\n\n"
+}, m_env[] = {
+   "Environment variables that affect *antcc*.\nBoolean flags can be enabled by "
+   "setting them to any of \"yes\",\"1\",\"true\",\"Y\",\"T\".\n\n"
+   "$NO__COLOR \tDisable color diagnostics\n"
+   "$TMPDIR \tDirectory for temporary files (default _/tmp_)\n"
+   "$ANTCC__CACHE__DIR \tDirectory for cached files (default _~/.cache/antcc_)\n"
+   "$ANTCC__VERBOSE \tEquivalent to *-v* option\n"
+   "$ANTCC__IRCHECK \tVerify IR after every pass (useful for development)\n"
+   "$ANTCC__GNUC \tDefine preprocessor macros to pretend to be GCC 4.2.1\n"
+}, manft[] = {
+   ".SH SEE ALSO\n"
+   "\\fBcpp\\fR(1), \\fBgcc\\fR(1), \\fBld\\fR(1)\n"
+   ".SH AUTHORS\n"
+   "lemon <lsof@mailbox.org>\n"
+};
+
+static void
+priman0(WriteBuf *buf) {
+   iowrite(buf, man1, sizeof man1-1);
+   helpfmt(buf, h_usage, 1);
+   bfmt(buf, ".SH DESCRIPTION\n");
+   helpfmt(buf, m_desc, 1);
+   helpfmt(buf, m_examples, 1);
+   bfmt(buf, ".SH OPTIONS\n");
+   helpfmt(buf, h_options, 1);
+   bfmt(buf, ".SH ENVIRONMENT\n");
+   helpfmt(buf, m_env, 1);
+   iowrite(buf, manft, sizeof manft-1);
+}
+
+static int
+priman(void) {
+   if (!isatty(STDOUT_FILENO)) {
+      priman0(&bstdout);
+      return 0;
+   }
+   ProcIO p = procspawn((const char *[]){"man", "-l", "/dev/stdin", 0},
+                        &(ProcSpawn){.quiet = 1, .in = PSIOCAPTURE});
+   if (p.pid < 0) goto Error;
+   char b[1024];
+   WriteBuf manbuf = procwritebuf(&p, b, sizeof b);
+   priman0(&manbuf);
+   ioflush(&manbuf);
+   procwait(&p);
+   if (!p.ok) goto Error;
+   return 0;
+Error:
+   pfmt("error: can't open 'man', raw roff contents:\n");
+   priman0(&bstdout);
+   return 1;
 }
 
 /* vim:set ts=3 sw=3 expandtab: */

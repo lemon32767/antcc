@@ -27,6 +27,7 @@ typedef struct {
 } ProcIO;
 ProcIO procspawn(const char **argv, const ProcSpawn *);
 int procread(ProcIO *, char *, size_t, int f);
+WriteBuf procwritebuf(ProcIO *, char *, size_t);
 int procwait(ProcIO *);
 int runproc(const char **argv, const ProcSpawn *);
 void epricmd(const char **argv);

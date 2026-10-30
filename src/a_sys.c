@@ -109,7 +109,7 @@ procspawn(const char **argv, const ProcSpawn *ps) {
             }
             fd = nulfd;
          } else if (io == PSIOCAPTURE) {
-            fd = p._pipe[i][1];
+            fd = p._pipe[i][i == STDIN_FILENO ? 0 : 1];
          } else if (io > 0 && io != i) {
             fd = io;
          } else {
@@ -122,7 +122,7 @@ procspawn(const char **argv, const ProcSpawn *ps) {
          if (fd != i)
             close(fd);
          if (io == PSIOCAPTURE)
-            p._pipe[i][1] = -1;
+            p._pipe[i][i == STDIN_FILENO ? 0 : 1] = -1;
       }
       for (int i = 0; i < 3; ++i)
          for (int j = 0; j < 2; ++j) {
@@ -134,11 +134,13 @@ procspawn(const char **argv, const ProcSpawn *ps) {
       if (!q) efmt("(spawn(%'s)) exec: %s\n", p.name, strerror(errno));
       _exit(125);
    }
-   for (int i = 0; i < 3; ++i)
-      if (p._pipe[i][1] != -1) {
-         close(p._pipe[i][1]);
-         p._pipe[i][1] = -1;
+   for (int i = 0; i < 3; ++i) {
+      int end = ps && ps->_io[i] == PSIOCAPTURE && i == STDIN_FILENO ? 0 : 1;
+      if (p._pipe[i][end] != -1) {
+         close(p._pipe[i][end]);
+         p._pipe[i][end] = -1;
       }
+   }
    return p;
 Fail:
    for (int i = 0; i < 3; ++i)
@@ -162,6 +164,13 @@ procread(ProcIO *p, char *buf, size_t nbuf, int f) {
    }
    buf[n] = 0;
    return n;
+}
+
+WriteBuf
+procwritebuf(ProcIO *p, char *buf, size_t cap) {
+   int fd = p->_pipe[STDIN_FILENO][1];
+   assert(fd != -1);
+   return (WriteBuf)FDBUF(buf, cap, fd);
 }
 
 int
