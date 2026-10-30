@@ -2,8 +2,9 @@
 import subprocess, os, sys, re, shutil, io
 import argparse, markdown
 from bs4 import BeautifulSoup as bs, NavigableString
+import datetime as dt
 
-def hhdr(name='', title=None):
+def hhdr(name='', title=None, extra=''):
     if not title: title = f'antcc doc: {name}'
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -14,10 +15,27 @@ def hhdr(name='', title=None):
   <link rel='shortcut icon' href='favicon.ico'/>
   <link rel="stylesheet" href="style.css"/>
 </head>
-<body>
+<body><div id="content">{extra}
 """
 
-hftr = '</body></html>'
+def hftr(name='', meta=None):
+    if not meta: meta = f'generated from {name}'
+    date = dt.date.today().isoformat()
+    return f"""</div>
+<table class="mainfoot">
+  <tbody><tr>
+    <td class="mainfoot">{meta}</td>
+    <td class="mainfoot">{date}</td>
+  </tr>
+</tbody></table>
+</body></html>
+"""
+
+NAV="""
+<nav class="navbar">
+<a href=".">/antcc</a>
+</nav><hr>
+"""
 
 def exc(cmd, input=None):
     p = subprocess.run(cmd, capture_output=True, input=input.encode('utf-8') if input else None) 
@@ -30,7 +48,7 @@ def gen(src, to):
         name = re.sub(r'\..+$', '', src).split('/')[-1]
         md = io.BytesIO()
         markdown.markdownFromFile(input=src, output=md, encoding='utf-8')
-        html = hhdr(name) + md.getvalue().decode('utf-8') + hftr
+        html = hhdr(name, extra=NAV) + md.getvalue().decode('utf-8') + hftr(src)
         with open(to, 'w') as f:
             f.write(html)
     elif ft == '.html' or ft == '.css':
@@ -66,7 +84,7 @@ def genman(roff, to):
     print(f'man -> {to}')
     html = exc(['mandoc', '-man', '-Thtml', '-O','fragment', '-Kutf-8'], input=roff)
     html = mandoc_clean(html)
-    html = hhdr(title='antcc(1)') + '<div class="man">'+html+'</div>' + hftr
+    html = hhdr(title='antcc(1)') + '<div class="man">'+html+'</div>' + hftr("antcc --man")
     with open(to, 'w') as f:
         f.write(html)
 

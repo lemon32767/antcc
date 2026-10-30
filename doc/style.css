@@ -1,12 +1,14 @@
 body {
-  margin: auto;
-  max-width: 820px;
-  line-height: 1.5;
   font-family: Helvetica, sans-serif;
   padding: 0 10px;
   font-size: 17px;
   color: var(--fg);
   background: var(--bg);
+}
+#content {
+  margin: auto;
+  max-width: 820px;
+  line-height: 1.5;
 }
 
 div.man {
@@ -36,3 +38,10 @@ code.Nm, .Fl, .Cm, .Ic, code.In, .Fd, .Fn, .Cd {
     font-family: inherit; 
 }
 
+table.mainfoot {
+    font-style: italic;
+    color: #999;
+}
+table td.mainfoot {
+    padding-right: 4em;
+}
