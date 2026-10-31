@@ -158,6 +158,16 @@ case "$host" in
     "_ANSI_LIBRARY", /* works around __only_inline functions in libc headers */
     '
     ;;
+*-freebsd*)
+    host_os=freebsd
+    if [ -z "$DYNAMIC_LINKER" ]; then
+        DYNAMIC_LINKER=$sysroot/libexec/ld-elf.so.1
+        DYNAMIC_LINKER=$sysroot/usr/libexec/ld.so
+    fi
+    host_predefs='
+    "_USE_CTYPE_INLINE_", /* to get xlocal/_ctype.h to define _RuneLocale */
+    '
+    ;;
 *-android*)
     host_os=android
     android_sdk_version=24 # works on my machine (TM)

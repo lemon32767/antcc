@@ -146,6 +146,7 @@ enum mcos {
    OSlinux,
    OSopenbsd,
    OSandroid,
+   OSfreebsd,
    NUM_MC_OS,
 };
 enum mcabi { ABInone, ABIgnu, ABImusl, NUM_MC_ABI };

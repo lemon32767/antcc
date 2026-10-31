@@ -657,7 +657,7 @@ const char *rtpack_getlibantrt1(const char *ar);
 
 enum crtmode { CRTxxx, CRTnopie, CRTpie, CRTdll, CRTstatic, CRTstaticpie, NCRTMODE };
 /* ugh */
-static const char *const crtbegin[NUM_MC_OS][NCRTMODE][3] = {
+static const char *const crtbegin[NUM_MC_OS][NCRTMODE][4] = {
    {{"-l:crt1.o", "-l:crti.o"}},
    [OSlinux] = {
       [CRTpie] = {"-l:Scrt1.o", "-l:crti.o"},
@@ -675,8 +675,15 @@ static const char *const crtbegin[NUM_MC_OS][NCRTMODE][3] = {
       [CRTstatic]    = {"-l:crtbegin_static.o"},
       [CRTstaticpie] = {"-l:crtbegin_static.o"},
    },
+   [OSfreebsd] = {
+      {"-l:crt1.o", "-l:crti.o", "-l:crtbegin.o"},
+      [CRTpie]       = {"-l:Scrt1.o", "-l:crti.o", "-l:crtbeginS.o"},
+      [CRTdll]       = {"-l:crti.o", "-l:crtbeginS.o"},
+      [CRTstatic]    = {"-l:crt1.o", "-l:crti.o", "-l:crtbeginT.o"},
+      [CRTstaticpie] = {"-l:crt1.o", "-l:crti.o", "-l:crtbeginT.o"},
+   },
 };
-static const char *const crtend[NUM_MC_OS][NCRTMODE][4] = {
+static const char *const crtend[NUM_MC_OS][NCRTMODE][5] = {
    {{"-lc", "@rt", "-l:crtn.o"}},
    [OSopenbsd] = {
       {"-lc", "@rt", "-l:crtend.o"},
@@ -685,6 +692,11 @@ static const char *const crtend[NUM_MC_OS][NCRTMODE][4] = {
    [OSandroid] = {
       {"-lc", "@rt", "-l:crtend_android.o"},
       [CRTdll] = {"-lc", "@rt", "-l:crtend_so.o"},
+   },
+   [OSfreebsd] = {
+      {"-lc", "@rt", "-l:crtend.o", "-l:crtn.o"},
+      [CRTpie] = {"-lc", "@rt", "-l:crtendS.o", "-l:crtn.o"},
+      [CRTdll] = {"-lc", "@rt", "-l:crtendS.o", "-l:crtn.o"},
    },
 };
 

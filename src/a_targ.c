@@ -51,6 +51,8 @@ parsetriple(TargTriple *trg, const char *str) {
       trg->os = OSlinux;
    } else if (matchstr(&str, "openbsd")) {
       trg->os = OSopenbsd;
+   } else if (matchstr(&str, "freebsd")) {
+      trg->os = OSfreebsd;
    } else if (matchstr(&str, "android")) {
       trg->os = OSandroid;
    } else return 0;
@@ -71,6 +73,7 @@ static const char *const ospredefs[] = {
    [OSlinux] = "__linux\0__linux__\0linux\0" UNIXPREDEFS,
    [OSopenbsd] = "__OpenBSD__\0" UNIXPREDEFS,
    [OSandroid] = "__ANDROID__\0" UNIXPREDEFS,
+   [OSfreebsd] = "__FreeBSD__=12\0" UNIXPREDEFS,
 }, *archpredefs[] = {
    [ISx86_64] = "__x86_64__\0__x86_64\0__amd64__\0__amd64\0",
    [ISaarch64] = "__aarch64__\0__aarch64\0",
@@ -80,8 +83,15 @@ _Static_assert(countof(ospredefs) == NUM_MC_OS, "missing os");
 /* https://gcc.gnu.org/onlinedocs/cpp/Common-Predefined-Macros.html */
 static void
 putpredefmacros(void) {
-   for (const char *s = ospredefs[target.os]; s && *s; s = s + strlen(s)+1)
-      cpp0define(s, NULL);
+   for (const char *s = ospredefs[target.os]; s && *s; s = s + strlen(s)+1) {
+      const char *eq = strchr(s, '=');
+      if (!eq) cpp0define(s, NULL);
+      else {
+         char nam[64];
+         assert(snfmt(nam, sizeof nam, "%S", s, eq - s) < sizeof nam);
+         cpp0define(nam, eq+1);
+      }
+   }
    for (const char *s = archpredefs[target.arch]; s && *s; s = s + strlen(s)+1)
       cpp0define(s, NULL);
    if (ccopt.pie)
@@ -218,6 +228,7 @@ targ_canon_triple(TargTriple tgt) {
                     : tgt.arch == ISaarch64 ? "aarch64" : "unknown";
    const char *os = tgt.os == OSlinux ? "linux"
                   : tgt.os == OSopenbsd ? "openbsd"
+                  : tgt.os == OSfreebsd ? "freebsd"
                   : tgt.os == OSandroid ? "android" : "unknown";
    const char *abi = tgt.abi == ABIgnu ? "gnu"
                    : tgt.abi == ABImusl ? "musl" : NULL;
