@@ -16,29 +16,30 @@ middle of `tcc` and `gcc -O1`.
 [chibicc](https://github.com/rui314/chibicc),
 and backends like [QBE](https://c9x.me/compile/) and [LLVM](https://llvm.org/).
 
-Requirements
-------------
+Building/Installing
+-------------------
+
+Quick start:
+
+```
+git clone https://codeberg.org/lsof/antcc
+cd antcc
+./configure && make
+sudo make install
+```
 
 `antcc` is written in C11 and can be built with any conforming compiler
-toolchain that supports `#pragma once`.
+toolchain that supports `#pragma once`. The driver uses POSIX APIs.
 
-Building
---------
+`./configure` creates `src/hostconfig.h` and `config.mk`. You may wish to customize these
+for your system, or check `./configure --help`.
 
-Run `./configure` to create `hostconfig.h` and `config.mk` for your system.
-
-Build with
+Other make targets:
 
 ```
-make
-#or
-make opt #compile with -O2
-#or
-make dbg #compile with UBsan and Asan
+make opt  #compiles with -O2
+make dbg  #compiles with clang's UBSan and ASan
 ```
-
-Install with `(sudo) make install`.
-
 
 Supported targets
 -----------------
@@ -64,6 +65,7 @@ Usage
 The driver is still incomplete but it mimics that of compilers like gcc, see `--help`.
 `antcc` compiles translation units to object files directly, and the driver
 will invoke an external `ld` command to link to an executable if `-c` isn't passed.
+For more information see the [manpage](https://386s.org/antcc/antcc.1.html).
 
 Cross-compilation is supported in a best-effort basis, cross-compiling object files works
 but an external cross-compiling toolchain for linking is required; the driver
