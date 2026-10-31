@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup as bs, NavigableString
 import datetime as dt
 
 def hhdr(name='', title=None, extra=''):
-    if not title: title = f'antcc doc: {name}'
+    if not title: title = f'antcc doc: {name}' if name != 'index' else 'antcc'
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -93,15 +93,11 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     gx = ap.add_mutually_exclusive_group()
     gx.add_argument('-d', default="doc/", help="path to docs directory")
-    gx.add_argument('-C', help="path to possibly bare git repo; use git cat-file")
     ap.add_argument('-a', '--antcc', default="./antcc", help="path to antcc executable")
     ap.add_argument("outdir", help="directory in which to put generated HTML")
     args = ap.parse_args()
     outdir = args.outdir
-    if args.C:
-        docfiles = [e.split('\t')[-1] for e in exc(['git', 'cat-file', '-p', 'HEAD:doc/']).split('\n') if e]
-    else:
-        docfiles = os.listdir(args.d)
+    docfiles = os.listdir(args.d)
     roff = exc([args.antcc, "--man"])
     os.makedirs(outdir, exist_ok=True)
     for f in docfiles:
