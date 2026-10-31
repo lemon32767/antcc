@@ -193,7 +193,7 @@ optparse(char **args) {
          exit(0);
       } else if (stroneof(arg, "-man\0")) {
          exit(priman());
-      } else if (!strcmp(arg, "dumpmachine")) {
+      } else if (stroneof(arg, "dumpmachine\0print-target-triple\0")) {
          pfmt("%s\n", HOST_TRIPLE);
          exit(0);
       } else if (!strcmp(arg, "-version")) {
@@ -1064,6 +1064,7 @@ static const char h_options[] = {
   "#--man\tGenerate this man page. If *stdout* is an interactive terminal, use "
           "*man*(1) to display it; otherwise, output the raw *roff*(7) document.\n"
   "#-dumpversion \tDump raw version string.\n"
+  "#-print-target-triple\n"
   "#-dumpmachine \tDump host machine target triple.\n"
   "#-keep-temps \tDon't delete temporary files.\n"
 };
