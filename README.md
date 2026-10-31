@@ -52,6 +52,7 @@ Tested and known to work:
  - `x86_64-linux-gnu`
  - `x86_64-linux-musl`
  - `x86_64-unknown-openbsd`
+ - `x86_64-unknown-freebsd`
 
 Semi-working (can self-host, but not passing the external test suites/exhaustively tested)
 
