@@ -121,6 +121,7 @@ enum storageclass {
    _(format,             1, 0, 0)   \
    _(format_arg,         1, 0, 0)   \
    _(alloc_size,         1, 0, 0)   \
+   _(alloc_align,        1, 0, 0)   \
    _(nonnull,            1, 0, 0)   \
    _(malloc,             1, 0, 0)   \
    _(alias,              1, 0, 0)   \

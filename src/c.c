@@ -2258,7 +2258,7 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk) {
    switch (a) {
    case ATTRxxx: break;
    case ATTRused: case ATTRunused: case ATTRwarn_unused_result: case ATTRdeprecated:
-   case ATTRsentinel:
+   case ATTRsentinel: case ATTRformat_arg: case ATTRalloc_align:
       nmaxparam = 1;
       goto Arity;
    case ATTRformat: nmaxparam = 3; goto Arity;
@@ -2270,7 +2270,7 @@ parse1attr(CComp *cm, Attrs *attr, Token *tk) {
    case ATTRalways_inline: case ATTRflatten: case ATTRpure:
    case ATTRconst: case ATTRnothrow: case ATTRmalloc:
    case ATTRmay_alias: case ATTRexternally_visible:
-   case ATTRpacked: case ATTRweak: case ATTRformat_arg:
+   case ATTRpacked: case ATTRweak:
    case ATTRfallthrough: case ATTRnomerge:
 
    Arity:
