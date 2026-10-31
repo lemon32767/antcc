@@ -107,6 +107,9 @@ H float.h << @@@@@@
 H complex.h << @@@@@@
 #pragma once
 
+#ifdef __FreeBSD__
+#define _Complex_I 1.0iF
+#endif
 #include_next <complex.h>
 #undef _Complex_I
 #define _Complex_I 1.0iF
