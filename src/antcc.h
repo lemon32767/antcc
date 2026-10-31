@@ -229,6 +229,7 @@ typedef struct Arena {
 extern Arena *globarena;
 
 Arena *newarena(uint chunksiz);
+void freearena(Arena **);
 void *alloc(Arena **, uint siz, uint align);
 void *allocz(Arena **, uint siz, uint align);
 static inline void *
@@ -236,7 +237,13 @@ alloccopy(Arena **arena, const void *src, uint siz, uint align) {
    if (!siz) return NULL;
    return memcpy(alloc(arena, siz, align), src, siz);
 }
-void freearena(Arena **);
+#define anew(a, T) (T *)alloc((a), sizeof(T), _Alignof(T))
+#define anewz(a, T) (T *)allocz((a), sizeof(T), _Alignof(T))
+#define anewn(a, T, n) (T *)alloc((a), chkx_umul(sizeof(T), (n)), _Alignof(T))
+#define anewnz(a, T, n) (T *)allocz((a), chkx_umul(sizeof(T), (n)), _Alignof(T))
+#define CHKPTR(T, p) (0 ? (T *)0 : (p))
+#define anewcopy(a, T, s) (T *)alloccopy((a), CHKPTR(T, s), sizeof(T), _Alignof(T))
+#define anewcopyn(a, T, s, n) (T *)alloccopy((a), CHKPTR(T, s), chkx_umul(sizeof(T), (n)), _Alignof(T))
 
 /** bitset (u_bits.h) **/
 typedef struct { size_t u; } BitSet;
