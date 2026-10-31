@@ -209,6 +209,10 @@ epricmd(const char **argv) {
    efmt("\n");
 }
 
+#ifndef WCOREDUMP
+#define WCOREDUMP(st) ((st)&0x80)
+#endif
+
 int
 checkwstat(int wstat, const char *thing) {
    if (WIFSIGNALED(wstat)) {
