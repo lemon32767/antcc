@@ -1018,7 +1018,7 @@ static const char h_options[] = {
   "#-iquote <dir>\n"
   "#-isystem <dir>\n"
   "#-idirafter <dir>\n"
-  "-I <dir> \tAdd include path _dir_ with given priority (see _gcc_(1)).\n"
+  "-I <dir> \tAdd include path _dir_ with given priority (see *gcc*(1)).\n"
   "#-no-standard-includes\n"
   "-nostdinc\tSkip standard system include paths.\n"
   "-D_sym_[=_val_] \tDefine macro.\n"

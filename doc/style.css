@@ -1,3 +1,21 @@
+:root {
+  --fg: black;
+  --bg: white;
+  --dim: #999;
+  --a: #553ef2;
+  --a-hov: #e15400;;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: white;
+    --bg: #171a20;
+    --dim: #666;
+    --a: #7e6bff;
+    --a-hov: #e98a50;
+  }
+}
+
 body {
   font-family: Helvetica, sans-serif;
   padding: 0 10px;
@@ -11,37 +29,47 @@ body {
   line-height: 1.5;
 }
 
+a, a:visited {
+  color: var(--a);
+}
+
+a:hover {
+  color: var(--a-hov);
+}
+
 div.man {
-    font-family: monospace;
-    font-size: 14px;
+  font-family: monospace;
+  font-size: 14px;
 }
 
 table.head, table.foot { width: 100%; }
 td.head-rtitle, td.foot-os { text-align: right; }
 td.head-vol { text-align: center; }
 div.man span.tb {
-    margin-left: 110px;
+  margin-left: 110px;
 }
 .Nd, .Bf, .Op { display: inline; }
 .Pa, .Ad { font-style: italic; }
 h2.Ss {
-    font-size: 16px;
-    margin-left: 1em;
+  font-size: 16px;
+  margin-left: 1em;
 }
 .Sh > .Pp,.Bl-tag {
-    margin-left: 2em;
+  margin-left: 2em;
 }
 .Ms { font-weight: bold; }
 .Bl-diag > dt { font-weight: bold; }
 code.Nm, .Fl, .Cm, .Ic, code.In, .Fd, .Fn, .Cd {
-    font-weight: bold;
-    font-family: inherit; 
+  font-weight: bold;
+  font-family: inherit;
 }
 
 table.mainfoot {
-    font-style: italic;
-    color: #999;
+  font-style: italic;
+  color: var(--dim);
 }
 table td.mainfoot {
-    padding-right: 4em;
+  padding-right: 4em;
 }
+
+/* vim:set ts=2 sw=2 expandtab: */
