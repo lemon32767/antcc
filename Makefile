@@ -48,7 +48,7 @@ tool/depgen: tool/depgen.c
 	$(TOOLCC) -Wall -g -o $@ tool/depgen.c
 
 $(OUT): tool/depgen $(obj)
-	$(CC) $(CFLAGS) -o $@ $(obj)
+	$(CC) -o $@ 	$(CFLAGS) $(obj)
 
 # hack to make sure version.h is kept up to date: always gen version, but to a temp file
 # that is moved to the real version.h only if it differs, to avoid rebuilds every `make`
