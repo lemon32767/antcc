@@ -81,5 +81,7 @@ The backend performs the following main passes:
   - Code emission (`t_x86-64_emit.c`): binary code for the target architecture is
     emitted directly (not textual assembly). Relocations are deferred to the
     object file interface too.
+  - Object file writing (`o_elf.c`): finally, all headers and sections are emitted according to the
+    object file format.
 
 [ ... ]
