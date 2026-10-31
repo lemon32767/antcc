@@ -222,6 +222,7 @@ else
     addlibdir "$android_libdir"
     addlibdir "$crtdir"
     addlibdir "$(findlibdir libc.so)"
+    addlibdir "$sysroot/usr/local/lib"
     addlibdir "$sysroot/usr/lib"
     addlibdir "$sysroot/lib"
 fi
