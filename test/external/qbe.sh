@@ -7,7 +7,7 @@ ver=1.3
 get "https://c9x.me/compile/release/qbe-$ver.tar.xz" qbe-$ver
 cd qbe-$ver
 
-patch sed -i 's/CC *=.*$//' Makefile
+patch sed -i.bak 's/CC *=.*$//' Makefile
 make clean
 CC=$antcc make
 ./tools/test.sh all
