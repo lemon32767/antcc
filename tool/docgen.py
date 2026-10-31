@@ -1,6 +1,11 @@
 #!/bin/env python3
-import subprocess, os, sys, re, shutil, io
+
+import subprocess, os, sys, re, shutil, io, posixpath
 import argparse, markdown
+from urllib.parse import urlsplit, urlunsplit, unquote, quote
+from markdown.extensions import Extension
+from markdown.extensions.toc import TocExtension
+from markdown.treeprocessors import Treeprocessor
 from bs4 import BeautifulSoup as bs, NavigableString
 import datetime as dt
 
@@ -37,6 +42,38 @@ NAV="""
 </nav><hr>
 """
 
+# rewrite relative links to git repo
+def rewrite_relative(href):
+    REPO_BASE = 'https://git.386s.org/antcc/'
+    FILE_DIR = 'doc/'
+    if not href or href.startswith(("/", "#", "?")):
+        return href
+    parts = urlsplit(href)
+    target = posixpath.normpath(posixpath.join(FILE_DIR, unquote(parts.path)))
+    if parts.scheme or parts.netloc or not parts.path or target == '.':
+        return href
+    ext = posixpath.splitext(target)[1].lower()
+    if target.startswith(FILE_DIR) and ext == '.html':
+        return href
+    if ext in (".md", ".txt"):
+        route = "about/"
+    else:
+        route = "tree/"
+    return urlunsplit(("", "", REPO_BASE + route + quote(target),
+               parts.query, parts.fragment))
+
+class RelativeLinks(Extension):
+    def extendMarkdown(self, md):
+        class Pp(Treeprocessor):
+            def run(self, root):
+                for anchor in root.iter("a"):
+                    href = anchor.get("href")
+                    rewritten = rewrite_relative(href)
+                    if rewritten != href:
+                        anchor.set("href", rewritten)
+                return root
+        md.treeprocessors.register(Pp(md.parser), 'relative-links', 5)
+
 def exc(cmd, input=None):
     p = subprocess.run(cmd, capture_output=True, input=input.encode('utf-8') if input else None) 
     return p.stdout.decode('utf-8')
@@ -47,8 +84,15 @@ def gen(src, to):
         print(f'markdown {src} -> {to}')
         name = re.sub(r'\..+$', '', src).split('/')[-1]
         md = io.BytesIO()
-        markdown.markdownFromFile(input=src, output=md, encoding='utf-8')
-        html = hhdr(name, extra=NAV) + md.getvalue().decode('utf-8') + hftr(src)
+        toc = name != 'index'
+        markdown.markdownFromFile(input=src, output=md, encoding='utf-8',
+                                  extensions = ["markdown.extensions.fenced_code",
+                                                "markdown.extensions.codehilite",
+                                                "markdown.extensions.tables",
+                                                "markdown.extensions.sane_lists",
+                                                TocExtension(anchorlink=True) if toc else None,
+                                                RelativeLinks()])
+        html = hhdr(name, extra=NAV if name != 'index' else '') + md.getvalue().decode('utf-8') + hftr(src)
         with open(to, 'w') as f:
             f.write(html)
     elif ft == '.html' or ft == '.css':

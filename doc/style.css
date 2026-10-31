@@ -1,18 +1,22 @@
 :root {
   --fg: black;
   --bg: white;
+  --code-bg: #f0f0f0;
   --dim: #999;
   --a: #553ef2;
   --a-hov: #e15400;;
+  --border1: #ccc;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --fg: white;
     --bg: #171a20;
+    --code-bg: #1d2027;
     --dim: #666;
     --a: #7e6bff;
     --a-hov: #e98a50;
+    --border1: #444;
   }
 }
 
@@ -35,6 +39,13 @@ a, a:visited {
 
 a:hover {
   color: var(--a-hov);
+}
+
+a.toclink {
+  color: var(--fg);
+}
+a.toclink:hover {
+  color: var(--a);
 }
 
 div.man {
@@ -62,6 +73,14 @@ h2.Ss {
 code.Nm, .Fl, .Cm, .Ic, code.In, .Fd, .Fn, .Cd {
   font-weight: bold;
   font-family: inherit;
+}
+
+code {
+  background: var(--code-bg);
+  border: 1px dotted var(--border1);
+  font-size: 90%;
+  border-radius: 3px;
+  padding: 2px 2px;
 }
 
 table.mainfoot {
