@@ -148,7 +148,7 @@ enum mcos {
    OSandroid,
    NUM_MC_OS,
 };
-enum mcabi { ABInone, ABIgnu, ABImusl };
+enum mcabi { ABInone, ABIgnu, ABImusl, NUM_MC_ABI };
 
 typedef struct TargTriple {
    enum mcarch arch;
@@ -159,7 +159,8 @@ extern TargTriple target;
 enum objkind { OBJELF };
 extern const struct MCTarg *mctarg;
 bool targ_init(const char *, const TargTriple *dfault);
-const char *targ_canon_triple(void);
+const char *targ_canon_triple(TargTriple);
+const char **targ_list_triples(int *n);
 
 /** shared by IR and OBJ */
 enum symflags {

@@ -212,19 +212,37 @@ targ_init(const char *starg, const TargTriple *dfault) {
 }
 
 const char *
-targ_canon_triple(void) {
-   static char buf[100];
-   if (*buf) return buf;
-   const char *arch = target.arch == ISx86_64 ? "x86_64"
-                    : target.arch == ISaarch64 ? "aarch64" : "unknown";
-   const char *os = target.os == OSlinux ? "linux"
-                  : target.os == OSopenbsd ? "openbsd"
-                  : target.os == OSandroid ? "android" : "unknown";
-   const char *abi = target.abi == ABIgnu ? "gnu"
-                   : target.abi == ABImusl ? "musl" : NULL;
+targ_canon_triple(TargTriple tgt) {
+   char buf[100];
+   const char *arch = tgt.arch == ISx86_64 ? "x86_64"
+                    : tgt.arch == ISaarch64 ? "aarch64" : "unknown";
+   const char *os = tgt.os == OSlinux ? "linux"
+                  : tgt.os == OSopenbsd ? "openbsd"
+                  : tgt.os == OSandroid ? "android" : "unknown";
+   const char *abi = tgt.abi == ABIgnu ? "gnu"
+                   : tgt.abi == ABImusl ? "musl" : NULL;
+   int n;
    if (abi)
-      snfmt(buf, sizeof buf, "%s-%s-%s", arch, os, abi);
+      n = snfmt(buf, sizeof buf, "%s-%s-%s", arch, os, abi);
    else
-      snfmt(buf, sizeof buf, "%s-%s", arch, os);
-   return buf;
+      n = snfmt(buf, sizeof buf, "%s-%s", arch, os);
+   return memcpy(xmalloc(n+1), buf, n+1);
+}
+
+const char **
+targ_list_triples(int *n) {
+   vec_of(const char *) ts;
+   for (int i = 0; i < countof(targs); ++i) {
+      for (int o = 1; o < NUM_MC_OS; ++o) {
+         if (!(targs[i].oss & (1<<o))) continue;
+         for (int a = (o == OSlinux ? 1 : 0); a < (o == OSlinux ? NUM_MC_ABI : 1); ++a) {
+            if (!(targs[i].abis & (1<<a))) continue;
+            TargTriple tgt = {.arch = targs[i].arch, .os = o, .abi = a};
+            const char * s = targ_canon_triple(tgt);
+            vpush(&ts, s);
+         }
+      }
+   }
+   if (n) *n = ts.n;
+   return ts.p;
 }

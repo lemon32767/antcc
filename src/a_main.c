@@ -165,6 +165,8 @@ priinfo(int extra) {
    LISTITEM(linkargs,);
 }
 
+static const TargTriple host_targ;
+
 static void
 optparse(char **args) {
    char *arg;
@@ -201,6 +203,19 @@ optparse(char **args) {
          exit(0);
       } else if (!strcmp(arg, "dumpversion")) {
          pfmt("%s\n", ANTCC_VERSION_STR);
+         exit(0);
+      } else if (!strcmp(arg, "print-targets")) {
+         int n;
+         const char **targets = targ_list_triples(&n);
+         const char *native = targ_canon_triple(host_targ);
+         pfmt("Targets:\n");
+         pfmt("  %s (native)\n", native);
+         if (n) pfmt(" cross-compilation, may require external toolchain:\n");
+         for (int i = 0; i < n; ++i) {
+            const char *t = targets[i];
+            if (!strcmp(t, native)) continue;
+            pfmt("  %s\n", t);
+         }
          exit(0);
       } else if (!strcmp(arg, "keep-temps")) {
          keeptemps = 1;
@@ -1064,6 +1079,8 @@ static const char h_options[] = {
   "#--man\tGenerate this man page. If *stdout* is an interactive terminal, use "
           "*man*(1) to display it; otherwise, output the raw *roff*(7) document.\n"
   "#-dumpversion \tDump raw version string.\n"
+  "#-print-targets \tPrint recognized compilation target triples.\n"
+  "#-print-effective-triple\n"
   "#-print-target-triple\n"
   "#-dumpmachine \tDump host machine target triple.\n"
   "#-keep-temps \tDon't delete temporary files.\n"

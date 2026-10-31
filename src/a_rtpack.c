@@ -283,7 +283,7 @@ rtpack_getlibantrt1(const char *ar) {
 
    const char *root = cacheroot(), *dir = NULL, *path = NULL, *targ;
    if (!root) goto End;
-   targ = targ_canon_triple();
+   targ = targ_canon_triple(target);
    dir = rtpackdirpath(root, targ);
    path = afmt(&globarena, "%s/libantrt1.a", dir);
    vrbfmt("rt cache dir: %s\n", dir);
