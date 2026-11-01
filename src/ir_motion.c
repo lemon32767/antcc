@@ -1,5 +1,6 @@
 #include "ir.h"
 #include "u_bits.h"
+#include "u_chkarith.h"
 
 static bool ispinned(Instr *ins);
 
@@ -173,7 +174,7 @@ gcm(Function *fn) {
    FREQUIRE(FNDOM | FNRPO | FNBLKID | FNLOOP | FNUSE);
    GCM gcm = {
       anewbitset(fn->passarena, ninstrtab),
-      allocz(fn->passarena, ninstrtab * sizeof(Block *), 0),
+      anewnz(fn->passarena, Block *, ninstrtab),
    };
 
    Block *b = fn->entry;

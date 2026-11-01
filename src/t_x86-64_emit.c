@@ -1,6 +1,7 @@
 #include "t_x86-64.h"
 #include "obj.h"
 #include "u_endian.h"
+#include "u_chkarith.h"
 
 /** Instruction operands **
  *
@@ -1569,7 +1570,7 @@ emitbin(Function *fn, uchar **pcode) {
       } while ((blk = blk->lprev) != fn->entry);
    }
 
-   blkaddr = allocz(fn->passarena, fn->nblk * sizeof *blkaddr, 0);
+   blkaddr = anewnz(fn->passarena, struct BlkAddr, fn->nblk);
 
    Block *blk = fn->entry;
    do {

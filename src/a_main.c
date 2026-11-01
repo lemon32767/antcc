@@ -24,7 +24,7 @@ static CInclPath **cinclpath_tails[5];
 
 static void
 addinclpath(int ord, const char *path) {
-   CInclPath *p = alloc(&globarena, sizeof *p, 0);
+   CInclPath *p = anew(&globarena, CInclPath);
    assert((uint)ord < countof(cinclpaths));
    p->path = path;
    p->next = NULL;

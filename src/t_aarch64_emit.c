@@ -1,6 +1,7 @@
 #include "t_aarch64.h"
 #include "obj.h"
 #include "u_endian.h"
+#include "u_chkarith.h"
 
 /* References:
  *    ARM ARM https://developer.arm.com/documentation/ddi0628/aa/?lang=en
@@ -1249,7 +1250,7 @@ emitbin(Function *fn, uchar **pcode) {
       } while ((blk = blk->lprev) != fn->entry);
    }
 
-   blkaddr = allocz(fn->passarena, fn->nblk * sizeof *blkaddr, 0);
+   blkaddr = anewnz(fn->passarena, struct BlkAddr, fn->nblk);
    for (int i = 0; i < fn->nblk; ++i)
       blkaddr[i].relreloc = -1u;
 

@@ -1,5 +1,6 @@
 #include "ir.h"
 #include "obj.h"
+#include "u_chkarith.h"
 
 typedef struct SavedFunc {
    struct SavedFunc *next;
@@ -91,25 +92,25 @@ Save:
    if (dbgp(fn)) {
       bfmt(ccopt.dbg.out, "> stashing '%s' for inlining\n", fn->name);
    }
-   SavedFunc *sv = allocz(&savearena, sizeof *sv, 0);
+   SavedFunc *sv = anewz(&savearena, SavedFunc);
    sv->name = fn->name;
    sv->symflags = fn->symflags;
    sv->inlhint = fn->inlhint;
    sv->fnty = fn->fnty, sv->retty = fn->retty;
    if (fn->abiarg)
-      sv->abiarg = alloccopy(&savearena, fn->abiarg, sizeof *sv->abiarg * fn->nabiarg, 0);
+      sv->abiarg = anewcopyn(&savearena, ABIArg, fn->abiarg, fn->nabiarg);
    sv->nabiarg = fn->nabiarg;
    sv->nabiret = fn->nabiret;
    memcpy(sv->abiret, fn->abiret, sizeof sv->abiret);
    Block *_bmap[MAXINLFNNBLK],
          **bmap = fn->nblk < MAXINLFNNBLK ? _bmap
-                                          : alloc(fn->passarena, fn->nblk * sizeof *bmap, 0);
+                                          : anewn(fn->passarena, Block *, fn->nblk);
    Block *b = fn->entry;
    sv->nblk = fn->nblk;
    int id = 0;
    do {
       b->id = id++;
-      Block *q = alloccopy(&savearena, b, sizeof *b, 0);
+      Block *q = anewcopy(&savearena, Block, b);
       q->lprev = NULL;
       q->idom = NULL;
       bmap[b->id] = q;
@@ -128,18 +129,18 @@ Save:
       b->lnext = b->lnext == fn->entry ? NULL : bmap[b->lnext->id];
    } while ((b = b->lnext));
 
-   sv->instrtab = alloccopy(&savearena, instrtab, sizeof *instrtab * (sv->ninstrtab = ninstrtab), 0);
-   sv->contab = alloccopy(&savearena, contab.p, sizeof *contab.p * (sv->ncontab = contab.n), 0);
+   sv->instrtab = anewcopyn(&savearena, Instr, instrtab, (sv->ninstrtab = ninstrtab));
+   sv->contab = anewcopyn(&savearena, IRCon, contab.p, (sv->ncontab = contab.n));
    if ((sv->ncalltab = calltab.n)) {
-      sv->calltab = alloccopy(&savearena, calltab.p, sizeof *calltab.p * calltab.n, 0);
+      sv->calltab = anewcopyn(&savearena, IRCall, calltab.p, calltab.n);
       for (int i = 0; i < calltab.n; ++i) {
          if (sv->calltab[i].abiarg)
-            sv->calltab[i].abiarg = alloccopy(&savearena, sv->calltab[i].abiarg,
-                  sv->calltab[i].narg * sizeof *sv->calltab[i].abiarg, 0);
+            sv->calltab[i].abiarg = anewcopyn(&savearena, ABIArg, sv->calltab[i].abiarg,
+                  sv->calltab[i].narg);
       }
    }
    if ((sv->nphitab = phitab.n)) {
-      sv->phitab = alloccopy(&savearena, phitab.p, sizeof *phitab.p * phitab.n, 0);
+      sv->phitab = anewcopyn(&savearena, Ref *, phitab.p, phitab.n);
       phitab.n = 0;
    }
    *savedfns.ltail = sv, savedfns.ltail = &sv->next;
@@ -242,7 +243,7 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv, bool threadretjmp) {
    }
 
    Block *bmap[MAXINLFNNBLK];
-   Ref *instrmap = allocz(fn->passarena, sv->ninstrtab * sizeof *instrmap, 0);
+   Ref *instrmap = anewnz(fn->passarena, Ref, sv->ninstrtab);
    for (Block *b = sv->entry; b; b = b->lnext) {
       bmap[b->id] = newblk(fn);
    }

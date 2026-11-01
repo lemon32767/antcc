@@ -168,7 +168,9 @@ alloc(Arena **par, uint siz, uint align) {
       (*par)->prev = new;
       return new->mem;
    }
-   align = align ? align : sizeof(void *);
+   if (align) assert(ispo2(align) && align <= sizeof(void *));
+   else align = sizeof(void *);
+
    idx = (uchar *)alignup((uintptr_t)&(*par)->mem[(*par)->n], align) - (*par)->mem;
    if ((*par)->cap - idx >= siz) {
       (*par)->n = idx + siz;

@@ -1,5 +1,6 @@
 #include "ir.h"
 #include "u_bits.h"
+#include "u_chkarith.h"
 
 /* ref: https://llvm.org/docs/LoopTerminology.html */
 struct Loop {
@@ -265,7 +266,7 @@ loopinv(Function *fn, Loop *l) {
 
    /* copy loop exit condition body from H0 to L1 */
    extern int ninstrtab;
-   Ref *instrmap = allocz(fn->passarena, (ninstrtab*2)*sizeof *instrmap, 0);
+   Ref *instrmap = anewnz(fn->passarena, Ref, ninstrtab*2);
    /* ... rewiring H0 phis to their L0 inputs */
    for (int i = 0; i < head1->phi.n; ++i) {
       int phi = head1->phi.p[i];
@@ -494,7 +495,7 @@ static void
 putiv(Function *fn, Loop *l, IndVar *iv) {
    if (l->niv == l->ivN/2) { /* rehash */
       IndVar **old = l->ivht;
-      l->ivht = allocz(fn->passarena, (l->ivN *= 2) * sizeof *l->ivht, 0);
+      l->ivht = anewnz(fn->passarena, IndVar *, l->ivN *= 2);
       for (int n = l->niv, m = l->ivN - 1, h; n > 0; ++old) {
          if (!*old) continue;
          for (h = (*old)->value.i; l->ivht[h &= m]; ++h) { }
@@ -503,7 +504,7 @@ putiv(Function *fn, Loop *l, IndVar *iv) {
    }
    int m = l->ivN - 1, h;
    for (h = iv->value.i; l->ivht[h &= m]; ++h) { }
-   iv = l->ivht[h] = alloccopy(fn->passarena, iv, sizeof *iv, 0);
+   iv = l->ivht[h] = anewcopy(fn->passarena, IndVar, iv);
    iv->mark = 0;
    iv->mat = 0;
    iv->nmat = 0;
@@ -564,7 +565,7 @@ static void
 findindvars(Function *fn, Loop *l) {
    extern int ninstrtab;
    if (!(fn->prop&FNBLKID)) fillblkids(fn);
-   l->ivht = allocz(fn->passarena, (l->ivN = 32) * sizeof *l->ivht, 0);
+   l->ivht = anewnz(fn->passarena, IndVar *, l->ivN = 32);
    l->iv0 = NULL;
    l->ivtail = NULL;
    Block *hd = l->head;
@@ -753,7 +754,7 @@ detectcounted(Function *fn, Loop *l) {
    Ref initv = ivinitv(fn, l, iv);
    dbgp(fn, "limitcheck iv=%r, init=%r, limit=%r\n", iv->value, initv, ct->limit);
    ct->counter = iv;
-   l->counted = alloccopy(fn->passarena, ct, sizeof ct, 0);
+   l->counted = anewcopy(fn->passarena, Counted, ct);
    dbgp(fn, "got counted loop @%d-@%d; with trips=%r\n", l->head->id, l->end->id, l->counted->trips);
    return 1;
 }
@@ -1131,7 +1132,7 @@ fillloop(Function *fn) {
       /* do not record irreducible cyles */
       if (iscyc && !badloop) {
          assert(b != fn->entry);
-         l = alloccopy(fn->passarena, l, sizeof *l, 0);
+         l = anewcopy(fn->passarena, Loop, l);
 
          /* record each block in body as belonging to loop */
          for (Block *in = l->end; in != b->lprev; in = in->lprev) {

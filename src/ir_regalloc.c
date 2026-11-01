@@ -1,5 +1,6 @@
 #include "ir.h"
 #include "u_bits.h"
+#include "u_chkarith.h"
 
 /** Implements linear scan register allocation **/
 /* Some references:
@@ -465,7 +466,7 @@ usereg(RegAlloc *ra, int reg, Block *blk, int pos) {
          return;
       }
    }
-   fxit = alloc(ra->arena, sizeof *fxit, 0);
+   fxit = anew(ra->arena, FixInterval);
    fxit->next = ra->fixed;
    fxit->range = (Range) {blk->inumstart, pos};
    fxit->rs = BIT(reg);
@@ -500,7 +501,7 @@ defreg(RegAlloc *ra, int reg, int pos) {
 
 static void
 clobregs(RegAlloc *ra, regset rs, int pos) {
-   FixInterval *fxit = alloc(ra->arena, sizeof *fxit, 0);
+   FixInterval *fxit = anew(ra->arena, FixInterval);
    FixInterval **at = &ra->fixed;
    fxit->range = (Range){pos, pos};
    fxit->rs = rs;
@@ -515,7 +516,7 @@ static void
 buildintervals(RegAlloc *ra) {
    extern int ninstrtab;
    Block *blk, *last;
-   BitSet **livein = alloc(ra->arena, ra->fn->nblk * sizeof *livein, 0);
+   BitSet **livein = anewn(ra->arena, BitSet *, ra->fn->nblk);
    struct Loop {
       struct Loop *next;
       Block *hdr, *end;
@@ -524,7 +525,7 @@ buildintervals(RegAlloc *ra) {
    for (int i = 0; i < ra->fn->nblk; ++i)
       livein[i] = anewbitset(ra->arena, ninstrtab);
    size_t livebssize = BSSIZE(ninstrtab);
-   ra->intertab = allocz(ra->arena, ninstrtab * sizeof *ra->intertab, 0);
+   ra->intertab = anewnz(ra->arena, Interval, ninstrtab);
    ra->ninter = ninstrtab;
 
    uint n = numberinstrs(ra->fn);
@@ -711,7 +712,7 @@ buildintervals(RegAlloc *ra) {
          }
          DBG("loop header @%d (to @%d)\n", blk->id, loopend->id);
          /* append to loop list */
-         loops = alloccopy(ra->arena, &(struct Loop){loops, blk, loopend}, sizeof *loops, 0);
+         loops = anewcopy(ra->arena, struct Loop, (&(struct Loop){loops, blk, loopend}));
          for (uint opd = 0; bsiter(&opd, live, livebssize); ++opd) {
             // DBG("  i have live %%%d\n", opd);
             addrange(ra, opd, (Range){blk->inumstart, loopend->inumstart + loopend->ins.n+1}, -1);

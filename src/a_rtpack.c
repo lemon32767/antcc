@@ -23,6 +23,7 @@
 #undef assert // miniz includes <assert.h>
 #undef static_assert
 #include "antcc.h"
+#include "u_chkarith.h"
 #include "version.h"
 #include "obj.h"
 #include "a_sys.h"
@@ -130,7 +131,7 @@ static const char *arbin;
 static bool
 ar(const char *out, char **objs, int nobj) {
    int ncmd = 3 + nobj + 1;
-   const char **cmd = alloc(&arena, ncmd * sizeof *cmd, 0);
+   const char **cmd = anewn(&arena, const char *, ncmd);
 
    cmd[0] = arbin, cmd[1] = "-rcs", cmd[2] = out;
    memcpy(cmd+3, objs, nobj * sizeof *cmd);
@@ -178,8 +179,8 @@ compileaziplib(const char *dir, const char *ver, const char *hash,
       const char *ext = fileext(st.m_filename);
       if (strcmp(ext, "h") != 0 && strcmp(ext, "inc") != 0) continue;
       EmbedFile file = {
-         alloccopy(&arena, st.m_filename, strlen(st.m_filename)+1, 0),
-         alloc(&arena, st.m_uncomp_size + pad, 0),
+         alloccopy(&arena, st.m_filename, strlen(st.m_filename)+1, 1),
+         alloc(&arena, st.m_uncomp_size + pad, 1),
          st.m_uncomp_size
       };
       memset((char *)file.s + st.m_uncomp_size, 0, pad);

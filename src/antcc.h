@@ -249,7 +249,7 @@ alloccopy(Arena **arena, const void *src, uint siz, uint align) {
 typedef struct { size_t u; } BitSet;
 enum { BSNBIT = 8 * sizeof(BitSet) };
 #define BSSIZE(nbit) ((nbit)/BSNBIT + ((nbit)%BSNBIT != 0))
-#define anewbitset(arena, nbit) (BitSet *)allocz(arena, BSSIZE(nbit) * sizeof(BitSet), 0)
+#define anewbitset(arena, nbit) (BitSet *)allocz(arena, BSSIZE(nbit) * sizeof(BitSet), _Alignof(BitSet))
 
 /** vec **/
 struct vecbase { void *p; uint n; uint cap : 31, dyn : 1; };

@@ -105,7 +105,7 @@ irinit(Function *fn) {
       cls2load[KPTR] = targ_64bit ? Oloadi64 : Oloads32;
       cls2store[KPTR] = targ_64bit ? Ostorei64 : Ostorei32;
    }
-   fn->entry = fn->curblk = allocz(fn->arena, sizeof(Block), 0);
+   fn->entry = fn->curblk = anewz(fn->arena, Block);
    fn->nblk = 1;
    fn->entry->lprev = fn->entry->lnext = fn->entry;
    fn->prop = FNUSE; /* builder keeps this */
@@ -309,7 +309,7 @@ enum {
 
 Block *
 newblk(Function *fn) {
-   Block *blk = allocz(fn->arena, sizeof(Block), 0);
+   Block *blk = anewz(fn->arena, Block);
    blk->id = BLKUNINIT;
    return blk;
 }
@@ -445,7 +445,7 @@ adduse(Block *ublk, int ui, Ref r) {
       use = usefreelist;
       usefreelist = usefreelist->next;
    } else {
-      use = alloc(usearena, sizeof *use, 0);
+      use = anew(usearena, IRUse);
    }
    assert(use != instruse[r.i]);
    use->next = instruse[r.i];

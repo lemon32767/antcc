@@ -1,4 +1,5 @@
 #include "ir.h"
+#include "u_chkarith.h"
 
 static int
 mulk(Instr *ins, Block *blk, int *curi) {
@@ -244,7 +245,7 @@ int
 simpl(Function *fn) {
    FREQUIRE(FNUSE);
    int blkchange = 0;
-   Block **jmpfinal = allocz(fn->passarena, fn->nblk * sizeof *jmpfinal, 0);
+   Block **jmpfinal = anewnz(fn->passarena, Block *, fn->nblk);
    Block *blk = fn->entry;
    int changed = 0;
    bool cleancfg = 0;

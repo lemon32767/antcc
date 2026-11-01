@@ -1,5 +1,6 @@
 #include "ir.h"
 #include "u_bits.h"
+#include "u_chkarith.h"
 
 /* Implements algorithm in 'Simple and Efficient Construction of Static Single Assignment' (Braun et al) */
 
@@ -216,7 +217,7 @@ joinabstract(Ref a, Ref b) {
 static void
 delredundantphis(SSABuilder *sb, Function *fn) {
    extern int ninstrtab;
-   Ref *abstracts = allocz(sb->arena, ninstrtab * sizeof *abstracts, 0);
+   Ref *abstracts = anewnz(sb->arena, Ref, ninstrtab);
    int candidate = 0;
    for (bool chg = 1; chg;) {
       chg = 0;
@@ -262,7 +263,7 @@ mem2reg(Function *fn) {
    sb.sealed = anewbitset(sb.arena, fn->nblk);
    sb.marked = anewbitset(sb.arena, fn->nblk);
    extern int ninstrtab;
-   sb.vars = allocz(sb.arena, ninstrtab * sizeof *sb.vars, 0);
+   sb.vars = anewnz(sb.arena, struct Var *, ninstrtab);
    sortrpo(fn);
 
    static void *DEAD = "X";

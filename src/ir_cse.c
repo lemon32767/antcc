@@ -1,4 +1,5 @@
 #include "ir.h"
+#include "u_chkarith.h"
 #include "u_hash.h"
 
 static inline bool
@@ -61,7 +62,7 @@ cselim(Function *fn) {
    bool any = 0;
    extern int ninstrtab;
    for (ninsht = 32; ninsht <= ninstrtab; ninsht *= 2) ;
-   insht = allocz(fn->passarena, ninsht * sizeof *insht, 0);
+   insht = anewnz(fn->passarena, struct Ht, ninsht);
    int memno = 0, cutoff = 0;
    Block *blk = fn->entry;
    do {

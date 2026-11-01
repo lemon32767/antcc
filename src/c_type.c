@@ -1,4 +1,5 @@
 #include "c_type.h"
+#include "u_chkarith.h"
 #include "u_hash.h"
 
 TypeData typedata[1<<13];
@@ -110,17 +111,17 @@ interntd(const TypeData *td) {
          case TYENUM:
             assert(!(td->flag & TFUNKNOWN) || (!td->var && !td->siz));
             if (slot->var)
-               slot->var = alloccopy(&datarena, td->var, nmemb * sizeof *slot->var, 0);
+               slot->var = anewcopyn(&datarena, EnumVar, td->var, nmemb);
             break;
          case TYSTRUCT:
          case TYUNION:
             assert(!(td->flag & TFUNKNOWN) || (td->nmemb == 0 && !td->siz));
             if (slot->fld)
-               slot->fld = alloccopy(&datarena, td->fld, nmemb * sizeof *slot->fld, 0);
+               slot->fld = anewcopyn(&datarena, NamedField, td->fld, nmemb);
             break;
          case TYFUNC:
             if (slot->param)
-               slot->param = alloccopy(&datarena, td->param, nmemb * sizeof *slot->param, 0);
+               slot->param = anewcopyn(&datarena, Type, td->param, nmemb);
          }
          return i;
       } else if (tdequ(slot, td)) {

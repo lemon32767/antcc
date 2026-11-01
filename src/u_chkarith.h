@@ -8,7 +8,7 @@ chk_umul(uint *r, uint x, uint y) {
    return !__builtin_mul_overflow(x, y, r);
 #else
    u64int z = (u64int) x * y;
-   if (z >> 32) return 0;
+   if (z > ~0u) return 0;
    return *r = z, 1;
 #endif
 }

@@ -2,6 +2,7 @@
 #include "c_lex.h"
 #include "u_endian.h"
 #include "u_bits.h"
+#include "u_chkarith.h"
 #include "ir.h"
 #include "obj.h"
 
@@ -761,11 +762,11 @@ bintypecheck(const Span *span, enum toktag tt, Expr *lhs, Expr *rhs) {
 
 static Expr *
 exprdup(CComp *cm, const Expr *e) {
-   return alloccopy(&cm->exarena, e, sizeof *e, 0);
+   return anewcopy(&cm->exarena, Expr, e);
 }
 static Expr *
 exprdup2(CComp *cm, const Expr *e1, const Expr *e2) {
-   Expr *r = alloc(&cm->exarena, 2*sizeof *r, 0);
+   Expr *r = anewn(&cm->exarena, Expr, 2);
    r[0] = *e1, r[1] = *e2;
    return r;
 }
@@ -845,7 +846,7 @@ callexpr(CComp *cm, const Span *span_, const Expr *callee) {
    if (printsig) note(&callee->span, "function signature is '%ty'", ty);
 
    ex = mkexpr(ECALL, span, ty.t == TYFUNC ? td->ret : ty, .narg = args.n,
-               .sub = alloc(&cm->exarena, (args.n+1)*sizeof(Expr), 0));
+               .sub = anewn(&cm->exarena, Expr, args.n+1));
    ex.sub[0] = *callee;
    memcpy(ex.sub+1, args.p, args.n*sizeof(Expr));
    vfree(&args);
@@ -1445,7 +1446,7 @@ Unary:
             error(&span, "incompatible types in conditional expression: '%ty', '%ty'", etrue->ty, rhs.ty);
             ty = etrue->ty;
          }
-         Expr *sub = alloc(&cm->exarena, (3 - elvis)*sizeof*sub, 0);
+         Expr *sub = anewn(&cm->exarena, Expr, 3 - elvis);
          sub[0] = ex;
          if (elvis) sub[1] = rhs;
          else sub[1] = tmp, sub[2] = rhs;
@@ -1701,7 +1702,7 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
             objreloc(sym, sf, targ_64bit ? REL_ABS64 : REL_ABS32,
                      ip->sec, ip->off + off, addend);
          } else {
-            InitReloc *rel = alloc(ip->arena, sizeof *rel, 0);
+            InitReloc *rel = anew(ip->arena, InitReloc);
             rel->link = ip->drel;
             rel->sym = sym;
             rel->off = off;
@@ -1718,7 +1719,7 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
          .bitsiz = bitsiz,
          .bitoff = bitoff,
          .ex = *ex
-      }, *new = alloccopy(&cm->exarena, &val, sizeof val, 0);
+      }, *new = anewcopy(&cm->exarena, InitElem, &val);
       assert(ex->ty.bits == ty.bits);
       *init->tail = new;
       init->tail = &new->next;
@@ -2107,7 +2108,7 @@ initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, enum symflags sym
       if (siz && siz <= 64)
          res.zero->u &= ~0ull >> (64 - siz);
 
-      return mkexpr(EINIT, span, *ty, .init = alloccopy(&cm->exarena, &res, sizeof res, 0));
+      return mkexpr(EINIT, span, *ty, .init = anewcopy(&cm->exarena, Init, &res));
    }
 }
 
@@ -3203,7 +3204,7 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
          node.variadic = 0;
          node.kandr = 1;
          node.npar = 0;
-         envdown(cm, allocz(&cm->fnarena, sizeof(Env), 0));
+         envdown(cm, anewz(&cm->fnarena, Env));
          declinsert(ptr->prev, &node);
          joinspan(&span->ex, tk.span.ex);
          break;
@@ -3266,7 +3267,7 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
          if (ccopt.cstd < STDC23 && !isdecltok(cm)) {
             node.kandr = 1;
          }
-         envdown(cm, allocz(&cm->fnarena, sizeof(Env), 0));
+         envdown(cm, anewz(&cm->fnarena, Env));
 
          if (!match(cm, &tk, ')')) for (;;) {
             if (match(cm, &tk, TKDOTS)) {
@@ -3382,8 +3383,8 @@ declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0, uint align) {
                   decl.ty = mkvlarrtype(decl.ty, decl.qual, siz.bits);
                } else {
                   decl.ty = mkvlarrtype(decl.ty, decl.qual, UNDREF.bits);
-                  LazyVLA lz = {.ty = decl.ty, alloccopy(&cm->exarena, ex, sizeof *ex, 0)},
-                          *p = alloccopy(&cm->exarena, &lz, sizeof lz, 0);
+                  LazyVLA lz = {.ty = decl.ty, anewcopy(&cm->exarena, Expr, ex)},
+                          *p = anewcopy(&cm->exarena, LazyVLA, &lz);
                   *cm->lazyvla.tail = p, cm->lazyvla.tail = &p->next;
                }
             } else {
@@ -3440,7 +3441,7 @@ poldstyleparams(CComp *cm, DeclState *st0, Decl *fndecl) {
    assert(fndecl->ty.t == TYFUNC);
    const TypeData *td = &typedata[fndecl->ty.dat];
    int nparam = td->nmemb;
-   Type *params = alloccopy(&cm->fnarena, td->param, nparam * sizeof *params, 0);
+   Type *params = anewcopyn(&cm->fnarena, Type, td->param, nparam);
 
    do {
       DeclState st = { DFUNCPARAMOLD };
@@ -4706,7 +4707,7 @@ deflabel(CComp *cm, const Span *span, internstr name) {
          useblk(fn, new);
       }
       l.blk = fn->curblk;
-      cm->labels = alloccopy(fn->arena, &l, sizeof l, 0);
+      cm->labels = anewcopy(fn->arena, Label, &l);
    }
 }
 
@@ -5142,7 +5143,7 @@ stmt(CComp *cm, Ref *stmtexprval, Type *stmtexprty) {
             /* create reloc list */
             Label l = { cm->labels, tk.name, fn->curblk, tk.span };
             assert(l.usespan.ex.len);
-            cm->labels = alloccopy(fn->arena, &l, sizeof l, 0);
+            cm->labels = anewcopy(fn->arena, Label, &l);
             fn->curblk = NULL;
          } else if (label && label->usespan.ex.len != 0) {
             /* append to relocs list */

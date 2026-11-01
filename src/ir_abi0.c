@@ -1,4 +1,5 @@
 #include "ir.h"
+#include "u_chkarith.h"
 
 /**  This pass adds in ABI arguments/returns register mappings
  **  and lowers aggregate params/args/returns into scalars
@@ -339,7 +340,7 @@ abi0_call(Function *fn, Instr *ins, Block *blk, int *curi, Ref retaddr) {
 
    if (call->ret.isagg) call->ret = (IRType){0};
    call->vararg = vararg;
-   call->abiarg = alloccopy(fn->arena, abiargs.p, abiargs.n * sizeof(ABIArg), 0);
+   call->abiarg = anewcopyn(fn->arena, ABIArg, abiargs.p, abiargs.n);
    call->narg = abiargs.n;
    vfree(&abiargs);
 }
@@ -384,7 +385,7 @@ abi0(Function *fn) {
       int ret = abiarg(&abiargs, &r2off, &ni, &nf, &ns, pty);
       patchparam(fn, &istart, &param, pty.isagg ? pty.dat : -1, ret, &abiargs.p[first], r2off);
    }
-   fn->abiarg = alloccopy(fn->arena, abiargs.p, abiargs.n * sizeof *abiargs.p, 0);
+   fn->abiarg = anewcopyn(fn->arena, ABIArg, abiargs.p, abiargs.n);
    fn->nabiarg = abiargs.n;
    vfree(&abiargs);
 

@@ -1,6 +1,7 @@
 #include "c_lex.h"
 #include "version.h"
 #include "u_bits.h"
+#include "u_chkarith.h"
 #include "u_hash.h"
 #include <string.h>
 #include <stdlib.h>
@@ -1132,7 +1133,7 @@ expandfnmacro(Lexer *lx, Span *span, internstr mname, Macro *mac) {
       ushort nfirstx, /* for concatenation to work properly with expanded arguments, */
              nlastx;  /* length of expanded first and last tokens of the unexpanded argument */
    } _args0[4],
-     *args = mac->nparam < countof(_args0) ? _args0 : alloc(lx->tmparena, sizeof *args * mac->nparam, 0);
+     *args = mac->nparam < countof(_args0) ? _args0 : anewn(lx->tmparena, struct ArgToks, mac->nparam);
 
    cur = i = bal = len = narg = 0;
    bool cndskip = 0;
@@ -1960,7 +1961,7 @@ ppline(Lexer *lx, Token *tk0) {
    }
    if (ntk > 1) {
       if (tks[1].t == TKSTRLIT && !tks[1].wide) {
-         file = alloc(&globarena, tks[1].len+1, 0);
+         file = alloc(&globarena, tks[1].len+1, 1);
          memcpy(file, tks[1].s, tks[1].len);
          file[tks[1].len] = 0;
       } else {

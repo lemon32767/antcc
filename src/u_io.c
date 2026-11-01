@@ -1,5 +1,6 @@
 #define _DEFAULT_SOURCE
 #include "c_lex.h"
+#include "u_chkarith.h"
 #include "u_hash.h"
 #include "ir.h"
 #include <errno.h>
@@ -878,7 +879,7 @@ getpredeffile(MemFile **pf, const char *name) {
       if (f && f->uid.dev == uid.dev && f->uid.ino == uid.ino) {
          break;
       } else if (!f) {
-         f = allocz(&globarena, sizeof *f, 0);
+         f = anewz(&globarena, File);
          f->uid = uid;
          f->path = name;
          f->f = (MemFile) { .statik = 1 };
@@ -922,7 +923,7 @@ openfile(const char **err, MemFile **pf, const char *path) {
          MemFile m;
          m = mapopen(err, path);
          if (*err) return -1;
-         f = allocz(&globarena, sizeof *f, 0);
+         f = anewz(&globarena, File);
          f->uid = uid;
          f->path = path;
          f->f = m;
@@ -1299,7 +1300,7 @@ utf8to32(uint *ulen, Arena **arena, const uchar *s, size_t len) {
    istrunc = p > s+len;
    if (!istrunc) end += 1;
 
-   ret = allocz(arena, n * sizeof *ret, sizeof *ret);
+   ret = anewnz(arena, uint, n);
    for (w = ret, p = s; p < end; ++w) {
       if ((*p & 0xF8) == 0xF0) { /* 11110xxx */
          *w = (uint)(p[0] & 0x07) << 18
