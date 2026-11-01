@@ -72,7 +72,7 @@ classify(uchar cls[2], const TypeData *td, uint off) {
 }
 
 static int
-abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType typ) {
+abiarg(int r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType typ) {
    static const uchar intregs[] = { RDI, RSI, RDX, RCX, R8, R9 };
    enum { NINT = countof(intregs), NFLT = 8 };
 
@@ -116,7 +116,7 @@ abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType
 }
 
 static int
-abiret(short r[2], uchar cls[2], uchar *r2off, int *ni, IRType typ) {
+abiret(int r[2], uchar cls[2], uchar *r2off, int *ni, IRType typ) {
    if (!typ.isagg) {
       r[0] = kisflt(cls[0] = typ.cls) ? XMM0 : RAX;
       return 1;
@@ -213,7 +213,7 @@ vastart(Function *fn, Block *blk, int *curi) {
 
 static void
 vaarg(Function *fn, Block *blk, int *curi) {
-   short r[2];
+   int r[2];
    uchar cls[2];
    int ni = 0, nf = 0, ns = 0;
    uchar r2off;

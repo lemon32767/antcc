@@ -242,7 +242,9 @@ mkalloca(uint siz, uint align) {
    Instr ins = { .cls = KPTR };
    assert(ispo2(align) && align <= 16);
    ins.op = Oalloca1 + ilog2(align);
-   ins.l = mkref(RICON, siz/align + (siz%align != 0));
+   uint nall = siz/align + (siz%align != 0);
+   assert(nall < (1u<<27) && "alloca too big :(");
+   ins.l = mkref(RICON, nall);
    return ins;
 }
 

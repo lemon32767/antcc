@@ -253,7 +253,7 @@ typedef struct MCTarg {
     *                r[1] contains register for hidden pointer argument,
     *                     *ni is set to 1 if said register is the first ABI integer argument
     */
-   int (*abiret)(short r[2], uchar cls[2], uchar *r2off, int *ni, IRType);
+   int (*abiret)(int r[2], uchar cls[2], uchar *r2off, int *ni, IRType);
    /* abiarg: lower argument type:
     *  scalar/small struct -> returns number of regs (1..2),
     *                         r & cls filled with reg and irclass of each scalar arg
@@ -264,7 +264,7 @@ typedef struct MCTarg {
     *                if passed by pointer cls[0] == KPTR, r[0] contains integer register
     *                                                     or negative SP offset if stack
     */
-   int (*abiarg)(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType);
+   int (*abiarg)(int r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType);
    void (*vastart)(Function *, Block *, int *curi);
    void (*vaarg)(Function *, Block *, int *curi);
    int (*symaccess)(int con);

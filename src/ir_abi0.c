@@ -12,7 +12,7 @@ typedef vec_of(ABIArg) ABIArgVec;
 
 static int
 abiret(ABIArg abiret[2], ABIArgVec *abiargs, uchar *r2off, int *ni, IRType retty) {
-   short r[2];
+   int r[2];
    uchar cls[2];
    int retreg = 0;
    retreg = mctarg->abiret(r, cls, r2off, ni, retty);
@@ -39,9 +39,10 @@ abiret(ABIArg abiret[2], ABIArgVec *abiargs, uchar *r2off, int *ni, IRType retty
 
 static int
 abiarg(ABIArgVec *abiargs, uchar *r2off, int *ni, int *nf, int *ns, IRType ty) {
-   short r[2];
+   int r[2];
    uchar cls[2];
    int ret = mctarg->abiarg(r, cls, r2off, ni, nf, ns, ty);
+   assert(r[0] == (short)r[0] && "arg stack frame too big :(");
    if (!ret) { /* in stack */
       vpush(abiargs, ((ABIArg) { ty, .isstk = 1, .stk = r[0] }));
    } else if (ty.isagg && cls[0] == KPTR) { /* aggregate by pointer */

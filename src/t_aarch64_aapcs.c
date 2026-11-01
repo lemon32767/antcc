@@ -58,7 +58,7 @@ classify(const TypeData *td) {
 /* XXX types with alignment >= 16 */
 
 static int
-abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType typ) {
+abiarg(int r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType typ) {
    enum { NINT = 8, NFLT = 8 };
    if (!typ.isagg) {
       if (kisflt(cls[0] = typ.cls) && *nf < 8) {
@@ -122,7 +122,7 @@ abiarg(short r[2], uchar cls[2], uchar *r2off, int *ni, int *nf, int *ns, IRType
 }
 
 static int
-abiret(short r[2], uchar cls[2], uchar *r2off, int *_ni, IRType typ) {
+abiret(int r[2], uchar cls[2], uchar *r2off, int *_ni, IRType typ) {
    if (!typ.isagg) {
       r[0] = kisflt(cls[0] = typ.cls) ? V(0) : R0;
       return 1;
@@ -206,7 +206,7 @@ vastart(Function *fn, Block *blk, int *curi) {
 
 static void
 vaarg(Function *fn, Block *blk, int *curi) {
-   short r[2];
+   int r[2];
    uchar cls[2];
    int ngr = 0, nvr = 0, nstk = 0;
    uchar r2off;
