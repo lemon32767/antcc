@@ -1077,17 +1077,17 @@ emitinstr(uchar **pcode, Function *fn, Block *blk, int curi, Instr *ins) {
       Xfldr(pcode, cls, reg2oper(ins->reg-1),
             genmemoper(pcode, ins->cls, ins->op == Oloadf32 ? 4 : 8, ins->l));
       break;
-   case Ostorei8:  cls = KI32; X2 = Xstrb; goto Store;
-   case Ostorei16: cls = KI32; X2 = Xstrh; goto Store;
-   case Ostorei32: cls = KI32; X2 = Xstr; goto Store;
+   case Ostorei8:  cls = KI32; X2 = Xstrb; goto IStore;
+   case Ostorei16: cls = KI32; X2 = Xstrh; goto IStore;
+   case Ostorei32: cls = KI32; X2 = Xstr; goto IStore;
    case Ostorei64: cls = KI64; X2 = Xstr;
-   Store:
+   IStore:
       X2(pcode, cls, ins->r.bits == ZEROREF.bits ? REGZR : ref2oper(ins->r),
             genmemoper(pcode, ins->cls, 1<<(ins->op-Ostorei8), ins->l));
       break;
    case Ostoref32: case Ostoref64:
       Xfstr(pcode, KF32 + ins->op-Ostoref32, ref2oper(ins->r),
-            genmemoper(pcode, ins->cls, ins->op == Oloadf32 ? 4 : 8, ins->l));
+            genmemoper(pcode, ins->cls, ins->op == Ostoref32 ? 4 : 8, ins->l));
       break;
    case Ocall:
       Xcall(pcode, ref2oper(ins->l));
