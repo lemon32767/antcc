@@ -5559,7 +5559,7 @@ tldecl(CComp *cm) {
           *decl = &decl0;
 
       if (nerror != nerr && st.varini) {
-         (void)expr(cm);
+         (void)initializer(cm, &decl->ty, declalign(decl), EVSTATICINI, declsymflags(decl), decl->qual, decl->sym);
          pdecl(&st, cm);
          continue;
       }
