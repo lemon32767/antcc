@@ -847,6 +847,7 @@ callexpr(CComp *cm, const Span *span_, const Expr *callee) {
 
    ex = mkexpr(ECALL, span, ty.t == TYFUNC ? td->ret : ty, .narg = args.n,
                .sub = anewn(&cm->exarena, Expr, args.n+1));
+   assert(ex.narg == args.n && "too many args :(");
    ex.sub[0] = *callee;
    memcpy(ex.sub+1, args.p, args.n*sizeof(Expr));
    vfree(&args);
@@ -3327,6 +3328,7 @@ decltypes(CComp *cm, DeclList *list, internstr *name, Span *span, Span *namespan
          node.t = TYFUNC;
          node.param = params.n ? params.p : NULL;
          node.npar = params.n;
+         assert(node.npar == params.n && "too many params :(");
          declinsert(ptr->prev, &node);
          joinspan(&span->ex, node.span.ex);
       } else break;

@@ -216,6 +216,7 @@ mkvlarrtype(Type t, int qual, uint refbits) {
 Type
 mkfntype(Type ret, uint n, const Type *par, bool kandr, bool variadic) {
    TypeData td = { TYFUNC, .ret = ret, .nmemb = n, .param = par };
+   assert(td.nmemb == n);
    td.kandr = kandr, td.variadic = variadic;
    return mktype(TYFUNC, .dat = interntd(&td));
 }

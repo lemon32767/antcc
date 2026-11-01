@@ -658,6 +658,7 @@ putmac(internstr name, Macro *mac) {
    static short id;
    if (!macroht.v) pmap_init(&macroht, 1<<10);
    Macro *slot = pmap_get(&macroht, name);
+   if (id == (1<<15)-1) fatal(&(Span){mac->span}, "too many macros :(");
    mac->id = id++;
    if (slot) {
       if (!macroequ(slot, mac)) {
@@ -898,6 +899,10 @@ ppdefine(Lexer *lx) {
             error(&tk.span, "expected parameter name or `)'");
             if (tk.t == TKEOF || tk.t == '\n') return;
             break;
+         }
+         if (params.n >= MAXMACROARGS) {
+            error(&tk.span, "too many parameters for function-like macro :(");
+            params.n = MAXMACROARGS;
          }
       }
       if (!params.n) vfree(&params);
@@ -2085,8 +2090,8 @@ handlepragma(Lexer *lx, const Span *span, const char *str, uint len) {
             align = ps->pack.stk[ps->pack.top];
          }
 
-         if (ps->pack.top >= countof(ps->pack.stk))
-            error(span, "too many nested pragma pack");
+         if (ps->pack.top >= countof(ps->pack.stk)-1)
+            error(span, "too many nested pragma pack :(");
          else
             ps->pack.stk[++ps->pack.top] = align;
       } else if (prgstrmatch(&str, &len, "pop")) {
