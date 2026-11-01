@@ -834,8 +834,16 @@ mapzeros(uint N) {
 void
 _assertfmt(const char *file, int line, const char *func, const char *expr) {
    ioflush(&bstdout);
-   efmt("%s:%d: %s: Assertion `%s' failed.\n", file, line, func, expr);
+   efmt("%s:%d: %s: Assertion `%s' failed!\n", file, line, func, expr);
    ioflush(&bstderr);
+}
+
+NORETURN void
+_chkxfail(const char *file, int line, const char *func, const char *expr) {
+   ioflush(&bstdout);
+   efmt("%s:%d: %s: checked arith overflow! `%s'\n", file, line, func, expr);
+   ioflush(&bstderr);
+   abort();
 }
 
 typedef struct {

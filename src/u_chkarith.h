@@ -2,6 +2,8 @@
 
 #include "antcc.h"
 
+NORETURN void _chkxfail(const char *file, int line, const char *func, const char *expr);
+
 static inline bool
 chk_umul(uint *r, uint x, uint y) {
 #if HAS_BUILTIN(umul_overflow)
@@ -14,11 +16,12 @@ chk_umul(uint *r, uint x, uint y) {
 }
 
 static inline uint
-chkx_umul(uint x, uint y) {
+_chkx_umul(const char *file, uint x, uint y, int line, const char *fn, const char *ex) {
    uint r;
-   assert(chk_umul(&r, x, y));
+   if (!chk_umul(&r, x, y)) _chkxfail(file, line, fn, ex);
    return r;
 }
+#define chkx_umul(x, y) _chkx_umul(__FILE__, x, y, __LINE__, __func__, #x" * "#y)
 
 static inline bool
 chk_uadd(uint *r, uint x, uint y) {
@@ -32,8 +35,9 @@ chk_uadd(uint *r, uint x, uint y) {
 }
 
 static inline uint
-chkx_uadd(uint x, uint y) {
+_chkx_uadd(const char *file, uint x, uint y, int line, const char *fn, const char *ex) {
    uint r;
-   assert(chk_uadd(&r, x, y));
+   if (!chk_uadd(&r, x, y)) _chkxfail(file, line, fn, ex);
    return r;
 }
+#define chkx_uadd(x, y) _chkx_uadd(__FILE__, x, y, __LINE__, __func__, #x" + "#y)
