@@ -4,7 +4,7 @@
 
 static inline bool
 chk_umul(uint *r, uint x, uint y) {
-#if HAS_BUILTIN(mul_overflow)
+#if HAS_BUILTIN(umul_overflow)
    return !__builtin_umul_overflow(x, y, r);
 #else
    u64int z = (u64int) x * y;
