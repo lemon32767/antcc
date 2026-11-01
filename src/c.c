@@ -1531,7 +1531,7 @@ typedef struct InitParser {
       short prev;
    } buf[32], *cur, *sub;
    Arena **arena;
-   uint arrlen;
+   uint arrlen, maxsiz;
    enum evalmode ev;
    bool dyn; /* when set, data is written to a temporary buffer first, because either:
                   - size is not known until parsing done (implicit array size)
@@ -1636,7 +1636,7 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
       uint siz = typesize(ty);
       if (nerror) return;
       if (ip->dyn) {
-         if (ip->ddat.n < off + siz) {
+         if (ip->ddat.n < chkx_uadd(off, siz)) {
             /* extending ddata, can only happen for unknown-size arrays */
             uint old = ip->ddat.n;
             vresize(&ip->ddat, off + siz);
@@ -1645,7 +1645,10 @@ iniwrite(CComp *cm, InitParser *ip, uint off, uint bitsiz, uint bitoff, Type ty,
          }
          p = ip->ddat.p + off;
       } else {
+         if ((u64int) off + siz > ip->maxsiz) /* excess initializer */
+            return;
          p = objsecdata(ip->sec, ip->off + off);
+         assert(p != NULL);
       }
 
       if (ex->t == ENUMLIT) {
@@ -1968,17 +1971,20 @@ initializer(CComp *cm, Type *ty, uint align, enum evalmode ev, enum symflags sym
 
    ip->arena = &cm->exarena;
    ip->ev = ev;
+   ip->maxsiz = isincomplete(*ty) ? 1u<<30 : typesize(*ty);
    if (ev == EVSTATICINI) {
       if (ty->t == TYARRAY && isincomplete(*ty)) {
          ip->dyn = 1;
       } else if (qual & QCONST && !rodatarelocok()) {
          ip->dyn = 1;
-         vresize(&ip->ddat, typesize(*ty));
-         memset(ip->ddat.p, 0, typesize(*ty));
+         if (!isincomplete(*ty)) {
+            vresize(&ip->ddat, ip->maxsiz);
+            memset(ip->ddat.p, 0, ip->maxsiz);
+         }
       } else {
          ip->sec = symflags & STLS ? Stdata : qual & QCONST ? Srodata : Sdata;
          if (!nerror)
-            ip->off = objnewdat(sym, symflags, ip->sec, typesize(*ty), align);
+            ip->off = objnewdat(sym, symflags, ip->sec, ip->maxsiz, align);
       }
    } else {
       ip->init = &res;
@@ -2508,9 +2514,10 @@ static void
 layoutagg(CComp *cm, Type ty, const Attrs *tyattr) {
    TypeData *td = &typedata[ty.dat];
    bool isunion = td->t == TYUNION;
-   td->siz = 0;
+   u64int aggsiz = 0;
    td->align = 1;
-   uint bitfbyteoff = 0, bitftypesiz = 0, bitoff = 0;
+   u64int bitfbyteoff = 0;
+   uint bitftypesiz = 0, bitoff = 0;
    for (int i = 0; i < td->nmemb; ++i) {
       NamedField *fld = &td->fld[i];
       if (fld->name && !fld->name->c) /* dummy "" empty agg */
@@ -2519,8 +2526,10 @@ layoutagg(CComp *cm, Type ty, const Attrs *tyattr) {
       uint bitsiz = fld->f.bitsiz;
       if (fld->f.bitf) {
          if (bitsiz == 0) {
-            uint bitpos = bitftypesiz ? 8*bitfbyteoff + bitoff : 8*td->siz;
-            td->siz = alignup(bitpos, 8*typealign(fld->f.t)) / 8;
+            u64int bitpos = bitftypesiz ? 8*bitfbyteoff + bitoff : 8*aggsiz;
+            assert(bitpos >= aggsiz);
+            uint bitalign = 8*typealign(fld->f.t);
+            aggsiz = alignup(bitpos, bitalign) / 8;
             bitfbyteoff = bitftypesiz = bitoff = 0;
             /* no longer need pseudo field :0 */
             memmove(fld, fld + 1, (td->fld + td->nmemb - fld - 1) * sizeof *fld);
@@ -2533,7 +2542,8 @@ layoutagg(CComp *cm, Type ty, const Attrs *tyattr) {
          } else if (!bitftypesiz) {
             bitoff = 0;
             // XXX what to do with packed here
-            bitfbyteoff = alignup(td->siz, typealign(fld->f.t));
+            uint fldalign = typealign(fld->f.t);
+            bitfbyteoff = alignup(aggsiz, fldalign);
          } else if (bitoff + bitsiz > 8*bitftypesiz) {
             /* no straddling boundaries */
             bitoff = 0;
@@ -2556,27 +2566,31 @@ layoutagg(CComp *cm, Type ty, const Attrs *tyattr) {
       }
       assert(ispo2(align));
       uint siz = tysize;
-      fld->f.off = isunion ? 0
-                 : bitftypesiz ? bitfbyteoff
-                 : alignup(td->siz, align);
+      u64int foff = isunion ? 0
+                  : bitftypesiz ? bitfbyteoff
+                  : alignup(aggsiz, align);
       fld->f.bitoff = bitoff;
-      if (bitftypesiz && siz != bitftypesiz) while (fld->f.bitoff + fld->f.bitsiz > 8*siz) {
+      if (bitftypesiz && siz != bitftypesiz) while (fld->f.bitoff + fld->f.bitsiz > 8ull*siz) {
          /* adjust bitfields narrower than container type */
-         fld->f.off += siz;
+         foff += siz;
          fld->f.bitoff -= 8*siz;
       }
       if (isunion) {
-         td->siz = td->siz < siz ? siz : td->siz;
+         aggsiz = aggsiz < siz ? siz : aggsiz;
          bitsiz = bitfbyteoff = bitoff = bitftypesiz = 0;
       } else {
          bitoff += bitsiz;
-         td->siz = fld->f.off + siz;
+         aggsiz = foff + siz;
       }
+      fld->f.off = foff;
+      assert(foff == fld->f.off);
       td->align = td->align < align ? align : td->align;
    }
    if (tyattr->align && tyattr->align > td->align)
       td->align = tyattr->align;
-   td->siz = alignup(td->siz, td->align);
+   aggsiz = alignup(aggsiz, td->align);
+   assert(aggsiz < ~0u);
+   td->siz = aggsiz;
 }
 
 static inline void
@@ -3388,13 +3402,14 @@ declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0, uint align) {
                   *cm->lazyvla.tail = p, cm->lazyvla.tail = &p->next;
                }
             } else {
-               uint n = 0;
+               uint n = 0, z;
                if (!eval2xintcon(ex)) {
                   error(&ex->span, "array length is not an integer constant");
                } else if (issigned(ex->ty) && ex->i < 0) {
                   error(&ex->span, "array length is negative");
-               } else if (ex->u > (1ull << (8*sizeof n)) - 1) {
-                  error(&ex->span, "array too long (%ul)", ex->u);
+               } else if (ex->u > (1ull << (8*sizeof n)) - 1 || !chk_umul(&z, ex->u, typesize(decl.ty))) {
+                  error(&ex->span, "array too big (%ul)", ex->u);
+                  n = (~0u)/(typesize(decl.ty)|2);
                } else if (ex->u == 0) {
                   if (ccopt.pedant)
                      warn(&ex->span, "zero size array is an extension");
@@ -3728,12 +3743,15 @@ expraddr(Function *fn, const Expr *ex) {
          return r;
       } else {
          /* emit static dat */
-         static int id;
-         InitParser ip[1] = {0};
          Type ty = ex->ty;
+         assert(!isincomplete(ty));
+         static int id;
          internstr sym = mkhiddensym(NULL, ".LC", ++id);
-         ip->sec = Sdata; /* TODO put in rodata if possible */
-         ip->ev = EVSTATICINI;
+         InitParser ip[1] = {{
+            .sec = Sdata, /* TODO put in rodata if possible */
+            .ev = EVSTATICINI,
+            .maxsiz = typesize(ty),
+         }};
          assert(!isincomplete(ty));
          ip->off = objnewdat(sym, SLOCAL, ip->sec, typesize(ty), typealign(ty));
          if (!iniwriterec(NULL, ip, 0, (Expr *)ex))

@@ -195,7 +195,7 @@ mkarrtype(Type t, int qual, uint n) {
       return mktype(TYARRAY, .flag = TFCHLDPRIM | (qual & TFCHLDQUAL), .child = t.t, .arrlen = n);
    assert(!isvla(t));
    return mktype(TYARRAY, .flag = qual & TFCHLDQUAL,
-                 .dat = interntd(&(TypeData) { TYARRAY, .child = t, .arrlen = n, .siz = n * typesize(t) }));
+                 .dat = interntd(&(TypeData) { TYARRAY, .child = t, .arrlen = n, .siz = chkx_umul(n, typesize(t)) }));
 }
 
 Type

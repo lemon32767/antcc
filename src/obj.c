@@ -1,9 +1,9 @@
 #include "obj.h"
 #include "ir.h"
+#include "u_chkarith.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
-
 
 void elfinit(void);
 enum section elfhassym(internstr , uint *value);
@@ -66,11 +66,13 @@ objnewdat(internstr name, enum symflags sf, enum section s, uint siz, uint align
       while (sec->n & (align - 1)) vpush(sec, 0);
       off = sec->n;
       if (siz) {
-         vresize(sec, sec->n + siz);
+         vresize(sec, chkx_uadd(sec->n, siz));
          memset(sec->p + off, 0, siz);
       }
    } else {
-      off = alignup(sec->n, align);
+      u64int offx = alignup((u64int) sec->n, align);
+      assert(offx + siz <= ~0u && "obj too big :(");
+      off = offx;
       sec->n = off + siz;
    }
 
