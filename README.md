@@ -75,13 +75,12 @@ will try to find one (invoking e.g. `aarch64-linux-gnu-gcc`, or falling back to
 and appropiate include paths may have to be manually provided. You can specify the
 compiler target architecture with `-target <triple>`.
 
-Contributing
-------------
+Community
+---------
 
-The easiest way to contribute is to try building C codebases with antcc and report any
-issues you encounter.
+For contributing guidelines see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-For more information: [CONTRIBUTING.md](CONTRIBUTING.md).
+Come chat at `#antcc` on `irc.libera.chat`.
 
 Testing
 -------

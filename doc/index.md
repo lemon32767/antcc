@@ -17,6 +17,11 @@ Documentation
   - [Internals & design](internals.html)
   - [antcc(1)](antcc.1.html) (man page)
 
+Community
+--------
+
+Come chat at `#antcc` on `irc.libera.chat`.
+
 Links
 -----
 
