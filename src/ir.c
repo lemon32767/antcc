@@ -802,6 +802,7 @@ optimize(Function *fn) {
          filluses(fn);
          copyopt(fn);
          mem2reg(fn);
+         ipass(fn, "inline-simpl", simpl, iter);
       }
       freearena(fn->passarena);
       filldom(fn);
