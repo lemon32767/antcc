@@ -311,6 +311,9 @@ double fltconval_np(Ref);
 #define isaddrcon(r,derefok) ((r).t == RXCON && !contab.p[(r).i].cls && (derefok || !contab.p[(r).i].deref))
 #define intconval(r) ((r).t == RICON ? (r).i : contab.p[(r).i].i)
 #define phiargs(t) phitab.p[(instrtab[t].l.i)]
+enum irclass irrefcls(Ref);
+bool irclseql0(enum irclass, enum irclass);
+bool clseqlrefcls(enum irclass, Ref);
 Ref mksymref(internstr, enum symflags);
 Ref mkdatref(internstr sym, Type ctype, uint siz, uint align,
                    const void *, uint n, bool deref, bool funclocal);

@@ -24,44 +24,12 @@ checkfail(const char *fmt, ...) {
    ioputc(&bstderr, '\n');           \
 } while (0)
 
-static enum irclass
-refcls(Ref r) {
-   switch (r.t) {
-   case RICON: return KI32;
-   case RTMP: return insrescls(instrtab[r.i]);
-   case RXCON:
-      if (!contab.p[r.i].cls) /* addr */ return KPTR;
-      return contab.p[r.i].cls;
-   case RSTACK: return KPTR;
-   case RADDR:
-      if (!contab.p[r.i].deref)
-         return KPTR;
-   }
-   return 0;
-}
-
-
 static void
 priclsfail(enum irclass k, const Ref *r, int n) {
    checkfail("type error: had <%s; args: ", k ? clsname[k] : "void");
    assert(n > 0);
    while (n --> 0)
-      efmt("%k%s", refcls(*r++), n ? ", " : ">\n");
-}
-
-static inline enum irclass
-clsptrfilt(enum irclass k) {
-   return k == KPTR ? KI32+targ_64bit : k;
-}
-
-
-#define clseql0(k, q) (clsptrfilt(k) == clsptrfilt(q))
-
-static bool
-clseql(enum irclass k, Ref r) {
-   if (r.t == RICON && kisint(k)) return 1;
-   if (r.bits == UNDREF.bits) return 1;
-   return clseql0(k, refcls(r));
+      efmt("%k%s", irrefcls(*r++), n ? ", " : ">\n");
 }
 
 /* homogenous */
@@ -70,7 +38,7 @@ checkhomo(enum irclass k, const Ref *r, int n) {
    bool ok = 1;
    assert(n > 0);
    for (int i = 0; i < n; ++i) {
-      ok = ok && clseql(k, r[i]);
+      ok = ok && clseqlrefcls(k, r[i]);
    }
    if (!ok) priclsfail(k, r, n);
 }
@@ -78,7 +46,7 @@ checkhomo(enum irclass k, const Ref *r, int n) {
 /* Oext* */
 static void
 checkintext(enum irclass k, Ref r) {
-   enum irclass refk = refcls(r);
+   enum irclass refk = irrefcls(r);
    if (r.bits != UNDREF.bits)
    if (!kisint(k) || !kisint(refk) || refk > k)
       priclsfail(k, &r, 1);
@@ -96,14 +64,14 @@ checkint(enum irclass k, const Ref *r, int n) {
 /* Ocvtf*u/s* */
 static void
 checkf2icvt(enum irclass from, enum irclass k, Ref r) {
-   if (!kisint(k) || !clseql(from, r))
+   if (!kisint(k) || !clseqlrefcls(from, r))
       priclsfail(k, &r, 1);
 }
 
 /* Ocvtu/s*f* */
 static void
 checki2fcvt(enum irclass from, enum irclass k, Ref r) {
-   if (!kisflt(k) || !clseql(from, r))
+   if (!kisflt(k) || !clseqlrefcls(from, r))
       priclsfail(k, &r, 1);
 }
 
@@ -115,14 +83,14 @@ checkreg(Ref r) {
 /* Oload* */
 static void
 checkload(enum irclass retk, enum irclass wantk, Ref oper) {
-   if (wantk == KI32 ? !kisint(retk) : !clseql0(retk, wantk) || !clseql(KPTR, oper))
+   if (wantk == KI32 ? !kisint(retk) : !irclseql0(retk, wantk) || !clseqlrefcls(KPTR, oper))
       priclsfail(retk, &oper, 1);
 }
 
 /* Ostore* */
 static void
 checkstore(enum irclass retk, enum irclass wantk, const Ref *oper) {
-   if (retk || !clseql(KPTR, oper[0]) || !clseql(wantk, oper[1]))
+   if (retk || !clseqlrefcls(KPTR, oper[0]) || !clseqlrefcls(wantk, oper[1]))
       priclsfail(retk, oper, 2);
 }
 
@@ -130,7 +98,7 @@ static void
 checkcall(enum irclass k, const IRCall *call) {
    if (!call->abiarg && call->ret.bits)  {
       enum irclass retk = call->ret.isagg ? KPTR : call->ret.cls;
-      CHECK(clseql0(retk, k),
+      CHECK(irclseql0(retk, k),
             "returns %r, instr had %k", mktyperef(call->ret), k);
    }
    /* TODO check actual args */
@@ -156,11 +124,11 @@ checkins(Function *fn, const Instr *ins) {
    case Ocvts32f: case Ocvtu32f: checki2fcvt(KI32, k, ins->l); break;
    case Ocvts64f: case Ocvtu64f: checki2fcvt(KI64, k, ins->l); break;
    case Ocvtf32f64:
-      if (k != KF64 || !clseql(KF32, ins->l))
+      if (k != KF64 || !clseqlrefcls(KF32, ins->l))
          priclsfail(k, ins->oper, 1);
       break;
    case Ocvtf64f32:
-      if (k != KF32 || !clseql(KF64, ins->l))
+      if (k != KF32 || !clseqlrefcls(KF64, ins->l))
          priclsfail(k, ins->oper, 1);
       break;
 
@@ -187,12 +155,12 @@ checkins(Function *fn, const Instr *ins) {
 
    case Oshl: case Osar: case Oslr:
       /* Int a, Int b -> a */
-      if (!kisint(k) || !clseql(k, ins->l) || !kisint(refcls(ins->r)))
+      if (!kisint(k) || !clseqlrefcls(k, ins->l) || !kisint(irrefcls(ins->r)))
          priclsfail(k, ins->oper, 2);
       break;
 
    case Oalloca1: case Oalloca2: case Oalloca4: case Oalloca8: case Oalloca16:
-      if (k != KPTR || !kisint(refcls(ins->l)))
+      if (k != KPTR || !kisint(irrefcls(ins->l)))
          priclsfail(k, ins->oper, 1);
       else if (!isintcon(ins->l))
          checkfail("expected int constant (%r)\n", ins->l);
@@ -235,7 +203,7 @@ checkins(Function *fn, const Instr *ins) {
       break;
 
    case Ocall:
-      if (!clseql(KPTR, ins->l))
+      if (!clseqlrefcls(KPTR, ins->l))
          priclsfail(k, ins->oper, 1);
       assert(!ins->r.t);
       checkcall(k, &calltab.p[ins->r.i]);
@@ -262,25 +230,25 @@ checkins(Function *fn, const Instr *ins) {
          checkfail("type? got %r\n", ins->l);
       } else {
          IRType irtyp = ref2type(ins->l);
-         if (!clseql(irtyp.isagg ? KPTR : irtyp.cls, ins->r))
-            checkfail("expected compatible with %r, got %k\n", ins->l, refcls(ins->r));
+         if (!clseqlrefcls(irtyp.isagg ? KPTR : irtyp.cls, ins->r))
+            checkfail("expected compatible with %r, got %k\n", ins->l, irrefcls(ins->r));
       }
       break;
 
    case Oxvaprologue:
-      if (k || !clseql(KPTR, ins->l))
+      if (k || !clseqlrefcls(KPTR, ins->l))
          priclsfail(k, ins->oper, 1);
       break;
    case Ovastart:
-      if (k || !clseql(KPTR, ins->l))
+      if (k || !clseqlrefcls(KPTR, ins->l))
          priclsfail(k, ins->oper, 1);
       break;
    case Ovaarg:
-      if (!k || !clseql(KPTR, ins->l))
+      if (!k || !clseqlrefcls(KPTR, ins->l))
          priclsfail(k, ins->oper, 1);
       if (ins->r.t == RTYPE) {
          IRType irtyp = ref2type(ins->r);
-         if (!clseql0(irtyp.isagg ? KPTR : irtyp.cls, k))
+         if (!irclseql0(irtyp.isagg ? KPTR : irtyp.cls, k))
             checkfail("arg type %k != %r\n", k, ins->r);
       } else {
          checkfail("type? got %r\n", ins->l);

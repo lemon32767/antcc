@@ -192,6 +192,38 @@ fltconval_np(Ref r) {
    return con->cls == KF32 ? con->fs : con->fd;
 }
 
+static inline enum irclass
+clsptrfilt(enum irclass k) {
+   return k == KPTR ? KI32+targ_64bit : k;
+}
+
+bool irclseql0(enum irclass k, enum irclass q) {
+   return clsptrfilt(k) == clsptrfilt(q);
+}
+
+enum irclass
+irrefcls(Ref r) {
+   switch (r.t) {
+   case RICON: return KI32;
+   case RTMP: return insrescls(instrtab[r.i]);
+   case RXCON:
+      if (!contab.p[r.i].cls) /* addr */ return KPTR;
+      return contab.p[r.i].cls;
+   case RSTACK: return KPTR;
+   case RADDR:
+      if (!contab.p[r.i].deref)
+         return KPTR;
+   }
+   return 0;
+}
+
+bool
+clseqlrefcls(enum irclass k, Ref r) {
+   if (r.t == RICON && kisint(k)) return 1;
+   if (r.bits == UNDREF.bits) return 1;
+   return irclseql0(k, irrefcls(r));
+}
+
 Ref
 mksymref(internstr s, enum symflags symflags) {
    IRCon con = { .issym = 1, .sym = s, .flag = symflags };
