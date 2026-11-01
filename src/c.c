@@ -33,13 +33,13 @@ lexc(CComp *cm, Token *tk) {
             memcpy((char *)tk->s + tk->len, rest.p, rest.n);
             tk->len += rest.n;
          } else if (tk->wide == 1) {
-            tk->ws16 = memcpy(alloc(&cm->exarena, tk->len + rest.n*2, 2), tk->ws16, tk->len*2);
+            tk->ws16 = memcpy(alloc(&cm->exarena, tk->len*2 + rest.n, 2), tk->ws16, tk->len*2);
             memcpy((short *)tk->s + tk->len, rest.p, rest.n);
-            tk->len += rest.n * 2;
+            tk->len += rest.n >> tk->wide;
          } else {
-            tk->ws32 = memcpy(alloc(&cm->exarena, tk->len + rest.n*4, 4), tk->ws32, tk->len*4);
+            tk->ws32 = memcpy(alloc(&cm->exarena, tk->len*4 + rest.n, 4), tk->ws32, tk->len*4);
             memcpy((int *)tk->s + tk->len, rest.p, rest.n);
-            tk->len += rest.n * 4;
+            tk->len += rest.n >> tk->wide;
          }
       }
       vfree(&rest);
