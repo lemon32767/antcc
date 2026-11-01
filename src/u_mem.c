@@ -98,50 +98,58 @@ vinit_(struct vecbase *v, void *inlbuf, uint cap, uint siz) {
       v->p = inlbuf;
       v->dyn = 0;
    } else if (cap) {
-      v->p = xmalloc(cap*siz);
+      v->p = xmalloc(chkx_umul(cap, siz));
       v->dyn = 1;
    }
 }
 
-void
-vpush_(struct vecbase *v, uint siz) {
-   if (v->n < v->cap) return;
-   if (!v->dyn && v->n >= v->cap) { /* empty or inline buffer */
-      uint cap = v->cap ? v->cap * 2 : 8;
-      assert(cap > v->cap && "oom");
-      void *old = v->p;
-      v->p = xmalloc(cap * siz);
-      if (old) memcpy(v->p, old, v->cap * siz);
-      v->cap = cap;
-      v->dyn = 1;
-   } else if (v->dyn && v->n >= v->cap) { /* dyn buf */
-      v->p = xrealloc(v->p, (v->cap *= 2) * siz);
+enum { VMINCAP = 8, VMAXCAP = (1u<<31)-1 };
+
+static void
+vgrow_(struct vecbase *v, uint elsiz, uint need) {
+   if (need <= v->cap) return;
+   assert(need <= VMAXCAP && "oom");
+
+   uint cap = v->cap ? v->cap : VMINCAP;
+   if (cap < need) {
+      cap = cap > VMAXCAP/2 ? VMAXCAP : cap*2;
+      if (cap < need) cap = need;
    }
-   while (v->n >= v->cap)
-      v->p = xrealloc(v->p, (v->cap *= 2) * siz);
-   assert(v->cap > v->n && "oom");
+
+   size_t xcap = chkx_umul(cap, elsiz);
+   if (v->dyn && v->p) {
+      v->p = xrealloc(v->p, xcap);
+   } else { /* empty or inline buffer */
+      void *old = v->p;
+      v->p = xmalloc(xcap);
+      if (old) memcpy(v->p, old, v->n * elsiz); /* mul can't overflow bc. n <= cap */
+      v->dyn = 1;
+   }
+   v->cap = cap;
+}
+#define vgrow(v, elsiz, need) if ((need) > (v)->cap) vgrow_((v), elsiz, (need))
+
+void
+vpush_(struct vecbase *v, uint elsiz) {
+   assert(v->n < VMAXCAP && "oom");
+   vgrow(v, elsiz, v->n + 1);
 }
 
 void *
-vpushn_(struct vecbase *v, uint siz, const void *dat, uint ndat) {
-   void *beg;
-
+vpushn_(struct vecbase *v, uint elsiz, const void *dat, uint ndat) {
    if (!ndat) return v->p;
-   v->n = chkx_uadd(v->n, ndat);
-   while (v->n >= v->cap)
-      vpush_(v, siz);
-   beg = (char *)v->p + (v->n - ndat) * siz;
    assert(dat);
-   memcpy(beg, dat, ndat * siz);
-   return beg;
+   uint dbeg = v->n,
+        dend = chkx_uadd(v->n, ndat);
+   vgrow(v, elsiz, dend);
+   v->n = dend;
+
+   return memcpy((char *)v->p + dbeg*elsiz, dat, ndat*elsiz);
 }
 
 void
-vresize_(struct vecbase *v, uint siz, uint N) {
-   while (v->cap < N) {
-      vpush_(v, siz);
-      v->n = v->cap;
-   }
+vresize_(struct vecbase *v, uint elsiz, uint N) {
+   vgrow(v, elsiz, N);
    v->n = N;
 }
 
