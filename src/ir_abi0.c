@@ -303,6 +303,7 @@ abi0_call(Function *fn, Instr *ins, Block *blk, int *curi, Ref retaddr) {
       i2 += ret;
    }
    call->argstksiz = ns;
+   assert(call->argstksiz == ns && "call stack frame too large :(");
    /* adjust return */
    if (call->ret.isagg) {
       ins->cls = 0;

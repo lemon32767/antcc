@@ -208,6 +208,7 @@ Ref
 mkdatref(internstr name, Type ctype, uint siz, uint align,
          const void *bytes, uint n, bool deref, bool funclocal) {
    IRDat dat = { .ctype = ctype, .align = align, .siz = siz, .name = name, .section = Srodata };
+   assert(ispo2(align) && align < 256);
 
    if (funclocal && textdataok() && align >= 4 && align <= targ_primsizes[TYPTR] && siz <= 16)
       dat.section = Stext;
