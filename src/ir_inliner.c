@@ -282,7 +282,10 @@ inlcall(Function *fn, Block *blk, int curi, SavedFunc *sv, bool threadretjmp) {
          if (ins.op == Oparam) {
             ins.op = Ocopy;
             assert(ins.l.t == RICON && (uint) ins.l.i < call->narg);
+            assert(ins.cls);
             ins.l = args[ins.l.i];
+            if (clseqlrefcls(ins.cls, ins.l))
+               rnew = ins.l;
          } else if (ins.op == Ocall || ins.op == Ointrin) {
             ins.l = mapref(instrmap, sv, ins.l);
             for (Instr *ins2;
