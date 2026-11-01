@@ -2512,7 +2512,7 @@ parseagg(CComp *cm, enum typetag tt, internstr name, int id) {
 /* compute the data layout of the aggregate type, modifying its typedata in place
  * to fill in the size, alignment, field offsets, ... */
 static void
-layoutagg(CComp *cm, Type ty, const Attrs *tyattr) {
+layoutagg(CComp *cm, const Span *span, Type ty, const Attrs *tyattr) {
    TypeData *td = &typedata[ty.dat];
    bool isunion = td->t == TYUNION;
    u64int aggsiz = 0;
@@ -2528,7 +2528,7 @@ layoutagg(CComp *cm, Type ty, const Attrs *tyattr) {
       if (fld->f.bitf) {
          if (bitsiz == 0) {
             u64int bitpos = bitftypesiz ? 8*bitfbyteoff + bitoff : 8*aggsiz;
-            assert(bitpos >= aggsiz);
+            if (bitpos >= ~0u) goto TooBig;
             uint bitalign = 8*typealign(fld->f.t);
             aggsiz = alignup(bitpos, bitalign) / 8;
             bitfbyteoff = bitftypesiz = bitoff = 0;
@@ -2584,13 +2584,16 @@ layoutagg(CComp *cm, Type ty, const Attrs *tyattr) {
          aggsiz = foff + siz;
       }
       fld->f.off = foff;
-      assert(foff == fld->f.off);
+      if (foff != fld->f.off) goto TooBig;
       td->align = td->align < align ? align : td->align;
    }
    if (tyattr->align && tyattr->align > td->align)
       td->align = tyattr->align;
    aggsiz = alignup(aggsiz, td->align);
-   assert(aggsiz < ~0u);
+   if (aggsiz >= ~0u) {
+   TooBig:
+      fatal(span, "this aggregate type ('%ty') is too big :(", ty);
+   }
    td->siz = aggsiz;
 }
 
@@ -2772,7 +2775,7 @@ tagtype(CComp *cm, enum toktag kind) {
 
    if (isdef) {
       if (tt == TYENUM) finienum(cm, &tk.span, t, enumbasety, &attr);
-      else layoutagg(cm, t, &attr);
+      else layoutagg(cm, &tk.span, t, &attr);
    } else if (hasattr(&attr, ATTRpacked)) {
       warn(&tk.span, "'packed' attribute ignored");
    }
@@ -3410,7 +3413,7 @@ declarator(DeclState *st, CComp *cm, Span span0, Attrs attr0, uint align) {
                } else if (issigned(ex->ty) && ex->i < 0) {
                   error(&ex->span, "array length is negative");
                } else if (ex->u > (1ull << (8*sizeof n)) - 1 || !chk_umul(&z, ex->u, typesize(decl.ty))) {
-                  error(&ex->span, "array too big (%ul)", ex->u);
+                  error(&ex->span, "array too big (%ul) :(", ex->u);
                   n = (~0u)/(typesize(decl.ty)|2);
                } else if (ex->u == 0) {
                   if (ccopt.pedant)
