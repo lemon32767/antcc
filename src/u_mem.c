@@ -1,6 +1,6 @@
 #include "antcc.h"
 #include "u_hash.h"
-#include "u_bits.h"
+#include "u_chkarith.h"
 #include <stdlib.h>
 #include <errno.h>
 #include <stdint.h>
@@ -107,7 +107,8 @@ void
 vpush_(struct vecbase *v, uint siz) {
    if (v->n < v->cap) return;
    if (!v->dyn && v->n >= v->cap) { /* empty or inline buffer */
-      int cap = v->cap ? v->cap * 2 : 8;
+      uint cap = v->cap ? v->cap * 2 : 8;
+      assert(cap > v->cap && "oom");
       void *old = v->p;
       v->p = xmalloc(cap * siz);
       if (old) memcpy(v->p, old, v->cap * siz);
@@ -118,7 +119,7 @@ vpush_(struct vecbase *v, uint siz) {
    }
    while (v->n >= v->cap)
       v->p = xrealloc(v->p, (v->cap *= 2) * siz);
-   assert(v->cap > v->n && "overflow");
+   assert(v->cap > v->n && "oom");
 }
 
 void *
@@ -126,7 +127,7 @@ vpushn_(struct vecbase *v, uint siz, const void *dat, uint ndat) {
    void *beg;
 
    if (!ndat) return v->p;
-   v->n += ndat;
+   v->n = chkx_uadd(v->n, ndat);
    while (v->n >= v->cap)
       vpush_(v, siz);
    beg = (char *)v->p + (v->n - ndat) * siz;
