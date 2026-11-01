@@ -512,7 +512,7 @@ Begin:
          buf[0] = c;
          for (; isppnum(c, peek(lx, 0)); ++n) {
             if (n >= MAXLITLEN) TooLong: {
-               fatal(&(Span){{beg - lx->dat, lx->cur - beg, lx->fileid}}, "token is too long");
+               fatal(&(Span){{beg - lx->dat, lx->cur - beg, lx->fileid}}, "token is too long :(");
             }
             buf[n] = c = next(lx);
          }
@@ -986,7 +986,7 @@ static void
 pushmacstk(Lexer *lx, const Span *span, const MacroStack *m) {
    MacroStack *l = lx->macstk;
    if (!l) l = mstk;
-   else if ((++l == mstk+countof(mstk))) lxfatal(lx, span, "macro expansion depth limit reached");
+   else if ((++l == mstk+countof(mstk))) lxfatal(lx, span, "macro expansion depth limit reached :(");
    *l = *m;
    l->idx = 0;
    if (span)
@@ -1633,7 +1633,7 @@ static int includedepth;
 static void
 ppif(Lexer *lx, const Span *span) {
    s64int v = expr(lx, NULL, 0, 0);
-   assert(nppcnd < countof(ppcndstk) && "too many nested #if");
+   assert(nppcnd < countof(ppcndstk) && "too many nested #if :(");
    ppcndstk[nppcnd].ifspan = span->sl;
    ppcndstk[nppcnd].filedepth = includedepth;
    ppcndstk[nppcnd].cnd = v ? PPCNDTRUE : PPCNDFALSE;
@@ -1652,7 +1652,7 @@ ppifxdef(Lexer *lx, bool defp, const Span *span) {
    }
    expecteol(lx, defp ? "ifdef" : "ifndef");
    if (!defp && lx->firstdirective) lx->inclguard = tk.name;
-   assert(nppcnd < countof(ppcndstk) && "too many nested #if");
+   assert(nppcnd < countof(ppcndstk) && "too many nested #if :(");
    ppcndstk[nppcnd].ifspan = span->sl;
    ppcndstk[nppcnd].filedepth = includedepth;
    ppcndstk[nppcnd].cnd = (findmac(tk.name) == NULL) ^ defp ? PPCNDTRUE : PPCNDFALSE;
@@ -1764,7 +1764,7 @@ tryincludepath(Lexer *lx, const Span *span, char *path, int src_incdiridx, bool 
       *lx = new;
 
       if (++includedepth == MAXINCLUDE)
-         lxfatal(lx, span, "Maximum nested include depth of %d reached", includedepth);
+         lxfatal(lx, span, "maximum nested include depth of %d reached :(", includedepth);
       lx->src_incdiridx = src_incdiridx;
       break;
    case LXFILESKIP:
@@ -2120,7 +2120,7 @@ handlepragma(Lexer *lx, const Span *span, const char *str, uint len) {
       /* #pragma GCC/clang diagnostic ... */
       if (prgstrmatch(&str, &len, "push")) {
          if (ps->diagnostic.top >= countof(ps->diagnostic.stk))
-            error(span, "too many nested pragma diagnostic");
+            error(span, "too many nested pragma diagnostic :(");
          else
             ++ps->diagnostic.top;
       } else if (prgstrmatch(&str, &len, "pop")) {
@@ -2337,7 +2337,7 @@ ppdirective(Lexer *lx, Token *tkout, bool *skip, bool *inclerror) {
          case PPIF: /* increment nesting level */
          case PPIFDEF:
          case PPIFNDEF:
-            assert(nppcnd < countof(ppcndstk) && "too many nested #if");
+            assert(nppcnd < countof(ppcndstk) && "too many nested #if :(");
             ppcndstk[nppcnd].ifspan = tk->span.sl;
             ppcndstk[nppcnd].cnd = PPCNDTAKEN;
             ppcndstk[nppcnd++].elsep = 0;
