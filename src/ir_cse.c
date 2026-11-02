@@ -11,10 +11,13 @@ static inline bool
 insequ(const Instr *a, const Instr *b) {
    if (a->op != b->op) return 0;
    if (a->f != b->f) return 0;
+   if (a->cls != b->cls) return 0;
    enum op op = a->op;
    switch (opnoper[op]) {
    default: assert(0);
-   case 2: if (a->r.bits != b->r.bits) return 0;
+   case 2: if (a->r.bits != b->r.bits)
+              return opcommut[op] && (a->l.bits == b->r.bits && a->r.bits == b->l.bits);
+           /* fallthru */
    case 1: if (a->l.bits != b->l.bits) return 0;
    }
    return 1;
@@ -29,10 +32,19 @@ static uint ninsht;
 
 static inline size_t
 hashins(const Instr *ins) {
-   return hashb(HASH_INIT, ins, sizeof *ins);
+   size_t h = HASH_INIT;
+   h = HASH_STEP(h, ins->op);
+   h = HASH_STEP(h, ins->f);
+   h = HASH_STEP(h, ins->cls);
+   if (opcommut[ins->op] && ins->l.bits > ins->r.bits) {
+      h = hashb(h, &ins->r, sizeof ins->r);
+      h = hashb(h, &ins->l, sizeof ins->l);
+   } else {
+      h = hashb(h, ins->oper, sizeof *ins->oper * opnoper[ins->op]);
+   }
+   return h;
 }
 
-enum { MAXBLOCKDIST = 3 };
 static int
 uniq(int t, Block *blk, int cutoff, int memno) {
    assert((uint)t < MAXINSTR);
@@ -47,7 +59,6 @@ uniq(int t, Block *blk, int cutoff, int memno) {
          return p->t = t;
       } else if (insequ(&instrtab[p->t], ins)) {
          if (p->cutoff == cutoff
-          && blk->id - p->b->id < MAXBLOCKDIST
           && (!oisload(ins->op) || p->memno == memno)
           && dominates(p->b, blk))
             return p->t;
