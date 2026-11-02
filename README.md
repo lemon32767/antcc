@@ -66,7 +66,7 @@ Usage
 The driver is still incomplete but it mimics that of compilers like gcc, see `--help`.
 `antcc` compiles translation units to object files directly, and the driver
 will invoke an external `ld` command to link to an executable if `-c` isn't passed.
-For more information see the [manpage](https://386s.org/antcc/antcc.1.html).
+For more information see the [manpage](https://386s.org/antcc/doc/antcc.1.html).
 
 Cross-compilation is supported in a best-effort basis, cross-compiling object files works
 but an external cross-compiling toolchain for linking is required; the driver
