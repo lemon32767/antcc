@@ -9,8 +9,12 @@ from markdown.treeprocessors import Treeprocessor
 from bs4 import BeautifulSoup as bs, NavigableString
 import datetime as dt
 
+csslink=None
+
 def hhdr(name='', title=None, extra=''):
     if not title: title = f'antcc doc: {name}' if name != 'index' else 'antcc'
+    stylesheet = f'<link rel="stylesheet" href="{csslink}"/>' if csslink else ''
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,7 +22,7 @@ def hhdr(name='', title=None, extra=''):
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{title}</title>
   <link rel='shortcut icon' href='favicon.ico'/>
-  <link rel="stylesheet" href="style.css"/>
+  {stylesheet}
 </head>
 <body><div id="content">{extra}
 """
@@ -38,7 +42,9 @@ def hftr(name='', meta=None):
 
 NAV="""
 <nav class="navbar">
-<a href=".">/antcc</a>
+<a href="/antcc">antcc</a>
+<a href=".">docs</a>
+<a href="https://codeberg.org/lsof/antcc">code</a>
 </nav><hr>
 """
 
@@ -92,7 +98,7 @@ def gen(src, to):
                                                 "markdown.extensions.sane_lists",
                                                 TocExtension(anchorlink=True) if toc else None,
                                                 RelativeLinks()])
-        html = hhdr(name, extra=NAV if name != 'index' else '') + md.getvalue().decode('utf-8') + hftr(src)
+        html = hhdr(name, extra=NAV) + md.getvalue().decode('utf-8') + hftr(src)
         with open(to, 'w') as f:
             f.write(html)
     elif ft == '.html' or ft == '.css':
@@ -138,9 +144,11 @@ if __name__ == '__main__':
     gx = ap.add_mutually_exclusive_group()
     gx.add_argument('-d', default="doc/", help="path to docs directory")
     ap.add_argument('-a', '--antcc', default="./antcc", help="path to antcc executable")
+    ap.add_argument('-s', '--css', help="css link")
     ap.add_argument("outdir", help="directory in which to put generated HTML")
     args = ap.parse_args()
     outdir = args.outdir
+    csslink = args.css
     docfiles = os.listdir(args.d)
     roff = exc([args.antcc, "--man"])
     os.makedirs(outdir, exist_ok=True)
